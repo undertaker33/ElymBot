@@ -1,0 +1,15 @@
+.gradle/
+.idea/
+build/
+app/build/
+local.properties
+*.iml
+.cxx/
+.externalNativeBuild/
+captures/
+app/src/main/assets/runtime/assets/offline-rootfs-overlay.tar.xz
+app/src/main/assets/runtime/assets/NapCat.Shell.zip
+app/src/main/assets/runtime/assets/QQ.deb
+app/src/main/assets/runtime/assets/launcher.cpp
+app/src/main/assets/runtime/assets/offline-debs.tar
+app/src/main/assets/runtime/assets/napcat-installer.sh
