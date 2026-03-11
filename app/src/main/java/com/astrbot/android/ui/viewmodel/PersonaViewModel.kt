@@ -10,12 +10,17 @@ class PersonaViewModel : ViewModel() {
 
     fun add(
         name: String,
+        tag: String,
         systemPrompt: String,
         enabledTools: Set<String>,
         defaultProviderId: String,
         maxContextMessages: Int,
     ) {
-        PersonaRepository.add(name, systemPrompt, enabledTools, defaultProviderId, maxContextMessages)
+        PersonaRepository.add(name, tag, systemPrompt, enabledTools, defaultProviderId, maxContextMessages)
+    }
+
+    fun update(profile: PersonaProfile) {
+        PersonaRepository.update(profile)
     }
 
     fun toggleEnabled(id: String) {

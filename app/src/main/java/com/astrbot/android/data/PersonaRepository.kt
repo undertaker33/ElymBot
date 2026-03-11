@@ -12,8 +12,9 @@ object PersonaRepository {
         listOf(
             PersonaProfile(
                 id = "default",
-                name = "默认助手",
-                systemPrompt = "你是一个简洁、可靠的 QQ 助手。",
+                name = "Default Assistant",
+                tag = "Default",
+                systemPrompt = "You are a concise, reliable QQ assistant.",
                 enabledTools = setOf("web_search", "tts"),
                 maxContextMessages = 12,
             ),
@@ -24,6 +25,7 @@ object PersonaRepository {
 
     fun add(
         name: String,
+        tag: String,
         systemPrompt: String,
         enabledTools: Set<String>,
         defaultProviderId: String,
@@ -32,6 +34,7 @@ object PersonaRepository {
         val persona = PersonaProfile(
             id = UUID.randomUUID().toString(),
             name = name,
+            tag = tag.trim(),
             systemPrompt = systemPrompt,
             enabledTools = enabledTools,
             defaultProviderId = defaultProviderId,
@@ -41,6 +44,13 @@ object PersonaRepository {
         RuntimeLogRepository.append(
             "Persona added: ${persona.name}, defaultProvider=${persona.defaultProviderId.ifBlank { "none" }}",
         )
+    }
+
+    fun update(profile: PersonaProfile) {
+        _personas.value = _personas.value.map { current ->
+            if (current.id == profile.id) profile else current
+        }
+        RuntimeLogRepository.append("Persona updated: ${profile.name}")
     }
 
     fun toggleEnabled(id: String) {

@@ -28,6 +28,7 @@ data class ProviderProfile(
 data class PersonaProfile(
     val id: String,
     val name: String,
+    val tag: String = "",
     val systemPrompt: String,
     val enabledTools: Set<String>,
     val defaultProviderId: String = "",
@@ -39,6 +40,7 @@ data class BotProfile(
     val id: String = "qq-main",
     val platformName: String = "QQ",
     val displayName: String = "Host Bot",
+    val tag: String = "",
     val accountHint: String = "",
     val triggerWords: List<String> = listOf("astrbot"),
     val autoReplyEnabled: Boolean = true,

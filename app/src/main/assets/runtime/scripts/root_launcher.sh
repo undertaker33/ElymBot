@@ -224,6 +224,42 @@ resolve_qq_binary() {
   return 1
 }
 
+ensure_virtual_display() {
+  export DISPLAY="${DISPLAY:-:1}"
+  export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp/runtime-root}"
+  export QT_X11_NO_MITSHM=1
+  export LIBGL_ALWAYS_SOFTWARE=1
+  export ELECTRON_OZONE_PLATFORM_HINT=x11
+
+  mkdir -p "$XDG_RUNTIME_DIR"
+  chmod 700 "$XDG_RUNTIME_DIR" 2>/dev/null || true
+
+  if pgrep -f "Xvfb ${DISPLAY}" >/dev/null 2>&1; then
+    echo "virtual display already running on ${DISPLAY}"
+    return 0
+  fi
+
+  rm -f "/tmp/.X${DISPLAY#:}-lock" "/tmp/.X11-unix/X${DISPLAY#:}" 2>/dev/null || true
+  mkdir -p /tmp/.X11-unix
+  chmod 1777 /tmp/.X11-unix 2>/dev/null || true
+
+  echo "starting Xvfb on ${DISPLAY}"
+  nohup Xvfb "$DISPLAY" -screen 0 1280x720x24 -nolisten tcp -ac >/tmp/xvfb.log 2>&1 &
+
+  local retries=20
+  while [ "$retries" -gt 0 ]; do
+    if [ -S "/tmp/.X11-unix/X${DISPLAY#:}" ]; then
+      echo "virtual display ready on ${DISPLAY}"
+      return 0
+    fi
+    sleep 0.2
+    retries=$((retries - 1))
+  done
+
+  echo "failed to start Xvfb on ${DISPLAY}" >&2
+  return 1
+}
+
 ensure_qq_launcher_compat() {
   local qq_bin=""
   if ! qq_bin="$(resolve_qq_binary)"; then
@@ -318,6 +354,7 @@ prepare_writable_paths
 ensure_sudo_shim
 ensure_base_packages
 ensure_napcat_installed
+ensure_virtual_display
 write_runtime_config
 
 write_progress 96 "start-napcat" 1
