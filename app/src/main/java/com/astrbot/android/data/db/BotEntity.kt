@@ -9,6 +9,7 @@ data class BotEntity(
     @PrimaryKey val id: String,
     val platformName: String,
     val displayName: String,
+    val tag: String,
     val accountHint: String,
     val triggerWordsCsv: String,
     val autoReplyEnabled: Boolean,
@@ -25,6 +26,7 @@ fun BotEntity.toProfile(): BotProfile {
         id = id,
         platformName = platformName,
         displayName = displayName,
+        tag = tag,
         accountHint = accountHint,
         triggerWords = triggerWordsCsv
             .split(",")
@@ -44,6 +46,7 @@ fun BotProfile.toEntity(): BotEntity {
         id = id,
         platformName = platformName,
         displayName = displayName,
+        tag = tag,
         accountHint = accountHint,
         triggerWordsCsv = triggerWords.joinToString(","),
         autoReplyEnabled = autoReplyEnabled,

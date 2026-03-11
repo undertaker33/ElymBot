@@ -5,6 +5,7 @@ import android.system.Os
 import com.astrbot.android.data.NapCatBridgeRepository
 import com.astrbot.android.model.NapCatBridgeConfig
 import java.io.File
+import java.nio.charset.StandardCharsets
 
 object ContainerRuntimeInstaller {
     private val scriptNames = listOf(
@@ -32,7 +33,11 @@ object ContainerRuntimeInstaller {
         scriptNames.forEach { name ->
             val target = File(scriptDir, name)
             context.assets.open("runtime/scripts/$name").use { input ->
-                target.outputStream().use { output -> input.copyTo(output) }
+                val normalizedScript = input.readBytes()
+                    .toString(StandardCharsets.UTF_8)
+                    .replace("\r\n", "\n")
+                    .replace("\r", "\n")
+                target.writeText(normalizedScript, StandardCharsets.UTF_8)
             }
             target.setExecutable(true, true)
         }

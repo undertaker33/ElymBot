@@ -3,45 +3,37 @@ package com.astrbot.android.ui.screen
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Add
-import androidx.compose.material.icons.outlined.ArrowDropDown
-import androidx.compose.material.icons.outlined.DeleteOutline
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.material.icons.automirrored.outlined.Send
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -50,653 +42,256 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.astrbot.android.model.ConversationSession
 import com.astrbot.android.model.ProviderCapability
+import com.astrbot.android.ui.ChatTopBar
+import com.astrbot.android.ui.monochromeOutlinedTextFieldColors
 import com.astrbot.android.ui.viewmodel.ChatViewModel
+import kotlinx.coroutines.launch
 
-private data class SelectorOption(
-    val id: String,
-    val label: String,
-    val sublabel: String = "",
-)
-
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ChatScreen(chatViewModel: ChatViewModel = viewModel()) {
+fun ChatScreen(
+    chatViewModel: ChatViewModel = viewModel(),
+) {
     val bots by chatViewModel.bots.collectAsState()
     val providers by chatViewModel.providers.collectAsState()
     val sessions by chatViewModel.sessions.collectAsState()
     val uiState by chatViewModel.uiState.collectAsState()
-    val currentSession = chatViewModel.currentSession()
+
+    val drawerState = rememberDrawerState(initialValue = androidx.compose.material3.DrawerValue.Closed)
+    val scope = rememberCoroutineScope()
     val currentBot = chatViewModel.selectedBot()
     val messages = chatViewModel.sessionMessages(uiState.selectedSessionId)
     val chatProviders = providers.filter { it.enabled && ProviderCapability.CHAT in it.capabilities }
 
-    val sessionOptions = sessions.map {
-        SelectorOption(
-            id = it.id,
-            label = it.title,
-            sublabel = "${it.messages.size} 条消息",
-        )
-    }
-    val botOptions = bots.map {
-        SelectorOption(
-            id = it.id,
-            label = it.displayName,
-            sublabel = it.accountHint.ifBlank { it.platformName },
-        )
-    }
-    val providerOptions = chatProviders.map {
-        SelectorOption(
-            id = it.id,
-            label = it.name,
-            sublabel = it.model,
-        )
-    }
-
     var input by remember(uiState.selectedSessionId) { mutableStateOf("") }
-
-    BoxWithConstraints(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color(0xFFF6F5F2))
-            .imePadding(),
-    ) {
-        val wideLayout = maxWidth >= 960.dp
-
-        if (wideLayout) {
-            Row(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(16.dp),
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
-            ) {
-                ConversationRail(
-                    sessions = sessions,
-                    selectedSessionId = uiState.selectedSessionId,
-                    onCreateSession = { chatViewModel.createSession() },
-                    onDeleteSelected = { chatViewModel.deleteSelectedSession() },
-                    onSelectSession = { chatViewModel.selectSession(it) },
-                    modifier = Modifier
-                        .width(272.dp)
-                        .fillMaxHeight(),
-                )
-                ChatPanel(
-                    sessionOptions = sessionOptions,
-                    selectedSessionId = uiState.selectedSessionId,
-                    onSelectSession = { chatViewModel.selectSession(it) },
-                    onCreateSession = { chatViewModel.createSession() },
-                    onDeleteSelected = { chatViewModel.deleteSelectedSession() },
-                    botOptions = botOptions,
-                    selectedBotId = uiState.selectedBotId,
-                    onSelectBot = { chatViewModel.selectBot(it) },
-                    providerOptions = providerOptions,
-                    selectedProviderId = uiState.selectedProviderId,
-                    onSelectProvider = { chatViewModel.selectProvider(it) },
-                    assistantLabel = currentBot?.displayName ?: "AstrBot",
-                    messages = messages.map { it.role to it.content },
-                    streamingEnabled = uiState.streamingEnabled,
-                    onToggleStreaming = { chatViewModel.toggleStreaming() },
-                    input = input,
-                    onInputChange = { input = it },
-                    isSending = uiState.isSending,
-                    error = uiState.error,
-                    sessionTitle = currentSession?.title ?: "新对话",
-                    onSend = {
-                        chatViewModel.sendMessage(input)
-                        input = ""
-                    },
-                    modifier = Modifier.weight(1f),
-                )
-            }
-        } else {
-            ChatPanel(
-                sessionOptions = sessionOptions,
-                selectedSessionId = uiState.selectedSessionId,
-                onSelectSession = { chatViewModel.selectSession(it) },
-                onCreateSession = { chatViewModel.createSession() },
-                onDeleteSelected = { chatViewModel.deleteSelectedSession() },
-                botOptions = botOptions,
-                selectedBotId = uiState.selectedBotId,
-                onSelectBot = { chatViewModel.selectBot(it) },
-                providerOptions = providerOptions,
-                selectedProviderId = uiState.selectedProviderId,
-                onSelectProvider = { chatViewModel.selectProvider(it) },
-                assistantLabel = currentBot?.displayName ?: "AstrBot",
-                messages = messages.map { it.role to it.content },
-                streamingEnabled = uiState.streamingEnabled,
-                onToggleStreaming = { chatViewModel.toggleStreaming() },
-                input = input,
-                onInputChange = { input = it },
-                isSending = uiState.isSending,
-                error = uiState.error,
-                sessionTitle = currentSession?.title ?: "新对话",
-                onSend = {
-                    chatViewModel.sendMessage(input)
-                    input = ""
-                },
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(12.dp),
-            )
-        }
+    var selectorExpanded by remember(uiState.selectedSessionId, uiState.selectedBotId, uiState.selectedProviderId) {
+        mutableStateOf(false)
     }
-}
 
-@Composable
-private fun ConversationRail(
-    sessions: List<ConversationSession>,
-    selectedSessionId: String,
-    onCreateSession: () -> Unit,
-    onDeleteSelected: () -> Unit,
-    onSelectSession: (String) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Card(
-        modifier = modifier,
-        shape = RoundedCornerShape(28.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFFECE7DC)),
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        drawerContent = {
+            ModalDrawerSheet(modifier = Modifier.fillMaxWidth(0.82f)) {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    item {
+                        Surface(
+                            onClick = {
+                                chatViewModel.createSession()
+                                scope.launch { drawerState.close() }
+                            },
+                            shape = RoundedCornerShape(18.dp),
+                            color = Color(0xFFE5E5E5),
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text("新对话", color = Color(0xFF111111), fontWeight = FontWeight.SemiBold)
+                            }
+                        }
+                    }
+                    items(sessions, key = { it.id }) { session ->
+                        Surface(
+                            onClick = {
+                                chatViewModel.selectSession(session.id)
+                                scope.launch { drawerState.close() }
+                            },
+                            shape = RoundedCornerShape(18.dp),
+                            color = if (session.id == uiState.selectedSessionId) Color(0xFFE9E9E7) else Color.Transparent,
+                        ) {
+                            androidx.compose.foundation.layout.Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp),
+                            ) {
+                                Text(
+                                    session.title,
+                                    color = Color(0xFF111111),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Text(
+                                    "${session.messages.size} 条消息",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color(0xFF111111).copy(alpha = 0.55f),
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        },
     ) {
-        Column(
+        Scaffold(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-        ) {
-            Text("会话", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = onCreateSession) {
-                    Text("新建")
-                }
-                OutlinedButton(
-                    onClick = onDeleteSelected,
-                    enabled = sessions.isNotEmpty(),
+                .background(Color(0xFFF3F3F1)),
+            containerColor = Color(0xFFF3F3F1),
+            contentWindowInsets = WindowInsets(0, 0, 0, 0),
+            topBar = {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp),
                 ) {
-                    Text("删除")
-                }
-            }
-            LazyColumn(
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                contentPadding = PaddingValues(bottom = 8.dp),
-            ) {
-                items(sessions, key = { it.id }) { session ->
-                    val active = session.id == selectedSessionId
-                    Card(
-                        onClick = { onSelectSession(session.id) },
-                        shape = RoundedCornerShape(22.dp),
-                        colors = CardDefaults.cardColors(
-                            containerColor = if (active) Color(0xFF0F172A) else Color(0xFFF9F7F1),
-                        ),
+                    ChatTopBar(
+                        onOpenHistory = { scope.launch { drawerState.open() } },
+                        onOpenBotSelector = { selectorExpanded = true },
+                    )
+                    DropdownMenu(
+                        expanded = selectorExpanded,
+                        onDismissRequest = { selectorExpanded = false },
+                        modifier = Modifier.align(Alignment.TopEnd),
                     ) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(14.dp),
-                            verticalArrangement = Arrangement.spacedBy(4.dp),
-                        ) {
-                            Text(
-                                text = session.title,
-                                color = if (active) Color.White else MaterialTheme.colorScheme.onSurface,
-                                fontWeight = FontWeight.SemiBold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
+                        Text(
+                            "机器人",
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                            style = MaterialTheme.typography.labelLarge,
+                        )
+                        bots.forEach { bot ->
+                            DropdownMenuItem(
+                                text = { Text(bot.displayName) },
+                                onClick = {
+                                    chatViewModel.selectBot(bot.id)
+                                    selectorExpanded = false
+                                },
                             )
-                            Text(
-                                text = "${session.messages.size} 条消息",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = if (active) {
-                                    Color.White.copy(alpha = 0.72f)
-                                } else {
-                                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                        }
+                        Text(
+                            "模型",
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                            style = MaterialTheme.typography.labelLarge,
+                        )
+                        chatProviders.forEach { provider ->
+                            DropdownMenuItem(
+                                text = { Text(provider.name) },
+                                onClick = {
+                                    chatViewModel.selectProvider(provider.id)
+                                    selectorExpanded = false
                                 },
                             )
                         }
                     }
                 }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ChatPanel(
-    sessionOptions: List<SelectorOption>,
-    selectedSessionId: String,
-    onSelectSession: (String) -> Unit,
-    onCreateSession: () -> Unit,
-    onDeleteSelected: () -> Unit,
-    botOptions: List<SelectorOption>,
-    selectedBotId: String,
-    onSelectBot: (String) -> Unit,
-    providerOptions: List<SelectorOption>,
-    selectedProviderId: String,
-    onSelectProvider: (String) -> Unit,
-    assistantLabel: String,
-    messages: List<Pair<String, String>>,
-    streamingEnabled: Boolean,
-    onToggleStreaming: () -> Unit,
-    input: String,
-    onInputChange: (String) -> Unit,
-    isSending: Boolean,
-    error: String,
-    sessionTitle: String,
-    onSend: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val selectedBot = botOptions.firstOrNull { it.id == selectedBotId } ?: botOptions.firstOrNull()
-    val selectedProvider = providerOptions.firstOrNull { it.id == selectedProviderId } ?: providerOptions.firstOrNull()
-
-    Column(
-        modifier = modifier,
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        ChatControlMenu(
-            sessionOptions = sessionOptions,
-            sessionTitle = sessionTitle,
-            selectedSessionId = selectedSessionId,
-            onSelectSession = onSelectSession,
-            onCreateSession = onCreateSession,
-            onDeleteSelected = onDeleteSelected,
-            botOptions = botOptions,
-            selectedBotLabel = selectedBot?.label ?: "未选择机器人",
-            selectedBotId = selectedBotId,
-            onSelectBot = onSelectBot,
-            providerOptions = providerOptions,
-            selectedProviderLabel = selectedProvider?.label ?: "未选择模型",
-            selectedProviderId = selectedProviderId,
-            onSelectProvider = onSelectProvider,
-        )
-
-        MessageStream(
-            sessionTitle = sessionTitle,
-            messages = messages,
-            assistantLabel = assistantLabel,
-            modifier = Modifier.weight(1f),
-        )
-
-        ComposerBar(
-            input = input,
-            onInputChange = onInputChange,
-            isSending = isSending,
-            hasProviders = providerOptions.isNotEmpty(),
-            error = error,
-            streamingEnabled = streamingEnabled,
-            onToggleStreaming = onToggleStreaming,
-            onSend = onSend,
-        )
-    }
-}
-
-@Composable
-private fun ChatControlMenu(
-    sessionOptions: List<SelectorOption>,
-    sessionTitle: String,
-    selectedSessionId: String,
-    onSelectSession: (String) -> Unit,
-    onCreateSession: () -> Unit,
-    onDeleteSelected: () -> Unit,
-    botOptions: List<SelectorOption>,
-    selectedBotLabel: String,
-    selectedBotId: String,
-    onSelectBot: (String) -> Unit,
-    providerOptions: List<SelectorOption>,
-    selectedProviderLabel: String,
-    selectedProviderId: String,
-    onSelectProvider: (String) -> Unit,
-) {
-    var expanded by remember(sessionOptions, selectedSessionId, selectedBotId, selectedProviderId) {
-        mutableStateOf(false)
-    }
-
-    Card(
-        shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(12.dp),
-        ) {
-            OutlinedButton(
-                onClick = { expanded = true },
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(18.dp),
-                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
-            ) {
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(2.dp),
+            },
+            bottomBar = {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 16.dp, end = 16.dp, top = 6.dp),
+                    shape = RoundedCornerShape(24.dp),
+                    color = Color.White,
                 ) {
-                    Text(
-                        text = sessionTitle,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        text = "$selectedBotLabel · $selectedProviderLabel",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.62f),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                Icon(Icons.Outlined.ArrowDropDown, contentDescription = "打开聊天控制")
-            }
-            DropdownMenu(
-                expanded = expanded,
-                onDismissRequest = { expanded = false },
-            ) {
-                Text(
-                    text = "会话",
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                sessionOptions.forEach { option ->
-                    DropdownMenuItem(
-                        text = {
-                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                Text(option.label, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                if (option.sublabel.isNotBlank()) {
-                                    Text(
-                                        text = option.sublabel,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.58f),
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        OutlinedTextField(
+                            value = input,
+                            onValueChange = { input = it },
+                            modifier = Modifier.weight(1f),
+                            placeholder = {
+                                Text(
+                                    chatProviders.firstOrNull { it.id == uiState.selectedProviderId }?.name
+                                        ?: currentBot?.displayName
+                                        ?: "请选择模型",
+                                )
+                            },
+                            singleLine = true,
+                            maxLines = 1,
+                            shape = RoundedCornerShape(24.dp),
+                            colors = monochromeOutlinedTextFieldColors(),
+                        )
+                        if (uiState.isSending) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(28.dp),
+                                strokeWidth = 2.dp,
+                                color = Color(0xFF1F1F1F),
+                            )
+                        } else {
+                            Surface(
+                                onClick = {
+                                    chatViewModel.sendMessage(input)
+                                    input = ""
+                                },
+                                enabled = input.isNotBlank() && chatProviders.isNotEmpty(),
+                                shape = CircleShape,
+                                color = Color(0xFF1F1F1F),
+                            ) {
+                                Box(
+                                    modifier = Modifier.size(38.dp),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    androidx.compose.material3.Icon(
+                                        Icons.AutoMirrored.Outlined.Send,
+                                        contentDescription = "发送",
+                                        tint = Color.White,
                                     )
                                 }
                             }
-                        },
-                        onClick = {
-                            onSelectSession(option.id)
-                            expanded = false
-                        },
-                    )
-                }
-                HorizontalDivider()
-                DropdownMenuItem(
-                    text = { Text("新建会话") },
-                    leadingIcon = { Icon(Icons.Outlined.Add, contentDescription = null) },
-                    onClick = {
-                        onCreateSession()
-                        expanded = false
-                    },
-                )
-                DropdownMenuItem(
-                    text = { Text("删除当前会话") },
-                    leadingIcon = { Icon(Icons.Outlined.DeleteOutline, contentDescription = null) },
-                    onClick = {
-                        onDeleteSelected()
-                        expanded = false
-                    },
-                )
-
-                HorizontalDivider()
-                Text(
-                    text = "机器人",
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                if (botOptions.isEmpty()) {
-                    DropdownMenuItem(
-                        text = { Text("暂无机器人") },
-                        onClick = { expanded = false },
-                    )
-                } else {
-                    botOptions.forEach { option ->
-                        DropdownMenuItem(
-                            text = {
-                                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                    Text(option.label, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    if (option.sublabel.isNotBlank()) {
-                                        Text(
-                                            text = option.sublabel,
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.58f),
-                                        )
-                                    }
-                                }
-                            },
-                            onClick = {
-                                onSelectBot(option.id)
-                                expanded = false
-                            },
-                        )
+                        }
                     }
                 }
-
-                HorizontalDivider()
-                Text(
-                    text = "模型",
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                if (providerOptions.isEmpty()) {
-                    DropdownMenuItem(
-                        text = { Text("暂无模型") },
-                        onClick = { expanded = false },
-                    )
-                } else {
-                    providerOptions.forEach { option ->
-                        DropdownMenuItem(
-                            text = {
-                                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                    Text(option.label, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    if (option.sublabel.isNotBlank()) {
-                                        Text(
-                                            text = option.sublabel,
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.58f),
-                                        )
-                                    }
-                                }
-                            },
-                            onClick = {
-                                onSelectProvider(option.id)
-                                expanded = false
-                            },
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun MessageStream(
-    sessionTitle: String,
-    messages: List<Pair<String, String>>,
-    assistantLabel: String,
-    modifier: Modifier = Modifier,
-) {
-    Card(
-        modifier = modifier
-            .fillMaxWidth()
-            .heightIn(min = 240.dp),
-        shape = RoundedCornerShape(32.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFFFFFCF7)),
-    ) {
-        if (messages.isEmpty()) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(24.dp),
-                verticalArrangement = Arrangement.Center,
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Text("开始新的对话", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
-                Text(
-                    sessionTitle,
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
-                )
-            }
-        } else {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 14.dp, vertical = 18.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
-                contentPadding = PaddingValues(bottom = 18.dp),
-            ) {
-                items(messages) { (role, content) ->
-                    MessageBubble(
-                        role = role,
-                        content = content,
-                        assistantLabel = assistantLabel,
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun MessageBubble(
-    role: String,
-    content: String,
-    assistantLabel: String,
-) {
-    val isUser = role == "user"
-    val bubbleColor = if (isUser) Color(0xFF0F172A) else Color(0xFFEAE5DA)
-    val textColor = if (isUser) Color.White else MaterialTheme.colorScheme.onSurface
-
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalAlignment = if (isUser) Alignment.End else Alignment.Start,
-        verticalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            if (!isUser) {
-                AvatarDot(
-                    label = assistantLabel.take(1).uppercase(),
-                    containerColor = Color(0xFFD8E7D0),
-                    textColor = Color(0xFF26421A),
-                )
-            }
-            Text(
-                text = if (isUser) "你" else assistantLabel,
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f),
-            )
-            if (isUser) {
-                AvatarDot(
-                    label = "我",
-                    containerColor = Color(0xFF0F172A),
-                    textColor = Color.White,
-                )
-            }
-        }
-        Surface(
-            shape = RoundedCornerShape(
-                topStart = 24.dp,
-                topEnd = 24.dp,
-                bottomStart = if (isUser) 24.dp else 8.dp,
-                bottomEnd = if (isUser) 8.dp else 24.dp,
-            ),
-            color = bubbleColor,
-            shadowElevation = 0.dp,
-            modifier = Modifier.fillMaxWidth(0.9f),
-        ) {
-            Text(
-                text = content,
-                style = MaterialTheme.typography.bodyLarge,
-                color = textColor,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-            )
-        }
-    }
-}
-
-@Composable
-private fun AvatarDot(
-    label: String,
-    containerColor: Color,
-    textColor: Color,
-) {
-    Box(
-        modifier = Modifier
-            .size(28.dp)
-            .background(containerColor, CircleShape),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(label, color = textColor, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
-    }
-}
-
-@Composable
-private fun ComposerBar(
-    input: String,
-    onInputChange: (String) -> Unit,
-    isSending: Boolean,
-    hasProviders: Boolean,
-    error: String,
-    streamingEnabled: Boolean,
-    onToggleStreaming: () -> Unit,
-    onSend: () -> Unit,
-) {
-    Card(
-        shape = RoundedCornerShape(30.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            OutlinedTextField(
-                value = input,
-                onValueChange = onInputChange,
-                label = { Text("消息") },
-                modifier = Modifier.fillMaxWidth(),
-                minLines = 3,
-                shape = RoundedCornerShape(22.dp),
-            )
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
+            },
+        ) { innerPadding ->
+            if (messages.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(innerPadding)
+                        .padding(horizontal = 16.dp),
+                    contentAlignment = Alignment.Center,
                 ) {
-                    if (error.isNotBlank()) {
-                        Text(
-                            text = error,
-                            color = MaterialTheme.colorScheme.error,
-                        )
-                    } else {
-                        Text(
-                            text = if (hasProviders) "就绪" else "请先配置模型",
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
-                        )
-                    }
-                    TextButton(
-                        onClick = onToggleStreaming,
-                        contentPadding = PaddingValues(0.dp),
-                    ) {
-                        Text(if (streamingEnabled) "流式输出：开" else "流式输出：关")
-                    }
+                    Text(
+                        "对话已就绪。配置好模型后就可以开始聊天。",
+                        style = MaterialTheme.typography.headlineLarge,
+                        color = Color(0xFF111111),
+                        fontWeight = FontWeight.Bold,
+                    )
                 }
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+            } else {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(innerPadding)
+                        .padding(horizontal = 16.dp),
+                    contentPadding = PaddingValues(top = 18.dp, bottom = 18.dp),
+                    verticalArrangement = Arrangement.spacedBy(18.dp),
                 ) {
-                    if (isSending) {
-                        CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
-                    }
-                    Button(
-                        onClick = onSend,
-                        enabled = input.isNotBlank() && !isSending && hasProviders,
-                    ) {
-                        Text("发送")
+                    items(messages, key = { it.id }) { message ->
+                        val isUser = message.role == "user"
+                        androidx.compose.foundation.layout.Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalAlignment = if (isUser) Alignment.End else Alignment.Start,
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Text(
+                                if (isUser) "你" else (currentBot?.displayName ?: "助手"),
+                                color = Color(0xFF111111).copy(alpha = 0.62f),
+                            )
+                            Surface(
+                                shape = RoundedCornerShape(24.dp),
+                                color = if (isUser) Color(0xFFE7E7E4) else Color.White,
+                            ) {
+                                Text(
+                                    message.content,
+                                    color = Color(0xFF111111),
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                                )
+                            }
+                        }
                     }
                 }
             }

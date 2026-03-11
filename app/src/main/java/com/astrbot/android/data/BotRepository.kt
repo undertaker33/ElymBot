@@ -2,6 +2,8 @@ package com.astrbot.android.data
 
 import android.content.Context
 import com.astrbot.android.data.db.AstrBotDatabase
+import com.astrbot.android.data.db.BotDao
+import com.astrbot.android.data.db.BotEntity
 import com.astrbot.android.data.db.toEntity
 import com.astrbot.android.data.db.toProfile
 import com.astrbot.android.model.BotProfile
@@ -12,6 +14,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
@@ -22,8 +25,9 @@ object BotRepository {
 
     private val defaultBot = BotProfile(
         id = "qq-main",
-        displayName = "主机器人",
-        accountHint = "未绑定 QQ 账号",
+        displayName = "Primary Bot",
+        tag = "Default",
+        accountHint = "QQ account not linked",
         triggerWords = listOf("astrbot", "assistant"),
     )
 
@@ -31,7 +35,7 @@ object BotRepository {
     private val _selectedBotId = MutableStateFlow(defaultBot.id)
     private val _botProfile = MutableStateFlow(defaultBot)
 
-    private var botDao = AstrBotDatabaseHolder.placeholder
+    private var botDao: BotDao = AstrBotDatabaseHolder.placeholder
 
     val botProfile: StateFlow<BotProfile> = _botProfile.asStateFlow()
     val botProfiles: StateFlow<List<BotProfile>> = _botProfiles.asStateFlow()
@@ -80,7 +84,7 @@ object BotRepository {
         }
     }
 
-    fun create(name: String = "新机器人"): BotProfile {
+    fun create(name: String = "New Bot"): BotProfile {
         val created = BotProfile(
             id = "bot-${UUID.randomUUID()}",
             displayName = name,
@@ -108,9 +112,9 @@ object BotRepository {
 }
 
 private object AstrBotDatabaseHolder {
-    val placeholder = object : com.astrbot.android.data.db.BotDao {
-        override fun observeBots() = kotlinx.coroutines.flow.flowOf(emptyList<com.astrbot.android.data.db.BotEntity>())
-        override suspend fun upsert(entity: com.astrbot.android.data.db.BotEntity) = Unit
+    val placeholder = object : BotDao {
+        override fun observeBots() = flowOf(emptyList<BotEntity>())
+        override suspend fun upsert(entity: BotEntity) = Unit
         override suspend fun deleteById(botId: String) = Unit
         override suspend fun count(): Int = 0
     }

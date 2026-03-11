@@ -1,40 +1,43 @@
 package com.astrbot.android.ui.screen
 
-import android.graphics.Bitmap
-import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.ArrowDropDown
-import androidx.compose.material.icons.outlined.DeleteOutline
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
+import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -42,882 +45,459 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.astrbot.android.model.BotProfile
-import com.astrbot.android.model.NapCatLoginState
 import com.astrbot.android.model.ProviderCapability
-import com.astrbot.android.runtime.ContainerBridgeController
+import com.astrbot.android.ui.MonochromeUi
+import com.astrbot.android.ui.monochromeOutlinedTextFieldColors
+import com.astrbot.android.ui.monochromeSwitchColors
 import com.astrbot.android.ui.viewmodel.BotViewModel
-import com.astrbot.android.ui.viewmodel.BridgeViewModel
-import com.astrbot.android.ui.viewmodel.ConversationViewModel
-import com.astrbot.android.ui.viewmodel.QQLoginViewModel
-import com.google.zxing.BarcodeFormat
-import com.google.zxing.qrcode.QRCodeWriter
-
-private data class BotChoice(
-    val id: String,
-    val label: String,
-    val sublabel: String,
-)
+import com.astrbot.android.ui.viewmodel.ProviderViewModel
+import java.util.UUID
 
 @Composable
 fun BotScreen(
     botViewModel: BotViewModel = viewModel(),
-    bridgeViewModel: BridgeViewModel = viewModel(),
-    conversationViewModel: ConversationViewModel = viewModel(),
-    qqLoginViewModel: QQLoginViewModel = viewModel(),
+    providerViewModel: ProviderViewModel = viewModel(),
+    showModels: Boolean,
+    onShowBots: () -> Unit,
 ) {
-    val context = LocalContext.current
     val botProfiles by botViewModel.botProfiles.collectAsState()
-    val botProfile by botViewModel.botProfile.collectAsState()
+    val selectedBotId by botViewModel.selectedBotId.collectAsState()
     val providers by botViewModel.providers.collectAsState()
     val personas by botViewModel.personas.collectAsState()
-    val runtimeState by bridgeViewModel.runtimeState.collectAsState()
-    val loginState by qqLoginViewModel.loginState.collectAsState()
-    val sessions by conversationViewModel.sessions.collectAsState()
 
     val chatProviders = providers.filter { it.enabled && ProviderCapability.CHAT in it.capabilities }
     val enabledPersonas = personas.filter { it.enabled }
 
-    var displayName by remember(botProfile.id, botProfile.displayName) { mutableStateOf(botProfile.displayName) }
-    var accountHint by remember(botProfile.id, botProfile.accountHint) { mutableStateOf(botProfile.accountHint) }
-    var bridgeEndpoint by remember(botProfile.id, botProfile.bridgeEndpoint) { mutableStateOf(botProfile.bridgeEndpoint) }
-    var triggerWords by remember(botProfile.id, botProfile.triggerWords) {
-        mutableStateOf(botProfile.triggerWords.joinToString(","))
-    }
-    var autoReplyEnabled by remember(botProfile.id, botProfile.autoReplyEnabled) {
-        mutableStateOf(botProfile.autoReplyEnabled)
-    }
-    var defaultProviderId by remember(botProfile.id, botProfile.defaultProviderId) {
-        mutableStateOf(botProfile.defaultProviderId)
-    }
-    var defaultPersonaId by remember(botProfile.id, botProfile.defaultPersonaId) {
-        mutableStateOf(botProfile.defaultPersonaId)
-    }
-
-    BoxWithConstraints(
+    Box(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp),
+            .background(Color(0xFFF3F3F1)),
     ) {
-        val wideLayout = maxWidth >= 960.dp
-
-        if (wideLayout) {
-            Row(
-                modifier = Modifier.fillMaxSize(),
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
-            ) {
-                BotListPanel(
-                    bots = botProfiles,
-                    selectedBotId = botProfile.id,
-                    onSelectBot = { botViewModel.select(it) },
-                    onCreateBot = { botViewModel.create() },
-                    onDeleteSelected = { botViewModel.deleteSelected() },
-                    modifier = Modifier
-                        .width(280.dp)
-                        .fillMaxHeight(),
-                )
-                LazyColumn(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    item {
-                        BotEditorCard(
-                            botProfile = botProfile,
-                            displayName = displayName,
-                            onDisplayNameChange = { displayName = it },
-                            accountHint = accountHint,
-                            onAccountHintChange = { accountHint = it },
-                            bridgeEndpoint = bridgeEndpoint,
-                            onBridgeEndpointChange = { bridgeEndpoint = it },
-                            triggerWords = triggerWords,
-                            onTriggerWordsChange = { triggerWords = it },
-                            autoReplyEnabled = autoReplyEnabled,
-                            onAutoReplyChange = { autoReplyEnabled = it },
-                            providerOptions = chatProviders.map { BotChoice(it.id, it.name, it.model) },
-                            selectedProviderId = defaultProviderId,
-                            onSelectProvider = { defaultProviderId = it },
-                            personaOptions = enabledPersonas.map {
-                                BotChoice(it.id, it.name, "Context ${it.maxContextMessages} turns")
-                            },
-                            selectedPersonaId = defaultPersonaId,
-                            onSelectPersona = { defaultPersonaId = it },
-                            onSave = {
-                                botViewModel.save(
-                                    botProfile.toEditableProfile(
-                                        displayName = displayName,
-                                        accountHint = accountHint,
-                                        bridgeEndpoint = bridgeEndpoint,
-                                        triggerWords = triggerWords,
-                                        autoReplyEnabled = autoReplyEnabled,
-                                        defaultProviderId = defaultProviderId,
-                                        defaultPersonaId = defaultPersonaId,
-                                    ),
-                                )
-                            },
-                        )
-                    }
-                    item {
-                        QQLoginCard(
-                            loginState = loginState,
-                            onRefresh = { qqLoginViewModel.refreshNow() },
-                            onRefreshQr = { qqLoginViewModel.refreshQrCode() },
-                            onQuickLogin = { qqLoginViewModel.quickLoginSavedAccount() },
-                            onSaveQuickLogin = { qqLoginViewModel.saveQuickLoginAccount(it) },
-                            onPasswordLogin = { uin, password -> qqLoginViewModel.passwordLogin(uin, password) },
-                            onCaptchaLogin = { uin, password, ticket, randstr, sid ->
-                                qqLoginViewModel.captchaLogin(uin, password, ticket, randstr, sid)
-                            },
-                            onNewDeviceLogin = { uin, password -> qqLoginViewModel.newDeviceLogin(uin, password) },
-                        )
-                    }
-                    item {
-                        RuntimeCard(
-                            platformName = botProfile.platformName,
-                            bridgeMode = botProfile.bridgeMode,
-                            status = runtimeState.status,
-                            details = runtimeState.details,
-                            progressLabel = runtimeState.progressLabel,
-                            progressPercent = runtimeState.progressPercent,
-                            progressIndeterminate = runtimeState.progressIndeterminate,
-                            installerCached = runtimeState.installerCached,
-                            onStart = { ContainerBridgeController.start(context) },
-                            onCheck = { ContainerBridgeController.check(context) },
-                            onStop = { ContainerBridgeController.stop(context) },
-                        )
-                    }
-                    item {
-                        ContextPreviewCard(
-                            sessionTitle = sessions.firstOrNull()?.title.orEmpty(),
-                            preview = sessions.firstOrNull()?.let { conversationViewModel.contextPreview(it.id) }.orEmpty(),
-                        )
-                    }
-                }
-            }
+        if (!showModels) {
+            BotCatalogContent(
+                bots = botProfiles,
+                selectedBotId = selectedBotId,
+                providerOptions = chatProviders,
+                personaOptions = enabledPersonas,
+                onSelectBot = { botViewModel.select(it) },
+                onSaveBot = { bot ->
+                    botViewModel.save(bot)
+                    botViewModel.select(bot.id)
+                },
+                onDeleteBot = { bot ->
+                    botViewModel.select(bot.id)
+                    botViewModel.deleteSelected()
+                },
+            )
         } else {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                item {
-                    BotListPanel(
-                        bots = botProfiles,
-                        selectedBotId = botProfile.id,
-                        onSelectBot = { botViewModel.select(it) },
-                        onCreateBot = { botViewModel.create() },
-                        onDeleteSelected = { botViewModel.deleteSelected() },
-                    )
-                }
-                item {
-                    BotEditorCard(
-                        botProfile = botProfile,
-                        displayName = displayName,
-                        onDisplayNameChange = { displayName = it },
-                        accountHint = accountHint,
-                        onAccountHintChange = { accountHint = it },
-                        bridgeEndpoint = bridgeEndpoint,
-                        onBridgeEndpointChange = { bridgeEndpoint = it },
-                        triggerWords = triggerWords,
-                        onTriggerWordsChange = { triggerWords = it },
-                        autoReplyEnabled = autoReplyEnabled,
-                        onAutoReplyChange = { autoReplyEnabled = it },
-                        providerOptions = chatProviders.map { BotChoice(it.id, it.name, it.model) },
-                        selectedProviderId = defaultProviderId,
-                        onSelectProvider = { defaultProviderId = it },
-                        personaOptions = enabledPersonas.map {
-                            BotChoice(it.id, it.name, "Context ${it.maxContextMessages} turns")
-                        },
-                        selectedPersonaId = defaultPersonaId,
-                        onSelectPersona = { defaultPersonaId = it },
-                        onSave = {
-                            botViewModel.save(
-                                botProfile.toEditableProfile(
-                                    displayName = displayName,
-                                    accountHint = accountHint,
-                                    bridgeEndpoint = bridgeEndpoint,
-                                    triggerWords = triggerWords,
-                                    autoReplyEnabled = autoReplyEnabled,
-                                    defaultProviderId = defaultProviderId,
-                                    defaultPersonaId = defaultPersonaId,
-                                ),
-                            )
-                        },
-                    )
-                }
-                item {
-                    QQLoginCard(
-                        loginState = loginState,
-                        onRefresh = { qqLoginViewModel.refreshNow() },
-                        onRefreshQr = { qqLoginViewModel.refreshQrCode() },
-                        onQuickLogin = { qqLoginViewModel.quickLoginSavedAccount() },
-                        onSaveQuickLogin = { qqLoginViewModel.saveQuickLoginAccount(it) },
-                        onPasswordLogin = { uin, password -> qqLoginViewModel.passwordLogin(uin, password) },
-                        onCaptchaLogin = { uin, password, ticket, randstr, sid ->
-                            qqLoginViewModel.captchaLogin(uin, password, ticket, randstr, sid)
-                        },
-                        onNewDeviceLogin = { uin, password -> qqLoginViewModel.newDeviceLogin(uin, password) },
-                    )
-                }
-                item {
-                    RuntimeCard(
-                        platformName = botProfile.platformName,
-                        bridgeMode = botProfile.bridgeMode,
-                        status = runtimeState.status,
-                        details = runtimeState.details,
-                        progressLabel = runtimeState.progressLabel,
-                        progressPercent = runtimeState.progressPercent,
-                        progressIndeterminate = runtimeState.progressIndeterminate,
-                        installerCached = runtimeState.installerCached,
-                        onStart = { ContainerBridgeController.start(context) },
-                        onCheck = { ContainerBridgeController.check(context) },
-                        onStop = { ContainerBridgeController.stop(context) },
-                    )
-                }
-                item {
-                    ContextPreviewCard(
-                        sessionTitle = sessions.firstOrNull()?.title.orEmpty(),
-                        preview = sessions.firstOrNull()?.let { conversationViewModel.contextPreview(it.id) }.orEmpty(),
-                    )
-                }
-            }
+            ProviderCatalogContent(
+                providerViewModel = providerViewModel,
+                onSwitchToBots = onShowBots,
+                showBack = false,
+                showHeader = false,
+            )
         }
     }
 }
 
 @Composable
-private fun BotListPanel(
+private fun BotCatalogContent(
     bots: List<BotProfile>,
     selectedBotId: String,
+    providerOptions: List<com.astrbot.android.model.ProviderProfile>,
+    personaOptions: List<com.astrbot.android.model.PersonaProfile>,
     onSelectBot: (String) -> Unit,
-    onCreateBot: () -> Unit,
-    onDeleteSelected: () -> Unit,
-    modifier: Modifier = Modifier,
+    onSaveBot: (BotProfile) -> Unit,
+    onDeleteBot: (BotProfile) -> Unit,
 ) {
-    Card(
-        modifier = modifier,
-        shape = RoundedCornerShape(28.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text("Bots", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    IconButton(onClick = onCreateBot) {
-                        Icon(Icons.Outlined.Add, contentDescription = "Create bot")
-                    }
-                    IconButton(
-                        onClick = onDeleteSelected,
-                        enabled = bots.size > 1,
-                    ) {
-                        Icon(Icons.Outlined.DeleteOutline, contentDescription = "Delete bot")
-                    }
-                }
-            }
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                bots.forEach { bot ->
-                    val active = bot.id == selectedBotId
-                    Card(
-                        onClick = { onSelectBot(bot.id) },
-                        shape = RoundedCornerShape(22.dp),
-                        colors = CardDefaults.cardColors(
-                            containerColor = if (active) {
-                                MaterialTheme.colorScheme.primaryContainer
-                            } else {
-                                MaterialTheme.colorScheme.surfaceVariant
-                            },
-                        ),
-                    ) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(14.dp),
-                            verticalArrangement = Arrangement.spacedBy(4.dp),
-                        ) {
-                            Text(
-                                text = bot.displayName,
-                                fontWeight = FontWeight.SemiBold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                            Text(
-                                text = bot.accountHint.ifBlank { bot.platformName },
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
+    var searchQuery by remember { mutableStateOf("") }
+    var selectedTag by remember { mutableStateOf("全部") }
+    var editingBot by remember { mutableStateOf<BotProfile?>(null) }
 
-@Composable
-private fun BotEditorCard(
-    botProfile: BotProfile,
-    displayName: String,
-    onDisplayNameChange: (String) -> Unit,
-    accountHint: String,
-    onAccountHintChange: (String) -> Unit,
-    bridgeEndpoint: String,
-    onBridgeEndpointChange: (String) -> Unit,
-    triggerWords: String,
-    onTriggerWordsChange: (String) -> Unit,
-    autoReplyEnabled: Boolean,
-    onAutoReplyChange: (Boolean) -> Unit,
-    providerOptions: List<BotChoice>,
-    selectedProviderId: String,
-    onSelectProvider: (String) -> Unit,
-    personaOptions: List<BotChoice>,
-    selectedPersonaId: String,
-    onSelectPersona: (String) -> Unit,
-    onSave: () -> Unit,
-) {
-    Card(
-        shape = RoundedCornerShape(28.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-    ) {
-        Column(
+    val tags = listOf("全部") + bots.mapNotNull { it.tag.takeIf(String::isNotBlank) }.distinct().sorted()
+    val filteredBots = bots.filter { bot ->
+        val matchesSearch = searchQuery.isBlank() ||
+            bot.displayName.contains(searchQuery, ignoreCase = true) ||
+            bot.accountHint.contains(searchQuery, ignoreCase = true) ||
+            bot.tag.contains(searchQuery, ignoreCase = true)
+        val matchesTag = selectedTag == "全部" || bot.tag == selectedTag
+        matchesSearch && matchesTag
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        LazyColumn(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
+                .fillMaxSize()
+                .padding(horizontal = 14.dp),
+            contentPadding = PaddingValues(top = 14.dp, bottom = 92.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text("Bot Profile", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-            Text("Bot ID: ${botProfile.id}", style = MaterialTheme.typography.bodySmall)
-            OutlinedTextField(
-                value = displayName,
-                onValueChange = onDisplayNameChange,
-                label = { Text("Display name") },
-                modifier = Modifier.fillMaxWidth(),
-            )
-            OutlinedTextField(
-                value = accountHint,
-                onValueChange = onAccountHintChange,
-                label = { Text("QQ account hint") },
-                modifier = Modifier.fillMaxWidth(),
-            )
-            OutlinedTextField(
-                value = bridgeEndpoint,
-                onValueChange = onBridgeEndpointChange,
-                label = { Text("Bridge endpoint") },
-                modifier = Modifier.fillMaxWidth(),
-            )
-            OutlinedTextField(
-                value = triggerWords,
-                onValueChange = onTriggerWordsChange,
-                label = { Text("Trigger words (comma separated)") },
-                modifier = Modifier.fillMaxWidth(),
-            )
-            ChoiceDropdown(
-                title = "Default chat provider",
-                options = providerOptions,
-                selectedId = selectedProviderId,
-                emptyLabel = "No provider available",
-                onSelect = onSelectProvider,
-            )
-            ChoiceDropdown(
-                title = "Default persona",
-                options = personaOptions,
-                selectedId = selectedPersonaId,
-                emptyLabel = "No persona available",
-                onSelect = onSelectPersona,
-            )
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column {
-                    Text("Auto reply", fontWeight = FontWeight.SemiBold)
-                    Text(
-                        "Use this bot as the default reply profile.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
-                    )
-                }
-                Switch(
-                    checked = autoReplyEnabled,
-                    onCheckedChange = onAutoReplyChange,
+            item {
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(54.dp),
+                    leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
+                    placeholder = { Text("搜索机器人") },
+                    shape = RoundedCornerShape(28.dp),
+                    colors = monochromeOutlinedTextFieldColors(),
+                    singleLine = true,
                 )
             }
-            Button(onClick = onSave) {
-                Text("Save bot")
+            item {
+                ScrollableAssistChipRow(
+                    items = tags,
+                    selectedItem = selectedTag,
+                    onSelect = { selectedTag = it },
+                )
             }
-        }
-    }
-}
-
-@Composable
-private fun RuntimeCard(
-    platformName: String,
-    bridgeMode: String,
-    status: String,
-    details: String,
-    progressLabel: String,
-    progressPercent: Int,
-    progressIndeterminate: Boolean,
-    installerCached: Boolean,
-    onStart: () -> Unit,
-    onCheck: () -> Unit,
-    onStop: () -> Unit,
-) {
-    Card(
-        shape = RoundedCornerShape(28.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Text("Runtime State", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-            Text("Platform: $platformName")
-            Text("Bridge mode: $bridgeMode")
-            Text("Status: $status")
-            Text("Details: $details")
-            if (progressLabel.isNotBlank() || progressPercent > 0) {
-                Text("Progress: ${progressLabel.ifBlank { "Working" }}")
-                if (progressIndeterminate) {
-                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                } else {
-                    LinearProgressIndicator(
-                        progress = { progressPercent.coerceIn(0, 100) / 100f },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-                Text(
-                    text = if (progressIndeterminate) {
-                        "This step downloads and installs NapCat from the network. Keep the app in the foreground."
-                    } else {
-                        "Completed ${progressPercent.coerceIn(0, 100)}%. Network install may pause between package steps."
+            items(filteredBots, key = { it.id }) { bot ->
+                BotListCard(
+                    bot = bot,
+                    active = bot.id == selectedBotId,
+                    providerName = providerOptions.firstOrNull { it.id == bot.defaultProviderId }?.name.orEmpty(),
+                    personaName = personaOptions.firstOrNull { it.id == bot.defaultPersonaId }?.name.orEmpty(),
+                    onClick = {
+                        onSelectBot(bot.id)
+                        editingBot = bot
                     },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
                 )
             }
+        }
+
+        FloatingActionButton(
+            onClick = {
+                editingBot = BotProfile(
+                    id = "bot-${UUID.randomUUID()}",
+                    displayName = "新机器人",
+                    tag = "",
+                    accountHint = "",
+                    defaultProviderId = providerOptions.firstOrNull()?.id.orEmpty(),
+                    defaultPersonaId = personaOptions.firstOrNull()?.id.orEmpty(),
+                )
+            },
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(20.dp),
+            containerColor = Color(0xFF151515),
+            contentColor = Color.White,
+            elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 6.dp),
+        ) {
+            Icon(Icons.Outlined.Add, contentDescription = "新建机器人")
+        }
+    }
+
+    editingBot?.let { profile ->
+        BotEditorDialog(
+            initialBot = profile,
+            providerOptions = providerOptions.map { it.id to it.name },
+            personaOptions = personaOptions.map { it.id to it.name },
+            onDismiss = { editingBot = null },
+            onDelete = {
+                if (bots.size > 1) {
+                    onDeleteBot(profile)
+                }
+                editingBot = null
+            },
+            onSave = {
+                onSaveBot(it)
+                editingBot = null
+            },
+        )
+    }
+}
+
+@Composable
+internal fun CatalogToggleHeader(
+    leftLabel: String,
+    rightLabel: String,
+    leftSelected: Boolean,
+    onSelectLeft: () -> Unit,
+    onSelectRight: () -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        TextButton(onClick = onSelectLeft, contentPadding = PaddingValues(0.dp)) {
             Text(
-                text = "Installation state: ${if (installerCached) "Existing installation detected" else "First start will install from network"}",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                leftLabel,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = if (leftSelected) FontWeight.Bold else FontWeight.Medium,
+                color = if (leftSelected) Color(0xFF0F172A) else Color(0xFF94A3B8),
             )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = onStart) {
-                    Text("Start")
-                }
-                Button(onClick = onCheck) {
-                    Text("Check")
-                }
-                Button(onClick = onStop) {
-                    Text("Stop")
-                }
-            }
+        }
+        Text(
+            "|",
+            style = MaterialTheme.typography.titleMedium,
+            color = Color(0xFF94A3B8),
+        )
+        TextButton(onClick = onSelectRight, contentPadding = PaddingValues(0.dp)) {
+            Text(
+                rightLabel,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = if (leftSelected) FontWeight.Medium else FontWeight.Bold,
+                color = if (leftSelected) Color(0xFF94A3B8) else Color(0xFF0F172A),
+            )
         }
     }
 }
 
 @Composable
-private fun QQLoginCard(
-    loginState: NapCatLoginState,
-    onRefresh: () -> Unit,
-    onRefreshQr: () -> Unit,
-    onQuickLogin: () -> Unit,
-    onSaveQuickLogin: (String) -> Unit,
-    onPasswordLogin: (String, String) -> Unit,
-    onCaptchaLogin: (String, String, String, String, String) -> Unit,
-    onNewDeviceLogin: (String, String) -> Unit,
-) {
-    val uriHandler = LocalUriHandler.current
-    val qrBitmap = remember(loginState.qrCodeUrl) {
-        loginState.qrCodeUrl
-            .takeIf { it.isNotBlank() }
-            ?.let { buildQrBitmap(it, 720) }
-    }
-    var uinInput by remember { mutableStateOf("") }
-    var passwordInput by remember { mutableStateOf("") }
-    var ticketInput by remember { mutableStateOf("") }
-    var randstrInput by remember { mutableStateOf("") }
-    var sidInput by remember { mutableStateOf("") }
-
-    LaunchedEffect(loginState.quickLoginUin, loginState.uin) {
-        if (uinInput.isBlank()) {
-            uinInput = loginState.quickLoginUin.ifBlank { loginState.uin }
-        }
-    }
-
-    Card(
-        shape = RoundedCornerShape(28.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Text("QQ Login", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-            Text(loginState.statusText)
-
-            if (loginState.quickLoginUin.isNotBlank()) {
-                Text(
-                    text = "Saved quick login account: ${loginState.quickLoginUin}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
-                )
-                Text(
-                    text = "This account can be used for quick login after restart.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
-                )
-                if (!loginState.isLogin) {
-                    Button(
-                        onClick = onQuickLogin,
-                        enabled = loginState.bridgeReady,
-                    ) {
-                        Text("Quick login")
-                    }
-                }
-            }
-
-            if (loginState.isLogin) {
-                Text("QQ: ${loginState.uin.ifBlank { "Unknown" }}")
-                Text("Nickname: ${loginState.nick.ifBlank { "Unknown" }}")
-                if (loginState.quickLoginUin == loginState.uin && loginState.uin.isNotBlank()) {
-                    Text(
-                        text = "Quick login is ready for the current account.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
-                    )
-                } else {
-                    Button(
-                        onClick = { onSaveQuickLogin(loginState.uin) },
-                        enabled = loginState.bridgeReady && loginState.uin.isNotBlank(),
-                    ) {
-                        Text("Save quick login")
-                    }
-                }
-            } else if (qrBitmap != null) {
-                Image(
-                    bitmap = qrBitmap.asImageBitmap(),
-                    contentDescription = "QQ login QR code",
-                    modifier = Modifier.size(240.dp),
-                )
-                Text(
-                    text = loginState.qrCodeUrl,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            } else {
-                Text(
-                    "The QR code will appear here after NapCat WebUI is ready.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
-                )
-            }
-
-            if (!loginState.isLogin) {
-                OutlinedTextField(
-                    value = uinInput,
-                    onValueChange = { uinInput = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("QQ account") },
-                    singleLine = true,
-                )
-                OutlinedTextField(
-                    value = passwordInput,
-                    onValueChange = { passwordInput = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("QQ password") },
-                    visualTransformation = PasswordVisualTransformation(),
-                    singleLine = true,
-                )
-
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(
-                        onClick = { onPasswordLogin(uinInput, passwordInput) },
-                        enabled = loginState.bridgeReady && uinInput.isNotBlank() && passwordInput.isNotBlank(),
-                    ) {
-                        Text("Password login")
-                    }
-                    OutlinedButton(
-                        onClick = { onSaveQuickLogin(uinInput) },
-                        enabled = loginState.bridgeReady && uinInput.isNotBlank(),
-                    ) {
-                        Text("Save account")
-                    }
-                }
-
-                if (loginState.needCaptcha) {
-                    Text(
-                        text = "Captcha verification is required for this account.",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                    if (loginState.captchaUrl.isNotBlank()) {
-                        OutlinedButton(
-                            onClick = { uriHandler.openUri(loginState.captchaUrl) },
-                        ) {
-                            Text("Open captcha page")
-                        }
-                        Text(
-                            text = loginState.captchaUrl,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                    OutlinedTextField(
-                        value = ticketInput,
-                        onValueChange = { ticketInput = it },
-                        modifier = Modifier.fillMaxWidth(),
-                        label = { Text("Captcha ticket") },
-                        singleLine = true,
-                    )
-                    OutlinedTextField(
-                        value = randstrInput,
-                        onValueChange = { randstrInput = it },
-                        modifier = Modifier.fillMaxWidth(),
-                        label = { Text("Captcha randstr") },
-                        singleLine = true,
-                    )
-                    OutlinedTextField(
-                        value = sidInput,
-                        onValueChange = { sidInput = it },
-                        modifier = Modifier.fillMaxWidth(),
-                        label = { Text("Captcha sid (optional)") },
-                        singleLine = true,
-                    )
-                    Button(
-                        onClick = {
-                            onCaptchaLogin(
-                                uinInput,
-                                passwordInput,
-                                ticketInput,
-                                randstrInput,
-                                sidInput,
-                            )
-                        },
-                        enabled = loginState.bridgeReady &&
-                            uinInput.isNotBlank() &&
-                            passwordInput.isNotBlank() &&
-                            ticketInput.isNotBlank() &&
-                            randstrInput.isNotBlank(),
-                    ) {
-                        Text("Submit captcha")
-                    }
-                }
-
-                if (loginState.needNewDevice) {
-                    Text(
-                        text = "New device verification is required.",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                    if (loginState.newDeviceJumpUrl.isNotBlank()) {
-                        OutlinedButton(
-                            onClick = { uriHandler.openUri(loginState.newDeviceJumpUrl) },
-                        ) {
-                            Text("Open verification page")
-                        }
-                        Text(
-                            text = loginState.newDeviceJumpUrl,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                    Button(
-                        onClick = { onNewDeviceLogin(uinInput, passwordInput) },
-                        enabled = loginState.bridgeReady &&
-                            uinInput.isNotBlank() &&
-                            passwordInput.isNotBlank() &&
-                            loginState.newDeviceSig.isNotBlank(),
-                    ) {
-                        Text("Continue device login")
-                    }
-                }
-            }
-
-            if (loginState.loginError.isNotBlank()) {
-                Text(
-                    text = loginState.loginError,
-                    color = MaterialTheme.colorScheme.error,
-                    style = MaterialTheme.typography.bodySmall,
-                )
-            }
-
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = onRefresh) {
-                    Text("Refresh status")
-                }
-                Button(
-                    onClick = onRefreshQr,
-                    enabled = loginState.bridgeReady && !loginState.isLogin,
-                ) {
-                    Text("Refresh QR")
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ContextPreviewCard(
-    sessionTitle: String,
-    preview: String,
-) {
-    Card(
-        shape = RoundedCornerShape(28.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Text("Context Preview", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-            if (sessionTitle.isBlank()) {
-                Text("No conversation yet")
-            } else {
-                Text("Session: $sessionTitle")
-                Text(preview.ifBlank { "No context generated yet" })
-            }
-        }
-    }
-}
-
-@Composable
-private fun ChoiceDropdown(
-    title: String,
-    options: List<BotChoice>,
-    selectedId: String,
-    emptyLabel: String,
+internal fun ScrollableAssistChipRow(
+    items: List<String>,
+    selectedItem: String,
     onSelect: (String) -> Unit,
 ) {
-    var expanded by remember(options, selectedId) { mutableStateOf(false) }
-    val selected = options.firstOrNull { it.id == selectedId } ?: options.firstOrNull()
-
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text(title, style = MaterialTheme.typography.labelLarge)
-        Box(modifier = Modifier.fillMaxWidth()) {
-            OutlinedButton(
-                onClick = { expanded = true },
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(18.dp),
-                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
-            ) {
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(2.dp),
-                ) {
-                    Text(
-                        text = selected?.label ?: emptyLabel,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    if (!selected?.sublabel.isNullOrBlank()) {
-                        Text(
-                            text = selected?.sublabel.orEmpty(),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                }
-                Icon(Icons.Outlined.ArrowDropDown, contentDescription = null)
-            }
-            DropdownMenu(
-                expanded = expanded,
-                onDismissRequest = { expanded = false },
-            ) {
-                if (options.isEmpty()) {
-                    DropdownMenuItem(
-                        text = { Text(emptyLabel) },
-                        onClick = { expanded = false },
-                    )
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        items.forEach { item ->
+            AssistChip(
+                onClick = { onSelect(item) },
+                label = { Text(item) },
+                leadingIcon = if (selectedItem == item) {
+                    { Icon(Icons.Outlined.Check, contentDescription = null) }
                 } else {
-                    options.forEach { option ->
-                        DropdownMenuItem(
-                            text = {
-                                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                    Text(option.label, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    if (option.sublabel.isNotBlank()) {
-                                        Text(
-                                            text = option.sublabel,
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                        )
-                                    }
-                                }
-                            },
-                            onClick = {
-                                onSelect(option.id)
-                                expanded = false
-                            },
-                        )
-                    }
-                }
-            }
+                    null
+                },
+            )
         }
     }
 }
 
-private fun BotProfile.toEditableProfile(
-    displayName: String,
-    accountHint: String,
-    bridgeEndpoint: String,
-    triggerWords: String,
-    autoReplyEnabled: Boolean,
-    defaultProviderId: String,
-    defaultPersonaId: String,
-): BotProfile {
-    return copy(
-        displayName = displayName.trim().ifBlank { this.displayName },
-        accountHint = accountHint,
-        bridgeEndpoint = bridgeEndpoint,
-        triggerWords = triggerWords.split(",").map { it.trim() }.filter { it.isNotEmpty() },
-        autoReplyEnabled = autoReplyEnabled,
-        defaultProviderId = defaultProviderId,
-        defaultPersonaId = defaultPersonaId,
+@Composable
+private fun BotListCard(
+    bot: BotProfile,
+    active: Boolean,
+    providerName: String,
+    personaName: String,
+    onClick: () -> Unit,
+) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(26.dp),
+        color = if (active) MonochromeUi.cardAltBackground else MonochromeUi.cardBackground,
+        tonalElevation = 2.dp,
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                modifier = Modifier
+                    .background(Color(0xFF1B1B1B), CircleShape)
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(bot.displayName.take(1).uppercase(), color = Color.White, fontWeight = FontWeight.Bold)
+            }
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                Text(bot.displayName, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+                Text(
+                    text = buildList {
+                        add(bot.accountHint.ifBlank { bot.platformName })
+                        if (bot.tag.isNotBlank()) add(bot.tag)
+                    }.joinToString(" | "),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = "模型：${providerName.ifBlank { "未选择" }}  |  人格：${personaName.ifBlank { "未选择" }}",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                )
+            }
+            Switch(
+                checked = bot.autoReplyEnabled,
+                onCheckedChange = null,
+                colors = monochromeSwitchColors(),
+            )
+        }
+    }
+}
+
+@Composable
+private fun BotEditorDialog(
+    initialBot: BotProfile,
+    providerOptions: List<Pair<String, String>>,
+    personaOptions: List<Pair<String, String>>,
+    onDismiss: () -> Unit,
+    onDelete: () -> Unit,
+    onSave: (BotProfile) -> Unit,
+) {
+    var displayName by remember(initialBot.id) { mutableStateOf(initialBot.displayName) }
+    var tag by remember(initialBot.id) { mutableStateOf(initialBot.tag) }
+    var accountHint by remember(initialBot.id) { mutableStateOf(initialBot.accountHint) }
+    var triggerWords by remember(initialBot.id) { mutableStateOf(initialBot.triggerWords.joinToString(", ")) }
+    var autoReplyEnabled by remember(initialBot.id) { mutableStateOf(initialBot.autoReplyEnabled) }
+    var defaultProviderId by remember(initialBot.id) { mutableStateOf(initialBot.defaultProviderId) }
+    var defaultPersonaId by remember(initialBot.id) { mutableStateOf(initialBot.defaultPersonaId) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    onSave(
+                        initialBot.copy(
+                            displayName = displayName.trim().ifBlank { initialBot.displayName },
+                            tag = tag.trim(),
+                            accountHint = accountHint.trim(),
+                            triggerWords = triggerWords.split(",").map { it.trim() }.filter { it.isNotBlank() },
+                            autoReplyEnabled = autoReplyEnabled,
+                            defaultProviderId = defaultProviderId,
+                            defaultPersonaId = defaultPersonaId,
+                        ),
+                    )
+                },
+            ) {
+                Text("保存")
+            }
+        },
+        dismissButton = {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (initialBot.id != "qq-main") {
+                    TextButton(onClick = onDelete) {
+                        Text("删除")
+                    }
+                }
+                TextButton(onClick = onDismiss) {
+                    Text("取消")
+                }
+            }
+        },
+        title = { Text("编辑机器人") },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 420.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                OutlinedTextField(
+                    value = displayName,
+                    onValueChange = { displayName = it },
+                    label = { Text("名称") },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = monochromeOutlinedTextFieldColors(),
+                )
+                OutlinedTextField(
+                    value = tag,
+                    onValueChange = { tag = it },
+                    label = { Text("标签") },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = monochromeOutlinedTextFieldColors(),
+                )
+                OutlinedTextField(
+                    value = accountHint,
+                    onValueChange = { accountHint = it },
+                    label = { Text("账号提示") },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = monochromeOutlinedTextFieldColors(),
+                )
+                OutlinedTextField(
+                    value = triggerWords,
+                    onValueChange = { triggerWords = it },
+                    label = { Text("触发词") },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = monochromeOutlinedTextFieldColors(),
+                )
+                SelectionField(
+                    title = "默认模型",
+                    options = providerOptions,
+                    selectedId = defaultProviderId,
+                    onSelect = { defaultProviderId = it },
+                )
+                SelectionField(
+                    title = "默认人格",
+                    options = personaOptions,
+                    selectedId = defaultPersonaId,
+                    onSelect = { defaultPersonaId = it },
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column {
+                        Text("自动回复", fontWeight = FontWeight.SemiBold)
+                        Text(
+                            "启用后可用于 QQ 自动回复。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
+                        )
+                    }
+                    Switch(
+                        checked = autoReplyEnabled,
+                        onCheckedChange = { autoReplyEnabled = it },
+                        colors = monochromeSwitchColors(),
+                    )
+                }
+            }
+        },
     )
 }
 
-private fun buildQrBitmap(content: String, sizePx: Int): Bitmap {
-    val matrix = QRCodeWriter().encode(content, BarcodeFormat.QR_CODE, sizePx, sizePx)
-    val bitmap = Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.ARGB_8888)
-    for (x in 0 until sizePx) {
-        for (y in 0 until sizePx) {
-            bitmap.setPixel(
-                x,
-                y,
-                if (matrix[x, y]) android.graphics.Color.BLACK else android.graphics.Color.WHITE,
-            )
+@Composable
+internal fun SelectionField(
+    title: String,
+    options: List<Pair<String, String>>,
+    selectedId: String,
+    onSelect: (String) -> Unit,
+) {
+    var expanded by remember(selectedId, options) { mutableStateOf(false) }
+    val selectedLabel = options.firstOrNull { it.first == selectedId }?.second ?: "未选择"
+
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(title, style = MaterialTheme.typography.labelSmall)
+        Surface(
+            onClick = { expanded = true },
+            shape = RoundedCornerShape(18.dp),
+            color = CardDefaults.outlinedCardColors().containerColor,
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 14.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(selectedLabel, style = MaterialTheme.typography.bodySmall)
+                Icon(Icons.Outlined.ArrowDropDown, contentDescription = null)
+            }
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            options.forEach { option ->
+                DropdownMenuItem(
+                    text = { Text(option.second) },
+                    onClick = {
+                        onSelect(option.first)
+                        expanded = false
+                    },
+                )
+            }
         }
     }
-    return bitmap
 }
