@@ -51,9 +51,10 @@ class ContainerBridgeService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     private suspend fun handleStartBridge() {
-        val config = NapCatBridgeRepository.config.value
         stopHealthMonitor()
         NapCatBridgeRepository.markStarting()
+        ContainerRuntimeInstaller.ensureInstalled(applicationContext)
+        val config = NapCatBridgeRepository.config.value
         syncProgressFromRuntimeFiles()
         startProgressMonitor()
         RuntimeLogRepository.append("Starting local NapCat bridge")
@@ -196,6 +197,7 @@ class ContainerBridgeService : Service() {
     }
 
     private suspend fun handleStopBridge() {
+        ContainerRuntimeInstaller.ensureInstalled(applicationContext)
         val config = NapCatBridgeRepository.config.value
         stopHealthMonitor()
         stopProgressMonitor()
@@ -212,6 +214,7 @@ class ContainerBridgeService : Service() {
     }
 
     private suspend fun handleCheckBridge() {
+        ContainerRuntimeInstaller.ensureInstalled(applicationContext)
         val config = NapCatBridgeRepository.config.value
         NapCatBridgeRepository.markChecking()
         syncProgressFromRuntimeFiles()

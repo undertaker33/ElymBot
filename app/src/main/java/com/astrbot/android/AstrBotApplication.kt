@@ -9,17 +9,25 @@ import com.astrbot.android.data.ProviderRepository
 import com.astrbot.android.runtime.ContainerRuntimeInstaller
 import com.astrbot.android.runtime.OneBotBridgeServer
 import com.astrbot.android.runtime.RuntimeLogRepository
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 class AstrBotApplication : Application() {
+    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
     override fun onCreate() {
         super.onCreate()
-        BotRepository.initialize(this)
         NapCatBridgeRepository.initialize(this)
         NapCatLoginRepository.initialize(this)
         ProviderRepository.initialize(this)
         PersonaRepository.initialize(this)
         OneBotBridgeServer.start()
-        ContainerRuntimeInstaller.install(this)
+        appScope.launch(Dispatchers.IO) {
+            BotRepository.initialize(this@AstrBotApplication)
+        }
+        ContainerRuntimeInstaller.warmUpAsync(this, appScope)
         RuntimeLogRepository.append("App started")
     }
 }

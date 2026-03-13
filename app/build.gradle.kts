@@ -4,6 +4,35 @@ plugins {
     id("com.google.devtools.ksp")
 }
 
+fun sanitizeBranchName(name: String): String {
+    return name
+        .ifBlank { "detached-head" }
+        .replace(Regex("[^A-Za-z0-9._-]+"), "_")
+        .trim('_')
+        .ifBlank { "detached-head" }
+}
+
+fun currentGitBranchName(): String {
+    val envBranch = sequenceOf(
+        "GIT_BRANCH",
+        "BRANCH_NAME",
+        "GITHUB_HEAD_REF",
+        "GITHUB_REF_NAME",
+    ).mapNotNull { key -> System.getenv(key)?.trim()?.takeIf { it.isNotBlank() } }
+        .firstOrNull()
+
+    if (envBranch != null) {
+        return envBranch.substringAfterLast('/')
+    }
+
+    val branch = providers.exec {
+        commandLine("git", "branch", "--show-current")
+    }.standardOutput.asText.get().trim()
+    return if (branch.isBlank()) "detached-head" else branch
+}
+
+val branchApkDirName = sanitizeBranchName(currentGitBranchName())
+
 val filteredAssetsDir = layout.buildDirectory.dir("generated/filtered-assets/main")
 val excludedRuntimeAssets = listOf(
     "runtime/assets/offline-rootfs-overlay.tar.xz",
@@ -87,6 +116,23 @@ android {
 
 tasks.matching { it.name == "mergeDebugAssets" || it.name == "mergeReleaseAssets" }.configureEach {
     dependsOn(prepareFilteredAssets)
+}
+
+listOf("debug", "release").forEach { variantName ->
+    val capitalizedVariant = variantName.replaceFirstChar { it.uppercase() }
+    tasks.register<Sync>("export${capitalizedVariant}ApkByBranch") {
+        from(layout.buildDirectory.dir("outputs/apk/$variantName"))
+        into(rootProject.layout.projectDirectory.dir("artifacts/apk/$branchApkDirName/$variantName"))
+    }
+}
+
+afterEvaluate {
+    listOf("debug", "release").forEach { variantName ->
+        val capitalizedVariant = variantName.replaceFirstChar { it.uppercase() }
+        tasks.named("assemble$capitalizedVariant").configure {
+            finalizedBy(tasks.named("export${capitalizedVariant}ApkByBranch"))
+        }
+    }
 }
 
 dependencies {

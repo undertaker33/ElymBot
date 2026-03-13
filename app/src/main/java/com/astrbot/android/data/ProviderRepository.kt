@@ -26,7 +26,11 @@ object ProviderRepository {
         if (preferences != null) return
         preferences = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         loadSavedProviders()?.let { savedProviders ->
-            _providers.value = savedProviders
+            val normalizedProviders = savedProviders.map(::normalizeProvider)
+            _providers.value = normalizedProviders
+            if (normalizedProviders != savedProviders) {
+                persistProviders()
+            }
         }
         RuntimeLogRepository.append("Provider catalog loaded: count=${_providers.value.size}")
     }
@@ -42,15 +46,17 @@ object ProviderRepository {
         enabled: Boolean = true,
     ): ProviderProfile {
         val resolvedId = id?.takeIf { it.isNotBlank() } ?: UUID.randomUUID().toString()
-        val profile = ProviderProfile(
-            id = resolvedId,
-            name = name.trim(),
-            baseUrl = baseUrl.trim(),
-            model = model.trim(),
-            providerType = providerType,
-            apiKey = apiKey.trim(),
-            capabilities = capabilities,
-            enabled = enabled,
+        val profile = normalizeProvider(
+            ProviderProfile(
+                id = resolvedId,
+                name = name.trim(),
+                baseUrl = baseUrl.trim(),
+                model = model.trim(),
+                providerType = providerType,
+                apiKey = apiKey.trim(),
+                capabilities = capabilities,
+                enabled = enabled,
+            ),
         )
         val exists = _providers.value.any { it.id == resolvedId }
         _providers.value = if (exists) {
@@ -153,6 +159,18 @@ object ProviderRepository {
         preferences?.edit()?.putString(KEY_PROVIDERS_JSON, json.toString())?.apply()
     }
 
+    private fun normalizeProvider(provider: ProviderProfile): ProviderProfile {
+        if (provider.id != "openai-chat") return provider
+
+        val normalizedName = when {
+            provider.name.isBlank() -> "OpenAI \u5bf9\u8bdd"
+            provider.name.contains("瀵硅瘽") -> "OpenAI \u5bf9\u8bdd"
+            provider.name.contains("鐎电鐦") -> "OpenAI \u5bf9\u8bdd"
+            else -> provider.name
+        }
+        return provider.copy(name = normalizedName)
+    }
+
     private fun maskState(apiKey: String): String {
         return if (apiKey.isBlank()) "empty" else "configured"
     }
@@ -160,7 +178,7 @@ object ProviderRepository {
     private fun defaultProviders() = listOf(
         ProviderProfile(
             id = "openai-chat",
-            name = "OpenAI 瀵硅瘽",
+            name = "OpenAI \u5bf9\u8bdd",
             baseUrl = "https://api.openai.com/v1",
             model = "gpt-4.1-mini",
             providerType = ProviderType.OPENAI_COMPATIBLE,
