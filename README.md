@@ -4,13 +4,13 @@
 
 这个项目不是从零独立设计出来的移动端新产品，而是基于两个桌面端项目做“移动端减法”后的原生化整合：
 
-- `C:\Users\93445\Desktop\Astrbot\AstrBot-master`
-- `C:\Users\93445\Desktop\Astrbot\NapCatQQ-main`
+- `https://github.com/AstrBotDevs/AstrBot`
+- `https://github.com/NapNeko/NapCatQQ`
 
 目标不是把桌面端的 Python 后端、Node WebUI、插件生态和协议栈原封不动搬进 Android，而是提炼其中适合手机场景的核心管理能力，并以 Kotlin + Compose + Android 前台服务的方式重建。
 
 ~~目前有个致命问题：Android 设备上，AstrBot 用前台服务托管 NapCat；NapCat 再在容器里运行 Linux QQ。这个 Linux QQ 在应用切到后台后，登录态会变得不稳定，常见表现是 QQ 侧显示的 “Linux 已登录” 过一会失效或离线。实在没招了~~
-没开电池优化，我有点弱智了
+没开电池优化，，，，，
 
 ## 项目来源
 
@@ -25,15 +25,6 @@
 - 日志中心
 - 运行时控制台的产品边界
 
-但没有直接迁移以下桌面端实现：
-
-- Python 主程序
-- Dashboard WebUI 后端
-- 多平台 Adapter 体系
-- 插件热安装与完整插件生态
-- MCP / Agent Sandbox / 技能执行运行时
-- 完整知识库和向量检索链路
-
 ### 2. NapCatQQ-main 提供的能力来源
 
 本项目吸收了 NapCat 桌面端/WebUI 中的以下产品语义：
@@ -44,18 +35,7 @@
 - Runtime 状态展示
 - 健康检查、启动、停止、日志查看的管理方式
 
-但没有直接迁移以下桌面端实现：
-
-- Node/Express WebUI 后端
-- React WebUI 前端
-- 完整终端模拟器与桌面系统管理页面
-- 全量 NapCat WebUI 配置页
-- 桌面端高级设备指纹管理页面
-
 ## 这个 Android 项目当前已经实现了什么
-
-以下内容已经在当前 Android 原生工程中落地，不是规划项。
-
 ### 原生工程基础
 
 - 单 `app` 模块 Android 工程
@@ -83,9 +63,7 @@
 - Provider / Models 页面
 
 ### Bot 管理
-
 已经实现：
-
 - QQ Bot 基础资料模型
 - 多 Bot 列表与选择
 - 默认 Bot 初始化
@@ -96,37 +74,29 @@
 - Bridge endpoint 等配置字段
 
 当前状态：
-
 - Bot 数据由 Room 持久化
 - `BotRepository` 已完成数据库初始化、选中态维护和增删改逻辑
 
 ### Provider 管理
-
 已经实现：
-
 - ProviderProfile 数据模型
 - ProviderType 枚举
 - ProviderCapability 枚举
 - Provider 列表、创建、修改、删除、启停
 - 预置 OpenAI-compatible 和 DeepSeek 示例 Provider
 - 聊天模型拉取接口 `/models`
-
 当前支持的真实调用能力：
-
 - OpenAI-compatible
 - DeepSeek
 
 已预留但未真正打通的类型：
-
 - Gemini
 - Anthropic
 - Custom
 - TTS / ASR 相关 Provider 能力
 
 ### Persona 管理
-
 已经实现基础版 Persona 管理：
-
 - PersonaProfile 数据模型
 - system prompt
 - enabled tools 字段
@@ -135,7 +105,6 @@
 - 启用禁用
 
 当前仍属于移动端精简版，尚未完整覆盖桌面端的：
-
 - 文件夹树
 - 排序管理
 - begin dialogs
@@ -193,10 +162,6 @@
 - 运行日志采集
 - 启动超时与启动停滞判断
 
-当前状态：
-
-- 运行时并非“页面按钮假动作”，而是已经有命令执行、状态同步、进度监视和日志 tail 的真实逻辑
-
 ### Runtime 安装与资产准备
 
 已经存在运行时资源打包和安装骨架：
@@ -230,7 +195,6 @@
 - 这意味着 Android 端已具备一个“精简版 AstrBot 编排层”
 
 ### 日志中心
-
 已经实现：
 
 - Runtime 日志集中写入
@@ -361,38 +325,11 @@ app/
 - 插件 / 知识库入口级功能
 - 更完整的本地持久化
 
-## 后续建议路线
+## 致谢
+感谢以下开源项目为本 App 提供基础支持：
+[AstrBot](https://github.com/AstrBotDevs/AstrBot)：强大的多平台聊天机器人框架
+[NapCatQQ](https://github.com/NapNeko/NapCatQQ)：高效稳定的 QQ 协议适配器
 
-### Phase A
+## 许可证说明
+本项目采用AGPL3.0
 
-- 将 Persona 补齐 begin dialogs、skills、custom error message、folder/tree
-- 将 Conversation 改造为 Room 持久化
-- 为日志页补齐更清晰的分类视图
-
-### Phase B
-
-- 完善 NapCatConfig / per-UIN 配置模型
-- 将 QQ 登录页与 runtime 健康状态做更强联动
-- 强化 Runtime 页面中的安装、恢复、错误诊断信息
-
-### Phase C
-
-- 以“精简版能力”方式补充 Plugin / Knowledge Base 入口
-- 做可控的导入导出能力
-- 明确哪些功能长期保持移动端裁剪，不追求桌面端对等
-
-## 总结
-
-这个项目可以理解为：
-
-“从 AstrBot-master 中提取管理层，从 NapCatQQ-main 中提取 QQ/NapCat 运行时管理语义，再用 Android 原生方式重建的一套移动端 AstrBot 控制台。”
-
-它当前已经不是一个空壳，而是已经完成了以下最关键的事情：
-
-- 原生 UI 与导航建立完成
-- 本地 Bot / Provider / Persona / Chat 主链路建立完成
-- NapCat runtime 控制链路建立完成
-- QQ 登录状态链路建立完成
-- OneBot 自动回复闭环建立完成
-
-剩余工作主要是继续把桌面端成熟能力做“有判断的迁移”，而不是继续堆叠桌面端实现本身。
