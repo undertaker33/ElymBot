@@ -6,6 +6,12 @@ import com.astrbot.android.data.NapCatBridgeRepository
 import com.astrbot.android.model.NapCatBridgeConfig
 import java.io.File
 import java.nio.charset.StandardCharsets
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 object ContainerRuntimeInstaller {
     private val scriptNames = listOf(
@@ -21,7 +27,32 @@ object ContainerRuntimeInstaller {
         "ubuntu-rootfs.tar.xz",
     )
 
-    fun install(context: Context) {
+    private val installMutex = Mutex()
+    @Volatile
+    private var installCompleted = false
+    @Volatile
+    private var warmupJob: Job? = null
+
+    fun warmUpAsync(context: Context, scope: CoroutineScope) {
+        if (installCompleted || warmupJob?.isActive == true) return
+        val appContext = context.applicationContext
+        warmupJob = scope.launch(Dispatchers.IO) {
+            ensureInstalled(appContext)
+        }
+    }
+
+    suspend fun ensureInstalled(context: Context) {
+        if (installCompleted) return
+
+        installMutex.withLock {
+            if (installCompleted) return
+            installInternal(context.applicationContext)
+            installCompleted = true
+            warmupJob = null
+        }
+    }
+
+    private fun installInternal(context: Context) {
         val runtimeDir = File(context.filesDir, "runtime")
         val binDir = File(runtimeDir, "bin")
         val scriptDir = File(runtimeDir, "scripts")
