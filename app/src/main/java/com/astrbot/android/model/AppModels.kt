@@ -97,6 +97,12 @@ data class NapCatRuntimeState(
     val installerCached: Boolean = false,
 )
 
+data class SavedQqAccount(
+    val uin: String,
+    val nickName: String = "",
+    val avatarUrl: String = "",
+)
+
 data class NapCatLoginState(
     val bridgeReady: Boolean = false,
     val authenticated: Boolean = false,
@@ -104,6 +110,7 @@ data class NapCatLoginState(
     val isOffline: Boolean = false,
     val qrCodeUrl: String = "",
     val quickLoginUin: String = "",
+    val savedAccounts: List<SavedQqAccount> = emptyList(),
     val loginError: String = "",
     val needCaptcha: Boolean = false,
     val captchaUrl: String = "",

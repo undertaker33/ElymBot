@@ -1,12 +1,20 @@
 package com.astrbot.android.ui.screen
 
 import android.graphics.Bitmap
+import android.widget.Toast
+import android.webkit.JavascriptInterface
+import android.webkit.WebChromeClient
+import android.webkit.WebSettings
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -14,32 +22,44 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.astrbot.android.model.NapCatLoginState
+import com.astrbot.android.model.SavedQqAccount
 import com.astrbot.android.ui.MonochromeUi
 import com.astrbot.android.ui.monochromeOutlinedTextFieldColors
 import com.astrbot.android.ui.viewmodel.QQLoginViewModel
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.qrcode.QRCodeWriter
+import kotlinx.coroutines.launch
 
 @Composable
 fun QQAccountCenterScreen(
@@ -47,8 +67,8 @@ fun QQAccountCenterScreen(
     onOpenLogin: () -> Unit,
     qqLoginViewModel: QQLoginViewModel = viewModel(),
 ) {
+    val context = LocalContext.current
     val loginState by qqLoginViewModel.loginState.collectAsState()
-    val quickLoginEnabled = loginState.canQuickLogin()
 
     Scaffold(
         topBar = { SubPageHeader(title = "QQ 账号", onBack = onBack) },
@@ -77,18 +97,23 @@ fun QQAccountCenterScreen(
                         color = Color.White,
                         fontWeight = FontWeight.Bold,
                     )
-                    if (loginState.isLogin) {
-                        Text(
-                            text = "当前已登录：${loginState.nick.ifBlank { loginState.uin.ifBlank { "未知账号" } }}",
-                            color = Color.White.copy(alpha = 0.78f),
-                        )
-                    }
-                    if (loginState.quickLoginUin.isNotBlank()) {
-                        Text(
-                            text = "已保存快捷登录账号：${loginState.quickLoginUin}",
-                            color = Color.White.copy(alpha = 0.58f),
-                        )
-                    }
+                    Text(
+                        text = if (loginState.isLogin) {
+                            "当前已登录：${loginState.nick.ifBlank { loginState.uin.ifBlank { "Unknown account" } }}"
+                        } else {
+                            loginState.statusText
+                        },
+                        color = Color.White.copy(alpha = 0.78f),
+                    )
+                    SavedAccountDropdown(
+                        accounts = loginState.savedAccounts,
+                        selectedUin = loginState.quickLoginUin.ifBlank { loginState.uin },
+                        enabled = !loginState.isLogin,
+                        onSelect = { account ->
+                            qqLoginViewModel.quickLoginSavedAccount(account.uin)
+                            Toast.makeText(context, "Quick login: ${account.uin}", Toast.LENGTH_SHORT).show()
+                        },
+                    )
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Button(
                             onClick = onOpenLogin,
@@ -98,33 +123,20 @@ fun QQAccountCenterScreen(
                             Text("去登录")
                         }
                         OutlinedButton(
-                            onClick = {},
+                            onClick = { qqLoginViewModel.logoutCurrentAccount() },
                             modifier = Modifier.weight(1f),
-                            enabled = false,
+                            enabled = loginState.bridgeReady && loginState.isLogin,
                             colors = qqDarkOutlinedButtonColors(),
-                            border = qqDarkOutlinedButtonBorder(enabled = false),
+                            border = qqDarkOutlinedButtonBorder(enabled = loginState.bridgeReady && loginState.isLogin),
                         ) {
                             Text("退出登录")
                         }
                     }
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        OutlinedButton(
-                            onClick = { qqLoginViewModel.quickLoginSavedAccount() },
-                            modifier = Modifier.weight(1f),
-                            enabled = quickLoginEnabled,
-                            colors = qqDarkOutlinedButtonColors(),
-                            border = qqDarkOutlinedButtonBorder(enabled = quickLoginEnabled),
-                        ) {
-                            Text("快捷登录")
-                        }
-                        OutlinedButton(
-                            onClick = { qqLoginViewModel.refreshNow() },
-                            modifier = Modifier.weight(1f),
-                            colors = qqDarkOutlinedButtonColors(),
-                            border = qqDarkOutlinedButtonBorder(enabled = true),
-                        ) {
-                            Text("刷新登录状态")
-                        }
+                    if (loginState.loginError.isNotBlank()) {
+                        Text(
+                            text = loginState.loginError,
+                            color = Color(0xFFFFB4AB),
+                        )
                     }
                 }
             }
@@ -139,7 +151,6 @@ fun QQLoginScreen(
 ) {
     val loginState by qqLoginViewModel.loginState.collectAsState()
     val quickLoginEnabled = loginState.canQuickLogin()
-    val uriHandler = LocalUriHandler.current
     val qrBitmap = remember(loginState.qrCodeUrl) {
         loginState.qrCodeUrl.takeIf { it.isNotBlank() }?.let { buildLoginQrBitmap(it, 720) }
     }
@@ -255,13 +266,6 @@ fun QQLoginScreen(
                             ) {
                                 Text("登录")
                             }
-                            OutlinedButton(
-                                onClick = { qqLoginViewModel.saveQuickLoginAccount(uinInput) },
-                                enabled = loginState.bridgeReady && uinInput.isNotBlank(),
-                                modifier = Modifier.fillMaxWidth(),
-                            ) {
-                                Text("保存账号")
-                            }
                             if (loginState.needNewDevice) {
                                 Button(
                                     onClick = { qqLoginViewModel.newDeviceLogin(uinInput, passwordInput) },
@@ -274,22 +278,6 @@ fun QQLoginScreen(
                             }
                             if (loginState.loginError.isNotBlank()) {
                                 Text(loginState.loginError, color = Color(0xFFB3261E))
-                            }
-                            if (loginState.captchaUrl.isNotBlank()) {
-                                OutlinedButton(
-                                    onClick = { uriHandler.openUri(loginState.captchaUrl) },
-                                    modifier = Modifier.fillMaxWidth(),
-                                ) {
-                                    Text("打开验证码页面")
-                                }
-                            }
-                            if (loginState.newDeviceJumpUrl.isNotBlank()) {
-                                OutlinedButton(
-                                    onClick = { uriHandler.openUri(loginState.newDeviceJumpUrl) },
-                                    modifier = Modifier.fillMaxWidth(),
-                                ) {
-                                    Text("打开设备验证")
-                                }
                             }
                         }
                     }
@@ -446,7 +434,398 @@ private fun qqDarkOutlinedButtonBorder(enabled: Boolean): BorderStroke {
 }
 
 private fun NapCatLoginState.canQuickLogin(): Boolean {
-    return bridgeReady && quickLoginUin.isNotBlank() && !isLogin
+    return bridgeReady && savedAccounts.isNotEmpty() && !isLogin
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SavedAccountDropdown(
+    accounts: List<SavedQqAccount>,
+    selectedUin: String,
+    enabled: Boolean,
+    onSelect: (SavedQqAccount) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val selectedAccount = accounts.firstOrNull { it.uin == selectedUin }
+
+    ExposedDropdownMenuBox(
+        expanded = expanded && enabled && accounts.isNotEmpty(),
+        onExpandedChange = { if (enabled && accounts.isNotEmpty()) expanded = !expanded },
+    ) {
+        OutlinedTextField(
+            value = selectedAccount.displayLabel().ifBlank { selectedUin.ifBlank { "请选择QQ" } },
+            onValueChange = {},
+            modifier = Modifier
+                .fillMaxWidth()
+                .menuAnchor(
+                    type = MenuAnchorType.PrimaryNotEditable,
+                    enabled = enabled,
+                ),
+            readOnly = true,
+            enabled = enabled,
+            label = { Text("请选择QQ") },
+            trailingIcon = {
+                ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded && enabled && accounts.isNotEmpty())
+            },
+            colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(
+                focusedTextColor = Color.White,
+                unfocusedTextColor = Color.White,
+                disabledTextColor = Color.White.copy(alpha = 0.55f),
+                focusedBorderColor = Color.White.copy(alpha = 0.8f),
+                unfocusedBorderColor = Color.White.copy(alpha = 0.35f),
+                disabledBorderColor = Color.White.copy(alpha = 0.18f),
+                focusedLabelColor = Color.White.copy(alpha = 0.8f),
+                unfocusedLabelColor = Color.White.copy(alpha = 0.65f),
+                disabledLabelColor = Color.White.copy(alpha = 0.4f),
+                focusedTrailingIconColor = Color.White,
+                unfocusedTrailingIconColor = Color.White,
+                disabledTrailingIconColor = Color.White.copy(alpha = 0.4f),
+            ),
+        )
+        DropdownMenu(
+            expanded = expanded && enabled && accounts.isNotEmpty(),
+            onDismissRequest = { expanded = false },
+        ) {
+            accounts.forEach { account ->
+                DropdownMenuItem(
+                    text = { Text(account.displayLabel()) },
+                    onClick = {
+                        expanded = false
+                        onSelect(account)
+                    },
+                )
+            }
+        }
+    }
+}
+
+private fun SavedQqAccount?.displayLabel(): String {
+    val account = this ?: return ""
+    return when {
+        account.nickName.isNotBlank() -> "${account.nickName} (${account.uin})"
+        else -> account.uin
+    }
+}
+
+@Composable
+private fun QQTencentCaptchaCard(
+    proofWaterUrl: String,
+    onSuccess: (ticket: String, randstr: String, sid: String) -> Unit,
+    onCancel: () -> Unit,
+) {
+    var statusText by remember(proofWaterUrl) { mutableStateOf("Loading captcha...") }
+
+    Surface(
+        shape = RoundedCornerShape(28.dp),
+        color = MonochromeUi.cardBackground,
+        tonalElevation = 2.dp,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text("验证码验证", fontWeight = FontWeight.SemiBold)
+            Text(
+                text = statusText,
+                color = Color(0xFF6B6B6B),
+            )
+            TencentCaptchaWebView(
+                proofWaterUrl = proofWaterUrl,
+                onStatus = { statusText = it },
+                onSuccess = onSuccess,
+                onCancel = onCancel,
+            )
+        }
+    }
+}
+
+@Composable
+private fun QQNewDeviceVerifyCard(
+    qqLoginViewModel: QQLoginViewModel,
+    onVerified: (String) -> Unit,
+) {
+    val scope = rememberCoroutineScope()
+    var qrUrl by remember { mutableStateOf("") }
+    var bytesToken by remember { mutableStateOf("") }
+    var statusText by remember { mutableStateOf("Loading verification QR...") }
+    var loading by remember { mutableStateOf(true) }
+    var errorText by remember { mutableStateOf("") }
+
+    suspend fun refreshQr() {
+        loading = true
+        errorText = ""
+        statusText = "Loading verification QR..."
+        runCatching {
+            qqLoginViewModel.getNewDeviceQRCode()
+        }.onSuccess { result ->
+            qrUrl = result.qrUrl
+            bytesToken = result.bytesToken
+            statusText = "Scan with mobile QQ to verify this device"
+            loading = false
+        }.onFailure { error ->
+            errorText = error.message ?: "Failed to load verification QR"
+            statusText = errorText
+            loading = false
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        refreshQr()
+    }
+
+    LaunchedEffect(bytesToken) {
+        if (bytesToken.isBlank()) return@LaunchedEffect
+        while (true) {
+            kotlinx.coroutines.delay(2500)
+            val result = runCatching {
+                qqLoginViewModel.pollNewDeviceQRCode(bytesToken)
+            }.getOrNull() ?: continue
+            when (result.guaranteeStatus) {
+                3 -> statusText = "Scanned. Confirm on mobile QQ."
+                1 -> {
+                    statusText = "Verified. Continuing login..."
+                    onVerified(result.successToken)
+                    return@LaunchedEffect
+                }
+            }
+        }
+    }
+
+    Surface(
+        shape = RoundedCornerShape(28.dp),
+        color = MonochromeUi.cardBackground,
+        tonalElevation = 2.dp,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text("新设备验证", fontWeight = FontWeight.SemiBold)
+            Text(statusText, color = Color(0xFF6B6B6B))
+            when {
+                loading -> {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.Center,
+                    ) {
+                        CircularProgressIndicator()
+                    }
+                }
+
+                errorText.isNotBlank() -> {
+                    Text(errorText, color = Color(0xFFB3261E))
+                    OutlinedButton(
+                        onClick = { scope.launch { refreshQr() } },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("Retry")
+                    }
+                }
+
+                qrUrl.isNotBlank() -> {
+                    Image(
+                        bitmap = buildLoginQrBitmap(qrUrl, 720).asImageBitmap(),
+                        contentDescription = "New device verification QR",
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    OutlinedButton(
+                        onClick = { scope.launch { refreshQr() } },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("Refresh verification QR")
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TencentCaptchaWebView(
+    proofWaterUrl: String,
+    onStatus: (String) -> Unit,
+    onSuccess: (ticket: String, randstr: String, sid: String) -> Unit,
+    onCancel: () -> Unit,
+) {
+    val context = LocalContext.current
+    val html = remember(proofWaterUrl) { buildTencentCaptchaHtml(proofWaterUrl) }
+    val callbackHolder = remember {
+        object {
+            var handled = false
+        }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose { callbackHolder.handled = false }
+    }
+
+    AndroidView(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(240.dp)
+            .background(Color.White, RoundedCornerShape(16.dp)),
+        factory = {
+            WebView(context).apply {
+                settings.javaScriptEnabled = true
+                settings.domStorageEnabled = true
+                settings.cacheMode = WebSettings.LOAD_DEFAULT
+                webChromeClient = WebChromeClient()
+                webViewClient = WebViewClient()
+                addJavascriptInterface(
+                    TencentCaptchaBridge(
+                        onStatus = onStatus,
+                        onSuccess = { ticket, randstr, sid ->
+                            if (!callbackHolder.handled) {
+                                callbackHolder.handled = true
+                                onSuccess(ticket, randstr, sid)
+                            }
+                        },
+                        onCancel = {
+                            if (!callbackHolder.handled) {
+                                callbackHolder.handled = true
+                                onCancel()
+                            }
+                        },
+                    ),
+                    "AstrBotCaptchaBridge",
+                )
+                loadDataWithBaseURL("https://captcha.gtimg.com/", html, "text/html", "utf-8", null)
+            }
+        },
+        update = { webView ->
+            callbackHolder.handled = false
+            webView.loadDataWithBaseURL("https://captcha.gtimg.com/", html, "text/html", "utf-8", null)
+        },
+    )
+}
+
+private class TencentCaptchaBridge(
+    private val onStatus: (String) -> Unit,
+    private val onSuccess: (String, String, String) -> Unit,
+    private val onCancel: () -> Unit,
+) {
+    @JavascriptInterface
+    fun onStatus(message: String) {
+        onStatus(message)
+    }
+
+    @JavascriptInterface
+    fun onSuccess(ticket: String, randstr: String, sid: String) {
+        onSuccess(ticket, randstr, sid)
+    }
+
+    @JavascriptInterface
+    fun onCancel() {
+        onCancel()
+    }
+}
+
+private fun buildTencentCaptchaHtml(proofWaterUrl: String): String {
+    val escapedProofWaterUrl = proofWaterUrl
+        .replace("\\", "\\\\")
+        .replace("'", "\\'")
+    return """
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8" />
+          <meta name="viewport" content="width=device-width, initial-scale=1" />
+          <style>
+            body { margin: 0; font-family: sans-serif; background: #ffffff; color: #111111; }
+            .wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 16px; box-sizing: border-box; text-align: center; }
+          </style>
+        </head>
+        <body>
+          <div class="wrap">Loading Tencent captcha...</div>
+          <script>
+            const proofWaterUrl = '$escapedProofWaterUrl';
+            function parseParams(url) {
+              const params = {};
+              try {
+                const parsed = new URL(url);
+                parsed.searchParams.forEach((value, key) => params[key] = value);
+              } catch (error) {}
+              return params;
+            }
+            function setStatus(message) {
+              if (window.AstrBotCaptchaBridge) {
+                window.AstrBotCaptchaBridge.onStatus(message);
+              }
+            }
+            function finishSuccess(ticket, randstr, sid) {
+              if (window.AstrBotCaptchaBridge) {
+                window.AstrBotCaptchaBridge.onSuccess(ticket, randstr, sid || '');
+              }
+            }
+            function finishCancel() {
+              if (window.AstrBotCaptchaBridge) {
+                window.AstrBotCaptchaBridge.onCancel();
+              }
+            }
+            function fallback(appid, sid) {
+              finishSuccess('terror_1001_' + appid + '_' + Math.floor(Date.now() / 1000), '@' + Math.random().toString(36).substring(2), sid);
+            }
+            function loadScript(src) {
+              return new Promise((resolve, reject) => {
+                const script = document.createElement('script');
+                script.src = src;
+                script.onload = resolve;
+                script.onerror = reject;
+                document.head.appendChild(script);
+              });
+            }
+            async function run() {
+              const params = parseParams(proofWaterUrl);
+              const appid = params.aid || '2081081773';
+              const sid = params.sid || '';
+              setStatus('Loading captcha...');
+              try {
+                await loadScript('https://captcha.gtimg.com/TCaptcha.js');
+              } catch (firstError) {
+                try {
+                  await loadScript('https://ssl.captcha.qq.com/TCaptcha.js');
+                } catch (secondError) {
+                  setStatus('Captcha script failed to load. Using fallback token.');
+                  fallback(appid, sid);
+                  return;
+                }
+              }
+              if (!window.TencentCaptcha) {
+                setStatus('Captcha init failed. Using fallback token.');
+                fallback(appid, sid);
+                return;
+              }
+              setStatus('Waiting for captcha verification...');
+              try {
+                const captcha = new window.TencentCaptcha(appid, function(result) {
+                  if (result && result.ret === 0 && result.ticket && result.randstr) {
+                    finishSuccess(result.ticket, result.randstr, sid);
+                  } else {
+                    finishCancel();
+                  }
+                }, {
+                  type: 'popup',
+                  showHeader: false,
+                  login_appid: params.login_appid,
+                  uin: params.uin,
+                  sid: params.sid,
+                  enableAged: true,
+                });
+                captcha.show();
+              } catch (error) {
+                setStatus('Captcha popup failed to start. Using fallback token.');
+                fallback(appid, sid);
+              }
+            }
+            run();
+          </script>
+        </body>
+        </html>
+    """.trimIndent()
 }
 
 private fun buildLoginQrBitmap(content: String, sizePx: Int): Bitmap {

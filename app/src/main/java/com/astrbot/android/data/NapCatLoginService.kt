@@ -1,7 +1,9 @@
 package com.astrbot.android.data
 
 import com.astrbot.android.model.NapCatLoginState
+import com.astrbot.android.model.SavedQqAccount
 import org.json.JSONObject
+import org.json.JSONArray
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.net.HttpURLConnection
@@ -12,6 +14,16 @@ import java.security.MessageDigest
 object NapCatLoginService {
     private const val WEB_UI_TOKEN = "astrbot_android_webui"
     private var credential: String = ""
+
+    data class NewDeviceQrCodeResult(
+        val qrUrl: String,
+        val bytesToken: String,
+    )
+
+    data class NewDeviceQrPollResult(
+        val guaranteeStatus: Int,
+        val successToken: String,
+    )
 
     data class LoginActionResult(
         val completed: Boolean,
@@ -33,6 +45,8 @@ object NapCatLoginService {
     }
 
     fun fetchLoginState(baseUrl: String): NapCatLoginState {
+        val savedAccounts = runCatching { getQuickLoginAccounts(baseUrl) }.getOrDefault(emptyList())
+        val quickLoginAccount = runCatching { getQuickLoginAccount(baseUrl) }.getOrDefault("")
         val statusData = requireObject(
             requireSuccess(
                 authorizedPostResponse(baseUrl, "/QQLogin/CheckLoginStatus", JSONObject()),
@@ -71,7 +85,8 @@ object NapCatLoginService {
             isLogin = isLogin,
             isOffline = isOffline,
             qrCodeUrl = qrCodeUrl,
-            quickLoginUin = runCatching { getQuickLoginAccount(baseUrl) }.getOrDefault(""),
+            quickLoginUin = quickLoginAccount,
+            savedAccounts = savedAccounts,
             loginError = loginError,
             uin = uin,
             nick = nick,
@@ -86,6 +101,21 @@ object NapCatLoginService {
             authorizedPostResponse(baseUrl, "/QQLogin/GetQuickLoginQQ", JSONObject()),
         )
         return unwrapValue(data)
+    }
+
+    fun getQuickLoginAccounts(baseUrl: String): List<SavedQqAccount> {
+        val data = requireSuccess(
+            authorizedPostResponse(baseUrl, "/QQLogin/GetQuickLoginListNew", JSONObject()),
+        )
+        val parsed = parseQuickLoginAccountList(data)
+        if (parsed.isNotEmpty()) {
+            return parsed
+        }
+
+        val legacyData = requireSuccess(
+            authorizedPostResponse(baseUrl, "/QQLogin/GetQuickLoginList", JSONObject()),
+        )
+        return parseQuickLoginAccountList(legacyData)
     }
 
     fun setQuickLoginAccount(baseUrl: String, uin: String) {
@@ -168,6 +198,52 @@ object NapCatLoginService {
             },
         )
         return parseLoginActionResult(requireSuccess(response))
+    }
+
+    fun getNewDeviceQRCode(
+        baseUrl: String,
+        uin: String,
+        jumpUrl: String,
+    ): NewDeviceQrCodeResult {
+        val data = requireObject(
+            requireSuccess(
+                authorizedPostResponse(
+                    baseUrl = baseUrl,
+                    path = "/QQLogin/GetNewDeviceQRCode",
+                    payload = JSONObject().apply {
+                        put("uin", uin.trim())
+                        put("jumpUrl", jumpUrl.trim())
+                    },
+                ),
+            ),
+        )
+        return NewDeviceQrCodeResult(
+            qrUrl = data.optString("str_url").trim(),
+            bytesToken = data.optString("bytes_token").trim(),
+        )
+    }
+
+    fun pollNewDeviceQRCode(
+        baseUrl: String,
+        uin: String,
+        bytesToken: String,
+    ): NewDeviceQrPollResult {
+        val data = requireObject(
+            requireSuccess(
+                authorizedPostResponse(
+                    baseUrl = baseUrl,
+                    path = "/QQLogin/PollNewDeviceQR",
+                    payload = JSONObject().apply {
+                        put("uin", uin.trim())
+                        put("bytesToken", bytesToken.trim())
+                    },
+                ),
+            ),
+        )
+        return NewDeviceQrPollResult(
+            guaranteeStatus = data.optInt("uint32_guarantee_status", 0),
+            successToken = data.optString("str_nt_succ_token").trim(),
+        )
     }
 
     private fun parseLoginActionResult(data: Any?): LoginActionResult {
@@ -307,6 +383,43 @@ object NapCatLoginService {
             is String -> value
             else -> value.toString()
         }.trim()
+    }
+
+    private fun parseQuickLoginAccountList(value: Any?): List<SavedQqAccount> {
+        val accounts = mutableListOf<SavedQqAccount>()
+        when (value) {
+            is JSONArray -> {
+                for (index in 0 until value.length()) {
+                    when (val item = value.opt(index)) {
+                        is JSONObject -> {
+                            val uin = item.optString("uin").trim()
+                            if (uin.isNotBlank()) {
+                                accounts += SavedQqAccount(
+                                    uin = uin,
+                                    nickName = item.optString("nickName").trim(),
+                                    avatarUrl = item.optString("faceUrl").trim(),
+                                )
+                            }
+                        }
+
+                        is String -> {
+                            val uin = item.trim()
+                            if (uin.isNotBlank()) {
+                                accounts += SavedQqAccount(uin = uin)
+                            }
+                        }
+                    }
+                }
+            }
+
+            is JSONObject -> {
+                val array = value.optJSONArray("list")
+                if (array != null) {
+                    return parseQuickLoginAccountList(array)
+                }
+            }
+        }
+        return accounts.distinctBy { it.uin }
     }
 
     private fun normalizeBaseUrl(baseUrl: String): String {

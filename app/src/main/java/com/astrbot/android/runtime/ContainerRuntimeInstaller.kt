@@ -19,6 +19,7 @@ object ContainerRuntimeInstaller {
         "bootstrap_container.sh",
         "root_launcher.sh",
         "start_napcat.sh",
+        "logout_qq.sh",
         "stop_napcat.sh",
         "status_napcat.sh",
     )
