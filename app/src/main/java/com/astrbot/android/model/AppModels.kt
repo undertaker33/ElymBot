@@ -82,6 +82,9 @@ data class ConfigProfile(
     val sttEnabled: Boolean = false,
     val ttsEnabled: Boolean = false,
     val realWorldTimeAwarenessEnabled: Boolean = false,
+    val imageCaptionTextEnabled: Boolean = false,
+    val webSearchEnabled: Boolean = false,
+    val proactiveEnabled: Boolean = false,
     val imageCaptionPrompt: String = "Describe the image in detail before sending it to the chat model.",
 )
 
@@ -90,6 +93,16 @@ data class ConversationMessage(
     val role: String,
     val content: String,
     val timestamp: Long,
+    val attachments: List<ConversationAttachment> = emptyList(),
+)
+
+data class ConversationAttachment(
+    val id: String,
+    val type: String = "image",
+    val mimeType: String = "image/jpeg",
+    val fileName: String = "",
+    val base64Data: String = "",
+    val remoteUrl: String = "",
 )
 
 data class ConversationSession(

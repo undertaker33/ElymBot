@@ -1,6 +1,7 @@
 package com.astrbot.android.data
 
 import android.content.Context
+import com.astrbot.android.model.ConversationAttachment
 import com.astrbot.android.model.ConversationMessage
 import com.astrbot.android.model.ConversationSession
 import com.astrbot.android.runtime.RuntimeLogRepository
@@ -93,13 +94,19 @@ object ConversationRepository {
             .joinToString(separator = "\n") { "${it.role}: ${it.content}" }
     }
 
-    fun appendMessage(sessionId: String, role: String, content: String) {
+    fun appendMessage(
+        sessionId: String,
+        role: String,
+        content: String,
+        attachments: List<ConversationAttachment> = emptyList(),
+    ) {
         val currentSession = session(sessionId)
         val message = ConversationMessage(
             id = UUID.randomUUID().toString(),
             role = role,
             content = content,
             timestamp = System.currentTimeMillis(),
+            attachments = attachments,
         )
         _sessions.value = _sessions.value.map { item ->
             if (item.id == currentSession.id) {
@@ -110,7 +117,7 @@ object ConversationRepository {
         }
         persistSessions()
         RuntimeLogRepository.append(
-            "Conversation message appended: session=$sessionId role=$role chars=${content.length}",
+            "Conversation message appended: session=$sessionId role=$role chars=${content.length} attachments=${attachments.size}",
         )
     }
 
@@ -197,6 +204,23 @@ object ConversationRepository {
                                         put("role", message.role)
                                         put("content", message.content)
                                         put("timestamp", message.timestamp)
+                                        put(
+                                            "attachments",
+                                            JSONArray().apply {
+                                                message.attachments.forEach { attachment ->
+                                                    put(
+                                                        JSONObject().apply {
+                                                            put("id", attachment.id)
+                                                            put("type", attachment.type)
+                                                            put("mimeType", attachment.mimeType)
+                                                            put("fileName", attachment.fileName)
+                                                            put("base64Data", attachment.base64Data)
+                                                            put("remoteUrl", attachment.remoteUrl)
+                                                        },
+                                                    )
+                                                }
+                                            },
+                                        )
                                     },
                                 )
                             }
@@ -234,6 +258,22 @@ object ConversationRepository {
                                     role = message.optString("role"),
                                     content = message.optString("content"),
                                     timestamp = message.optLong("timestamp", System.currentTimeMillis()),
+                                    attachments = buildList {
+                                        val attachmentsArray = message.optJSONArray("attachments") ?: JSONArray()
+                                        for (attachmentIndex in 0 until attachmentsArray.length()) {
+                                            val attachment = attachmentsArray.optJSONObject(attachmentIndex) ?: continue
+                                            add(
+                                                ConversationAttachment(
+                                                    id = attachment.optString("id").ifBlank { UUID.randomUUID().toString() },
+                                                    type = attachment.optString("type").ifBlank { "image" },
+                                                    mimeType = attachment.optString("mimeType").ifBlank { "image/jpeg" },
+                                                    fileName = attachment.optString("fileName"),
+                                                    base64Data = attachment.optString("base64Data"),
+                                                    remoteUrl = attachment.optString("remoteUrl"),
+                                                ),
+                                            )
+                                        }
+                                    },
                                 ),
                             )
                         }

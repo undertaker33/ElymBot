@@ -30,6 +30,14 @@ class BotViewModel : ViewModel() {
         BotRepository.save(profile)
     }
 
+    fun saveWithConfigModel(profile: BotProfile, defaultChatProviderId: String) {
+        val resolvedConfig = ConfigRepository.resolve(profile.configProfileId)
+        ConfigRepository.save(
+            resolvedConfig.copy(defaultChatProviderId = defaultChatProviderId),
+        )
+        BotRepository.save(profile.copy(defaultProviderId = defaultChatProviderId))
+    }
+
     fun create() {
         BotRepository.create()
     }

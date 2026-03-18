@@ -118,6 +118,9 @@ object ConfigRepository {
                             sttEnabled = item.optBoolean("sttEnabled", false),
                             ttsEnabled = item.optBoolean("ttsEnabled", false),
                             realWorldTimeAwarenessEnabled = item.optBoolean("realWorldTimeAwarenessEnabled", false),
+                            imageCaptionTextEnabled = item.optBoolean("imageCaptionTextEnabled", false),
+                            webSearchEnabled = item.optBoolean("webSearchEnabled", false),
+                            proactiveEnabled = item.optBoolean("proactiveEnabled", false),
                             imageCaptionPrompt = item.optString(
                                 "imageCaptionPrompt",
                                 defaultProfiles().first().imageCaptionPrompt,
@@ -143,6 +146,9 @@ object ConfigRepository {
                         put("sttEnabled", profile.sttEnabled)
                         put("ttsEnabled", profile.ttsEnabled)
                         put("realWorldTimeAwarenessEnabled", profile.realWorldTimeAwarenessEnabled)
+                        put("imageCaptionTextEnabled", profile.imageCaptionTextEnabled)
+                        put("webSearchEnabled", profile.webSearchEnabled)
+                        put("proactiveEnabled", profile.proactiveEnabled)
                         put("imageCaptionPrompt", profile.imageCaptionPrompt)
                     },
                 )

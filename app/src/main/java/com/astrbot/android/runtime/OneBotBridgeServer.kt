@@ -7,6 +7,7 @@ import com.astrbot.android.data.ConversationRepository
 import com.astrbot.android.data.PersonaRepository
 import com.astrbot.android.data.ProviderRepository
 import com.astrbot.android.model.BotProfile
+import com.astrbot.android.model.ConversationAttachment
 import com.astrbot.android.model.PersonaProfile
 import com.astrbot.android.model.ProviderCapability
 import com.astrbot.android.model.ProviderProfile
@@ -167,7 +168,7 @@ object OneBotBridgeServer {
             if (handleBotCommand(event, bot, sessionId, session, persona)) {
                 return@withLock
             }
-            val provider = resolveProvider(bot, persona)
+            val provider = resolveProvider(bot)
             if (provider == null) {
                 RuntimeLogRepository.append("Auto reply skipped: no enabled chat provider configured")
                 sendFailureNoticeIfNeeded(event, "No chat model is configured for this bot.")
@@ -180,17 +181,25 @@ object OneBotBridgeServer {
                 botId = bot.id,
             )
 
-            ConversationRepository.appendMessage(sessionId, "user", event.promptContent)
+            val config = ConfigRepository.resolve(bot.configProfileId)
+            ConversationRepository.appendMessage(
+                sessionId = sessionId,
+                role = "user",
+                content = event.promptContent,
+                attachments = event.attachments,
+            )
             RuntimeLogRepository.append(
-                "QQ message received: type=${event.messageType} session=$sessionId chars=${event.text.length}",
+                "QQ message received: type=${event.messageType} session=$sessionId chars=${event.text.length} attachments=${event.attachments.size}",
             )
 
             val response = runCatching {
                 val currentSession = ConversationRepository.session(sessionId)
-                ChatCompletionService.sendChat(
+                ChatCompletionService.sendConfiguredChat(
                     provider = provider,
                     messages = currentSession.messages.takeLast(persona?.maxContextMessages ?: currentSession.maxContextMessages),
                     systemPrompt = buildSystemPrompt(bot, persona, event),
+                    config = config,
+                    availableProviders = ProviderRepository.providers.value,
                 )
             }.getOrElse { error ->
                 val details = error.message ?: error.javaClass.simpleName
@@ -205,7 +214,7 @@ object OneBotBridgeServer {
     }
 
     private fun shouldReply(event: IncomingMessageEvent): Boolean {
-        if (event.text.isBlank()) return false
+        if (event.text.isBlank() && event.attachments.isEmpty()) return false
         if (event.selfId.isNotBlank() && event.selfId == event.userId) return false
 
         val bot = resolveReplyBot(event) ?: return false
@@ -222,15 +231,13 @@ object OneBotBridgeServer {
         return BotRepository.resolveBoundBot(event.selfId)
     }
 
-    private fun resolveProvider(bot: BotProfile, persona: PersonaProfile?): ProviderProfile? {
+    private fun resolveProvider(bot: BotProfile): ProviderProfile? {
         val providers = ProviderRepository.providers.value.filter {
             it.enabled && ProviderCapability.CHAT in it.capabilities
         }
         val config = ConfigRepository.resolve(bot.configProfileId)
         val preferredIds = listOf(
             config.defaultChatProviderId,
-            bot.defaultProviderId,
-            persona?.defaultProviderId.orEmpty(),
         ).filter { it.isNotBlank() }
 
         return preferredIds.firstNotNullOfOrNull { preferredId ->
@@ -396,7 +403,7 @@ object OneBotBridgeServer {
                     RuntimeLogRepository.append("Bot command failed: persona not found target=${name.ifBlank { "-" }}")
                     true
                 } else {
-                    val providerId = resolveProvider(bot, targetPersona)?.id ?: session.providerId
+                    val providerId = resolveProvider(bot)?.id ?: session.providerId
                     ConversationRepository.updateSessionBindings(
                         sessionId = sessionId,
                         providerId = providerId,
@@ -457,6 +464,7 @@ object OneBotBridgeServer {
                 else -> parsedMessage.text
             },
             mentionsSelf = parsedMessage.mentionsSelf,
+            attachments = parsedMessage.attachments,
             senderName = senderName,
         )
     }
@@ -469,6 +477,7 @@ object OneBotBridgeServer {
         if (rawMessage is JSONArray) {
             val builder = StringBuilder()
             var mentionsSelf = false
+            val attachments = mutableListOf<ConversationAttachment>()
             for (index in 0 until rawMessage.length()) {
                 val segment = rawMessage.optJSONObject(index) ?: continue
                 when (segment.optString("type")) {
@@ -479,11 +488,21 @@ object OneBotBridgeServer {
                             mentionsSelf = true
                         }
                     }
+                    "image" -> {
+                        val data = segment.optJSONObject("data")
+                        attachments += ConversationAttachment(
+                            id = "${System.currentTimeMillis()}-$index",
+                            mimeType = "image/jpeg",
+                            fileName = data?.optString("file").orEmpty(),
+                            remoteUrl = data?.optString("url").orEmpty(),
+                        )
+                    }
                 }
             }
             return ParsedMessage(
                 text = builder.toString().trim(),
                 mentionsSelf = mentionsSelf,
+                attachments = attachments,
             )
         }
 
@@ -491,12 +510,14 @@ object OneBotBridgeServer {
             return ParsedMessage(
                 text = rawMessage.trim(),
                 mentionsSelf = false,
+                attachments = emptyList(),
             )
         }
 
         return ParsedMessage(
             text = fallbackText.trim(),
             mentionsSelf = false,
+            attachments = emptyList(),
         )
     }
 
@@ -569,6 +590,7 @@ object OneBotBridgeServer {
     private data class ParsedMessage(
         val text: String,
         val mentionsSelf: Boolean,
+        val attachments: List<ConversationAttachment>,
     )
 
     private data class IncomingMessageEvent(
@@ -580,6 +602,7 @@ object OneBotBridgeServer {
         val text: String,
         val promptContent: String,
         val mentionsSelf: Boolean,
+        val attachments: List<ConversationAttachment>,
         val senderName: String,
     ) {
         val targetId: String

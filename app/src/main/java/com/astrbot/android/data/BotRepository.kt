@@ -92,10 +92,13 @@ object BotRepository {
 
     fun save(profile: BotProfile) {
         repositoryScope.launch {
+            val resolvedConfigId = ConfigRepository.resolveExistingId(profile.configProfileId)
+            val configDefaultProviderId = ConfigRepository.resolve(resolvedConfigId).defaultChatProviderId
             val normalized = profile.copy(
                 accountHint = profile.boundQqUins.joinToString(", ").ifBlank { "QQ account not linked" },
-                configProfileId = ConfigRepository.resolveExistingId(profile.configProfileId),
+                configProfileId = resolvedConfigId,
                 boundQqUins = profile.boundQqUins.map { it.trim() }.filter { it.isNotBlank() }.distinct(),
+                defaultProviderId = configDefaultProviderId,
             )
             persistBinding(
                 normalized.id,
@@ -119,6 +122,8 @@ object BotRepository {
             id = "bot-${UUID.randomUUID()}",
             displayName = name,
             configProfileId = ConfigRepository.resolveExistingId(ConfigRepository.selectedProfileId.value),
+            defaultProviderId = ConfigRepository.resolveExistingId(ConfigRepository.selectedProfileId.value)
+                .let { ConfigRepository.resolve(it).defaultChatProviderId },
         )
         repositoryScope.launch {
             persistBinding(
@@ -164,7 +169,10 @@ object BotRepository {
         persistBindings()
         _botProfiles.value = _botProfiles.value.map { profile ->
             if (profile.configProfileId == deletedConfigId) {
-                profile.copy(configProfileId = resolvedFallbackId)
+                profile.copy(
+                    configProfileId = resolvedFallbackId,
+                    defaultProviderId = ConfigRepository.resolve(resolvedFallbackId).defaultChatProviderId,
+                )
             } else {
                 profile
             }

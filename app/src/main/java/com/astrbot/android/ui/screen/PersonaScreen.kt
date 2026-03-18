@@ -48,21 +48,17 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.astrbot.android.R
 import com.astrbot.android.model.PersonaProfile
-import com.astrbot.android.model.ProviderCapability
 import com.astrbot.android.ui.MonochromeUi
 import com.astrbot.android.ui.monochromeOutlinedTextFieldColors
 import com.astrbot.android.ui.monochromeSwitchColors
 import com.astrbot.android.ui.viewmodel.PersonaViewModel
-import com.astrbot.android.ui.viewmodel.ProviderViewModel
 import java.util.UUID
 
 @Composable
 fun PersonaScreen(
     personaViewModel: PersonaViewModel = viewModel(),
-    providerViewModel: ProviderViewModel = viewModel(),
 ) {
     val personas by personaViewModel.personas.collectAsState()
-    val providers by providerViewModel.providers.collectAsState()
     val context = LocalContext.current
 
     var searchQuery by remember { mutableStateOf("") }
@@ -71,7 +67,6 @@ fun PersonaScreen(
     var selectedTag by remember { mutableStateOf(allTagLabel) }
     var editingPersona by remember { mutableStateOf<PersonaProfile?>(null) }
 
-    val chatProviders = providers.filter { it.enabled && ProviderCapability.CHAT in it.capabilities }
     val tags = listOf(allTagLabel) + personas.mapNotNull { it.tag.takeIf(String::isNotBlank) }.distinct().sorted()
     val filteredPersonas = personas.filter { persona ->
         val matchesSearch = searchQuery.isBlank() ||
@@ -118,7 +113,6 @@ fun PersonaScreen(
             items(filteredPersonas, key = { it.id }) { persona ->
                 PersonaCard(
                     persona = persona,
-                    providerName = chatProviders.firstOrNull { it.id == persona.defaultProviderId }?.name.orEmpty(),
                     onClick = { editingPersona = persona },
                     onToggleEnabled = { personaViewModel.toggleEnabled(persona.id) },
                 )
@@ -133,7 +127,6 @@ fun PersonaScreen(
                     tag = "",
                     systemPrompt = "",
                     enabledTools = emptySet(),
-                    defaultProviderId = chatProviders.firstOrNull()?.id.orEmpty(),
                 )
             },
             modifier = Modifier
@@ -150,7 +143,6 @@ fun PersonaScreen(
     editingPersona?.let { profile ->
         PersonaEditorDialog(
             initialPersona = profile,
-            providerOptions = chatProviders.map { it.id to it.name },
             onDismiss = { editingPersona = null },
             onDelete = {
                 personaViewModel.delete(profile.id)
@@ -165,7 +157,7 @@ fun PersonaScreen(
                         tag = persona.tag,
                         systemPrompt = persona.systemPrompt,
                         enabledTools = emptySet(),
-                        defaultProviderId = persona.defaultProviderId,
+                        defaultProviderId = "",
                         maxContextMessages = persona.maxContextMessages,
                     )
                 }
@@ -179,7 +171,6 @@ fun PersonaScreen(
 @Composable
 private fun PersonaCard(
     persona: PersonaProfile,
-    providerName: String,
     onClick: () -> Unit,
     onToggleEnabled: () -> Unit,
 ) {
@@ -213,7 +204,6 @@ private fun PersonaCard(
                     text = buildList {
                         if (persona.tag.isNotBlank()) add(persona.tag)
                         add(stringResource(R.string.persona_context_count, persona.maxContextMessages))
-                        if (providerName.isNotBlank()) add(providerName)
                     }.joinToString(" | "),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
@@ -240,7 +230,6 @@ private fun PersonaCard(
 @Composable
 private fun PersonaEditorDialog(
     initialPersona: PersonaProfile,
-    providerOptions: List<Pair<String, String>>,
     onDismiss: () -> Unit,
     onDelete: () -> Unit,
     onSave: (PersonaProfile) -> Unit,
@@ -248,7 +237,6 @@ private fun PersonaEditorDialog(
     var name by remember(initialPersona.id) { mutableStateOf(initialPersona.name) }
     var tag by remember(initialPersona.id) { mutableStateOf(initialPersona.tag) }
     var systemPrompt by remember(initialPersona.id) { mutableStateOf(initialPersona.systemPrompt) }
-    var defaultProviderId by remember(initialPersona.id) { mutableStateOf(initialPersona.defaultProviderId) }
     var maxContextMessages by remember(initialPersona.id) { mutableStateOf(initialPersona.maxContextMessages.toString()) }
     var enabled by remember(initialPersona.id) { mutableStateOf(initialPersona.enabled) }
 
@@ -266,7 +254,7 @@ private fun PersonaEditorDialog(
                             name = name.trim().ifBlank { initialPersona.name },
                             tag = tag.trim(),
                             systemPrompt = systemPrompt.trim(),
-                            defaultProviderId = defaultProviderId,
+                            defaultProviderId = "",
                             maxContextMessages = maxContextMessages.toIntOrNull()?.coerceAtLeast(1) ?: 12,
                             enabledTools = emptySet(),
                             enabled = enabled,
@@ -317,12 +305,6 @@ private fun PersonaEditorDialog(
                     label = { Text(stringResource(R.string.persona_field_tag)) },
                     modifier = Modifier.fillMaxWidth(),
                     colors = monochromeOutlinedTextFieldColors(),
-                )
-                SelectionField(
-                    title = stringResource(R.string.persona_field_default_model),
-                    options = providerOptions,
-                    selectedId = defaultProviderId,
-                    onSelect = { defaultProviderId = it },
                 )
                 OutlinedTextField(
                     value = maxContextMessages,

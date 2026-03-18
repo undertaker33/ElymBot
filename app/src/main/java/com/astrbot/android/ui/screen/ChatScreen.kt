@@ -1,6 +1,13 @@
-﻿package com.astrbot.android.ui.screen
+package com.astrbot.android.ui.screen
 
+import android.content.Context
+import android.net.Uri
+import android.provider.OpenableColumns
+import android.util.Base64
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,10 +20,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Send
+import androidx.compose.material.icons.outlined.AddPhotoAlternate
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -40,12 +49,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.astrbot.android.R
+import com.astrbot.android.model.ConversationAttachment
 import com.astrbot.android.model.ProviderCapability
 import com.astrbot.android.ui.ChatTopBar
 import com.astrbot.android.ui.MonochromeUi
@@ -53,12 +64,14 @@ import com.astrbot.android.ui.monochromeOutlinedTextFieldColors
 import com.astrbot.android.ui.monochromeSwitchColors
 import com.astrbot.android.ui.viewmodel.ChatViewModel
 import kotlinx.coroutines.launch
+import java.util.UUID
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatScreen(
     chatViewModel: ChatViewModel = viewModel(),
 ) {
+    val context = LocalContext.current
     val bots by chatViewModel.bots.collectAsState()
     val providers by chatViewModel.providers.collectAsState()
     val sessions by chatViewModel.sessions.collectAsState()
@@ -73,8 +86,15 @@ fun ChatScreen(
     val visibleSessions = sessions.filter { session -> showQqConversations || !session.isQqConversation() }
 
     var input by remember(uiState.selectedSessionId) { mutableStateOf("") }
+    var pendingAttachments by remember(uiState.selectedSessionId) { mutableStateOf(emptyList<ConversationAttachment>()) }
     var selectorExpanded by remember(uiState.selectedSessionId, uiState.selectedBotId, uiState.selectedProviderId) {
         mutableStateOf(false)
+    }
+    val pickImageLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        val attachment = uri?.let { loadConversationAttachment(context, it) }
+        if (attachment != null) {
+            pendingAttachments = pendingAttachments + attachment
+        }
     }
 
     ModalNavigationDrawer(
@@ -237,54 +257,99 @@ fun ChatScreen(
                     shape = RoundedCornerShape(24.dp),
                     color = MonochromeUi.elevatedSurface,
                 ) {
-                    Row(
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 12.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        OutlinedTextField(
-                            value = input,
-                            onValueChange = { input = it },
-                            modifier = Modifier.weight(1f),
-                            placeholder = {
-                                Text(
-                                    chatProviders.firstOrNull { it.id == uiState.selectedProviderId }?.name
-                                        ?: currentBot?.displayName
-                                        ?: stringResource(R.string.chat_choose_model),
-                                )
-                            },
-                            singleLine = true,
-                            maxLines = 1,
-                            shape = RoundedCornerShape(24.dp),
-                            colors = monochromeOutlinedTextFieldColors(),
-                        )
-                        if (uiState.isSending) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(28.dp),
-                                strokeWidth = 2.dp,
-                                color = MonochromeUi.textPrimary,
-                            )
-                        } else {
+                        if (pendingAttachments.isNotEmpty()) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                pendingAttachments.forEach { attachment ->
+                                    Surface(
+                                        shape = RoundedCornerShape(16.dp),
+                                        color = MonochromeUi.cardAltBackground,
+                                    ) {
+                                        Text(
+                                            text = attachment.fileName.ifBlank { stringResource(R.string.chat_image_attachment) },
+                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                            color = MonochromeUi.textPrimary,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
                             Surface(
-                                onClick = {
-                                    chatViewModel.sendMessage(input)
-                                    input = ""
-                                },
-                                enabled = input.isNotBlank() && chatProviders.isNotEmpty(),
+                                onClick = { pickImageLauncher.launch("image/*") },
                                 shape = CircleShape,
-                                color = MonochromeUi.strong,
+                                color = MonochromeUi.iconButtonSurface,
                             ) {
                                 Box(
                                     modifier = Modifier.size(38.dp),
                                     contentAlignment = Alignment.Center,
                                 ) {
                                     androidx.compose.material3.Icon(
-                                        Icons.AutoMirrored.Outlined.Send,
-                                        contentDescription = stringResource(R.string.chat_send),
-                                        tint = MonochromeUi.strongText,
+                                        Icons.Outlined.AddPhotoAlternate,
+                                        contentDescription = stringResource(R.string.chat_add_image),
+                                        tint = MonochromeUi.textPrimary,
                                     )
+                                }
+                            }
+                            OutlinedTextField(
+                                value = input,
+                                onValueChange = { input = it },
+                                modifier = Modifier.weight(1f),
+                                placeholder = {
+                                    Text(
+                                        chatProviders.firstOrNull { it.id == uiState.selectedProviderId }?.name
+                                            ?: currentBot?.displayName
+                                            ?: stringResource(R.string.chat_choose_model),
+                                    )
+                                },
+                                singleLine = true,
+                                maxLines = 1,
+                                shape = RoundedCornerShape(24.dp),
+                                colors = monochromeOutlinedTextFieldColors(),
+                            )
+                            if (uiState.isSending) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(28.dp),
+                                    strokeWidth = 2.dp,
+                                    color = MonochromeUi.textPrimary,
+                                )
+                            } else {
+                                Surface(
+                                    onClick = {
+                                        chatViewModel.sendMessage(input, pendingAttachments)
+                                        input = ""
+                                        pendingAttachments = emptyList()
+                                    },
+                                    enabled = (input.isNotBlank() || pendingAttachments.isNotEmpty()) && chatProviders.isNotEmpty(),
+                                    shape = CircleShape,
+                                    color = MonochromeUi.strong,
+                                ) {
+                                    Box(
+                                        modifier = Modifier.size(38.dp),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        androidx.compose.material3.Icon(
+                                            Icons.AutoMirrored.Outlined.Send,
+                                            contentDescription = stringResource(R.string.chat_send),
+                                            tint = MonochromeUi.strongText,
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -331,11 +396,24 @@ fun ChatScreen(
                                 shape = RoundedCornerShape(24.dp),
                                 color = if (isUser) MonochromeUi.cardAltBackground else MonochromeUi.cardBackground,
                             ) {
-                                Text(
-                                    message.content,
-                                    color = MonochromeUi.textPrimary,
+                                Column(
                                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-                                )
+                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    if (message.content.isNotBlank()) {
+                                        Text(
+                                            message.content,
+                                            color = MonochromeUi.textPrimary,
+                                        )
+                                    }
+                                    if (message.attachments.isNotEmpty()) {
+                                        Text(
+                                            text = stringResource(R.string.chat_image_count, message.attachments.size),
+                                            color = MonochromeUi.textSecondary,
+                                            style = MaterialTheme.typography.bodySmall,
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
@@ -347,4 +425,27 @@ fun ChatScreen(
 
 private fun com.astrbot.android.model.ConversationSession.isQqConversation(): Boolean {
     return id.startsWith("qq-")
+}
+
+private fun loadConversationAttachment(
+    context: Context,
+    uri: Uri,
+): ConversationAttachment? {
+    val mimeType = context.contentResolver.getType(uri).orEmpty().ifBlank { "image/jpeg" }
+    val fileName = context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+        ?.use { cursor ->
+            if (cursor.moveToFirst()) {
+                cursor.getString(cursor.getColumnIndexOrThrow(OpenableColumns.DISPLAY_NAME))
+            } else {
+                null
+            }
+        }.orEmpty()
+    val bytes = runCatching { context.contentResolver.openInputStream(uri)?.use { it.readBytes() } }.getOrNull() ?: return null
+
+    return ConversationAttachment(
+        id = UUID.randomUUID().toString(),
+        mimeType = mimeType,
+        fileName = fileName,
+        base64Data = Base64.encodeToString(bytes, Base64.NO_WRAP),
+    )
 }

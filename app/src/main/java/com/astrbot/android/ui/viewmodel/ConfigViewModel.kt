@@ -23,13 +23,18 @@ class ConfigViewModel : ViewModel() {
         ConfigRepository.save(profile)
     }
 
-    fun create() {
+    fun create(): ConfigProfile {
         val created = ConfigRepository.create()
         ConfigRepository.select(created.id)
+        return created
     }
 
     fun delete(profileId: String) {
         val fallbackId = ConfigRepository.delete(profileId)
         BotRepository.replaceConfigBinding(profileId, fallbackId)
+    }
+
+    fun resolve(profileId: String): ConfigProfile {
+        return ConfigRepository.resolve(profileId)
     }
 }

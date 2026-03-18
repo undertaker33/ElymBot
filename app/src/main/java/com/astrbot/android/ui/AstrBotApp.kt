@@ -27,6 +27,7 @@ import androidx.compose.material.icons.automirrored.outlined.List
 import androidx.compose.material.icons.automirrored.outlined.OpenInNew
 import androidx.compose.material.icons.outlined.ArrowDropDown
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Face
 import androidx.compose.material.icons.outlined.Memory
 import androidx.compose.material.icons.outlined.Menu
@@ -74,6 +75,7 @@ import com.astrbot.android.R
 import com.astrbot.android.ui.screen.BotScreen
 import com.astrbot.android.ui.screen.ChatScreen
 import com.astrbot.android.ui.screen.ConfigScreen
+import com.astrbot.android.ui.screen.ConfigDetailScreen
 import com.astrbot.android.ui.screen.LogScreen
 import com.astrbot.android.ui.screen.MeScreen
 import com.astrbot.android.ui.screen.PersonaScreen
@@ -91,6 +93,7 @@ fun AstrBotApp(bridgeViewModel: BridgeViewModel = viewModel()) {
     val navController = rememberNavController()
     val context = LocalContext.current
     var botModelsSelected by remember { mutableStateOf(false) }
+    var configSelectedIds by remember { mutableStateOf(setOf<String>()) }
     val botsLabel = stringResource(R.string.nav_bots)
     val modelsLabel = stringResource(R.string.nav_models)
     val destinations = listOf(
@@ -146,7 +149,16 @@ fun AstrBotApp(bridgeViewModel: BridgeViewModel = viewModel()) {
                         )
 
                         AppDestination.Chat -> Unit
-                        AppDestination.Config -> MainTopBar(title = stringResource(R.string.nav_config), titleAlignment = TopBarTitleAlignment.Center)
+                        AppDestination.Config -> {
+                            if (configSelectedIds.isNotEmpty()) {
+                                SelectionModeTopBar(
+                                    count = configSelectedIds.size,
+                                    onCancel = { configSelectedIds = emptySet() },
+                                )
+                            } else {
+                                MainTopBar(title = stringResource(R.string.nav_config), titleAlignment = TopBarTitleAlignment.Center)
+                            }
+                        }
                         AppDestination.Me -> MainTopBar(title = stringResource(R.string.nav_me), titleAlignment = TopBarTitleAlignment.Center)
                         else -> MainTopBar(title = label)
                     }
@@ -197,7 +209,22 @@ fun AstrBotApp(bridgeViewModel: BridgeViewModel = viewModel()) {
                 }
                 composable(AppDestination.Personas.route) { PersonaScreen() }
                 composable(AppDestination.Chat.route) { ChatScreen() }
-                composable(AppDestination.Config.route) { ConfigScreen() }
+                composable(AppDestination.Config.route) {
+                    ConfigScreen(
+                        selectedConfigIds = configSelectedIds,
+                        onSelectedConfigIdsChange = { configSelectedIds = it },
+                        onOpenProfile = { profileId ->
+                            navController.navigate(AppDestination.ConfigDetail.routeFor(profileId))
+                        },
+                    )
+                }
+                composable(AppDestination.ConfigDetail.route) { backStackEntry ->
+                    val profileId = backStackEntry.arguments?.getString("configId").orEmpty()
+                    ConfigDetailScreen(
+                        profileId = profileId,
+                        onBack = { navController.popBackStack() },
+                    )
+                }
                 composable(AppDestination.Logs.route) {
                     SubPageScaffold(title = stringResource(R.string.nav_logs), onBack = { navController.popBackStack() }) { inner ->
                         Box(modifier = Modifier.fillMaxSize().padding(inner)) {
@@ -239,6 +266,44 @@ fun AstrBotApp(bridgeViewModel: BridgeViewModel = viewModel()) {
             onStart = { ContainerBridgeController.start(context) },
             onStop = { ContainerBridgeController.stop(context) },
         )
+    }
+}
+
+@Composable
+private fun SelectionModeTopBar(
+    count: Int,
+    onCancel: () -> Unit,
+) {
+    Surface(color = MonochromeUi.topBarSurface, shadowElevation = 0.dp) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .statusBarsPadding()
+                .height(58.dp)
+                .padding(horizontal = 16.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            TextButton(onClick = onCancel) {
+                Icon(Icons.Outlined.Close, contentDescription = stringResource(R.string.common_cancel), tint = MonochromeUi.textPrimary)
+                Text(
+                    text = stringResource(R.string.common_cancel),
+                    color = MonochromeUi.textPrimary,
+                    fontWeight = FontWeight.Medium,
+                )
+            }
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(end = 52.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = stringResource(R.string.config_selected_count, count),
+                    color = MonochromeUi.textPrimary,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+        }
     }
 }
 
@@ -507,6 +572,9 @@ private sealed class AppDestination(
     data object Personas : AppDestination("personas", Icons.Outlined.Face)
     data object Chat : AppDestination("chat", Icons.Outlined.ChatBubbleOutline)
     data object Config : AppDestination("config", Icons.Outlined.Settings)
+    data object ConfigDetail : AppDestination("config/detail/{configId}", Icons.Outlined.Settings) {
+        fun routeFor(configId: String): String = "config/detail/$configId"
+    }
     data object Logs : AppDestination("logs", Icons.AutoMirrored.Outlined.List)
     data object Me : AppDestination("me", Icons.Outlined.PersonOutline)
     data object QQAccount : AppDestination("qq-account", Icons.Outlined.PersonOutline)

@@ -8,11 +8,14 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -23,6 +26,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.HelpOutline
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.AlertDialog
@@ -132,6 +136,7 @@ internal fun ProviderCatalogContent(
     var isFetchingModels by remember { mutableStateOf(false) }
     var fetchedModels by remember { mutableStateOf(emptyList<String>()) }
     var isCheckingMultimodal by remember { mutableStateOf(false) }
+    var showImageHelp by remember { mutableStateOf(false) }
 
     val capabilityChips = ProviderCapability.entries.map { it.displayLabel() }
     val filteredProviders = providers.filter { provider ->
@@ -197,16 +202,34 @@ internal fun ProviderCatalogContent(
             }
         }
 
-        FloatingActionButton(
-            onClick = { pendingNewCapability = selectedCapability },
+        Column(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .padding(20.dp),
-            containerColor = MonochromeUi.fabBackground,
-            contentColor = MonochromeUi.fabContent,
-            elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 6.dp),
+                .navigationBarsPadding()
+                .padding(horizontal = 20.dp, vertical = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            horizontalAlignment = Alignment.End,
         ) {
-            Icon(Icons.Outlined.Add, contentDescription = stringResource(R.string.provider_add))
+            FloatingActionButton(
+                onClick = { showImageHelp = true },
+                modifier = Modifier.size(50.dp),
+                containerColor = MonochromeUi.cardBackground,
+                contentColor = MonochromeUi.textPrimary,
+                elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 4.dp),
+            ) {
+                Icon(
+                    Icons.Outlined.HelpOutline,
+                    contentDescription = stringResource(R.string.provider_image_help_title),
+                )
+            }
+            FloatingActionButton(
+                onClick = { pendingNewCapability = selectedCapability },
+                containerColor = MonochromeUi.fabBackground,
+                contentColor = MonochromeUi.fabContent,
+                elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 6.dp),
+            ) {
+                Icon(Icons.Outlined.Add, contentDescription = stringResource(R.string.provider_add))
+            }
         }
     }
 
@@ -285,6 +308,60 @@ internal fun ProviderCatalogContent(
                 Toast.makeText(context, context.getString(R.string.common_saved), Toast.LENGTH_SHORT).show()
                 editingProvider = null
             },
+        )
+    }
+
+    if (showImageHelp) {
+        AlertDialog(
+            onDismissRequest = { showImageHelp = false },
+            containerColor = MonochromeUi.cardBackground,
+            titleContentColor = MonochromeUi.textPrimary,
+            textContentColor = MonochromeUi.textPrimary,
+            confirmButton = {
+                TextButton(
+                    onClick = { showImageHelp = false },
+                    colors = ButtonDefaults.textButtonColors(contentColor = MonochromeUi.textPrimary),
+                ) {
+                    Text(stringResource(R.string.common_close))
+                }
+            },
+            title = { Text(stringResource(R.string.provider_image_help_title)) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    ProviderHelpBlock(
+                        title = stringResource(R.string.provider_image_help_estimated_title),
+                        body = stringResource(R.string.provider_image_help_estimated_body),
+                    )
+                    ProviderHelpBlock(
+                        title = stringResource(R.string.provider_image_help_tested_title),
+                        body = stringResource(R.string.provider_image_help_tested_body),
+                    )
+                    ProviderHelpBlock(
+                        title = stringResource(R.string.provider_image_help_fallback_title),
+                        body = stringResource(R.string.provider_image_help_fallback_body),
+                    )
+                }
+            },
+        )
+    }
+}
+
+@Composable
+private fun ProviderHelpBlock(
+    title: String,
+    body: String,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.SemiBold,
+            color = MonochromeUi.textPrimary,
+        )
+        Text(
+            text = body,
+            style = MaterialTheme.typography.bodySmall,
+            color = MonochromeUi.textSecondary,
         )
     }
 }

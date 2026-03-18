@@ -58,6 +58,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.astrbot.android.R
 import com.astrbot.android.model.BotProfile
+import com.astrbot.android.model.ConfigProfile
 import com.astrbot.android.model.ProviderCapability
 import com.astrbot.android.model.SavedQqAccount
 import com.astrbot.android.ui.MonochromeUi
@@ -100,8 +101,8 @@ fun BotScreen(
                 qqAccountOptions = loginState.savedAccounts,
                 onSelectBot = { botViewModel.select(it) },
                 onToggleBot = { bot, enabled -> botViewModel.save(bot.copy(autoReplyEnabled = enabled)) },
-                onSaveBot = { bot ->
-                    botViewModel.save(bot)
+                onSaveBot = { bot, defaultChatProviderId ->
+                    botViewModel.saveWithConfigModel(bot, defaultChatProviderId)
                     botViewModel.select(bot.id)
                     Toast.makeText(context, context.getString(R.string.common_saved), Toast.LENGTH_SHORT).show()
                 },
@@ -131,7 +132,7 @@ private fun BotCatalogContent(
     qqAccountOptions: List<SavedQqAccount>,
     onSelectBot: (String) -> Unit,
     onToggleBot: (BotProfile, Boolean) -> Unit,
-    onSaveBot: (BotProfile) -> Unit,
+    onSaveBot: (BotProfile, String) -> Unit,
     onDeleteBot: (BotProfile) -> Unit,
 ) {
     var searchQuery by remember { mutableStateOf("") }
@@ -183,7 +184,7 @@ private fun BotCatalogContent(
                 BotListCard(
                     bot = bot,
                     active = bot.id == selectedBotId,
-                    providerName = providerOptions.firstOrNull { it.id == bot.defaultProviderId }?.name.orEmpty(),
+                    providerName = configProviderName(configOptions, providerOptions, bot.configProfileId),
                     personaName = personaOptions.firstOrNull { it.id == bot.defaultPersonaId }?.name.orEmpty(),
                     qqAccountsLabel = bot.boundQqUins.ifEmpty { listOf("No QQ bound") }.joinToString(", "),
                     onClick = {
@@ -202,7 +203,6 @@ private fun BotCatalogContent(
                     displayName = newBotLabel,
                     tag = "",
                     accountHint = "",
-                    defaultProviderId = providerOptions.firstOrNull()?.id.orEmpty(),
                     defaultPersonaId = personaOptions.firstOrNull()?.id.orEmpty(),
                     configProfileId = configOptions.firstOrNull()?.id ?: "default",
                 )
@@ -222,6 +222,7 @@ private fun BotCatalogContent(
         BotEditorDialog(
             initialBot = profile,
             providerOptions = providerOptions.map { it.id to it.name },
+            configProfiles = configOptions,
             personaOptions = personaOptions.map { it.id to it.name },
             configOptions = configOptions.map { it.id to it.name },
             qqAccountOptions = qqAccountOptions,
@@ -232,8 +233,8 @@ private fun BotCatalogContent(
                 }
                 editingBot = null
             },
-            onSave = {
-                onSaveBot(it)
+            onSave = { bot, defaultChatProviderId ->
+                onSaveBot(bot, defaultChatProviderId)
                 editingBot = null
             },
         )
@@ -309,12 +310,13 @@ private fun BotListCard(
 private fun BotEditorDialog(
     initialBot: BotProfile,
     providerOptions: List<Pair<String, String>>,
+    configProfiles: List<ConfigProfile>,
     personaOptions: List<Pair<String, String>>,
     configOptions: List<Pair<String, String>>,
     qqAccountOptions: List<SavedQqAccount>,
     onDismiss: () -> Unit,
     onDelete: () -> Unit,
-    onSave: (BotProfile) -> Unit,
+    onSave: (BotProfile, String) -> Unit,
 ) {
     val noQqBoundLabel = stringResource(R.string.bot_no_qq_bound)
     var displayName by remember(initialBot.id) { mutableStateOf(initialBot.displayName) }
@@ -323,9 +325,14 @@ private fun BotEditorDialog(
     var triggerWords by remember(initialBot.id) { mutableStateOf(initialBot.triggerWords.joinToString(", ")) }
     var autoReplyEnabled by remember(initialBot.id) { mutableStateOf(initialBot.autoReplyEnabled) }
     var persistConversationLocally by remember(initialBot.id) { mutableStateOf(initialBot.persistConversationLocally) }
-    var defaultProviderId by remember(initialBot.id) { mutableStateOf(initialBot.defaultProviderId) }
     var defaultPersonaId by remember(initialBot.id) { mutableStateOf(initialBot.defaultPersonaId) }
     var configProfileId by remember(initialBot.id) { mutableStateOf(initialBot.configProfileId) }
+    var defaultProviderId by remember(initialBot.id) {
+        mutableStateOf(
+            configProfiles.firstOrNull { it.id == initialBot.configProfileId }?.defaultChatProviderId
+                ?: initialBot.defaultProviderId,
+        )
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -345,10 +352,10 @@ private fun BotEditorDialog(
                             triggerWords = triggerWords.split(",").map { it.trim() }.filter { it.isNotBlank() },
                             autoReplyEnabled = autoReplyEnabled,
                             persistConversationLocally = persistConversationLocally,
-                            defaultProviderId = defaultProviderId,
                             defaultPersonaId = defaultPersonaId,
                             configProfileId = configProfileId,
                         ),
+                        defaultProviderId,
                     )
                 },
             ) {
@@ -425,7 +432,10 @@ private fun BotEditorDialog(
                     title = stringResource(R.string.bot_field_config_profile),
                     options = configOptions,
                     selectedId = configProfileId,
-                    onSelect = { configProfileId = it },
+                    onSelect = {
+                        configProfileId = it
+                        defaultProviderId = configProfiles.firstOrNull { profile -> profile.id == it }?.defaultChatProviderId.orEmpty()
+                    },
                 )
                 Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
                     Column(modifier = Modifier.weight(1f)) {
@@ -538,6 +548,15 @@ private fun MultiSelectionField(
             }
         }
     }
+}
+
+private fun configProviderName(
+    configOptions: List<ConfigProfile>,
+    providerOptions: List<com.astrbot.android.model.ProviderProfile>,
+    configProfileId: String,
+): String {
+    val providerId = configOptions.firstOrNull { it.id == configProfileId }?.defaultChatProviderId.orEmpty()
+    return providerOptions.firstOrNull { it.id == providerId }?.name.orEmpty()
 }
 
 @Composable

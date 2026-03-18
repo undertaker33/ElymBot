@@ -8,6 +8,7 @@ import com.astrbot.android.data.ConfigRepository
 import com.astrbot.android.data.ConversationRepository
 import com.astrbot.android.data.PersonaRepository
 import com.astrbot.android.data.ProviderRepository
+import com.astrbot.android.model.ConversationAttachment
 import com.astrbot.android.model.BotProfile
 import com.astrbot.android.model.ConversationMessage
 import com.astrbot.android.model.ConversationSession
@@ -138,10 +139,10 @@ class ChatViewModel : ViewModel() {
         RuntimeLogRepository.append("Chat streaming toggled: enabled=${_uiState.value.streamingEnabled}")
     }
 
-    fun sendMessage(input: String) {
+    fun sendMessage(input: String, attachments: List<ConversationAttachment> = emptyList()) {
         val sessionId = _uiState.value.selectedSessionId
         val content = input.trim()
-        if (content.isBlank() || _uiState.value.isSending) return
+        if ((content.isBlank() && attachments.isEmpty()) || _uiState.value.isSending) return
 
         val provider = selectedProvider()
         if (provider == null) {
@@ -151,19 +152,22 @@ class ChatViewModel : ViewModel() {
         }
 
         val persona = selectedPersona()
+        val config = selectedBot()?.configProfileId?.let(ConfigRepository::resolve)
         syncSessionBindings(sessionId, provider.id)
-        ConversationRepository.appendMessage(sessionId, "user", content)
-        maybeAutoRenameSession(sessionId, content)
+        ConversationRepository.appendMessage(sessionId, "user", content, attachments)
+        maybeAutoRenameSession(sessionId, content.ifBlank { attachments.firstOrNull()?.fileName ?: "Image" })
         _uiState.value = _uiState.value.copy(isSending = true, error = "")
 
         viewModelScope.launch {
             try {
                 val currentSession = ConversationRepository.session(sessionId)
                 val response = withContext(Dispatchers.IO) {
-                    ChatCompletionService.sendChat(
+                    ChatCompletionService.sendConfiguredChat(
                         provider = provider,
                         messages = currentSession.messages.takeLast(currentSession.maxContextMessages),
                         systemPrompt = buildSystemPrompt(persona?.systemPrompt),
+                        config = config,
+                        availableProviders = providers.value,
                     )
                 }
                 ConversationRepository.appendMessage(sessionId, "assistant", response)
@@ -217,15 +221,11 @@ class ChatViewModel : ViewModel() {
         if (!preferredProviderId.isNullOrBlank() && enabledProviders.any { it.id == preferredProviderId }) {
             return preferredProviderId
         }
-        val botProviderId = fallbackBot?.defaultProviderId
         val configProviderId = fallbackBot
             ?.configProfileId
             ?.let { ConfigRepository.resolve(it).defaultChatProviderId }
         if (!configProviderId.isNullOrBlank() && enabledProviders.any { it.id == configProviderId }) {
             return configProviderId
-        }
-        if (!botProviderId.isNullOrBlank() && enabledProviders.any { it.id == botProviderId }) {
-            return botProviderId
         }
         return enabledProviders.firstOrNull()?.id.orEmpty()
     }
