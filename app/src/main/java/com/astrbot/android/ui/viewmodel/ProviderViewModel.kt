@@ -44,4 +44,8 @@ class ProviderViewModel : ViewModel() {
     fun delete(id: String) {
         ProviderRepository.delete(id)
     }
+
+    fun updateMultimodalProbeSupport(id: String, probeSupport: FeatureSupportState) {
+        ProviderRepository.updateMultimodalProbeSupport(id, probeSupport)
+    }
 }

@@ -267,88 +267,94 @@ private fun ConfigDetailContent(
                     title = stringResource(R.string.config_section_model_settings),
                     subtitle = stringResource(R.string.config_section_model_settings_desc),
                 ) {
-                    OutlinedTextField(
-                        value = name,
-                        onValueChange = { name = it },
-                        label = { Text(stringResource(R.string.config_name)) },
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = monochromeOutlinedTextFieldColors(),
-                    )
-                    SelectionField(
-                        title = stringResource(R.string.config_default_chat_model),
-                        options = chatModelOptions,
-                        selectedId = defaultChatProviderId,
-                        onSelect = { defaultChatProviderId = it },
-                    )
-                    SelectionField(
-                        title = stringResource(R.string.config_default_caption_model),
-                        options = captionModelOptions,
-                        selectedId = defaultVisionProviderId,
-                        onSelect = { defaultVisionProviderId = it },
-                    )
-                    Text(
-                        text = if (captionModelOptions.isEmpty()) {
-                            stringResource(R.string.config_caption_model_empty)
-                        } else {
-                            stringResource(R.string.config_caption_model_hint)
-                        },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MonochromeUi.textSecondary,
-                    )
-                    ConfigToggleRow(
-                        title = stringResource(R.string.config_enable_stt),
-                        subtitle = stringResource(R.string.config_enable_stt_desc),
-                        checked = sttEnabled,
-                        onCheckedChange = { sttEnabled = it },
-                    )
-                    ConfigToggleRow(
-                        title = stringResource(R.string.config_enable_tts),
-                        subtitle = stringResource(R.string.config_enable_tts_desc),
-                        checked = ttsEnabled,
-                        onCheckedChange = { ttsEnabled = it },
-                    )
-                    ConfigToggleRow(
-                        title = stringResource(R.string.config_time_awareness),
-                        subtitle = stringResource(R.string.config_time_awareness_desc),
-                        checked = realWorldTimeAwarenessEnabled,
-                        onCheckedChange = { realWorldTimeAwarenessEnabled = it },
-                    )
-                    ConfigToggleRow(
-                        title = stringResource(R.string.config_image_caption_text_title),
-                        subtitle = stringResource(R.string.config_image_caption_text_desc),
-                        checked = imageCaptionTextEnabled,
-                        onCheckedChange = { imageCaptionTextEnabled = it },
-                    )
-                    if (missingCaptionModel) {
-                        InlineConfigNotice(
-                            text = stringResource(R.string.config_caption_model_required_notice),
+                    ConfigFieldGroup {
+                        OutlinedTextField(
+                            value = name,
+                            onValueChange = { name = it },
+                            label = { Text(stringResource(R.string.config_name)) },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = monochromeOutlinedTextFieldColors(),
                         )
-                    } else if (imageCaptionTextEnabled && chatModelSupportsImages) {
-                        InlineConfigNotice(
-                            text = stringResource(R.string.config_caption_model_multimodal_notice),
+                        SelectionField(
+                            title = stringResource(R.string.config_default_chat_model),
+                            options = chatModelOptions,
+                            selectedId = defaultChatProviderId,
+                            onSelect = { defaultChatProviderId = it },
+                        )
+                        SelectionField(
+                            title = stringResource(R.string.config_default_caption_model),
+                            options = captionModelOptions,
+                            selectedId = defaultVisionProviderId,
+                            onSelect = { defaultVisionProviderId = it },
+                        )
+                        Text(
+                            text = if (captionModelOptions.isEmpty()) {
+                                stringResource(R.string.config_caption_model_empty)
+                            } else {
+                                stringResource(R.string.config_caption_model_hint)
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MonochromeUi.textSecondary,
                         )
                     }
-                    ConfigToggleRow(
-                        title = stringResource(R.string.config_web_search_title),
-                        subtitle = stringResource(R.string.config_web_search_desc),
-                        checked = webSearchEnabled,
-                        onCheckedChange = { webSearchEnabled = it },
-                    )
-                    ConfigToggleRow(
-                        title = stringResource(R.string.config_proactive_title),
-                        subtitle = stringResource(R.string.config_proactive_desc),
-                        checked = proactiveEnabled,
-                        onCheckedChange = { proactiveEnabled = it },
-                    )
-                    OutlinedTextField(
-                        value = imageCaptionPrompt,
-                        onValueChange = { imageCaptionPrompt = it },
-                        label = { Text(stringResource(R.string.config_caption_prompt)) },
-                        modifier = Modifier.fillMaxWidth(),
-                        minLines = 4,
-                        maxLines = 8,
-                        colors = monochromeOutlinedTextFieldColors(),
-                    )
+                    ConfigFieldGroup {
+                        ConfigToggleRow(
+                            title = stringResource(R.string.config_enable_stt),
+                            subtitle = stringResource(R.string.config_enable_stt_desc),
+                            checked = sttEnabled,
+                            onCheckedChange = { sttEnabled = it },
+                        )
+                        ConfigToggleRow(
+                            title = stringResource(R.string.config_enable_tts),
+                            subtitle = stringResource(R.string.config_enable_tts_desc),
+                            checked = ttsEnabled,
+                            onCheckedChange = { ttsEnabled = it },
+                        )
+                        ConfigToggleRow(
+                            title = stringResource(R.string.config_time_awareness),
+                            subtitle = stringResource(R.string.config_time_awareness_desc),
+                            checked = realWorldTimeAwarenessEnabled,
+                            onCheckedChange = { realWorldTimeAwarenessEnabled = it },
+                        )
+                        ConfigToggleRow(
+                            title = stringResource(R.string.config_web_search_title),
+                            subtitle = stringResource(R.string.config_web_search_desc),
+                            checked = webSearchEnabled,
+                            onCheckedChange = { webSearchEnabled = it },
+                        )
+                        ConfigToggleRow(
+                            title = stringResource(R.string.config_proactive_title),
+                            subtitle = stringResource(R.string.config_proactive_desc),
+                            checked = proactiveEnabled,
+                            onCheckedChange = { proactiveEnabled = it },
+                        )
+                    }
+                    ConfigFieldGroup {
+                        ConfigToggleRow(
+                            title = stringResource(R.string.config_image_caption_text_title),
+                            subtitle = stringResource(R.string.config_image_caption_text_desc),
+                            checked = imageCaptionTextEnabled,
+                            onCheckedChange = { imageCaptionTextEnabled = it },
+                        )
+                        if (missingCaptionModel) {
+                            InlineConfigNotice(
+                                text = stringResource(R.string.config_caption_model_required_notice),
+                            )
+                        } else if (imageCaptionTextEnabled && chatModelSupportsImages) {
+                            InlineConfigNotice(
+                                text = stringResource(R.string.config_caption_model_multimodal_notice),
+                            )
+                        }
+                        OutlinedTextField(
+                            value = imageCaptionPrompt,
+                            onValueChange = { imageCaptionPrompt = it },
+                            label = { Text(stringResource(R.string.config_caption_prompt)) },
+                            modifier = Modifier.fillMaxWidth(),
+                            minLines = 4,
+                            maxLines = 8,
+                            colors = monochromeOutlinedTextFieldColors(),
+                        )
+                    }
                 }
             }
             item(key = ConfigSection.KnowledgeBase.name) {
@@ -395,7 +401,7 @@ private fun ConfigDetailContent(
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             TextButton(
-                                colors = ButtonDefaults.textButtonColors(contentColor = MonochromeUi.textSecondary),
+                                colors = ButtonDefaults.textButtonColors(contentColor = androidx.compose.ui.graphics.Color(0xFFB42318)),
                                 onClick = { showDeleteConfirm = true },
                             ) {
                                 Text(stringResource(R.string.common_delete))
@@ -444,7 +450,7 @@ private fun ConfigDetailContent(
                 text = { Text(stringResource(R.string.config_delete_single_confirm_message)) },
                 confirmButton = {
                     TextButton(
-                        colors = ButtonDefaults.textButtonColors(contentColor = MonochromeUi.textPrimary),
+                        colors = ButtonDefaults.textButtonColors(contentColor = androidx.compose.ui.graphics.Color(0xFFB42318)),
                         onClick = {
                             showDeleteConfirm = false
                             onDelete()
@@ -463,6 +469,24 @@ private fun ConfigDetailContent(
                 },
             )
         }
+    }
+}
+
+@Composable
+private fun ConfigFieldGroup(
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Surface(
+        shape = RoundedCornerShape(20.dp),
+        color = MonochromeUi.inputBackground,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            content = content,
+        )
     }
 }
 

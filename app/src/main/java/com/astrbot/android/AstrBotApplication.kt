@@ -2,6 +2,7 @@ package com.astrbot.android
 
 import android.app.Application
 import com.astrbot.android.data.BotRepository
+import com.astrbot.android.data.ChatCompletionService
 import com.astrbot.android.data.ConfigRepository
 import com.astrbot.android.data.ConversationRepository
 import com.astrbot.android.data.NapCatBridgeRepository
@@ -21,6 +22,7 @@ class AstrBotApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        ChatCompletionService.initialize(this)
         NapCatBridgeRepository.initialize(this)
         NapCatLoginRepository.initialize(this)
         ProviderRepository.initialize(this)

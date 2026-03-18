@@ -5,13 +5,17 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -131,7 +135,8 @@ fun PersonaScreen(
             },
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .padding(20.dp),
+                .navigationBarsPadding()
+                .padding(horizontal = 20.dp, vertical = 24.dp),
             containerColor = MonochromeUi.fabBackground,
             contentColor = MonochromeUi.fabContent,
             elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 6.dp),
@@ -197,7 +202,7 @@ private fun PersonaCard(
             }
             Column(
                 modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(2.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 Text(persona.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
                 Text(
@@ -234,6 +239,7 @@ private fun PersonaEditorDialog(
     onDelete: () -> Unit,
     onSave: (PersonaProfile) -> Unit,
 ) {
+    var showDeleteConfirm by remember(initialPersona.id) { mutableStateOf(false) }
     var name by remember(initialPersona.id) { mutableStateOf(initialPersona.name) }
     var tag by remember(initialPersona.id) { mutableStateOf(initialPersona.tag) }
     var systemPrompt by remember(initialPersona.id) { mutableStateOf(initialPersona.systemPrompt) }
@@ -245,41 +251,48 @@ private fun PersonaEditorDialog(
         containerColor = MonochromeUi.cardBackground,
         titleContentColor = MonochromeUi.textPrimary,
         textContentColor = MonochromeUi.textPrimary,
-        confirmButton = {
-            TextButton(
-                colors = ButtonDefaults.textButtonColors(contentColor = MonochromeUi.textPrimary),
-                onClick = {
-                    onSave(
-                        initialPersona.copy(
-                            name = name.trim().ifBlank { initialPersona.name },
-                            tag = tag.trim(),
-                            systemPrompt = systemPrompt.trim(),
-                            defaultProviderId = "",
-                            maxContextMessages = maxContextMessages.toIntOrNull()?.coerceAtLeast(1) ?: 12,
-                            enabledTools = emptySet(),
-                            enabled = enabled,
-                        ),
-                    )
-                },
-            ) {
-                Text(stringResource(R.string.common_save))
-            }
-        },
+        confirmButton = {},
         dismissButton = {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 if (initialPersona.id != "default") {
                     TextButton(
-                        onClick = onDelete,
-                        colors = ButtonDefaults.textButtonColors(contentColor = MonochromeUi.textSecondary),
+                        onClick = { showDeleteConfirm = true },
+                        colors = ButtonDefaults.textButtonColors(contentColor = androidx.compose.ui.graphics.Color(0xFFB42318)),
                     ) {
                         Text(stringResource(R.string.common_delete))
                     }
+                } else {
+                    Spacer(modifier = Modifier.width(1.dp))
                 }
-                TextButton(
-                    onClick = onDismiss,
-                    colors = ButtonDefaults.textButtonColors(contentColor = MonochromeUi.textSecondary),
-                ) {
-                    Text(stringResource(R.string.common_cancel))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(
+                        onClick = onDismiss,
+                        colors = ButtonDefaults.textButtonColors(contentColor = MonochromeUi.textSecondary),
+                    ) {
+                        Text(stringResource(R.string.common_cancel))
+                    }
+                    TextButton(
+                        colors = ButtonDefaults.textButtonColors(contentColor = MonochromeUi.textPrimary),
+                        onClick = {
+                            onSave(
+                                initialPersona.copy(
+                                    name = name.trim().ifBlank { initialPersona.name },
+                                    tag = tag.trim(),
+                                    systemPrompt = systemPrompt.trim(),
+                                    defaultProviderId = "",
+                                    maxContextMessages = maxContextMessages.toIntOrNull()?.coerceAtLeast(1) ?: 12,
+                                    enabledTools = emptySet(),
+                                    enabled = enabled,
+                                ),
+                            )
+                        },
+                    ) {
+                        Text(stringResource(R.string.common_save))
+                    }
                 }
             }
         },
@@ -288,44 +301,98 @@ private fun PersonaEditorDialog(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(max = 320.dp)
+                    .heightIn(max = 380.dp)
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it },
-                    label = { Text(stringResource(R.string.persona_field_name)) },
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = monochromeOutlinedTextFieldColors(),
-                )
-                OutlinedTextField(
-                    value = tag,
-                    onValueChange = { tag = it },
-                    label = { Text(stringResource(R.string.persona_field_tag)) },
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = monochromeOutlinedTextFieldColors(),
-                )
-                OutlinedTextField(
-                    value = maxContextMessages,
-                    onValueChange = { maxContextMessages = it.filter(Char::isDigit) },
-                    label = { Text(stringResource(R.string.persona_field_max_context)) },
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = monochromeOutlinedTextFieldColors(),
-                )
-                OutlinedTextField(
-                    value = systemPrompt,
-                    onValueChange = { systemPrompt = it },
-                    label = { Text(stringResource(R.string.persona_field_system_prompt)) },
-                    modifier = Modifier.fillMaxWidth(),
-                    minLines = 6,
-                    maxLines = 10,
-                    colors = monochromeOutlinedTextFieldColors(),
-                )
-                ToolSwitch(stringResource(R.string.common_enabled), enabled) { enabled = it }
+                PersonaGroupCard {
+                    OutlinedTextField(
+                        value = name,
+                        onValueChange = { name = it },
+                        label = { Text(stringResource(R.string.persona_field_name)) },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = monochromeOutlinedTextFieldColors(),
+                    )
+                    OutlinedTextField(
+                        value = tag,
+                        onValueChange = { tag = it },
+                        label = { Text(stringResource(R.string.persona_field_tag)) },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = monochromeOutlinedTextFieldColors(),
+                    )
+                    OutlinedTextField(
+                        value = maxContextMessages,
+                        onValueChange = { maxContextMessages = it.filter(Char::isDigit) },
+                        label = { Text(stringResource(R.string.persona_field_max_context)) },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = monochromeOutlinedTextFieldColors(),
+                    )
+                }
+                PersonaGroupCard {
+                    OutlinedTextField(
+                        value = systemPrompt,
+                        onValueChange = { systemPrompt = it },
+                        label = { Text(stringResource(R.string.persona_field_system_prompt)) },
+                        modifier = Modifier.fillMaxWidth(),
+                        minLines = 6,
+                        maxLines = 10,
+                        colors = monochromeOutlinedTextFieldColors(),
+                    )
+                }
+                PersonaGroupCard {
+                    ToolSwitch(stringResource(R.string.common_enabled), enabled) { enabled = it }
+                }
             }
         },
     )
+
+    if (showDeleteConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            containerColor = MonochromeUi.cardBackground,
+            titleContentColor = MonochromeUi.textPrimary,
+            textContentColor = MonochromeUi.textSecondary,
+            title = { Text(stringResource(R.string.common_delete)) },
+            text = { Text(stringResource(R.string.persona_delete_confirm_message)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showDeleteConfirm = false
+                        onDelete()
+                    },
+                    colors = ButtonDefaults.textButtonColors(contentColor = androidx.compose.ui.graphics.Color(0xFFB42318)),
+                ) {
+                    Text(stringResource(R.string.common_delete))
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showDeleteConfirm = false },
+                    colors = ButtonDefaults.textButtonColors(contentColor = MonochromeUi.textSecondary),
+                ) {
+                    Text(stringResource(R.string.common_cancel))
+                }
+            },
+        )
+    }
+}
+
+@Composable
+private fun PersonaGroupCard(
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Surface(
+        shape = RoundedCornerShape(20.dp),
+        color = MonochromeUi.inputBackground,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            content = content,
+        )
+    }
 }
 
 @Composable
@@ -336,10 +403,19 @@ private fun ToolSwitch(
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
+        verticalAlignment = Alignment.Top,
     ) {
-        Text(label)
-        Switch(checked = checked, onCheckedChange = onCheckedChange, colors = monochromeSwitchColors())
+        Text(
+            text = label,
+            modifier = Modifier.weight(1f),
+            fontWeight = FontWeight.SemiBold,
+            color = MonochromeUi.textPrimary,
+        )
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            colors = monochromeSwitchColors(),
+        )
     }
 }

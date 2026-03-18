@@ -183,7 +183,7 @@ fun ConfigScreen(
                 text = { Text(stringResource(R.string.config_delete_confirm_message, selectedConfigIds.size)) },
                 confirmButton = {
                     TextButton(
-                        colors = ButtonDefaults.textButtonColors(contentColor = MonochromeUi.textPrimary),
+                        colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFFB42318)),
                         onClick = {
                             scope.launch {
                                 selectedConfigIds.forEach { configViewModel.delete(it) }
@@ -252,23 +252,34 @@ private fun ConfigProfileCard(
             }
             androidx.compose.foundation.layout.Column(
                 modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(2.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 Text(profile.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
                 Text(
                     text = buildList {
                         add(stringResource(R.string.config_summary_bots, assignedBotCount))
                         add(stringResource(R.string.config_summary_chat_model, defaultModelName.ifBlank { stringResource(R.string.bot_not_set) }))
-                        if (profile.sttEnabled) add(stringResource(R.string.config_summary_stt_on))
-                        if (profile.ttsEnabled) add(stringResource(R.string.config_summary_tts_on))
-                        if (profile.realWorldTimeAwarenessEnabled) add(stringResource(R.string.config_summary_time_on))
-                        if (profile.webSearchEnabled) add(stringResource(R.string.config_summary_search_on))
                     }.joinToString(" | "),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
+                val stateSummary = buildList {
+                    if (profile.sttEnabled) add(stringResource(R.string.config_summary_stt_on))
+                    if (profile.ttsEnabled) add(stringResource(R.string.config_summary_tts_on))
+                    if (profile.realWorldTimeAwarenessEnabled) add(stringResource(R.string.config_summary_time_on))
+                    if (profile.webSearchEnabled) add(stringResource(R.string.config_summary_search_on))
+                }.joinToString(" | ")
+                if (stateSummary.isNotBlank()) {
+                    Text(
+                        text = stateSummary,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MonochromeUi.textSecondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
                 Text(
                     text = profile.imageCaptionPrompt,
                     style = MaterialTheme.typography.labelMedium,

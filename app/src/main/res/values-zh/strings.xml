@@ -227,4 +227,7 @@
     <string name="persona_field_default_model">默认模型</string>
     <string name="persona_field_max_context">最大上下文消息数</string>
     <string name="persona_field_system_prompt">系统提示词</string>
+    <string name="bot_delete_confirm_message">确认删除这个机器人吗？此操作不可撤销。</string>
+    <string name="persona_delete_confirm_message">确认删除这个人格吗？此操作不可撤销。</string>
+    <string name="provider_delete_confirm_message">确认删除这个模型提供商吗？此操作不可撤销。</string>
 </resources>

@@ -6,9 +6,11 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -24,9 +26,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.HelpOutline
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Add
-import androidx.compose.material.icons.outlined.HelpOutline
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.AlertDialog
@@ -206,7 +208,7 @@ internal fun ProviderCatalogContent(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .navigationBarsPadding()
-                .padding(horizontal = 20.dp, vertical = 20.dp),
+                .padding(horizontal = 20.dp, vertical = 24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
             horizontalAlignment = Alignment.End,
         ) {
@@ -218,7 +220,7 @@ internal fun ProviderCatalogContent(
                 elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 4.dp),
             ) {
                 Icon(
-                    Icons.Outlined.HelpOutline,
+                    Icons.AutoMirrored.Outlined.HelpOutline,
                     contentDescription = stringResource(R.string.provider_image_help_title),
                 )
             }
@@ -257,6 +259,9 @@ internal fun ProviderCatalogContent(
                     providerViewModel.delete(provider.id)
                 }
                 editingProvider = null
+            },
+            onPersistProbeSupport = { id, probeSupport ->
+                providerViewModel.updateMultimodalProbeSupport(id, probeSupport)
             },
             onFetchModels = { current ->
                 scope.launch {
@@ -441,21 +446,24 @@ private fun ProviderCard(
             }
             Column(
                 modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(2.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 Text(provider.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
                 Text(
-                    text = "${provider.model} | ${provider.providerType.providerTypeDisplayLabel()}",
+                    text = provider.model.ifBlank { stringResource(R.string.bot_not_set) },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    text = provider.capabilities.joinToString(" | ") { it.displayLabel() },
+                    text = buildList {
+                        add(provider.providerType.providerTypeDisplayLabel())
+                        add(provider.capabilities.joinToString(" | ") { it.displayLabel() })
+                    }.joinToString(" | "),
                     style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                    maxLines = 1,
+                    color = MonochromeUi.textSecondary,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
@@ -468,6 +476,7 @@ private fun ProviderCard(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ProviderEditorDialog(
     initialProvider: ProviderProfile,
@@ -476,10 +485,12 @@ private fun ProviderEditorDialog(
     isCheckingMultimodal: Boolean,
     onDismiss: () -> Unit,
     onDelete: () -> Unit,
+    onPersistProbeSupport: (String, FeatureSupportState) -> Unit,
     onFetchModels: (ProviderProfile) -> Unit,
     onCheckMultimodal: (ProviderProfile, (FeatureSupportState, FeatureSupportState) -> Unit) -> Unit,
     onSave: (ProviderProfile) -> Unit,
 ) {
+    var showDeleteConfirm by remember(initialProvider.id) { mutableStateOf(false) }
     var name by remember(initialProvider.id) { mutableStateOf(initialProvider.name) }
     var baseUrl by remember(initialProvider.id) { mutableStateOf(initialProvider.baseUrl) }
     var model by remember(initialProvider.id) { mutableStateOf(initialProvider.model) }
@@ -488,6 +499,21 @@ private fun ProviderEditorDialog(
     var enabled by remember(initialProvider.id) { mutableStateOf(initialProvider.enabled) }
     var multimodalRuleSupport by remember(initialProvider.id) { mutableStateOf(initialProvider.multimodalRuleSupport) }
     var multimodalProbeSupport by remember(initialProvider.id) { mutableStateOf(initialProvider.multimodalProbeSupport) }
+    val initialProbeFingerprint = remember(initialProvider.id) { probeFingerprint(initialProvider) }
+    var lastProbeFingerprint by remember(initialProvider.id) { mutableStateOf(initialProbeFingerprint) }
+    val currentProbeFingerprint = remember(providerType, baseUrl, model, apiKey) {
+        probeFingerprint(
+            providerType = providerType,
+            baseUrl = baseUrl,
+            model = model,
+            apiKey = apiKey,
+        )
+    }
+    val displayedProbeSupport = if (currentProbeFingerprint == lastProbeFingerprint) {
+        multimodalProbeSupport
+    } else {
+        FeatureSupportState.UNKNOWN
+    }
 
     val capability = providerType.defaultCapability()
     val providerOptions = visibleProviderTypesFor(capability).map { it.name to it.providerTypeDisplayLabel() }
@@ -497,44 +523,51 @@ private fun ProviderEditorDialog(
         containerColor = MonochromeUi.cardBackground,
         titleContentColor = MonochromeUi.textPrimary,
         textContentColor = MonochromeUi.textPrimary,
-        confirmButton = {
-            TextButton(
-                colors = ButtonDefaults.textButtonColors(contentColor = MonochromeUi.textPrimary),
-                onClick = {
-                    onSave(
-                        initialProvider.copy(
-                            id = initialProvider.id.ifBlank { java.util.UUID.randomUUID().toString() },
-                            name = name.trim().ifBlank { providerType.providerTypeDisplayLabel() },
-                            baseUrl = baseUrl.trim(),
-                            model = model.trim(),
-                            apiKey = apiKey.trim(),
-                            providerType = providerType,
-                            capabilities = setOf(providerType.defaultCapability()),
-                            enabled = enabled,
-                            multimodalRuleSupport = multimodalRuleSupport,
-                            multimodalProbeSupport = multimodalProbeSupport,
-                        ),
-                    )
-                },
-            ) {
-                Text(stringResource(R.string.common_save))
-            }
-        },
+        confirmButton = {},
         dismissButton = {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 if (initialProvider.id.isNotBlank()) {
                     TextButton(
-                        onClick = onDelete,
-                        colors = ButtonDefaults.textButtonColors(contentColor = MonochromeUi.textSecondary),
+                        onClick = { showDeleteConfirm = true },
+                        colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFFB42318)),
                     ) {
                         Text(stringResource(R.string.common_delete))
                     }
+                } else {
+                    Spacer(modifier = Modifier.size(1.dp))
                 }
-                TextButton(
-                    onClick = onDismiss,
-                    colors = ButtonDefaults.textButtonColors(contentColor = MonochromeUi.textSecondary),
-                ) {
-                    Text(stringResource(R.string.common_cancel))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(
+                        onClick = onDismiss,
+                        colors = ButtonDefaults.textButtonColors(contentColor = MonochromeUi.textSecondary),
+                    ) {
+                        Text(stringResource(R.string.common_cancel))
+                    }
+                    TextButton(
+                        colors = ButtonDefaults.textButtonColors(contentColor = MonochromeUi.textPrimary),
+                        onClick = {
+                            onSave(
+                                initialProvider.copy(
+                                    id = initialProvider.id.ifBlank { java.util.UUID.randomUUID().toString() },
+                                    name = name.trim().ifBlank { providerType.providerTypeDisplayLabel() },
+                                    baseUrl = baseUrl.trim(),
+                                    model = model.trim(),
+                                    apiKey = apiKey.trim(),
+                                    providerType = providerType,
+                                    capabilities = setOf(providerType.defaultCapability()),
+                                    enabled = enabled,
+                                    multimodalRuleSupport = multimodalRuleSupport,
+                                    multimodalProbeSupport = displayedProbeSupport,
+                                ),
+                            )
+                        },
+                    ) {
+                        Text(stringResource(R.string.common_save))
+                    }
                 }
             }
         },
@@ -552,7 +585,7 @@ private fun ProviderEditorDialog(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(max = 360.dp)
+                    .heightIn(max = 420.dp)
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
@@ -570,7 +603,6 @@ private fun ProviderEditorDialog(
                     onSelect = { selected ->
                         providerType = ProviderType.valueOf(selected)
                         multimodalRuleSupport = inferMultimodalRuleSupport(providerType, model)
-                        multimodalProbeSupport = FeatureSupportState.UNKNOWN
                     },
                 )
                 OutlinedTextField(
@@ -599,7 +631,10 @@ private fun ProviderEditorDialog(
                     colors = monochromeOutlinedTextFieldColors(),
                 )
                 if (providerType.supportsPullModels()) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
                         OutlinedButton(
                             onClick = {
                                 onFetchModels(
@@ -611,21 +646,28 @@ private fun ProviderEditorDialog(
                                     ),
                                 )
                             },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 48.dp),
                             colors = ButtonDefaults.outlinedButtonColors(contentColor = MonochromeUi.textPrimary),
                         ) {
                             Text(stringResource(R.string.provider_pull_models))
                         }
                         if (isFetchingModels) {
-                            CircularProgressIndicator(color = MonochromeUi.textPrimary)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.Center,
+                            ) {
+                                CircularProgressIndicator(color = MonochromeUi.textPrimary)
+                            }
                         }
                     }
                 }
                 if (fetchedModels.isNotEmpty()) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         fetchedModels.take(10).forEach { item ->
                             AssistChip(
@@ -643,32 +685,54 @@ private fun ProviderEditorDialog(
                     }
                 }
                 if (providerType.supportsMultimodalCheck()) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        OutlinedButton(
-                            onClick = {
-                                onCheckMultimodal(
-                                    initialProvider.copy(
-                                        baseUrl = baseUrl,
-                                        apiKey = apiKey,
-                                        model = model,
-                                        providerType = providerType,
-                                        capabilities = setOf(providerType.defaultCapability()),
-                                    ),
-                                ) { rule, probe ->
-                                    multimodalRuleSupport = rule
-                                    multimodalProbeSupport = probe
-                                }
-                            },
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = MonochromeUi.textPrimary),
+                    Surface(
+                        shape = RoundedCornerShape(20.dp),
+                        color = MonochromeUi.inputBackground,
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
-                            Text(stringResource(R.string.provider_check_multimodal))
-                        }
-                        if (isCheckingMultimodal) {
-                            CircularProgressIndicator(color = MonochromeUi.textPrimary)
+                            OutlinedButton(
+                                onClick = {
+                                    onCheckMultimodal(
+                                        initialProvider.copy(
+                                            baseUrl = baseUrl,
+                                            apiKey = apiKey,
+                                            model = model,
+                                            providerType = providerType,
+                                            capabilities = setOf(providerType.defaultCapability()),
+                                        ),
+                                    ) { rule, probe ->
+                                        multimodalRuleSupport = rule
+                                        multimodalProbeSupport = probe
+                                        lastProbeFingerprint = currentProbeFingerprint
+                                        if (initialProvider.id.isNotBlank() && currentProbeFingerprint == initialProbeFingerprint) {
+                                            onPersistProbeSupport(initialProvider.id, probe)
+                                        }
+                                    }
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(min = 48.dp),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = MonochromeUi.textPrimary),
+                            ) {
+                                Text(stringResource(R.string.provider_check_multimodal))
+                            }
+                            if (isCheckingMultimodal) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.Center,
+                                ) {
+                                    CircularProgressIndicator(color = MonochromeUi.textPrimary)
+                                }
+                            }
+                            SupportStatusRow(title = stringResource(R.string.provider_support_rule), state = multimodalRuleSupport)
+                            SupportStatusRow(title = stringResource(R.string.provider_support_probe), state = displayedProbeSupport)
                         }
                     }
-                    SupportStatusRow(title = stringResource(R.string.provider_support_rule), state = multimodalRuleSupport)
-                    SupportStatusRow(title = stringResource(R.string.provider_support_probe), state = multimodalProbeSupport)
                 } else {
                     Text(
                         text = when (capability) {
@@ -685,6 +749,36 @@ private fun ProviderEditorDialog(
             }
         },
     )
+
+    if (showDeleteConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            containerColor = MonochromeUi.cardBackground,
+            titleContentColor = MonochromeUi.textPrimary,
+            textContentColor = MonochromeUi.textSecondary,
+            title = { Text(stringResource(R.string.common_delete)) },
+            text = { Text(stringResource(R.string.provider_delete_confirm_message)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showDeleteConfirm = false
+                        onDelete()
+                    },
+                    colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFFB42318)),
+                ) {
+                    Text(stringResource(R.string.common_delete))
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showDeleteConfirm = false },
+                    colors = ButtonDefaults.textButtonColors(contentColor = MonochromeUi.textSecondary),
+                ) {
+                    Text(stringResource(R.string.common_cancel))
+                }
+            },
+        )
+    }
 }
 
 @Composable
@@ -721,11 +815,20 @@ private fun CapabilitySwitch(
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
+        verticalAlignment = Alignment.Top,
     ) {
-        Text(label)
-        Switch(checked = checked, onCheckedChange = onCheckedChange, colors = monochromeSwitchColors())
+        Text(
+            text = label,
+            modifier = Modifier.weight(1f),
+            fontWeight = FontWeight.SemiBold,
+            color = MonochromeUi.textPrimary,
+        )
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            colors = monochromeSwitchColors(),
+        )
     }
 }
 
@@ -779,4 +882,27 @@ private fun createEmptyProvider(type: ProviderType): ProviderProfile {
         enabled = true,
         multimodalRuleSupport = inferMultimodalRuleSupport(type, defaultModel),
     )
+}
+
+private fun probeFingerprint(provider: ProviderProfile): String {
+    return probeFingerprint(
+        providerType = provider.providerType,
+        baseUrl = provider.baseUrl,
+        model = provider.model,
+        apiKey = provider.apiKey,
+    )
+}
+
+private fun probeFingerprint(
+    providerType: ProviderType,
+    baseUrl: String,
+    model: String,
+    apiKey: String,
+): String {
+    return listOf(
+        providerType.name,
+        baseUrl.trim(),
+        model.trim(),
+        apiKey.trim(),
+    ).joinToString(separator = "|")
 }

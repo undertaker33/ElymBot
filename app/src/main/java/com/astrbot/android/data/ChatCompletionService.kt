@@ -1,5 +1,6 @@
 package com.astrbot.android.data
 
+import android.content.Context
 import com.astrbot.android.model.ConfigProfile
 import com.astrbot.android.model.ConversationAttachment
 import com.astrbot.android.model.ConversationMessage
@@ -20,10 +21,27 @@ import java.net.URLEncoder
 import java.net.URL
 import java.nio.charset.StandardCharsets
 import java.util.Base64
+import java.util.Locale
 
 object ChatCompletionService {
-    private const val MULTIMODAL_PROMPT = "Describe the main subject of this image in one short sentence."
-    private const val TEST_IMAGE_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9VE3d2QAAAAASUVORK5CYII="
+    private const val MULTIMODAL_PROMPT =
+        "Briefly describe this image in one or two sentences. Mention the main landmark or tower, the city skyline or waterfront, and whether it is day or night."
+    private const val PROBE_IMAGE_ASSET_NAME = "vl_probe_scene.jpg"
+    private const val PROBE_IMAGE_MIME_TYPE = "image/jpeg"
+    private const val LANDMARK_SCORE = 0.5
+    private const val SKYLINE_SCORE = 0.3
+    private const val NIGHT_SCORE = 0.2
+    private const val PROBE_PASS_SCORE = 0.5
+
+    @Volatile
+    private var appContext: Context? = null
+
+    @Volatile
+    private var probeImageBase64: String? = null
+
+    fun initialize(context: Context) {
+        appContext = context.applicationContext
+    }
 
     fun fetchModels(baseUrl: String, apiKey: String, providerType: ProviderType): List<String> {
         require(baseUrl.isNotBlank()) { "Base URL cannot be empty." }
@@ -95,7 +113,6 @@ object ChatCompletionService {
         config: ConfigProfile?,
         availableProviders: List<ProviderProfile>,
     ): List<ConversationMessage> {
-        val latestUserIndex = messages.indexOfLast { it.role == "user" }
         val normalizedMessages = retainOnlyLatestUserAttachments(messages)
         val latestUserHasImages = normalizedMessages
             .lastOrNull { it.role == "user" }
@@ -266,6 +283,7 @@ object ChatCompletionService {
 
     private fun probeOpenAiStyleMultimodal(provider: ProviderProfile): FeatureSupportState {
         require(provider.apiKey.isNotBlank()) { "API key cannot be empty." }
+        val probeImageBase64 = requireProbeImageBase64()
         val payload = JSONObject().apply {
             put("model", provider.model)
             put(
@@ -278,7 +296,7 @@ object ChatCompletionService {
                             .put(
                                 JSONObject().put("type", "image_url").put(
                                     "image_url",
-                                    JSONObject().put("url", "data:image/png;base64,$TEST_IMAGE_BASE64"),
+                                    JSONObject().put("url", "data:$PROBE_IMAGE_MIME_TYPE;base64,$probeImageBase64"),
                                 ),
                             ),
                     ),
@@ -296,12 +314,13 @@ object ChatCompletionService {
                     ?.optJSONObject("message")
                     ?.optString("content")
                     .orEmpty()
-                if (content.isNotBlank()) FeatureSupportState.SUPPORTED else FeatureSupportState.UNSUPPORTED
+                evaluateProbeDescription(content)
             },
         )
     }
 
     private fun probeOllamaMultimodal(provider: ProviderProfile): FeatureSupportState {
+        val probeImageBase64 = requireProbeImageBase64()
         val payload = JSONObject().apply {
             put("model", provider.model)
             put("stream", false)
@@ -311,7 +330,7 @@ object ChatCompletionService {
                     JSONObject()
                         .put("role", "user")
                         .put("content", MULTIMODAL_PROMPT)
-                        .put("images", JSONArray().put(TEST_IMAGE_BASE64)),
+                        .put("images", JSONArray().put(probeImageBase64)),
                 ),
             )
         }
@@ -321,13 +340,14 @@ object ChatCompletionService {
             configure = {},
             parser = { body ->
                 val content = JSONObject(body).optJSONObject("message")?.optString("content").orEmpty()
-                if (content.isNotBlank()) FeatureSupportState.SUPPORTED else FeatureSupportState.UNSUPPORTED
+                evaluateProbeDescription(content)
             },
         )
     }
 
     private fun probeGeminiMultimodal(provider: ProviderProfile): FeatureSupportState {
         require(provider.apiKey.isNotBlank()) { "API key cannot be empty." }
+        val probeImageBase64 = requireProbeImageBase64()
         val modelName = if (provider.model.startsWith("models/")) provider.model else "models/${provider.model}"
         val endpoint = provider.baseUrl.trimEnd('/') + "/$modelName:generateContent?key=" +
             URLEncoder.encode(provider.apiKey, StandardCharsets.UTF_8.name())
@@ -342,7 +362,7 @@ object ChatCompletionService {
                             .put(
                                 JSONObject().put(
                                     "inlineData",
-                                    JSONObject().put("mimeType", "image/png").put("data", TEST_IMAGE_BASE64),
+                                    JSONObject().put("mimeType", PROBE_IMAGE_MIME_TYPE).put("data", probeImageBase64),
                                 ),
                             ),
                     ),
@@ -362,7 +382,7 @@ object ChatCompletionService {
                     ?.optJSONObject(0)
                     ?.optString("text")
                     .orEmpty()
-                if (text.isNotBlank()) FeatureSupportState.SUPPORTED else FeatureSupportState.UNSUPPORTED
+                evaluateProbeDescription(text)
             },
         )
     }
@@ -590,8 +610,55 @@ object ChatCompletionService {
         return runCatching { executeJsonRequest(connection, payload, parser) }
             .getOrElse { error ->
                 RuntimeLogRepository.append("Multimodal probe error: ${error.message ?: error.javaClass.simpleName}")
-                FeatureSupportState.UNSUPPORTED
+                FeatureSupportState.UNKNOWN
             }
+    }
+
+    private fun evaluateProbeDescription(content: String): FeatureSupportState {
+        val normalized = content.trim().lowercase()
+        if (normalized.isBlank()) {
+            RuntimeLogRepository.append("Multimodal probe judged unsupported: empty response")
+            return FeatureSupportState.UNSUPPORTED
+        }
+        if (NEGATIVE_PROBE_PATTERNS.any { normalized.contains(it) }) {
+            RuntimeLogRepository.append("Multimodal probe judged unsupported: model denied seeing image")
+            return FeatureSupportState.UNSUPPORTED
+        }
+
+        var score = 0.0
+        val hits = mutableListOf<String>()
+
+        if (LANDMARK_PROBE_KEYWORDS.any { normalized.contains(it) }) {
+            score += LANDMARK_SCORE
+            hits += "landmark"
+        }
+        if (SKYLINE_PROBE_KEYWORDS.any { normalized.contains(it) }) {
+            score += SKYLINE_SCORE
+            hits += "skyline"
+        }
+        if (NIGHT_PROBE_KEYWORDS.any { normalized.contains(it) }) {
+            score += NIGHT_SCORE
+            hits += "night"
+        }
+
+        RuntimeLogRepository.append(
+            "Multimodal probe scored: score=${String.format(Locale.US, "%.2f", score)} hits=${hits.joinToString(",")} response=${content.take(160)}",
+        )
+        return if (score >= PROBE_PASS_SCORE) {
+            FeatureSupportState.SUPPORTED
+        } else {
+            FeatureSupportState.UNSUPPORTED
+        }
+    }
+
+    private fun requireProbeImageBase64(): String {
+        probeImageBase64?.let { return it }
+        val context = appContext ?: throw IllegalStateException("ChatCompletionService is not initialized.")
+        val encoded = context.assets.open(PROBE_IMAGE_ASSET_NAME).use { stream ->
+            Base64.getEncoder().encodeToString(stream.readBytes())
+        }
+        probeImageBase64 = encoded
+        return encoded
     }
 
     private fun <T> executeJsonRequest(connection: HttpURLConnection, payload: JSONObject, parser: (String) -> T): T {
@@ -694,4 +761,77 @@ object ChatCompletionService {
             multimodalRuleSupport == FeatureSupportState.SUPPORTED ||
             inferMultimodalRuleSupport(providerType, model) == FeatureSupportState.SUPPORTED
     }
+
+    private val NEGATIVE_PROBE_PATTERNS = listOf(
+        "can't see the image",
+        "cannot see the image",
+        "can't view the image",
+        "cannot view the image",
+        "can't access the image",
+        "cannot access the image",
+        "unable to see the image",
+        "unable to view the image",
+        "i can't see",
+        "i cannot see",
+        "i can't view",
+        "i cannot view",
+        "i do not see an image",
+        "i don't see an image",
+        "i don't see the image",
+        "i do not see the image",
+        "no image provided",
+        "image was not provided",
+        "没有看到图片",
+        "无法看到图片",
+        "看不到图片",
+        "无法查看图片",
+        "没有图像",
+        "未提供图片",
+    )
+
+    private val LANDMARK_PROBE_KEYWORDS = listOf(
+        "oriental pearl",
+        "pearl tower",
+        "tv tower",
+        "observation tower",
+        "tower",
+        "shanghai",
+        "东方明珠",
+        "明珠塔",
+        "电视塔",
+        "塔",
+        "上海",
+    )
+
+    private val SKYLINE_PROBE_KEYWORDS = listOf(
+        "skyline",
+        "cityscape",
+        "skyscraper",
+        "waterfront",
+        "river",
+        "buildings",
+        "city",
+        "天际线",
+        "城市",
+        "高楼",
+        "建筑",
+        "江边",
+        "江景",
+        "河边",
+        "夜景",
+    )
+
+    private val NIGHT_PROBE_KEYWORDS = listOf(
+        "night",
+        "nighttime",
+        "evening",
+        "lit",
+        "illuminated",
+        "lights",
+        "夜晚",
+        "晚上",
+        "夜间",
+        "灯光",
+        "亮灯",
+    )
 }

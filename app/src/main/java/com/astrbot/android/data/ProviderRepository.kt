@@ -104,6 +104,22 @@ object ProviderRepository {
         }
     }
 
+    fun updateMultimodalProbeSupport(id: String, probeSupport: FeatureSupportState) {
+        var updatedName: String? = null
+        _providers.value = _providers.value.map { item ->
+            if (item.id == id) {
+                updatedName = item.name
+                item.copy(multimodalProbeSupport = probeSupport)
+            } else {
+                item
+            }
+        }
+        persistProviders()
+        updatedName?.let { name ->
+            RuntimeLogRepository.append("Provider probe support updated: $name -> ${probeSupport.name}")
+        }
+    }
+
     private fun loadSavedProviders(): List<ProviderProfile>? {
         val raw = preferences?.getString(KEY_PROVIDERS_JSON, null)?.takeIf { it.isNotBlank() } ?: return null
         return runCatching {

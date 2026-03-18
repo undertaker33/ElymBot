@@ -6,12 +6,15 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -209,7 +212,8 @@ private fun BotCatalogContent(
             },
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .padding(20.dp),
+                .navigationBarsPadding()
+                .padding(horizontal = 20.dp, vertical = 24.dp),
             containerColor = MonochromeUi.fabBackground,
             contentColor = MonochromeUi.fabContent,
             elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 6.dp),
@@ -274,27 +278,29 @@ private fun BotListCard(
             }
             Column(
                 modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(2.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 Text(bot.displayName, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
-                Text(
-                    text = buildList {
-                        add(qqAccountsLabel)
-                        if (bot.tag.isNotBlank()) add(bot.tag)
-                    }.joinToString(" | "),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
                 Text(
                     text = stringResource(
                         R.string.bot_model_persona_summary,
                         providerName.ifBlank { stringResource(R.string.bot_not_set) },
                         personaName.ifBlank { stringResource(R.string.bot_not_set) },
                     ),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = buildList {
+                        add(qqAccountsLabel)
+                        if (bot.tag.isNotBlank()) add(bot.tag)
+                    }.joinToString(" | "),
                     style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                    color = MonochromeUi.textSecondary,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
             Switch(
@@ -318,6 +324,7 @@ private fun BotEditorDialog(
     onDelete: () -> Unit,
     onSave: (BotProfile, String) -> Unit,
 ) {
+    var showDeleteConfirm by remember(initialBot.id) { mutableStateOf(false) }
     val noQqBoundLabel = stringResource(R.string.bot_no_qq_bound)
     var displayName by remember(initialBot.id) { mutableStateOf(initialBot.displayName) }
     var tag by remember(initialBot.id) { mutableStateOf(initialBot.tag) }
@@ -339,44 +346,51 @@ private fun BotEditorDialog(
         containerColor = MonochromeUi.cardBackground,
         titleContentColor = MonochromeUi.textPrimary,
         textContentColor = MonochromeUi.textPrimary,
-        confirmButton = {
-            TextButton(
-                colors = ButtonDefaults.textButtonColors(contentColor = MonochromeUi.textPrimary),
-                onClick = {
-                    onSave(
-                        initialBot.copy(
-                            displayName = displayName.trim().ifBlank { initialBot.displayName },
-                            tag = tag.trim(),
-                            accountHint = boundQqUins.joinToString(", ").ifBlank { noQqBoundLabel },
-                            boundQqUins = boundQqUins,
-                            triggerWords = triggerWords.split(",").map { it.trim() }.filter { it.isNotBlank() },
-                            autoReplyEnabled = autoReplyEnabled,
-                            persistConversationLocally = persistConversationLocally,
-                            defaultPersonaId = defaultPersonaId,
-                            configProfileId = configProfileId,
-                        ),
-                        defaultProviderId,
-                    )
-                },
-            ) {
-                Text(stringResource(R.string.common_save))
-            }
-        },
+        confirmButton = {},
         dismissButton = {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 if (initialBot.id != "qq-main") {
                     TextButton(
-                        onClick = onDelete,
-                        colors = ButtonDefaults.textButtonColors(contentColor = MonochromeUi.textSecondary),
+                        onClick = { showDeleteConfirm = true },
+                        colors = ButtonDefaults.textButtonColors(contentColor = androidx.compose.ui.graphics.Color(0xFFB42318)),
                     ) {
                         Text(stringResource(R.string.common_delete))
                     }
+                } else {
+                    Spacer(modifier = Modifier.width(1.dp))
                 }
-                TextButton(
-                    onClick = onDismiss,
-                    colors = ButtonDefaults.textButtonColors(contentColor = MonochromeUi.textSecondary),
-                ) {
-                    Text(stringResource(R.string.common_cancel))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(
+                        onClick = onDismiss,
+                        colors = ButtonDefaults.textButtonColors(contentColor = MonochromeUi.textSecondary),
+                    ) {
+                        Text(stringResource(R.string.common_cancel))
+                    }
+                    TextButton(
+                        colors = ButtonDefaults.textButtonColors(contentColor = MonochromeUi.textPrimary),
+                        onClick = {
+                            onSave(
+                                initialBot.copy(
+                                    displayName = displayName.trim().ifBlank { initialBot.displayName },
+                                    tag = tag.trim(),
+                                    accountHint = boundQqUins.joinToString(", ").ifBlank { noQqBoundLabel },
+                                    boundQqUins = boundQqUins,
+                                    triggerWords = triggerWords.split(",").map { it.trim() }.filter { it.isNotBlank() },
+                                    autoReplyEnabled = autoReplyEnabled,
+                                    persistConversationLocally = persistConversationLocally,
+                                    defaultPersonaId = defaultPersonaId,
+                                    configProfileId = configProfileId,
+                                ),
+                                defaultProviderId,
+                            )
+                        },
+                    ) {
+                        Text(stringResource(R.string.common_save))
+                    }
                 }
             }
         },
@@ -385,105 +399,158 @@ private fun BotEditorDialog(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(max = 320.dp)
+                    .heightIn(max = 380.dp)
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                OutlinedTextField(
-                    value = displayName,
-                    onValueChange = { displayName = it },
-                    label = { Text(stringResource(R.string.bot_field_name)) },
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = monochromeOutlinedTextFieldColors(),
-                )
-                OutlinedTextField(
-                    value = tag,
-                    onValueChange = { tag = it },
-                    label = { Text(stringResource(R.string.bot_field_tag)) },
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = monochromeOutlinedTextFieldColors(),
-                )
-                OutlinedTextField(
-                    value = triggerWords,
-                    onValueChange = { triggerWords = it },
-                    label = { Text(stringResource(R.string.bot_field_trigger_words)) },
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = monochromeOutlinedTextFieldColors(),
-                )
-                MultiSelectionField(
-                    title = stringResource(R.string.bot_field_bound_qq),
-                    options = qqAccountOptions,
-                    selectedIds = boundQqUins,
-                    onSelectionChange = { boundQqUins = it },
-                )
-                SelectionField(
-                    title = stringResource(R.string.bot_field_default_model),
-                    options = providerOptions,
-                    selectedId = defaultProviderId,
-                    onSelect = { defaultProviderId = it },
-                )
-                SelectionField(
-                    title = stringResource(R.string.bot_field_default_persona),
-                    options = personaOptions,
-                    selectedId = defaultPersonaId,
-                    onSelect = { defaultPersonaId = it },
-                )
-                SelectionField(
-                    title = stringResource(R.string.bot_field_config_profile),
-                    options = configOptions,
-                    selectedId = configProfileId,
-                    onSelect = {
-                        configProfileId = it
-                        defaultProviderId = configProfiles.firstOrNull { profile -> profile.id == it }?.defaultChatProviderId.orEmpty()
-                    },
-                )
-                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(stringResource(R.string.bot_auto_reply_title), fontWeight = FontWeight.SemiBold)
-                        Text(
-                            stringResource(R.string.bot_auto_reply_desc),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
-                        )
-                    }
-                    Box(
-                        modifier = Modifier
-                            .width(76.dp)
-                            .padding(top = 4.dp),
-                        contentAlignment = Alignment.TopEnd,
-                    ) {
-                        Switch(
-                            checked = autoReplyEnabled,
-                            onCheckedChange = { autoReplyEnabled = it },
-                            colors = monochromeSwitchColors(),
-                        )
-                    }
+                EditorGroupCard {
+                    OutlinedTextField(
+                        value = displayName,
+                        onValueChange = { displayName = it },
+                        label = { Text(stringResource(R.string.bot_field_name)) },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = monochromeOutlinedTextFieldColors(),
+                    )
+                    OutlinedTextField(
+                        value = tag,
+                        onValueChange = { tag = it },
+                        label = { Text(stringResource(R.string.bot_field_tag)) },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = monochromeOutlinedTextFieldColors(),
+                    )
+                    OutlinedTextField(
+                        value = triggerWords,
+                        onValueChange = { triggerWords = it },
+                        label = { Text(stringResource(R.string.bot_field_trigger_words)) },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = monochromeOutlinedTextFieldColors(),
+                    )
                 }
-                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(stringResource(R.string.bot_persist_title), fontWeight = FontWeight.SemiBold)
-                        Text(
-                            stringResource(R.string.bot_persist_desc),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
-                        )
-                    }
-                    Box(
-                        modifier = Modifier
-                            .width(76.dp)
-                            .padding(top = 4.dp),
-                        contentAlignment = Alignment.TopEnd,
-                    ) {
-                        Switch(
-                            checked = persistConversationLocally,
-                            onCheckedChange = { persistConversationLocally = it },
-                            colors = monochromeSwitchColors(),
-                        )
-                    }
+                EditorGroupCard {
+                    MultiSelectionField(
+                        title = stringResource(R.string.bot_field_bound_qq),
+                        options = qqAccountOptions,
+                        selectedIds = boundQqUins,
+                        onSelectionChange = { boundQqUins = it },
+                    )
+                    SelectionField(
+                        title = stringResource(R.string.bot_field_default_model),
+                        options = providerOptions,
+                        selectedId = defaultProviderId,
+                        onSelect = { defaultProviderId = it },
+                    )
+                    SelectionField(
+                        title = stringResource(R.string.bot_field_default_persona),
+                        options = personaOptions,
+                        selectedId = defaultPersonaId,
+                        onSelect = { defaultPersonaId = it },
+                    )
+                    SelectionField(
+                        title = stringResource(R.string.bot_field_config_profile),
+                        options = configOptions,
+                        selectedId = configProfileId,
+                        onSelect = {
+                            configProfileId = it
+                            defaultProviderId = configProfiles.firstOrNull { profile -> profile.id == it }?.defaultChatProviderId.orEmpty()
+                        },
+                    )
+                }
+                EditorGroupCard {
+                    PreferenceToggleRow(
+                        title = stringResource(R.string.bot_auto_reply_title),
+                        subtitle = stringResource(R.string.bot_auto_reply_desc),
+                        checked = autoReplyEnabled,
+                        onCheckedChange = { autoReplyEnabled = it },
+                    )
+                    PreferenceToggleRow(
+                        title = stringResource(R.string.bot_persist_title),
+                        subtitle = stringResource(R.string.bot_persist_desc),
+                        checked = persistConversationLocally,
+                        onCheckedChange = { persistConversationLocally = it },
+                    )
                 }
             }
         },
     )
+
+    if (showDeleteConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            containerColor = MonochromeUi.cardBackground,
+            titleContentColor = MonochromeUi.textPrimary,
+            textContentColor = MonochromeUi.textSecondary,
+            title = { Text(stringResource(R.string.common_delete)) },
+            text = { Text(stringResource(R.string.bot_delete_confirm_message)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showDeleteConfirm = false
+                        onDelete()
+                    },
+                    colors = ButtonDefaults.textButtonColors(contentColor = androidx.compose.ui.graphics.Color(0xFFB42318)),
+                ) {
+                    Text(stringResource(R.string.common_delete))
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showDeleteConfirm = false },
+                    colors = ButtonDefaults.textButtonColors(contentColor = MonochromeUi.textSecondary),
+                ) {
+                    Text(stringResource(R.string.common_cancel))
+                }
+            },
+        )
+    }
+}
+
+@Composable
+private fun EditorGroupCard(
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Surface(
+        shape = RoundedCornerShape(20.dp),
+        color = MonochromeUi.inputBackground,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            content = content,
+        )
+    }
+}
+
+@Composable
+private fun PreferenceToggleRow(
+    title: String,
+    subtitle: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, fontWeight = FontWeight.SemiBold)
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
+            )
+        }
+        Box(
+            modifier = Modifier
+                .width(76.dp)
+                .padding(top = 4.dp),
+            contentAlignment = Alignment.TopEnd,
+        ) {
+            Switch(
+                checked = checked,
+                onCheckedChange = onCheckedChange,
+                colors = monochromeSwitchColors(),
+            )
+        }
+    }
 }
 
 @Composable

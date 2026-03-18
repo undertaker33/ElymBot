@@ -155,28 +155,12 @@ fun SettingsScreen(
                         maxLines = 4,
                         colors = monochromeOutlinedTextFieldColors(),
                     )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(16.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Column(
-                            modifier = Modifier.weight(1f),
-                            verticalArrangement = Arrangement.spacedBy(4.dp),
-                        ) {
-                            Text(stringResource(R.string.settings_runtime_auto_start_title), fontWeight = FontWeight.SemiBold)
-                            Text(
-                                stringResource(R.string.settings_runtime_auto_start_desc),
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Switch(
-                            checked = autoStart,
-                            onCheckedChange = { autoStart = it },
-                            colors = monochromeSwitchColors(),
-                        )
-                    }
+                    RuntimeToggleRow(
+                        title = stringResource(R.string.settings_runtime_auto_start_title),
+                        subtitle = stringResource(R.string.settings_runtime_auto_start_desc),
+                        checked = autoStart,
+                        onCheckedChange = { autoStart = it },
+                    )
                     Button(
                         onClick = {
                             bridgeViewModel.saveConfig(
@@ -226,6 +210,37 @@ fun SettingsScreen(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun RuntimeToggleRow(
+    title: String,
+    subtitle: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(title, fontWeight = FontWeight.SemiBold, color = MonochromeUi.textPrimary)
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MonochromeUi.textSecondary,
+            )
+        }
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            colors = monochromeSwitchColors(),
+        )
     }
 }
 

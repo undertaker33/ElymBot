@@ -227,4 +227,7 @@
     <string name="persona_field_default_model">Default model</string>
     <string name="persona_field_max_context">Max context messages</string>
     <string name="persona_field_system_prompt">System prompt</string>
+    <string name="bot_delete_confirm_message">Delete this bot? This cannot be undone.</string>
+    <string name="persona_delete_confirm_message">Delete this persona? This cannot be undone.</string>
+    <string name="provider_delete_confirm_message">Delete this model provider? This cannot be undone.</string>
 </resources>
