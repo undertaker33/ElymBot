@@ -23,6 +23,7 @@
     <string name="nav_settings">设置</string>
     <string name="nav_models">模型</string>
     <string name="nav_runtime_settings">运行设置</string>
+    <string name="nav_asset_management">资产管理</string>
 
     <string name="runtime_title">运行状态</string>
     <string name="runtime_minimize">收起</string>
@@ -40,7 +41,24 @@
     <string name="me_card_settings_subtitle">运行设置、容器控制和应用偏好</string>
     <string name="me_card_logs_title">日志</string>
     <string name="me_card_logs_subtitle">查看运行日志和对话预览</string>
+    <string name="me_card_assets_title">资产管理</string>
+    <string name="me_card_assets_subtitle">下载或清除可选运行资产，例如 TTS 转码支持</string>
 
+    <string name="asset_tts_title">TTS 转码资产</string>
+    <string name="asset_tts_list_subtitle">QQ 语音回复转码支持</string>
+    <string name="asset_tts_desc">这里用于预下载容器内的 Python、ffmpeg 和 pilk，让 QQ 语音回复在发送前可以直接转成腾讯 silk，而不是在回复链路里临时安装依赖。</string>
+    <string name="asset_status_ready">已下载</string>
+    <string name="asset_status_not_ready">未下载</string>
+    <string name="asset_list_title">可选资产</string>
+    <string name="asset_list_desc">资产默认不会自动下载或自动删除。只有你进入详情页并手动操作后，持久化状态才会变化。</string>
+    <string name="asset_actions_title">操作</string>
+    <string name="asset_manual_only_desc">AstrBot 不会自动下载或自动清除这些资产，只有你在这里点击按钮后，状态才会改变。</string>
+    <string name="asset_download_action">下载</string>
+    <string name="asset_refresh_action">刷新</string>
+    <string name="asset_clear_action">清除</string>
+    <string name="asset_last_action">最近动作：%1$s</string>
+    <string name="asset_busy_hint">正在下载或清除资产。首次下载可能需要较长时间。</string>
+    <string name="asset_auto_detect_desc">AstrBot 会自动检查系统代理设置和可用的软件包镜像，并为这些资产选择当前可用的下载路径。</string>
     <string name="settings_language_title">语言</string>
     <string name="settings_language_subtitle">在中文和 English 之间切换。</string>
     <string name="settings_language_zh">中文</string>
@@ -103,6 +121,9 @@
     <string name="provider_choose">选择提供商</string>
     <string name="provider_pull_models">拉取模型</string>
     <string name="provider_check_multimodal">检测图像理解能力</string>
+    <string name="provider_capability_check_title">模型能力检测</string>
+    <string name="provider_check_stt">检测语音转文字</string>
+    <string name="provider_check_tts">检测文字转语音</string>
     <string name="provider_edit_chat">编辑对话模型</string>
     <string name="provider_edit_stt">编辑 STT 模型</string>
     <string name="provider_edit_tts">编辑 TTS 模型</string>
@@ -114,6 +135,9 @@
     <string name="provider_field_model">模型</string>
     <string name="provider_support_rule">图像理解能力（推测）</string>
     <string name="provider_support_probe">图像理解能力（实测）</string>
+    <string name="provider_support_stt_probe">语音转文字（实测）</string>
+    <string name="provider_support_tts_probe">文字转语音（实测）</string>
+    <string name="provider_stt_preview">最近识别结果：%1$s</string>
     <string name="provider_support_unknown">未知</string>
     <string name="provider_support_yes">支持</string>
     <string name="provider_support_no">不支持</string>
@@ -139,8 +163,11 @@
     <string name="chat_message_source_qq">QQ</string>
     <string name="chat_choose_model">选择模型</string>
     <string name="chat_add_image">添加图片</string>
+    <string name="chat_add_audio">添加语音</string>
     <string name="chat_image_attachment">图片附件</string>
+    <string name="chat_audio_attachment">语音附件</string>
     <string name="chat_image_count">%1$d 张图片</string>
+    <string name="chat_audio_count">%1$d 条语音</string>
     <string name="chat_send">发送</string>
     <string name="chat_empty_hint">对话已就绪。配置好模型后就可以开始聊天。</string>
     <string name="chat_role_you">你</string>
@@ -185,10 +212,19 @@
     <string name="config_name">配置名称</string>
     <string name="config_default_chat_model">默认对话模型</string>
     <string name="config_default_caption_model">默认图片转述模型</string>
+    <string name="config_default_stt_model">默认 STT 模型</string>
+    <string name="config_default_tts_model">默认 TTS 模型</string>
     <string name="config_enable_stt">启用 STT</string>
     <string name="config_enable_stt_desc">占位开关，运行时接入将在后续迭代完成。</string>
     <string name="config_enable_tts">启用 TTS</string>
     <string name="config_enable_tts_desc">占位开关，运行时接入将在后续迭代完成。</string>
+    <string name="config_always_tts_title">在任何情况下都启用 TTS</string>
+    <string name="config_always_tts_desc">开启后，只要当前配置和会话允许使用 TTS，就不再要求用户消息末尾带 ~，回复会直接使用语音。</string>
+    <string name="config_text_streaming_title">文本流式回复</string>
+    <string name="config_text_streaming_desc">当当前对话模型或兜底链路支持时，启用文本流式回复。</string>
+    <string name="config_voice_streaming_title">语音流式回复</string>
+    <string name="config_voice_streaming_desc">为后续流式 TTS 输出预留的独立开关；当前链路不支持时回退为普通整段语音。</string>
+    <string name="config_tts_voice_placeholder">TTS 音色占位</string>
     <string name="config_time_awareness">现实世界时间感知</string>
     <string name="config_time_awareness_desc">将当前本地时间附加到系统提示词。</string>
     <string name="config_caption_prompt">图片转述提示词</string>

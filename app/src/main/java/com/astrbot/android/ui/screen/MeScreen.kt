@@ -27,6 +27,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Bolt
 import androidx.compose.material.icons.outlined.ChevronRight
+import androidx.compose.material.icons.outlined.CloudDownload
 import androidx.compose.material.icons.outlined.Language
 import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.PersonOutline
@@ -40,6 +41,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -71,9 +73,11 @@ import com.astrbot.android.R
 import com.astrbot.android.data.AppLanguage
 import com.astrbot.android.data.AppPreferencesRepository
 import com.astrbot.android.data.ThemeMode
+import com.astrbot.android.model.RuntimeAssetEntryState
 import com.astrbot.android.ui.AppUiTransitionState
 import com.astrbot.android.ui.MonochromeUi
 import com.astrbot.android.ui.monochromeOutlinedTextFieldColors
+import com.astrbot.android.ui.viewmodel.RuntimeAssetViewModel
 import com.astrbot.android.ui.viewmodel.QQLoginViewModel
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.qrcode.QRCodeWriter
@@ -85,6 +89,7 @@ fun MeScreen(
     onOpenQqAccount: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenLogs: () -> Unit,
+    onOpenAssets: () -> Unit,
 ) {
     EntryListPage(
         entries = listOf(
@@ -105,6 +110,12 @@ fun MeScreen(
                 subtitle = stringResource(R.string.me_card_logs_subtitle),
                 icon = Icons.Outlined.Refresh,
                 onClick = onOpenLogs,
+            ),
+            EntryCardState(
+                title = stringResource(R.string.me_card_assets_title),
+                subtitle = stringResource(R.string.me_card_assets_subtitle),
+                icon = Icons.Outlined.CloudDownload,
+                onClick = onOpenAssets,
             ),
         ),
     )
@@ -440,6 +451,190 @@ fun SettingsHubScreen(
 }
 
 @Composable
+fun AssetManagementScreen(
+    onBack: () -> Unit,
+    onOpenAsset: (String) -> Unit,
+    assetViewModel: RuntimeAssetViewModel = viewModel(),
+) {
+    val assetState by assetViewModel.state.collectAsState()
+    val assetItems = assetState.assets
+
+    SubPageScaffold(
+        title = stringResource(R.string.nav_asset_management),
+        onBack = onBack,
+    ) { innerPadding ->
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .padding(horizontal = 16.dp),
+            contentPadding = PaddingValues(vertical = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            item {
+                Surface(
+                    shape = RoundedCornerShape(24.dp),
+                    color = MonochromeUi.cardBackground,
+                    tonalElevation = 2.dp,
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text(
+                            text = stringResource(R.string.asset_list_title),
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Text(
+                            text = stringResource(R.string.asset_list_desc),
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f),
+                        )
+                    }
+                }
+            }
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    assetItems.forEach { item ->
+                        RuntimeAssetEntryCard(
+                            item = item,
+                            onClick = { onOpenAsset(item.catalog.id.value) },
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun AssetDetailScreen(
+    assetId: String,
+    onBack: () -> Unit,
+    assetViewModel: RuntimeAssetViewModel = viewModel(),
+) {
+    val assetState by assetViewModel.state.collectAsState()
+    val resolvedAsset = assetState.assets.firstOrNull { it.catalog.id.value == assetId }
+        ?: assetState.assets.firstOrNull()
+        ?: return
+
+    SubPageScaffold(
+        title = stringResource(resolvedAsset.catalog.titleRes),
+        onBack = onBack,
+    ) { innerPadding ->
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .padding(horizontal = 16.dp),
+            contentPadding = PaddingValues(vertical = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            item {
+                Surface(
+                    shape = RoundedCornerShape(24.dp),
+                    color = MonochromeUi.cardBackground,
+                    tonalElevation = 2.dp,
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        Text(
+                            text = stringResource(resolvedAsset.catalog.titleRes),
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Text(
+                            text = stringResource(resolvedAsset.catalog.descriptionRes),
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f),
+                        )
+                        Text(
+                            text = assetStatusLabel(resolvedAsset),
+                            fontWeight = FontWeight.Medium,
+                        )
+                        if (resolvedAsset.lastAction.isNotBlank()) {
+                            Text(
+                                text = stringResource(R.string.asset_last_action, resolvedAsset.lastAction),
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f),
+                            )
+                        }
+                        Text(resolvedAsset.details, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f))
+                        if (resolvedAsset.busy) {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.width(18.dp),
+                                    strokeWidth = 2.dp,
+                                )
+                                Text(
+                                    text = stringResource(R.string.asset_busy_hint),
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f),
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+            item {
+                Surface(
+                    shape = RoundedCornerShape(24.dp),
+                    color = MonochromeUi.cardBackground,
+                    tonalElevation = 2.dp,
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        Text(
+                            text = stringResource(R.string.asset_actions_title),
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Text(
+                            text = stringResource(R.string.asset_manual_only_desc),
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f),
+                        )
+                        Text(
+                            text = stringResource(R.string.asset_auto_detect_desc),
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f),
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            Button(
+                                onClick = { assetViewModel.downloadAsset(resolvedAsset.catalog.id.value) },
+                                modifier = Modifier.weight(1f),
+                                enabled = !resolvedAsset.busy,
+                                colors = monochromeButtonColors(),
+                            ) {
+                                Text(stringResource(R.string.asset_download_action))
+                            }
+                            OutlinedButton(
+                                onClick = { assetViewModel.clearAsset(resolvedAsset.catalog.id.value) },
+                                modifier = Modifier.weight(1f),
+                                enabled = !resolvedAsset.busy,
+                            ) {
+                                Text(stringResource(R.string.asset_clear_action))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 internal fun SubPageScaffold(
     title: String,
     onBack: () -> Unit,
@@ -711,6 +906,74 @@ private data class EntryCardState(
     val icon: androidx.compose.ui.graphics.vector.ImageVector,
     val onClick: () -> Unit,
 )
+
+@Composable
+private fun RuntimeAssetEntryCard(
+    item: RuntimeAssetEntryState,
+    onClick: () -> Unit,
+) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(20.dp),
+        color = MonochromeUi.cardBackground,
+        tonalElevation = 2.dp,
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                modifier = Modifier
+                    .background(MonochromeUi.mutedSurface, RoundedCornerShape(14.dp))
+                    .padding(10.dp),
+            ) {
+                Icon(Icons.Outlined.CloudDownload, contentDescription = null, tint = MonochromeUi.textPrimary)
+            }
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                Text(
+                    stringResource(item.catalog.titleRes),
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    stringResource(item.catalog.subtitleRes),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                )
+                Text(
+                    assetStatusLabel(item),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f),
+                )
+            }
+            Box(
+                modifier = Modifier.width(24.dp),
+                contentAlignment = Alignment.CenterEnd,
+            ) {
+                Icon(
+                    Icons.Outlined.ChevronRight,
+                    contentDescription = null,
+                    tint = MonochromeUi.textPrimary,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun assetStatusLabel(item: RuntimeAssetEntryState): String {
+    return if (item.installed) {
+        stringResource(R.string.asset_status_ready)
+    } else {
+        stringResource(R.string.asset_status_not_ready)
+    }
+}
 
 private fun buildAccountQrBitmap(content: String, sizePx: Int): Bitmap {
     val matrix = QRCodeWriter().encode(content, BarcodeFormat.QR_CODE, sizePx, sizePx)

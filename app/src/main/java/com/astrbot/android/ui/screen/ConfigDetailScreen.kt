@@ -87,6 +87,12 @@ fun ConfigDetailScreen(
     val chatProviderOptions = providers
         .filter { it.enabled && ProviderCapability.CHAT in it.capabilities }
         .map { it.id to it.name }
+    val sttProviderOptions = providers
+        .filter { it.enabled && ProviderCapability.STT in it.capabilities }
+        .map { it.id to it.name }
+    val ttsProviderOptions = providers
+        .filter { it.enabled && ProviderCapability.TTS in it.capabilities }
+        .map { it.id to it.name }
     val captionProviderOptions = providers
         .filter { it.enabled && ProviderCapability.CHAT in it.capabilities && it.hasMultimodalSupport() }
         .map { it.id to it.name }
@@ -204,6 +210,8 @@ fun ConfigDetailScreen(
             ConfigDetailContent(
                 profile = profile,
                 chatModelOptions = chatProviderOptions,
+                sttModelOptions = sttProviderOptions,
+                ttsModelOptions = ttsProviderOptions,
                 captionModelOptions = captionProviderOptions,
                 providers = providers,
                 listState = listState,
@@ -227,6 +235,8 @@ fun ConfigDetailScreen(
 private fun ConfigDetailContent(
     profile: ConfigProfile,
     chatModelOptions: List<Pair<String, String>>,
+    sttModelOptions: List<Pair<String, String>>,
+    ttsModelOptions: List<Pair<String, String>>,
     captionModelOptions: List<Pair<String, String>>,
     providers: List<ProviderProfile>,
     listState: androidx.compose.foundation.lazy.LazyListState,
@@ -238,12 +248,18 @@ private fun ConfigDetailContent(
     var showDeleteConfirm by remember(profile.id) { mutableStateOf(false) }
     var defaultChatProviderId by remember(profile.id) { mutableStateOf(profile.defaultChatProviderId) }
     var defaultVisionProviderId by remember(profile.id) { mutableStateOf(profile.defaultVisionProviderId) }
+    var defaultSttProviderId by remember(profile.id) { mutableStateOf(profile.defaultSttProviderId) }
+    var defaultTtsProviderId by remember(profile.id) { mutableStateOf(profile.defaultTtsProviderId) }
     var sttEnabled by remember(profile.id) { mutableStateOf(profile.sttEnabled) }
     var ttsEnabled by remember(profile.id) { mutableStateOf(profile.ttsEnabled) }
+    var alwaysTtsEnabled by remember(profile.id) { mutableStateOf(profile.alwaysTtsEnabled) }
+    var textStreamingEnabled by remember(profile.id) { mutableStateOf(profile.textStreamingEnabled) }
+    var voiceStreamingEnabled by remember(profile.id) { mutableStateOf(profile.voiceStreamingEnabled) }
     var realWorldTimeAwarenessEnabled by remember(profile.id) { mutableStateOf(profile.realWorldTimeAwarenessEnabled) }
     var imageCaptionTextEnabled by remember(profile.id) { mutableStateOf(profile.imageCaptionTextEnabled) }
     var webSearchEnabled by remember(profile.id) { mutableStateOf(profile.webSearchEnabled) }
     var proactiveEnabled by remember(profile.id) { mutableStateOf(profile.proactiveEnabled) }
+    var ttsVoiceId by remember(profile.id) { mutableStateOf(profile.ttsVoiceId) }
     var imageCaptionPrompt by remember(profile.id) { mutableStateOf(profile.imageCaptionPrompt) }
     val unnamedConfigLabel = stringResource(R.string.config_unnamed)
     val defaultChatProvider = providers.firstOrNull { it.id == defaultChatProviderId }
@@ -296,6 +312,18 @@ private fun ConfigDetailContent(
                             style = MaterialTheme.typography.bodySmall,
                             color = MonochromeUi.textSecondary,
                         )
+                        SelectionField(
+                            title = stringResource(R.string.config_default_stt_model),
+                            options = sttModelOptions,
+                            selectedId = defaultSttProviderId,
+                            onSelect = { defaultSttProviderId = it },
+                        )
+                        SelectionField(
+                            title = stringResource(R.string.config_default_tts_model),
+                            options = ttsModelOptions,
+                            selectedId = defaultTtsProviderId,
+                            onSelect = { defaultTtsProviderId = it },
+                        )
                     }
                     ConfigFieldGroup {
                         ConfigToggleRow(
@@ -309,6 +337,24 @@ private fun ConfigDetailContent(
                             subtitle = stringResource(R.string.config_enable_tts_desc),
                             checked = ttsEnabled,
                             onCheckedChange = { ttsEnabled = it },
+                        )
+                        ConfigToggleRow(
+                            title = stringResource(R.string.config_always_tts_title),
+                            subtitle = stringResource(R.string.config_always_tts_desc),
+                            checked = alwaysTtsEnabled,
+                            onCheckedChange = { alwaysTtsEnabled = it },
+                        )
+                        ConfigToggleRow(
+                            title = stringResource(R.string.config_text_streaming_title),
+                            subtitle = stringResource(R.string.config_text_streaming_desc),
+                            checked = textStreamingEnabled,
+                            onCheckedChange = { textStreamingEnabled = it },
+                        )
+                        ConfigToggleRow(
+                            title = stringResource(R.string.config_voice_streaming_title),
+                            subtitle = stringResource(R.string.config_voice_streaming_desc),
+                            checked = voiceStreamingEnabled,
+                            onCheckedChange = { voiceStreamingEnabled = it },
                         )
                         ConfigToggleRow(
                             title = stringResource(R.string.config_time_awareness),
@@ -352,6 +398,13 @@ private fun ConfigDetailContent(
                             modifier = Modifier.fillMaxWidth(),
                             minLines = 4,
                             maxLines = 8,
+                            colors = monochromeOutlinedTextFieldColors(),
+                        )
+                        OutlinedTextField(
+                            value = ttsVoiceId,
+                            onValueChange = { ttsVoiceId = it },
+                            label = { Text(stringResource(R.string.config_tts_voice_placeholder)) },
+                            modifier = Modifier.fillMaxWidth(),
                             colors = monochromeOutlinedTextFieldColors(),
                         )
                     }
@@ -419,12 +472,18 @@ private fun ConfigDetailContent(
                         name = name.trim().ifBlank { unnamedConfigLabel },
                         defaultChatProviderId = defaultChatProviderId,
                         defaultVisionProviderId = defaultVisionProviderId,
+                        defaultSttProviderId = defaultSttProviderId,
+                        defaultTtsProviderId = defaultTtsProviderId,
                         sttEnabled = sttEnabled,
                         ttsEnabled = ttsEnabled,
+                        alwaysTtsEnabled = alwaysTtsEnabled,
+                        textStreamingEnabled = textStreamingEnabled,
+                        voiceStreamingEnabled = voiceStreamingEnabled,
                         realWorldTimeAwarenessEnabled = realWorldTimeAwarenessEnabled,
                         imageCaptionTextEnabled = imageCaptionTextEnabled,
                         webSearchEnabled = webSearchEnabled,
                         proactiveEnabled = proactiveEnabled,
+                        ttsVoiceId = ttsVoiceId.trim(),
                         imageCaptionPrompt = imageCaptionPrompt.trim(),
                     ),
                 )

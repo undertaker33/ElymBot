@@ -17,6 +17,10 @@ object ContainerRuntimeInstaller {
     private val scriptNames = listOf(
         "container_env.sh",
         "bootstrap_container.sh",
+        "prepare_tts_assets.sh",
+        "clear_tts_assets.sh",
+        "convert_tencent_silk.sh",
+        "encode_tencent_silk.py",
         "root_launcher.sh",
         "start_napcat.sh",
         "logout_qq.sh",
@@ -87,7 +91,7 @@ object ContainerRuntimeInstaller {
 
         val rootfsDir = File(runtimeDir, "rootfs/ubuntu")
         try {
-            RootfsExtractor.ensureExtracted(context, ubuntuArchive, rootfsDir)
+            RootfsExtractor.ensureExtracted(ubuntuArchive, rootfsDir)
             RuntimeLogRepository.append("Network install mode enabled: only Ubuntu rootfs is bundled")
             RuntimeLogRepository.append("Ubuntu rootfs ready at ${rootfsDir.absolutePath}")
         } catch (error: Exception) {

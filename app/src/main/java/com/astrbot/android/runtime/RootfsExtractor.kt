@@ -1,7 +1,6 @@
 package com.astrbot.android.runtime
 
 import android.system.Os
-import android.content.Context
 import org.apache.commons.compress.archivers.tar.TarArchiveEntry
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream
 import org.tukaani.xz.XZInputStream
@@ -11,10 +10,11 @@ import java.io.FileOutputStream
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 
+@Suppress("DEPRECATION")
 object RootfsExtractor {
     private const val extractionMarkerName = ".astrbot_rootfs_v4_embedded"
 
-    fun ensureExtracted(context: Context, archiveFile: File, rootfsDir: File) {
+    fun ensureExtracted(archiveFile: File, rootfsDir: File) {
         if (isValidRootfs(rootfsDir)) {
             return
         }

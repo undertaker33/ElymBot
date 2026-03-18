@@ -22,6 +22,8 @@ class ProviderViewModel : ViewModel() {
         enabled: Boolean = true,
         multimodalRuleSupport: FeatureSupportState = FeatureSupportState.UNKNOWN,
         multimodalProbeSupport: FeatureSupportState = FeatureSupportState.UNKNOWN,
+        sttProbeSupport: FeatureSupportState = FeatureSupportState.UNKNOWN,
+        ttsProbeSupport: FeatureSupportState = FeatureSupportState.UNKNOWN,
     ) {
         ProviderRepository.save(
             id = id,
@@ -34,6 +36,8 @@ class ProviderViewModel : ViewModel() {
             enabled = enabled,
             multimodalRuleSupport = multimodalRuleSupport,
             multimodalProbeSupport = multimodalProbeSupport,
+            sttProbeSupport = sttProbeSupport,
+            ttsProbeSupport = ttsProbeSupport,
         )
     }
 
@@ -47,5 +51,13 @@ class ProviderViewModel : ViewModel() {
 
     fun updateMultimodalProbeSupport(id: String, probeSupport: FeatureSupportState) {
         ProviderRepository.updateMultimodalProbeSupport(id, probeSupport)
+    }
+
+    fun updateSttProbeSupport(id: String, probeSupport: FeatureSupportState) {
+        ProviderRepository.updateSttProbeSupport(id, probeSupport)
+    }
+
+    fun updateTtsProbeSupport(id: String, probeSupport: FeatureSupportState) {
+        ProviderRepository.updateTtsProbeSupport(id, probeSupport)
     }
 }

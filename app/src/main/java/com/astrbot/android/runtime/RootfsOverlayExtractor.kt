@@ -1,7 +1,6 @@
 package com.astrbot.android.runtime
 
 import android.system.Os
-import android.content.Context
 import java.io.File
 import org.apache.commons.compress.archivers.tar.TarArchiveEntry
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream
@@ -9,10 +8,11 @@ import org.tukaani.xz.XZInputStream
 import java.io.FileInputStream
 import java.nio.file.Files
 
+@Suppress("DEPRECATION")
 object RootfsOverlayExtractor {
     private const val markerName = ".astrbot_overlay_v1"
 
-    fun ensureApplied(context: Context, overlayFile: File, rootfsDir: File) {
+    fun ensureApplied(overlayFile: File, rootfsDir: File) {
         if (!overlayFile.exists()) {
             return
         }

@@ -17,6 +17,7 @@ enum class ProviderType {
     XAI,
     WHISPER_API,
     XINFERENCE_STT,
+    BAILIAN_STT,
     OPENAI_TTS,
     BAILIAN_TTS,
     MINIMAX_TTS,
@@ -43,6 +44,8 @@ data class ProviderProfile(
     val enabled: Boolean = true,
     val multimodalRuleSupport: FeatureSupportState = FeatureSupportState.UNKNOWN,
     val multimodalProbeSupport: FeatureSupportState = FeatureSupportState.UNKNOWN,
+    val sttProbeSupport: FeatureSupportState = FeatureSupportState.UNKNOWN,
+    val ttsProbeSupport: FeatureSupportState = FeatureSupportState.UNKNOWN,
 )
 
 data class PersonaProfile(
@@ -79,12 +82,18 @@ data class ConfigProfile(
     val name: String = "",
     val defaultChatProviderId: String = "",
     val defaultVisionProviderId: String = "",
+    val defaultSttProviderId: String = "",
+    val defaultTtsProviderId: String = "",
     val sttEnabled: Boolean = false,
     val ttsEnabled: Boolean = false,
+    val alwaysTtsEnabled: Boolean = false,
+    val textStreamingEnabled: Boolean = false,
+    val voiceStreamingEnabled: Boolean = false,
     val realWorldTimeAwarenessEnabled: Boolean = false,
     val imageCaptionTextEnabled: Boolean = false,
     val webSearchEnabled: Boolean = false,
     val proactiveEnabled: Boolean = false,
+    val ttsVoiceId: String = "",
     val imageCaptionPrompt: String = "Describe the image in detail before sending it to the chat model.",
 )
 
@@ -112,6 +121,8 @@ data class ConversationSession(
     val personaId: String,
     val providerId: String,
     val maxContextMessages: Int,
+    val sessionSttEnabled: Boolean = true,
+    val sessionTtsEnabled: Boolean = true,
     val messages: List<ConversationMessage>,
 )
 
@@ -143,6 +154,33 @@ data class NapCatRuntimeState(
     val progressPercent: Int = 0,
     val progressIndeterminate: Boolean = false,
     val installerCached: Boolean = false,
+)
+
+enum class RuntimeAssetId(val value: String) {
+    TTS("tts");
+
+    companion object {
+        fun fromValue(value: String): RuntimeAssetId? = entries.firstOrNull { it.value == value }
+    }
+}
+
+data class RuntimeAssetCatalogItem(
+    val id: RuntimeAssetId,
+    val titleRes: Int,
+    val subtitleRes: Int,
+    val descriptionRes: Int,
+)
+
+data class RuntimeAssetEntryState(
+    val catalog: RuntimeAssetCatalogItem,
+    val installed: Boolean = false,
+    val busy: Boolean = false,
+    val lastAction: String = "",
+    val details: String = "",
+)
+
+data class RuntimeAssetState(
+    val assets: List<RuntimeAssetEntryState> = emptyList(),
 )
 
 data class SavedQqAccount(

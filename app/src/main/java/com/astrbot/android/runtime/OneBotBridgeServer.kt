@@ -1,5 +1,6 @@
 package com.astrbot.android.runtime
 
+import android.content.Context
 import com.astrbot.android.data.BotRepository
 import com.astrbot.android.data.ChatCompletionService
 import com.astrbot.android.data.ConfigRepository
@@ -11,6 +12,7 @@ import com.astrbot.android.model.ConversationAttachment
 import com.astrbot.android.model.PersonaProfile
 import com.astrbot.android.model.ProviderCapability
 import com.astrbot.android.model.ProviderProfile
+import com.astrbot.android.model.ConversationSession
 import fi.iki.elonen.NanoHTTPD.IHTTPSession
 import fi.iki.elonen.NanoWSD
 import fi.iki.elonen.NanoWSD.WebSocket
@@ -23,9 +25,11 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
 import java.io.IOException
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
+import java.util.Base64
 import java.util.LinkedHashMap
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
@@ -50,6 +54,13 @@ object OneBotBridgeServer {
 
     @Volatile
     private var activeSocket: OneBotWebSocket? = null
+
+    @Volatile
+    private var appContext: Context? = null
+
+    fun initialize(context: Context) {
+        appContext = context.applicationContext
+    }
 
     fun start() {
         if (started.get()) return
@@ -182,10 +193,51 @@ object OneBotBridgeServer {
             )
 
             val config = ConfigRepository.resolve(bot.configProfileId)
+            val ttsSuffixMatched = event.text.trim().endsWith("~")
+            val alwaysTtsEnabled = config.alwaysTtsEnabled
+            val wantsTts = config.ttsEnabled &&
+                session.sessionTtsEnabled &&
+                (alwaysTtsEnabled || ttsSuffixMatched)
+            val cleanedText = event.text.trim().removeSuffix("~").trim()
+            val sttProvider = config.defaultSttProviderId
+                .takeIf { config.sttEnabled && session.sessionSttEnabled }
+                ?.let(::resolveSttProvider)
+            val ttsProvider = config.defaultTtsProviderId
+                .takeIf { config.ttsEnabled && session.sessionTtsEnabled }
+                ?.let(::resolveTtsProvider)
+            when {
+                !config.ttsEnabled -> RuntimeLogRepository.append("QQ TTS skipped: config TTS is disabled")
+                !session.sessionTtsEnabled -> RuntimeLogRepository.append("QQ TTS skipped: session TTS is disabled")
+                ttsProvider == null -> RuntimeLogRepository.append(
+                    "QQ TTS skipped: no usable TTS provider configured (selected=${config.defaultTtsProviderId.ifBlank { "-" }})",
+                )
+                alwaysTtsEnabled -> RuntimeLogRepository.append("QQ TTS trigger matched: provider=${ttsProvider.name} mode=always-on")
+                !ttsSuffixMatched -> RuntimeLogRepository.append("QQ TTS skipped: latest input has no ~ suffix")
+                else -> RuntimeLogRepository.append("QQ TTS trigger matched: provider=${ttsProvider.name}")
+            }
+            val transcribedAudioText = if (event.attachments.any { it.type == "audio" } && sttProvider != null) {
+                runCatching {
+                    event.attachments
+                        .filter { it.type == "audio" }
+                        .joinToString("\n") { attachment ->
+                            ChatCompletionService.transcribeAudio(sttProvider, attachment)
+                        }
+                }.onFailure { error ->
+                    RuntimeLogRepository.append("QQ STT failed: ${error.message ?: error.javaClass.simpleName}")
+                }.getOrNull()
+            } else {
+                null
+            }
+            val finalPromptContent = buildPromptContent(
+                event = event,
+                cleanedText = cleanedText,
+                transcribedAudioText = transcribedAudioText,
+            )
+
             ConversationRepository.appendMessage(
                 sessionId = sessionId,
                 role = "user",
-                content = event.promptContent,
+                content = finalPromptContent,
                 attachments = event.attachments,
             )
             RuntimeLogRepository.append(
@@ -208,8 +260,30 @@ object OneBotBridgeServer {
                 return
             }
 
-            ConversationRepository.appendMessage(sessionId, "assistant", response)
-            sendReply(event, response)
+            val assistantAttachments = if (wantsTts && ttsProvider != null) {
+                runCatching {
+                    ChatCompletionService.synthesizeSpeech(
+                        provider = ttsProvider,
+                        text = response,
+                        voiceId = config.ttsVoiceId,
+                    )
+                }.onFailure { error ->
+                    RuntimeLogRepository.append("QQ TTS failed: ${error.message ?: error.javaClass.simpleName}")
+                }.onSuccess { attachment ->
+                    RuntimeLogRepository.append(
+                        "QQ TTS success: provider=${ttsProvider.name} mime=${attachment.mimeType} size=${attachment.base64Data.length}",
+                    )
+                }.getOrNull()?.let(::listOf).orEmpty()
+            } else {
+                emptyList()
+            }
+
+            ConversationRepository.appendMessage(sessionId, "assistant", response, attachments = assistantAttachments)
+            sendReply(
+                event = event,
+                text = response,
+                attachments = assistantAttachments,
+            )
         }
     }
 
@@ -243,6 +317,22 @@ object OneBotBridgeServer {
         return preferredIds.firstNotNullOfOrNull { preferredId ->
             providers.firstOrNull { it.id == preferredId }
         } ?: providers.firstOrNull()
+    }
+
+    private fun resolveSttProvider(providerId: String): ProviderProfile? {
+        return ProviderRepository.providers.value.firstOrNull {
+            it.id == providerId &&
+                it.enabled &&
+                ProviderCapability.STT in it.capabilities
+        }
+    }
+
+    private fun resolveTtsProvider(providerId: String): ProviderProfile? {
+        return ProviderRepository.providers.value.firstOrNull {
+            it.id == providerId &&
+                it.enabled &&
+                ProviderCapability.TTS in it.capabilities
+        }
     }
 
     private fun resolvePersona(bot: BotProfile, sessionPersonaId: String? = null): PersonaProfile? {
@@ -291,16 +381,40 @@ object OneBotBridgeServer {
         }
     }
 
-    private fun sendReply(event: IncomingMessageEvent, text: String) {
+    private fun buildPromptContent(
+        event: IncomingMessageEvent,
+        cleanedText: String,
+        transcribedAudioText: String?,
+    ): String {
+        val textContent = buildString {
+            if (cleanedText.isNotBlank()) {
+                append(cleanedText)
+            }
+            transcribedAudioText?.takeIf { it.isNotBlank() }?.let { sttText ->
+                if (isNotBlank()) append("\n\n")
+                append(sttText)
+            }
+        }.trim()
+        return when (event.messageType) {
+            "group" -> "${event.senderName.ifBlank { event.userId }}: $textContent".trim()
+            else -> textContent
+        }
+    }
+
+    private fun sendReply(
+        event: IncomingMessageEvent,
+        text: String,
+        attachments: List<ConversationAttachment> = emptyList(),
+    ) {
         val socket = activeSocket
         if (socket == null) {
             RuntimeLogRepository.append("OneBot reply skipped: reverse WS is not connected")
             return
         }
 
+        val messagePayload: Any = buildReplyPayload(text, attachments)
         val params = JSONObject().apply {
-            put("message_type", event.messageType)
-            put("message", text)
+            put("message", messagePayload)
             put("auto_escape", false)
             when (event.messageType) {
                 "group" -> put("group_id", event.groupId)
@@ -308,21 +422,91 @@ object OneBotBridgeServer {
             }
         }
         val action = JSONObject().apply {
-            put("action", "send_msg")
+            put("action", if (event.messageType == "group") "send_group_msg" else "send_private_msg")
             put("params", params)
             put("echo", "astrbot-${System.currentTimeMillis()}")
         }
+        RuntimeLogRepository.append("QQ reply payload: ${action.toString().take(1200)}")
 
         runCatching {
             socket.send(action.toString())
             RuntimeLogRepository.append(
-                "QQ reply sent: type=${event.messageType} target=${event.targetId} chars=${text.length}",
+                "QQ reply sent: type=${event.messageType} target=${event.targetId} chars=${text.length} attachments=${attachments.size}",
             )
         }.onFailure { error ->
             RuntimeLogRepository.append(
                 "QQ reply send failed: ${error.message ?: error.javaClass.simpleName}",
             )
         }
+    }
+
+    private fun buildReplyPayload(text: String, attachments: List<ConversationAttachment>): Any {
+        if (attachments.isEmpty()) {
+            return text
+        }
+        val payload = JSONArray().apply {
+            if (text.isNotBlank()) {
+                put(
+                    JSONObject().put("type", "text").put(
+                        "data",
+                        JSONObject().put("text", text),
+                    ),
+                )
+            }
+            attachments.forEach { attachment ->
+                when (attachment.type) {
+                    "audio" -> {
+                        val fileValue = materializeAudioAttachmentForOneBot(attachment)
+                            ?: attachment.remoteUrl
+                        if (fileValue.isNotBlank()) {
+                            put(
+                                JSONObject().put("type", "record").put(
+                                    "data",
+                                    JSONObject().put("file", fileValue),
+                                ),
+                            )
+                        }
+                    }
+
+                    "image" -> {
+                        val fileValue = attachment.base64Data.takeIf { it.isNotBlank() }?.let { "base64://$it" }
+                            ?: attachment.remoteUrl
+                        if (fileValue.isNotBlank()) {
+                            put(
+                                JSONObject().put("type", "image").put(
+                                    "data",
+                                    JSONObject().put("file", fileValue),
+                                ),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        return if (payload.length() > 0) payload else text
+    }
+
+    private fun materializeAudioAttachmentForOneBot(attachment: ConversationAttachment): String? {
+        if (attachment.base64Data.isBlank()) {
+            return null
+        }
+        val context = appContext ?: return null
+        return runCatching {
+            val outputDir = File(context.filesDir, "runtime/tts-out").apply { mkdirs() }
+            val extension = when {
+                attachment.fileName.contains('.') -> attachment.fileName.substringAfterLast('.')
+                attachment.mimeType.contains("wav") -> "wav"
+                else -> "mp3"
+            }
+            val rawFile = File(outputDir, "tts-${System.currentTimeMillis()}-${attachment.id.take(8)}.$extension")
+            rawFile.writeBytes(Base64.getDecoder().decode(attachment.base64Data))
+            RuntimeLogRepository.append("QQ TTS attachment materialized: ${rawFile.absolutePath}")
+            val silkFile = TencentSilkEncoder.encode(rawFile)
+            RuntimeLogRepository.append("QQ TTS attachment converted to silk: ${silkFile.absolutePath}")
+            silkFile.absolutePath
+        }.onFailure { error ->
+            RuntimeLogRepository.append("QQ TTS attachment materialize failed: ${error.message ?: error.javaClass.simpleName}")
+        }.getOrNull()
     }
 
     private fun sendFailureNoticeIfNeeded(event: IncomingMessageEvent, message: String) {
@@ -335,7 +519,7 @@ object OneBotBridgeServer {
         event: IncomingMessageEvent,
         bot: BotProfile,
         sessionId: String,
-        session: com.astrbot.android.model.ConversationSession,
+        session: ConversationSession,
         currentPersona: PersonaProfile?,
     ): Boolean {
         val trimmedText = event.text.trim()
@@ -344,6 +528,28 @@ object OneBotBridgeServer {
                 ConversationRepository.replaceMessages(sessionId, emptyList())
                 sendReply(event, "Current conversation context cleared.")
                 RuntimeLogRepository.append("Bot command handled: /reset session=$sessionId")
+                true
+            }
+
+            trimmedText.equals("/stt", ignoreCase = true) -> {
+                val next = !session.sessionSttEnabled
+                ConversationRepository.updateSessionServiceFlags(sessionId, sessionSttEnabled = next)
+                sendReply(
+                    event,
+                    if (next) "STT enabled for this conversation." else "STT disabled for this conversation.",
+                )
+                RuntimeLogRepository.append("Bot command handled: /stt session=$sessionId enabled=$next")
+                true
+            }
+
+            trimmedText.equals("/tts", ignoreCase = true) -> {
+                val next = !session.sessionTtsEnabled
+                ConversationRepository.updateSessionServiceFlags(sessionId, sessionTtsEnabled = next)
+                sendReply(
+                    event,
+                    if (next) "TTS enabled for this conversation." else "TTS disabled for this conversation.",
+                )
+                RuntimeLogRepository.append("Bot command handled: /tts session=$sessionId enabled=$next")
                 true
             }
 
@@ -492,7 +698,18 @@ object OneBotBridgeServer {
                         val data = segment.optJSONObject("data")
                         attachments += ConversationAttachment(
                             id = "${System.currentTimeMillis()}-$index",
+                            type = "image",
                             mimeType = "image/jpeg",
+                            fileName = data?.optString("file").orEmpty(),
+                            remoteUrl = data?.optString("url").orEmpty(),
+                        )
+                    }
+                    "record" -> {
+                        val data = segment.optJSONObject("data")
+                        attachments += ConversationAttachment(
+                            id = "${System.currentTimeMillis()}-$index",
+                            type = "audio",
+                            mimeType = "audio/mpeg",
                             fileName = data?.optString("file").orEmpty(),
                             remoteUrl = data?.optString("url").orEmpty(),
                         )
@@ -531,7 +748,10 @@ object OneBotBridgeServer {
 
     private fun isBotCommand(text: String): Boolean {
         val normalized = text.trim().lowercase()
-        return normalized == "/reset" || normalized.startsWith("/persona")
+        return normalized == "/reset" ||
+            normalized == "/stt" ||
+            normalized == "/tts" ||
+            normalized.startsWith("/persona")
     }
 
     private fun jsonValueAsString(json: JSONObject, key: String): String {

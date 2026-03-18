@@ -16,6 +16,7 @@ import com.astrbot.android.model.ProviderCapability
 import com.astrbot.android.model.ProviderProfile
 import com.astrbot.android.runtime.RuntimeLogRepository
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -144,6 +145,10 @@ class ChatViewModel : ViewModel() {
         val content = input.trim()
         if ((content.isBlank() && attachments.isEmpty()) || _uiState.value.isSending) return
 
+        if (attachments.isEmpty() && handleSessionCommand(sessionId, content)) {
+            return
+        }
+
         val provider = selectedProvider()
         if (provider == null) {
             _uiState.value = _uiState.value.copy(error = "未选择对话模型")
@@ -153,9 +158,62 @@ class ChatViewModel : ViewModel() {
 
         val persona = selectedPersona()
         val config = selectedBot()?.configProfileId?.let(ConfigRepository::resolve)
+        val session = ConversationRepository.session(sessionId)
+        val ttsSuffixMatched = content.endsWith("~")
+        val alwaysTtsEnabled = config?.alwaysTtsEnabled == true
+        val wantsTts = config?.ttsEnabled == true &&
+            session.sessionTtsEnabled &&
+            (alwaysTtsEnabled || ttsSuffixMatched)
+        val cleanedContent = content.removeSuffix("~").trim()
+        val normalizedInput = cleanedContent.ifBlank { content }
+        val audioAttachments = attachments.filter { it.type == "audio" }
+        val nonAudioAttachments = attachments.filterNot { it.type == "audio" }
+        val sttProvider = config
+            ?.defaultSttProviderId
+            ?.takeIf { config.sttEnabled && session.sessionSttEnabled }
+            ?.let(::resolveSttProvider)
+        val ttsProvider = config
+            ?.defaultTtsProviderId
+            ?.takeIf { config.ttsEnabled && session.sessionTtsEnabled }
+            ?.let(::resolveTtsProvider)
+        when {
+            config?.ttsEnabled != true -> RuntimeLogRepository.append("Chat TTS skipped: config TTS is disabled")
+            !session.sessionTtsEnabled -> RuntimeLogRepository.append("Chat TTS skipped: session TTS is disabled")
+            ttsProvider == null -> RuntimeLogRepository.append(
+                "Chat TTS skipped: no usable TTS provider configured (selected=${config.defaultTtsProviderId.ifBlank { "-" }})",
+            )
+            alwaysTtsEnabled -> RuntimeLogRepository.append("Chat TTS trigger matched: provider=${ttsProvider.name} mode=always-on")
+            !ttsSuffixMatched -> RuntimeLogRepository.append("Chat TTS skipped: latest input has no ~ suffix")
+            else -> RuntimeLogRepository.append("Chat TTS trigger matched: provider=${ttsProvider.name}")
+        }
+        val transcribedAudioText = if (audioAttachments.isNotEmpty() && sttProvider != null) {
+            runCatching {
+                audioAttachments.joinToString("\n") { attachment ->
+                    ChatCompletionService.transcribeAudio(sttProvider, attachment)
+                }
+            }.onFailure { error ->
+                RuntimeLogRepository.append("Chat STT failed: ${error.message ?: error.javaClass.simpleName}")
+            }.getOrNull()
+        } else {
+            null
+        }
+        val finalUserContent = buildString {
+            if (normalizedInput.isNotBlank()) {
+                append(normalizedInput)
+            }
+            transcribedAudioText?.takeIf { it.isNotBlank() }?.let { sttText ->
+                if (isNotBlank()) append("\n\n")
+                append(sttText)
+            }
+        }.trim()
         syncSessionBindings(sessionId, provider.id)
-        ConversationRepository.appendMessage(sessionId, "user", content, attachments)
-        maybeAutoRenameSession(sessionId, content.ifBlank { attachments.firstOrNull()?.fileName ?: "Image" })
+        ConversationRepository.appendMessage(
+            sessionId = sessionId,
+            role = "user",
+            content = finalUserContent,
+            attachments = nonAudioAttachments + audioAttachments,
+        )
+        maybeAutoRenameSession(sessionId, finalUserContent.ifBlank { attachments.firstOrNull()?.fileName ?: "Image" })
         _uiState.value = _uiState.value.copy(isSending = true, error = "")
 
         viewModelScope.launch {
@@ -170,7 +228,34 @@ class ChatViewModel : ViewModel() {
                         availableProviders = providers.value,
                     )
                 }
-                ConversationRepository.appendMessage(sessionId, "assistant", response)
+                val assistantMessageId = ConversationRepository.appendMessage(
+                    sessionId = sessionId,
+                    role = "assistant",
+                    content = if (config?.textStreamingEnabled == true) "" else response,
+                )
+                if (config?.textStreamingEnabled == true) {
+                    emitPseudoStreamingResponse(sessionId, assistantMessageId, response)
+                }
+                if (wantsTts && ttsProvider != null) {
+                    runCatching {
+                        ChatCompletionService.synthesizeSpeech(
+                            provider = ttsProvider,
+                            text = response,
+                            voiceId = config.ttsVoiceId,
+                        )
+                    }.onSuccess { attachment ->
+                        RuntimeLogRepository.append(
+                            "Chat TTS success: provider=${ttsProvider.name} mime=${attachment.mimeType} size=${attachment.base64Data.length}",
+                        )
+                        ConversationRepository.updateMessage(
+                            sessionId = sessionId,
+                            messageId = assistantMessageId,
+                            attachments = listOf(attachment),
+                        )
+                    }.onFailure { error ->
+                        RuntimeLogRepository.append("Chat TTS failed: ${error.message ?: error.javaClass.simpleName}")
+                    }
+                }
                 _uiState.value = _uiState.value.copy(isSending = false)
             } catch (error: Exception) {
                 val message = error.message ?: error.javaClass.simpleName
@@ -250,6 +335,86 @@ class ChatViewModel : ViewModel() {
         val title = content.lines().firstOrNull().orEmpty().trim().take(32)
             .ifBlank { ConversationRepository.DEFAULT_SESSION_TITLE }
         ConversationRepository.renameSession(sessionId, title)
+    }
+
+    private fun handleSessionCommand(sessionId: String, content: String): Boolean {
+        val normalized = content.lowercase()
+        return when (normalized) {
+            "/stt" -> {
+                val session = ConversationRepository.session(sessionId)
+                val next = !session.sessionSttEnabled
+                ConversationRepository.updateSessionServiceFlags(sessionId, sessionSttEnabled = next)
+                ConversationRepository.appendMessage(
+                    sessionId = sessionId,
+                    role = "assistant",
+                    content = if (next) "STT enabled for this conversation." else "STT disabled for this conversation.",
+                )
+                RuntimeLogRepository.append("Chat command handled: /stt session=$sessionId enabled=$next")
+                true
+            }
+
+            "/tts" -> {
+                val session = ConversationRepository.session(sessionId)
+                val next = !session.sessionTtsEnabled
+                ConversationRepository.updateSessionServiceFlags(sessionId, sessionTtsEnabled = next)
+                ConversationRepository.appendMessage(
+                    sessionId = sessionId,
+                    role = "assistant",
+                    content = if (next) "TTS enabled for this conversation." else "TTS disabled for this conversation.",
+                )
+                RuntimeLogRepository.append("Chat command handled: /tts session=$sessionId enabled=$next")
+                true
+            }
+
+            else -> false
+        }
+    }
+
+    private suspend fun emitPseudoStreamingResponse(
+        sessionId: String,
+        messageId: String,
+        response: String,
+    ) {
+        val segments = splitPseudoStreamingSegments(response)
+        if (segments.isEmpty()) {
+            ConversationRepository.updateMessage(sessionId, messageId, content = response)
+            return
+        }
+        val buffer = StringBuilder()
+        segments.forEach { segment ->
+            buffer.append(segment)
+            ConversationRepository.updateMessage(sessionId, messageId, content = buffer.toString())
+            delay(120)
+        }
+    }
+
+    private fun splitPseudoStreamingSegments(response: String): List<String> {
+        val normalized = response.trim()
+        if (normalized.isBlank()) return emptyList()
+        val sentenceRegex = Regex(".*?[。！？!?~…]+|.+$", setOf(RegexOption.DOT_MATCHES_ALL))
+        return sentenceRegex.findAll(normalized)
+            .map { it.value.trim() }
+            .filter { it.isNotBlank() }
+            .flatMap { segment ->
+                if (segment.length <= 42) listOf(segment) else segment.chunked(42)
+            }
+            .toList()
+    }
+
+    private fun resolveSttProvider(providerId: String): ProviderProfile? {
+        return providers.value.firstOrNull {
+            it.id == providerId &&
+                it.enabled &&
+                ProviderCapability.STT in it.capabilities
+        }
+    }
+
+    private fun resolveTtsProvider(providerId: String): ProviderProfile? {
+        return providers.value.firstOrNull {
+            it.id == providerId &&
+                it.enabled &&
+                ProviderCapability.TTS in it.capabilities
+        }
     }
 
     private fun buildSystemPrompt(personaPrompt: String?): String? {

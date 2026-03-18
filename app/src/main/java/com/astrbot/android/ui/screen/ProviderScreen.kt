@@ -138,6 +138,8 @@ internal fun ProviderCatalogContent(
     var isFetchingModels by remember { mutableStateOf(false) }
     var fetchedModels by remember { mutableStateOf(emptyList<String>()) }
     var isCheckingMultimodal by remember { mutableStateOf(false) }
+    var isCheckingStt by remember { mutableStateOf(false) }
+    var isCheckingTts by remember { mutableStateOf(false) }
     var showImageHelp by remember { mutableStateOf(false) }
 
     val capabilityChips = ProviderCapability.entries.map { it.displayLabel() }
@@ -253,6 +255,8 @@ internal fun ProviderCatalogContent(
             fetchedModels = fetchedModels,
             isFetchingModels = isFetchingModels,
             isCheckingMultimodal = isCheckingMultimodal,
+            isCheckingStt = isCheckingStt,
+            isCheckingTts = isCheckingTts,
             onDismiss = { editingProvider = null },
             onDelete = {
                 if (provider.id.isNotBlank()) {
@@ -262,6 +266,12 @@ internal fun ProviderCatalogContent(
             },
             onPersistProbeSupport = { id, probeSupport ->
                 providerViewModel.updateMultimodalProbeSupport(id, probeSupport)
+            },
+            onPersistSttProbeSupport = { id, probeSupport ->
+                providerViewModel.updateSttProbeSupport(id, probeSupport)
+            },
+            onPersistTtsProbeSupport = { id, probeSupport ->
+                providerViewModel.updateTtsProbeSupport(id, probeSupport)
             },
             onFetchModels = { current ->
                 scope.launch {
@@ -297,6 +307,39 @@ internal fun ProviderCatalogContent(
                     isCheckingMultimodal = false
                 }
             },
+            onCheckStt = { current, onResult ->
+                scope.launch {
+                    isCheckingStt = true
+                    val probeResult = runCatching {
+                        withContext(Dispatchers.IO) {
+                            ChatCompletionService.probeSttSupport(current)
+                        }
+                    }.getOrElse {
+                        Toast.makeText(context, it.message ?: it.javaClass.simpleName, Toast.LENGTH_LONG).show()
+                        ChatCompletionService.SttProbeResult(
+                            state = FeatureSupportState.UNKNOWN,
+                            transcript = "",
+                        )
+                    }
+                    onResult(probeResult.state, probeResult.transcript)
+                    isCheckingStt = false
+                }
+            },
+            onCheckTts = { current, onResult ->
+                scope.launch {
+                    isCheckingTts = true
+                    val probeResult = runCatching {
+                        withContext(Dispatchers.IO) {
+                            ChatCompletionService.probeTtsSupport(current)
+                        }
+                    }.getOrElse {
+                        Toast.makeText(context, it.message ?: it.javaClass.simpleName, Toast.LENGTH_LONG).show()
+                        FeatureSupportState.UNKNOWN
+                    }
+                    onResult(probeResult)
+                    isCheckingTts = false
+                }
+            },
             onSave = { profile ->
                 providerViewModel.save(
                     id = profile.id.takeIf { it.isNotBlank() },
@@ -309,6 +352,8 @@ internal fun ProviderCatalogContent(
                     enabled = profile.enabled,
                     multimodalRuleSupport = profile.multimodalRuleSupport,
                     multimodalProbeSupport = profile.multimodalProbeSupport,
+                    sttProbeSupport = profile.sttProbeSupport,
+                    ttsProbeSupport = profile.ttsProbeSupport,
                 )
                 Toast.makeText(context, context.getString(R.string.common_saved), Toast.LENGTH_SHORT).show()
                 editingProvider = null
@@ -483,11 +528,17 @@ private fun ProviderEditorDialog(
     fetchedModels: List<String>,
     isFetchingModels: Boolean,
     isCheckingMultimodal: Boolean,
+    isCheckingStt: Boolean,
+    isCheckingTts: Boolean,
     onDismiss: () -> Unit,
     onDelete: () -> Unit,
     onPersistProbeSupport: (String, FeatureSupportState) -> Unit,
+    onPersistSttProbeSupport: (String, FeatureSupportState) -> Unit,
+    onPersistTtsProbeSupport: (String, FeatureSupportState) -> Unit,
     onFetchModels: (ProviderProfile) -> Unit,
     onCheckMultimodal: (ProviderProfile, (FeatureSupportState, FeatureSupportState) -> Unit) -> Unit,
+    onCheckStt: (ProviderProfile, (FeatureSupportState, String) -> Unit) -> Unit,
+    onCheckTts: (ProviderProfile, (FeatureSupportState) -> Unit) -> Unit,
     onSave: (ProviderProfile) -> Unit,
 ) {
     var showDeleteConfirm by remember(initialProvider.id) { mutableStateOf(false) }
@@ -499,6 +550,9 @@ private fun ProviderEditorDialog(
     var enabled by remember(initialProvider.id) { mutableStateOf(initialProvider.enabled) }
     var multimodalRuleSupport by remember(initialProvider.id) { mutableStateOf(initialProvider.multimodalRuleSupport) }
     var multimodalProbeSupport by remember(initialProvider.id) { mutableStateOf(initialProvider.multimodalProbeSupport) }
+    var sttProbeSupport by remember(initialProvider.id) { mutableStateOf(initialProvider.sttProbeSupport) }
+    var ttsProbeSupport by remember(initialProvider.id) { mutableStateOf(initialProvider.ttsProbeSupport) }
+    var sttProbePreview by remember(initialProvider.id) { mutableStateOf("") }
     val initialProbeFingerprint = remember(initialProvider.id) { probeFingerprint(initialProvider) }
     var lastProbeFingerprint by remember(initialProvider.id) { mutableStateOf(initialProbeFingerprint) }
     val currentProbeFingerprint = remember(providerType, baseUrl, model, apiKey) {
@@ -511,6 +565,21 @@ private fun ProviderEditorDialog(
     }
     val displayedProbeSupport = if (currentProbeFingerprint == lastProbeFingerprint) {
         multimodalProbeSupport
+    } else {
+        FeatureSupportState.UNKNOWN
+    }
+    val displayedSttProbeSupport = if (currentProbeFingerprint == lastProbeFingerprint) {
+        sttProbeSupport
+    } else {
+        FeatureSupportState.UNKNOWN
+    }
+    val displayedSttProbePreview = if (currentProbeFingerprint == lastProbeFingerprint) {
+        sttProbePreview
+    } else {
+        ""
+    }
+    val displayedTtsProbeSupport = if (currentProbeFingerprint == lastProbeFingerprint) {
+        ttsProbeSupport
     } else {
         FeatureSupportState.UNKNOWN
     }
@@ -562,6 +631,8 @@ private fun ProviderEditorDialog(
                                     enabled = enabled,
                                     multimodalRuleSupport = multimodalRuleSupport,
                                     multimodalProbeSupport = displayedProbeSupport,
+                                    sttProbeSupport = displayedSttProbeSupport,
+                                    ttsProbeSupport = displayedTtsProbeSupport,
                                 ),
                             )
                         },
@@ -733,6 +804,120 @@ private fun ProviderEditorDialog(
                             SupportStatusRow(title = stringResource(R.string.provider_support_probe), state = displayedProbeSupport)
                         }
                     }
+                } else if (capability == ProviderCapability.STT) {
+                    Surface(
+                        shape = RoundedCornerShape(20.dp),
+                        color = MonochromeUi.inputBackground,
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            Text(
+                                stringResource(R.string.provider_capability_check_title),
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MonochromeUi.textPrimary,
+                            )
+                            OutlinedButton(
+                                onClick = {
+                                    onCheckStt(
+                                        initialProvider.copy(
+                                            baseUrl = baseUrl,
+                                            apiKey = apiKey,
+                                            model = model,
+                                            providerType = providerType,
+                                            capabilities = setOf(providerType.defaultCapability()),
+                                        ),
+                                    ) { probe, transcript ->
+                                        sttProbeSupport = probe
+                                        sttProbePreview = transcript
+                                        lastProbeFingerprint = currentProbeFingerprint
+                                        if (initialProvider.id.isNotBlank() && currentProbeFingerprint == initialProbeFingerprint) {
+                                            onPersistSttProbeSupport(initialProvider.id, probe)
+                                        }
+                                    }
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(min = 48.dp),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = MonochromeUi.textPrimary),
+                            ) {
+                                Text(stringResource(R.string.provider_check_stt))
+                            }
+                            if (isCheckingStt) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.Center,
+                                ) {
+                                    CircularProgressIndicator(color = MonochromeUi.textPrimary)
+                                }
+                            }
+                            SupportStatusRow(title = stringResource(R.string.provider_support_stt_probe), state = displayedSttProbeSupport)
+                            if (displayedSttProbePreview.isNotBlank()) {
+                                Text(
+                                    text = stringResource(R.string.provider_stt_preview, displayedSttProbePreview),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MonochromeUi.textSecondary,
+                                )
+                            }
+                        }
+                    }
+                } else if (capability == ProviderCapability.TTS) {
+                    Surface(
+                        shape = RoundedCornerShape(20.dp),
+                        color = MonochromeUi.inputBackground,
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            Text(
+                                stringResource(R.string.provider_capability_check_title),
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MonochromeUi.textPrimary,
+                            )
+                            OutlinedButton(
+                                onClick = {
+                                    onCheckTts(
+                                        initialProvider.copy(
+                                            baseUrl = baseUrl,
+                                            apiKey = apiKey,
+                                            model = model,
+                                            providerType = providerType,
+                                            capabilities = setOf(providerType.defaultCapability()),
+                                        ),
+                                    ) { probe ->
+                                        ttsProbeSupport = probe
+                                        lastProbeFingerprint = currentProbeFingerprint
+                                        if (initialProvider.id.isNotBlank() && currentProbeFingerprint == initialProbeFingerprint) {
+                                            onPersistTtsProbeSupport(initialProvider.id, probe)
+                                        }
+                                    }
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(min = 48.dp),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = MonochromeUi.textPrimary),
+                            ) {
+                                Text(stringResource(R.string.provider_check_tts))
+                            }
+                            if (isCheckingTts) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.Center,
+                                ) {
+                                    CircularProgressIndicator(color = MonochromeUi.textPrimary)
+                                }
+                            }
+                            SupportStatusRow(title = stringResource(R.string.provider_support_tts_probe), state = displayedTtsProbeSupport)
+                        }
+                    }
                 } else {
                     Text(
                         text = when (capability) {
@@ -843,6 +1028,7 @@ private fun createEmptyProvider(type: ProviderType): ProviderProfile {
         ProviderType.XAI -> "https://api.x.ai/v1"
         ProviderType.WHISPER_API -> "https://api.openai.com/v1"
         ProviderType.XINFERENCE_STT -> "http://127.0.0.1:9997/v1"
+        ProviderType.BAILIAN_STT -> "https://dashscope.aliyuncs.com/api/v1"
         ProviderType.OPENAI_TTS -> "https://api.openai.com/v1"
         ProviderType.BAILIAN_TTS -> "https://dashscope.aliyuncs.com/api/v1"
         ProviderType.MINIMAX_TTS -> "https://api.minimax.chat/v1"
@@ -862,6 +1048,7 @@ private fun createEmptyProvider(type: ProviderType): ProviderProfile {
         ProviderType.XAI -> "grok-3-mini"
         ProviderType.WHISPER_API -> "whisper-1"
         ProviderType.XINFERENCE_STT -> "whisper-large-v3"
+        ProviderType.BAILIAN_STT -> "qwen3-asr-flash"
         ProviderType.OPENAI_TTS -> "gpt-4o-mini-tts"
         ProviderType.BAILIAN_TTS -> "cosyvoice-v1"
         ProviderType.MINIMAX_TTS -> "speech-01"

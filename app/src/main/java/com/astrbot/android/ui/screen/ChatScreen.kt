@@ -26,6 +26,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Send
 import androidx.compose.material.icons.outlined.AddPhotoAlternate
+import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -91,6 +92,12 @@ fun ChatScreen(
         mutableStateOf(false)
     }
     val pickImageLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        val attachment = uri?.let { loadConversationAttachment(context, it) }
+        if (attachment != null) {
+            pendingAttachments = pendingAttachments + attachment
+        }
+    }
+    val pickAudioLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         val attachment = uri?.let { loadConversationAttachment(context, it) }
         if (attachment != null) {
             pendingAttachments = pendingAttachments + attachment
@@ -276,7 +283,13 @@ fun ChatScreen(
                                         color = MonochromeUi.cardAltBackground,
                                     ) {
                                         Text(
-                                            text = attachment.fileName.ifBlank { stringResource(R.string.chat_image_attachment) },
+                                            text = attachment.fileName.ifBlank {
+                                                if (attachment.type == "audio") {
+                                                    stringResource(R.string.chat_audio_attachment)
+                                                } else {
+                                                    stringResource(R.string.chat_image_attachment)
+                                                }
+                                            },
                                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                                             color = MonochromeUi.textPrimary,
                                             maxLines = 1,
@@ -303,6 +316,22 @@ fun ChatScreen(
                                     androidx.compose.material3.Icon(
                                         Icons.Outlined.AddPhotoAlternate,
                                         contentDescription = stringResource(R.string.chat_add_image),
+                                        tint = MonochromeUi.textPrimary,
+                                    )
+                                }
+                            }
+                            Surface(
+                                onClick = { pickAudioLauncher.launch("audio/*") },
+                                shape = CircleShape,
+                                color = MonochromeUi.iconButtonSurface,
+                            ) {
+                                Box(
+                                    modifier = Modifier.size(38.dp),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    androidx.compose.material3.Icon(
+                                        Icons.Outlined.Mic,
+                                        contentDescription = stringResource(R.string.chat_add_audio),
                                         tint = MonochromeUi.textPrimary,
                                     )
                                 }
@@ -406,9 +435,18 @@ fun ChatScreen(
                                             color = MonochromeUi.textPrimary,
                                         )
                                     }
-                                    if (message.attachments.isNotEmpty()) {
+                                    val imageCount = message.attachments.count { it.type == "image" }
+                                    val audioCount = message.attachments.count { it.type == "audio" }
+                                    if (imageCount > 0) {
                                         Text(
-                                            text = stringResource(R.string.chat_image_count, message.attachments.size),
+                                            text = stringResource(R.string.chat_image_count, imageCount),
+                                            color = MonochromeUi.textSecondary,
+                                            style = MaterialTheme.typography.bodySmall,
+                                        )
+                                    }
+                                    if (audioCount > 0) {
+                                        Text(
+                                            text = stringResource(R.string.chat_audio_count, audioCount),
                                             color = MonochromeUi.textSecondary,
                                             style = MaterialTheme.typography.bodySmall,
                                         )
@@ -432,6 +470,7 @@ private fun loadConversationAttachment(
     uri: Uri,
 ): ConversationAttachment? {
     val mimeType = context.contentResolver.getType(uri).orEmpty().ifBlank { "image/jpeg" }
+    val attachmentType = if (mimeType.startsWith("audio/")) "audio" else "image"
     val fileName = context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
         ?.use { cursor ->
             if (cursor.moveToFirst()) {
@@ -444,6 +483,7 @@ private fun loadConversationAttachment(
 
     return ConversationAttachment(
         id = UUID.randomUUID().toString(),
+        type = attachmentType,
         mimeType = mimeType,
         fileName = fileName,
         base64Data = Base64.encodeToString(bytes, Base64.NO_WRAP),

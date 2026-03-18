@@ -12,6 +12,7 @@ import java.io.FileInputStream
 import java.io.InputStream
 import java.nio.file.Files
 
+@Suppress("DEPRECATION")
 object DebPayloadExtractor {
     private const val offlineMarkerName = ".astrbot_offline_payload_v1"
     private const val qqMarkerName = ".astrbot_qq_payload_v1"

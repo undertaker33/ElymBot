@@ -49,6 +49,8 @@ object ProviderRepository {
         enabled: Boolean = true,
         multimodalRuleSupport: FeatureSupportState = inferMultimodalRuleSupport(providerType, model),
         multimodalProbeSupport: FeatureSupportState = FeatureSupportState.UNKNOWN,
+        sttProbeSupport: FeatureSupportState = FeatureSupportState.UNKNOWN,
+        ttsProbeSupport: FeatureSupportState = FeatureSupportState.UNKNOWN,
     ): ProviderProfile {
         val resolvedId = id?.takeIf { it.isNotBlank() } ?: UUID.randomUUID().toString()
         val profile = normalizeProvider(
@@ -63,6 +65,8 @@ object ProviderRepository {
                 enabled = enabled,
                 multimodalRuleSupport = multimodalRuleSupport,
                 multimodalProbeSupport = multimodalProbeSupport,
+                sttProbeSupport = sttProbeSupport,
+                ttsProbeSupport = ttsProbeSupport,
             ),
         )
         val exists = _providers.value.any { it.id == resolvedId }
@@ -105,11 +109,27 @@ object ProviderRepository {
     }
 
     fun updateMultimodalProbeSupport(id: String, probeSupport: FeatureSupportState) {
+        updateProbeSupport(id, probeSupport) { item, state -> item.copy(multimodalProbeSupport = state) }
+    }
+
+    fun updateSttProbeSupport(id: String, probeSupport: FeatureSupportState) {
+        updateProbeSupport(id, probeSupport) { item, state -> item.copy(sttProbeSupport = state) }
+    }
+
+    fun updateTtsProbeSupport(id: String, probeSupport: FeatureSupportState) {
+        updateProbeSupport(id, probeSupport) { item, state -> item.copy(ttsProbeSupport = state) }
+    }
+
+    private fun updateProbeSupport(
+        id: String,
+        probeSupport: FeatureSupportState,
+        transform: (ProviderProfile, FeatureSupportState) -> ProviderProfile,
+    ) {
         var updatedName: String? = null
         _providers.value = _providers.value.map { item ->
             if (item.id == id) {
                 updatedName = item.name
-                item.copy(multimodalProbeSupport = probeSupport)
+                transform(item, probeSupport)
             } else {
                 item
             }
@@ -149,6 +169,14 @@ object ProviderRepository {
                                 item.optString("multimodalProbeSupport"),
                                 FeatureSupportState.UNKNOWN,
                             ),
+                            sttProbeSupport = parseFeatureSupportState(
+                                item.optString("sttProbeSupport"),
+                                FeatureSupportState.UNKNOWN,
+                            ),
+                            ttsProbeSupport = parseFeatureSupportState(
+                                item.optString("ttsProbeSupport"),
+                                FeatureSupportState.UNKNOWN,
+                            ),
                         ),
                     )
                 }
@@ -172,6 +200,8 @@ object ProviderRepository {
                         put("enabled", provider.enabled)
                         put("multimodalRuleSupport", provider.multimodalRuleSupport.name)
                         put("multimodalProbeSupport", provider.multimodalProbeSupport.name)
+                        put("sttProbeSupport", provider.sttProbeSupport.name)
+                        put("ttsProbeSupport", provider.ttsProbeSupport.name)
                         put(
                             "capabilities",
                             JSONArray().apply {

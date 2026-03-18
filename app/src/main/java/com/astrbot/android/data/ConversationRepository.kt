@@ -49,6 +49,8 @@ object ConversationRepository {
             personaId = "default",
             providerId = "",
             maxContextMessages = 12,
+            sessionSttEnabled = true,
+            sessionTtsEnabled = true,
             messages = emptyList(),
         )
         _sessions.value = listOf(created) + _sessions.value
@@ -99,7 +101,7 @@ object ConversationRepository {
         role: String,
         content: String,
         attachments: List<ConversationAttachment> = emptyList(),
-    ) {
+    ): String {
         val currentSession = session(sessionId)
         val message = ConversationMessage(
             id = UUID.randomUUID().toString(),
@@ -118,6 +120,38 @@ object ConversationRepository {
         persistSessions()
         RuntimeLogRepository.append(
             "Conversation message appended: session=$sessionId role=$role chars=${content.length} attachments=${attachments.size}",
+        )
+        return message.id
+    }
+
+    fun updateMessage(
+        sessionId: String,
+        messageId: String,
+        content: String? = null,
+        attachments: List<ConversationAttachment>? = null,
+    ) {
+        val currentSession = session(sessionId)
+        _sessions.value = _sessions.value.map { item ->
+            if (item.id == currentSession.id) {
+                item.copy(
+                    messages = item.messages.map { message ->
+                        if (message.id == messageId) {
+                            message.copy(
+                                content = content ?: message.content,
+                                attachments = attachments ?: message.attachments,
+                            )
+                        } else {
+                            message
+                        }
+                    },
+                )
+            } else {
+                item
+            }
+        }
+        persistSessions()
+        RuntimeLogRepository.append(
+            "Conversation message updated: session=$sessionId message=$messageId chars=${content?.length ?: -1} attachments=${attachments?.size ?: -1}",
         )
     }
 
@@ -154,6 +188,28 @@ object ConversationRepository {
         )
     }
 
+    fun updateSessionServiceFlags(
+        sessionId: String,
+        sessionSttEnabled: Boolean? = null,
+        sessionTtsEnabled: Boolean? = null,
+    ) {
+        val currentSession = session(sessionId)
+        _sessions.value = _sessions.value.map { item ->
+            if (item.id == currentSession.id) {
+                item.copy(
+                    sessionSttEnabled = sessionSttEnabled ?: item.sessionSttEnabled,
+                    sessionTtsEnabled = sessionTtsEnabled ?: item.sessionTtsEnabled,
+                )
+            } else {
+                item
+            }
+        }
+        persistSessions()
+        RuntimeLogRepository.append(
+            "Conversation service flags updated: session=$sessionId stt=${sessionSttEnabled ?: currentSession.sessionSttEnabled} tts=${sessionTtsEnabled ?: currentSession.sessionTtsEnabled}",
+        )
+    }
+
     fun syncPersistenceForBot(botId: String, persistConversationLocally: Boolean) {
         if (!persistConversationLocally) {
             persistSessions()
@@ -171,6 +227,8 @@ object ConversationRepository {
             personaId = "default",
             providerId = "",
             maxContextMessages = 12,
+            sessionSttEnabled = true,
+            sessionTtsEnabled = true,
             messages = emptyList(),
         )
         _sessions.value = listOf(created) + _sessions.value
@@ -194,6 +252,8 @@ object ConversationRepository {
                     put("personaId", session.personaId)
                     put("providerId", session.providerId)
                     put("maxContextMessages", session.maxContextMessages)
+                    put("sessionSttEnabled", session.sessionSttEnabled)
+                    put("sessionTtsEnabled", session.sessionTtsEnabled)
                     put(
                         "messages",
                         JSONArray().apply {
@@ -286,6 +346,8 @@ object ConversationRepository {
                             personaId = item.optString("personaId").ifBlank { "default" },
                             providerId = item.optString("providerId"),
                             maxContextMessages = item.optInt("maxContextMessages", 12),
+                            sessionSttEnabled = item.optBoolean("sessionSttEnabled", true),
+                            sessionTtsEnabled = item.optBoolean("sessionTtsEnabled", true),
                             messages = messages,
                         ),
                     )
@@ -307,6 +369,8 @@ object ConversationRepository {
                 personaId = "default",
                 providerId = "",
                 maxContextMessages = 12,
+                sessionSttEnabled = true,
+                sessionTtsEnabled = true,
                 messages = listOf(
                     ConversationMessage(
                         id = UUID.randomUUID().toString(),
