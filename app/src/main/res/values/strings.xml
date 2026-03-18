@@ -23,6 +23,7 @@
     <string name="nav_settings">Settings</string>
     <string name="nav_models">Models</string>
     <string name="nav_runtime_settings">Runtime Settings</string>
+    <string name="nav_asset_management">Asset Management</string>
 
     <string name="runtime_title">Runtime Status</string>
     <string name="runtime_minimize">Minimize</string>
@@ -40,6 +41,24 @@
     <string name="me_card_settings_subtitle">Runtime settings, container control, and app preferences</string>
     <string name="me_card_logs_title">Logs</string>
     <string name="me_card_logs_subtitle">View runtime logs and conversation preview</string>
+    <string name="me_card_assets_title">Asset Management</string>
+    <string name="me_card_assets_subtitle">Download or clear optional runtime assets such as TTS conversion support</string>
+
+    <string name="asset_tts_title">TTS Conversion Assets</string>
+    <string name="asset_tts_list_subtitle">QQ voice reply conversion support</string>
+    <string name="asset_tts_desc">These assets prepare Python, ffmpeg, and the pilk package inside the container so QQ voice replies can be converted to Tencent silk without blocking the reply path.</string>
+    <string name="asset_status_ready">Downloaded</string>
+    <string name="asset_status_not_ready">Not downloaded</string>
+    <string name="asset_list_title">Available Assets</string>
+    <string name="asset_list_desc">Assets stay unchanged unless you manually enter a detail page and choose to download or clear them.</string>
+    <string name="asset_actions_title">Actions</string>
+    <string name="asset_manual_only_desc">AstrBot never downloads or removes these assets automatically. Status only changes after you press a button here.</string>
+    <string name="asset_auto_detect_desc">AstrBot automatically checks available system proxy settings and working package mirrors, then chooses a usable download path for these assets.</string>
+    <string name="asset_download_action">Download</string>
+    <string name="asset_refresh_action">Refresh</string>
+    <string name="asset_clear_action">Clear</string>
+    <string name="asset_last_action">Last action: %1$s</string>
+    <string name="asset_busy_hint">Downloading or clearing assets. This can take a while the first time.</string>
 
     <string name="settings_language_title">Language</string>
     <string name="settings_language_subtitle">Switch between Chinese and English.</string>
@@ -103,6 +122,9 @@
     <string name="provider_choose">Choose provider</string>
     <string name="provider_pull_models">Pull Models</string>
     <string name="provider_check_multimodal">Check image understanding</string>
+    <string name="provider_capability_check_title">Model capability check</string>
+    <string name="provider_check_stt">Check speech to text</string>
+    <string name="provider_check_tts">Check text to speech</string>
     <string name="provider_edit_chat">Edit Chat Model</string>
     <string name="provider_edit_stt">Edit STT Model</string>
     <string name="provider_edit_tts">Edit TTS Model</string>
@@ -114,6 +136,9 @@
     <string name="provider_field_model">Model</string>
     <string name="provider_support_rule">Image understanding (estimated)</string>
     <string name="provider_support_probe">Image understanding (tested)</string>
+    <string name="provider_support_stt_probe">Speech to text (tested)</string>
+    <string name="provider_support_tts_probe">Text to speech (tested)</string>
+    <string name="provider_stt_preview">Last transcript: %1$s</string>
     <string name="provider_support_unknown">Unknown</string>
     <string name="provider_support_yes">Supported</string>
     <string name="provider_support_no">Unsupported</string>
@@ -139,8 +164,11 @@
     <string name="chat_message_source_qq">QQ</string>
     <string name="chat_choose_model">Choose a model</string>
     <string name="chat_add_image">Add image</string>
+    <string name="chat_add_audio">Add audio</string>
     <string name="chat_image_attachment">Image attachment</string>
+    <string name="chat_audio_attachment">Audio attachment</string>
     <string name="chat_image_count">%1$d image(s)</string>
+    <string name="chat_audio_count">%1$d audio attachment(s)</string>
     <string name="chat_send">Send</string>
     <string name="chat_empty_hint">Chat is ready. Configure a model and start talking.</string>
     <string name="chat_role_you">You</string>
@@ -185,10 +213,19 @@
     <string name="config_name">Config name</string>
     <string name="config_default_chat_model">Default chat model</string>
     <string name="config_default_caption_model">Default image caption model</string>
+    <string name="config_default_stt_model">Default STT model</string>
+    <string name="config_default_tts_model">Default TTS model</string>
     <string name="config_enable_stt">Enable STT</string>
     <string name="config_enable_stt_desc">Placeholder switch. Runtime wiring comes in a later iteration.</string>
     <string name="config_enable_tts">Enable TTS</string>
     <string name="config_enable_tts_desc">Placeholder switch. Runtime wiring comes in a later iteration.</string>
+    <string name="config_always_tts_title">Use TTS for every reply</string>
+    <string name="config_always_tts_desc">When enabled, replies use TTS whenever TTS is available, even if the user message does not end with ~.</string>
+    <string name="config_text_streaming_title">Text streaming response</string>
+    <string name="config_text_streaming_desc">Stream text replies when the current chat model or fallback path allows it.</string>
+    <string name="config_voice_streaming_title">Voice streaming response</string>
+    <string name="config_voice_streaming_desc">Reserve a separate switch for future streaming TTS output. Falls back to normal audio replies when unsupported.</string>
+    <string name="config_tts_voice_placeholder">TTS voice placeholder</string>
     <string name="config_time_awareness">Real-world time awareness</string>
     <string name="config_time_awareness_desc">Append the current local time to the system prompt.</string>
     <string name="config_caption_prompt">Image caption prompt</string>

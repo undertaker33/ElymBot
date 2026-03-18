@@ -3,6 +3,7 @@ package com.astrbot.android.runtime
 import java.io.BufferedReader
 import java.io.File
 import java.io.InputStreamReader
+import kotlin.concurrent.thread
 
 data class CommandExecutionResult(
     val exitCode: Int,
@@ -28,13 +29,21 @@ object BridgeCommandRunner {
                 .redirectErrorStream(false)
                 .start()
 
-            val stdout = process.inputStream.use { stream ->
-                BufferedReader(InputStreamReader(stream)).readText().trim()
+            var stdout = ""
+            var stderr = ""
+            val stdoutThread = thread(name = "astrbot-cmd-stdout") {
+                stdout = process.inputStream.use { stream ->
+                    BufferedReader(InputStreamReader(stream)).readText().trim()
+                }
             }
-            val stderr = process.errorStream.use { stream ->
-                BufferedReader(InputStreamReader(stream)).readText().trim()
+            val stderrThread = thread(name = "astrbot-cmd-stderr") {
+                stderr = process.errorStream.use { stream ->
+                    BufferedReader(InputStreamReader(stream)).readText().trim()
+                }
             }
             val exitCode = process.waitFor()
+            stdoutThread.join()
+            stderrThread.join()
             RuntimeLogRepository.append(
                 "Command exit: code=$exitCode stdout=${stdout.singleLine(120)} stderr=${stderr.singleLine(120)}",
             )

@@ -20,6 +20,7 @@ fun ProviderType.displayLabel(): String {
         ProviderType.XAI -> "xAI"
         ProviderType.WHISPER_API -> "Whisper API"
         ProviderType.XINFERENCE_STT -> "Xinference STT"
+        ProviderType.BAILIAN_STT -> "Alibaba Bailian STT"
         ProviderType.OPENAI_TTS -> "OpenAI TTS"
         ProviderType.BAILIAN_TTS -> "Alibaba Bailian TTS"
         ProviderType.MINIMAX_TTS -> "MiniMax TTS"
@@ -34,6 +35,7 @@ fun ProviderType.defaultCapability(): ProviderCapability {
     return when (this) {
         ProviderType.WHISPER_API,
         ProviderType.XINFERENCE_STT,
+        ProviderType.BAILIAN_STT,
         -> ProviderCapability.STT
 
         ProviderType.OPENAI_TTS,

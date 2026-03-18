@@ -115,12 +115,18 @@ object ConfigRepository {
                             name = item.optString("name"),
                             defaultChatProviderId = item.optString("defaultChatProviderId"),
                             defaultVisionProviderId = item.optString("defaultVisionProviderId"),
+                            defaultSttProviderId = item.optString("defaultSttProviderId"),
+                            defaultTtsProviderId = item.optString("defaultTtsProviderId"),
                             sttEnabled = item.optBoolean("sttEnabled", false),
                             ttsEnabled = item.optBoolean("ttsEnabled", false),
+                            alwaysTtsEnabled = item.optBoolean("alwaysTtsEnabled", false),
+                            textStreamingEnabled = item.optBoolean("textStreamingEnabled", false),
+                            voiceStreamingEnabled = item.optBoolean("voiceStreamingEnabled", false),
                             realWorldTimeAwarenessEnabled = item.optBoolean("realWorldTimeAwarenessEnabled", false),
                             imageCaptionTextEnabled = item.optBoolean("imageCaptionTextEnabled", false),
                             webSearchEnabled = item.optBoolean("webSearchEnabled", false),
                             proactiveEnabled = item.optBoolean("proactiveEnabled", false),
+                            ttsVoiceId = item.optString("ttsVoiceId"),
                             imageCaptionPrompt = item.optString(
                                 "imageCaptionPrompt",
                                 defaultProfiles().first().imageCaptionPrompt,
@@ -143,12 +149,18 @@ object ConfigRepository {
                         put("name", profile.name)
                         put("defaultChatProviderId", profile.defaultChatProviderId)
                         put("defaultVisionProviderId", profile.defaultVisionProviderId)
+                        put("defaultSttProviderId", profile.defaultSttProviderId)
+                        put("defaultTtsProviderId", profile.defaultTtsProviderId)
                         put("sttEnabled", profile.sttEnabled)
                         put("ttsEnabled", profile.ttsEnabled)
+                        put("alwaysTtsEnabled", profile.alwaysTtsEnabled)
+                        put("textStreamingEnabled", profile.textStreamingEnabled)
+                        put("voiceStreamingEnabled", profile.voiceStreamingEnabled)
                         put("realWorldTimeAwarenessEnabled", profile.realWorldTimeAwarenessEnabled)
                         put("imageCaptionTextEnabled", profile.imageCaptionTextEnabled)
                         put("webSearchEnabled", profile.webSearchEnabled)
                         put("proactiveEnabled", profile.proactiveEnabled)
+                        put("ttsVoiceId", profile.ttsVoiceId)
                         put("imageCaptionPrompt", profile.imageCaptionPrompt)
                     },
                 )

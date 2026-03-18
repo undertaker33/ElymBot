@@ -78,6 +78,8 @@ import com.astrbot.android.ui.screen.ConfigScreen
 import com.astrbot.android.ui.screen.ConfigDetailScreen
 import com.astrbot.android.ui.screen.LogScreen
 import com.astrbot.android.ui.screen.MeScreen
+import com.astrbot.android.ui.screen.AssetManagementScreen
+import com.astrbot.android.ui.screen.AssetDetailScreen
 import com.astrbot.android.ui.screen.PersonaScreen
 import com.astrbot.android.ui.screen.ProviderScreen
 import com.astrbot.android.ui.screen.QQAccountCenterScreen
@@ -237,6 +239,7 @@ fun AstrBotApp(bridgeViewModel: BridgeViewModel = viewModel()) {
                         onOpenQqAccount = { navController.navigate(AppDestination.QQAccount.route) },
                         onOpenSettings = { navController.navigate(AppDestination.SettingsHub.route) },
                         onOpenLogs = { navController.navigate(AppDestination.Logs.route) },
+                        onOpenAssets = { navController.navigate(AppDestination.Assets.route) },
                     )
                 }
                 composable(AppDestination.QQAccount.route) {
@@ -250,6 +253,21 @@ fun AstrBotApp(bridgeViewModel: BridgeViewModel = viewModel()) {
                     SettingsHubScreen(
                         onBack = { navController.popBackStack() },
                         onOpenRuntime = { navController.navigate(AppDestination.Runtime.route) },
+                    )
+                }
+                composable(AppDestination.Assets.route) {
+                    AssetManagementScreen(
+                        onBack = { navController.popBackStack() },
+                        onOpenAsset = { assetId ->
+                            navController.navigate(AppDestination.AssetDetail.routeFor(assetId))
+                        },
+                    )
+                }
+                composable(AppDestination.AssetDetail.route) { backStackEntry ->
+                    val assetId = backStackEntry.arguments?.getString("assetId").orEmpty()
+                    AssetDetailScreen(
+                        assetId = assetId,
+                        onBack = { navController.popBackStack() },
                     )
                 }
                 composable(AppDestination.Models.route) { ProviderScreen(onBack = { navController.popBackStack() }) }
@@ -580,6 +598,10 @@ private sealed class AppDestination(
     data object QQAccount : AppDestination("qq-account", Icons.Outlined.PersonOutline)
     data object QQLogin : AppDestination("qq-login", Icons.Outlined.PersonOutline)
     data object SettingsHub : AppDestination("settings-hub", Icons.Outlined.Settings)
+    data object Assets : AppDestination("asset-management", Icons.Outlined.Memory)
+    data object AssetDetail : AppDestination("asset-management/{assetId}", Icons.Outlined.Memory) {
+        fun routeFor(assetId: String): String = "asset-management/$assetId"
+    }
     data object Models : AppDestination("models", Icons.Outlined.Memory)
     data object Runtime : AppDestination("runtime", Icons.Outlined.Settings)
 }
