@@ -44,8 +44,11 @@ data class ProviderProfile(
     val enabled: Boolean = true,
     val multimodalRuleSupport: FeatureSupportState = FeatureSupportState.UNKNOWN,
     val multimodalProbeSupport: FeatureSupportState = FeatureSupportState.UNKNOWN,
+    val nativeStreamingRuleSupport: FeatureSupportState = FeatureSupportState.UNKNOWN,
+    val nativeStreamingProbeSupport: FeatureSupportState = FeatureSupportState.UNKNOWN,
     val sttProbeSupport: FeatureSupportState = FeatureSupportState.UNKNOWN,
     val ttsProbeSupport: FeatureSupportState = FeatureSupportState.UNKNOWN,
+    val ttsVoiceOptions: List<String> = emptyList(),
 )
 
 data class PersonaProfile(
@@ -87,8 +90,10 @@ data class ConfigProfile(
     val sttEnabled: Boolean = false,
     val ttsEnabled: Boolean = false,
     val alwaysTtsEnabled: Boolean = false,
+    val ttsReadBracketedContent: Boolean = true,
     val textStreamingEnabled: Boolean = false,
     val voiceStreamingEnabled: Boolean = false,
+    val streamingMessageIntervalMs: Int = 120,
     val realWorldTimeAwarenessEnabled: Boolean = false,
     val imageCaptionTextEnabled: Boolean = false,
     val webSearchEnabled: Boolean = false,

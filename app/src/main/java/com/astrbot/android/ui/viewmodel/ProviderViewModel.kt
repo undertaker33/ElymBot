@@ -22,8 +22,11 @@ class ProviderViewModel : ViewModel() {
         enabled: Boolean = true,
         multimodalRuleSupport: FeatureSupportState = FeatureSupportState.UNKNOWN,
         multimodalProbeSupport: FeatureSupportState = FeatureSupportState.UNKNOWN,
+        nativeStreamingRuleSupport: FeatureSupportState = FeatureSupportState.UNKNOWN,
+        nativeStreamingProbeSupport: FeatureSupportState = FeatureSupportState.UNKNOWN,
         sttProbeSupport: FeatureSupportState = FeatureSupportState.UNKNOWN,
         ttsProbeSupport: FeatureSupportState = FeatureSupportState.UNKNOWN,
+        ttsVoiceOptions: List<String> = emptyList(),
     ) {
         ProviderRepository.save(
             id = id,
@@ -36,8 +39,11 @@ class ProviderViewModel : ViewModel() {
             enabled = enabled,
             multimodalRuleSupport = multimodalRuleSupport,
             multimodalProbeSupport = multimodalProbeSupport,
+            nativeStreamingRuleSupport = nativeStreamingRuleSupport,
+            nativeStreamingProbeSupport = nativeStreamingProbeSupport,
             sttProbeSupport = sttProbeSupport,
             ttsProbeSupport = ttsProbeSupport,
+            ttsVoiceOptions = ttsVoiceOptions,
         )
     }
 
@@ -51,6 +57,10 @@ class ProviderViewModel : ViewModel() {
 
     fun updateMultimodalProbeSupport(id: String, probeSupport: FeatureSupportState) {
         ProviderRepository.updateMultimodalProbeSupport(id, probeSupport)
+    }
+
+    fun updateNativeStreamingProbeSupport(id: String, probeSupport: FeatureSupportState) {
+        ProviderRepository.updateNativeStreamingProbeSupport(id, probeSupport)
     }
 
     fun updateSttProbeSupport(id: String, probeSupport: FeatureSupportState) {

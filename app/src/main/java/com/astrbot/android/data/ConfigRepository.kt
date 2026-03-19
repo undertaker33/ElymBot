@@ -120,8 +120,10 @@ object ConfigRepository {
                             sttEnabled = item.optBoolean("sttEnabled", false),
                             ttsEnabled = item.optBoolean("ttsEnabled", false),
                             alwaysTtsEnabled = item.optBoolean("alwaysTtsEnabled", false),
+                            ttsReadBracketedContent = item.optBoolean("ttsReadBracketedContent", true),
                             textStreamingEnabled = item.optBoolean("textStreamingEnabled", false),
                             voiceStreamingEnabled = item.optBoolean("voiceStreamingEnabled", false),
+                            streamingMessageIntervalMs = item.optInt("streamingMessageIntervalMs", 120),
                             realWorldTimeAwarenessEnabled = item.optBoolean("realWorldTimeAwarenessEnabled", false),
                             imageCaptionTextEnabled = item.optBoolean("imageCaptionTextEnabled", false),
                             webSearchEnabled = item.optBoolean("webSearchEnabled", false),
@@ -154,8 +156,10 @@ object ConfigRepository {
                         put("sttEnabled", profile.sttEnabled)
                         put("ttsEnabled", profile.ttsEnabled)
                         put("alwaysTtsEnabled", profile.alwaysTtsEnabled)
+                        put("ttsReadBracketedContent", profile.ttsReadBracketedContent)
                         put("textStreamingEnabled", profile.textStreamingEnabled)
                         put("voiceStreamingEnabled", profile.voiceStreamingEnabled)
+                        put("streamingMessageIntervalMs", profile.streamingMessageIntervalMs)
                         put("realWorldTimeAwarenessEnabled", profile.realWorldTimeAwarenessEnabled)
                         put("imageCaptionTextEnabled", profile.imageCaptionTextEnabled)
                         put("webSearchEnabled", profile.webSearchEnabled)
@@ -176,6 +180,7 @@ object ConfigRepository {
         return profile.copy(
             id = profile.id.ifBlank { DEFAULT_CONFIG_ID },
             name = profile.name.trim().ifBlank { "Unnamed Config" },
+            streamingMessageIntervalMs = profile.streamingMessageIntervalMs.coerceIn(0, 5000),
             imageCaptionPrompt = profile.imageCaptionPrompt.trim().ifBlank { defaultProfiles().first().imageCaptionPrompt },
         )
     }

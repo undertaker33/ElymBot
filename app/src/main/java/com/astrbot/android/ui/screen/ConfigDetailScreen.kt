@@ -22,7 +22,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Done
 import androidx.compose.material.icons.outlined.Menu
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.FloatingActionButtonDefaults
@@ -32,7 +31,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -52,9 +50,11 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.astrbot.android.R
+import com.astrbot.android.data.TtsVoiceCatalog
 import com.astrbot.android.model.ConfigProfile
 import com.astrbot.android.model.FeatureSupportState
 import com.astrbot.android.model.ProviderCapability
@@ -66,6 +66,7 @@ import com.astrbot.android.ui.viewmodel.ConfigViewModel
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.material3.Switch
+import androidx.compose.foundation.text.KeyboardOptions
 
 @Composable
 fun ConfigDetailScreen(
@@ -221,11 +222,6 @@ fun ConfigDetailScreen(
                     configViewModel.select(updated.id)
                     Toast.makeText(context, context.getString(R.string.common_saved), Toast.LENGTH_SHORT).show()
                 },
-                onDelete = {
-                    configViewModel.delete(profile.id)
-                    Toast.makeText(context, context.getString(R.string.config_deleted), Toast.LENGTH_SHORT).show()
-                    onBack()
-                },
             )
         }
     }
@@ -242,10 +238,8 @@ private fun ConfigDetailContent(
     listState: androidx.compose.foundation.lazy.LazyListState,
     modifier: Modifier = Modifier,
     onSave: (ConfigProfile) -> Unit,
-    onDelete: () -> Unit,
 ) {
     var name by remember(profile.id) { mutableStateOf(profile.name) }
-    var showDeleteConfirm by remember(profile.id) { mutableStateOf(false) }
     var defaultChatProviderId by remember(profile.id) { mutableStateOf(profile.defaultChatProviderId) }
     var defaultVisionProviderId by remember(profile.id) { mutableStateOf(profile.defaultVisionProviderId) }
     var defaultSttProviderId by remember(profile.id) { mutableStateOf(profile.defaultSttProviderId) }
@@ -253,8 +247,10 @@ private fun ConfigDetailContent(
     var sttEnabled by remember(profile.id) { mutableStateOf(profile.sttEnabled) }
     var ttsEnabled by remember(profile.id) { mutableStateOf(profile.ttsEnabled) }
     var alwaysTtsEnabled by remember(profile.id) { mutableStateOf(profile.alwaysTtsEnabled) }
+    var ttsReadBracketedContent by remember(profile.id) { mutableStateOf(profile.ttsReadBracketedContent) }
     var textStreamingEnabled by remember(profile.id) { mutableStateOf(profile.textStreamingEnabled) }
     var voiceStreamingEnabled by remember(profile.id) { mutableStateOf(profile.voiceStreamingEnabled) }
+    var streamingMessageIntervalMs by remember(profile.id) { mutableStateOf(profile.streamingMessageIntervalMs.toString()) }
     var realWorldTimeAwarenessEnabled by remember(profile.id) { mutableStateOf(profile.realWorldTimeAwarenessEnabled) }
     var imageCaptionTextEnabled by remember(profile.id) { mutableStateOf(profile.imageCaptionTextEnabled) }
     var webSearchEnabled by remember(profile.id) { mutableStateOf(profile.webSearchEnabled) }
@@ -263,9 +259,20 @@ private fun ConfigDetailContent(
     var imageCaptionPrompt by remember(profile.id) { mutableStateOf(profile.imageCaptionPrompt) }
     val unnamedConfigLabel = stringResource(R.string.config_unnamed)
     val defaultChatProvider = providers.firstOrNull { it.id == defaultChatProviderId }
+    val defaultTtsProvider = providers.firstOrNull { it.id == defaultTtsProviderId }
+    val ttsVoiceOptions = remember(defaultTtsProvider?.id, defaultTtsProvider?.model) {
+        TtsVoiceCatalog.optionsFor(defaultTtsProvider)
+    }
+    var selectedTtsVoiceChoice by remember(profile.id) {
+        mutableStateOf(TtsVoiceCatalog.resolveSelectedVoiceChoice(defaultTtsProvider, ttsVoiceId))
+    }
     val chatModelSupportsImages = defaultChatProvider?.hasMultimodalSupport() == true
     val needsCaptionModel = imageCaptionTextEnabled && !chatModelSupportsImages
     val missingCaptionModel = needsCaptionModel && defaultVisionProviderId.isBlank()
+
+    LaunchedEffect(defaultTtsProvider?.id, ttsVoiceId) {
+        selectedTtsVoiceChoice = TtsVoiceCatalog.resolveSelectedVoiceChoice(defaultTtsProvider, ttsVoiceId)
+    }
 
     Box(
         modifier = modifier
@@ -279,134 +286,200 @@ private fun ConfigDetailContent(
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             item(key = ConfigSection.ModelSettings.name) {
-                ConfigSectionCard(
-                    title = stringResource(R.string.config_section_model_settings),
-                    subtitle = stringResource(R.string.config_section_model_settings_desc),
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
-                    ConfigFieldGroup {
-                        OutlinedTextField(
-                            value = name,
-                            onValueChange = { name = it },
-                            label = { Text(stringResource(R.string.config_name)) },
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = monochromeOutlinedTextFieldColors(),
-                        )
-                        SelectionField(
-                            title = stringResource(R.string.config_default_chat_model),
-                            options = chatModelOptions,
-                            selectedId = defaultChatProviderId,
-                            onSelect = { defaultChatProviderId = it },
-                        )
-                        SelectionField(
-                            title = stringResource(R.string.config_default_caption_model),
-                            options = captionModelOptions,
-                            selectedId = defaultVisionProviderId,
-                            onSelect = { defaultVisionProviderId = it },
-                        )
-                        Text(
-                            text = if (captionModelOptions.isEmpty()) {
-                                stringResource(R.string.config_caption_model_empty)
-                            } else {
-                                stringResource(R.string.config_caption_model_hint)
-                            },
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MonochromeUi.textSecondary,
-                        )
-                        SelectionField(
-                            title = stringResource(R.string.config_default_stt_model),
-                            options = sttModelOptions,
-                            selectedId = defaultSttProviderId,
-                            onSelect = { defaultSttProviderId = it },
-                        )
-                        SelectionField(
-                            title = stringResource(R.string.config_default_tts_model),
-                            options = ttsModelOptions,
-                            selectedId = defaultTtsProviderId,
-                            onSelect = { defaultTtsProviderId = it },
-                        )
-                    }
-                    ConfigFieldGroup {
-                        ConfigToggleRow(
-                            title = stringResource(R.string.config_enable_stt),
-                            subtitle = stringResource(R.string.config_enable_stt_desc),
-                            checked = sttEnabled,
-                            onCheckedChange = { sttEnabled = it },
-                        )
-                        ConfigToggleRow(
-                            title = stringResource(R.string.config_enable_tts),
-                            subtitle = stringResource(R.string.config_enable_tts_desc),
-                            checked = ttsEnabled,
-                            onCheckedChange = { ttsEnabled = it },
-                        )
-                        ConfigToggleRow(
-                            title = stringResource(R.string.config_always_tts_title),
-                            subtitle = stringResource(R.string.config_always_tts_desc),
-                            checked = alwaysTtsEnabled,
-                            onCheckedChange = { alwaysTtsEnabled = it },
-                        )
-                        ConfigToggleRow(
-                            title = stringResource(R.string.config_text_streaming_title),
-                            subtitle = stringResource(R.string.config_text_streaming_desc),
-                            checked = textStreamingEnabled,
-                            onCheckedChange = { textStreamingEnabled = it },
-                        )
-                        ConfigToggleRow(
-                            title = stringResource(R.string.config_voice_streaming_title),
-                            subtitle = stringResource(R.string.config_voice_streaming_desc),
-                            checked = voiceStreamingEnabled,
-                            onCheckedChange = { voiceStreamingEnabled = it },
-                        )
-                        ConfigToggleRow(
-                            title = stringResource(R.string.config_time_awareness),
-                            subtitle = stringResource(R.string.config_time_awareness_desc),
-                            checked = realWorldTimeAwarenessEnabled,
-                            onCheckedChange = { realWorldTimeAwarenessEnabled = it },
-                        )
-                        ConfigToggleRow(
-                            title = stringResource(R.string.config_web_search_title),
-                            subtitle = stringResource(R.string.config_web_search_desc),
-                            checked = webSearchEnabled,
-                            onCheckedChange = { webSearchEnabled = it },
-                        )
-                        ConfigToggleRow(
-                            title = stringResource(R.string.config_proactive_title),
-                            subtitle = stringResource(R.string.config_proactive_desc),
-                            checked = proactiveEnabled,
-                            onCheckedChange = { proactiveEnabled = it },
-                        )
-                    }
-                    ConfigFieldGroup {
-                        ConfigToggleRow(
-                            title = stringResource(R.string.config_image_caption_text_title),
-                            subtitle = stringResource(R.string.config_image_caption_text_desc),
-                            checked = imageCaptionTextEnabled,
-                            onCheckedChange = { imageCaptionTextEnabled = it },
-                        )
-                        if (missingCaptionModel) {
-                            InlineConfigNotice(
-                                text = stringResource(R.string.config_caption_model_required_notice),
+                    ConfigSectionCard(
+                        title = stringResource(R.string.config_section_model_settings),
+                        subtitle = stringResource(R.string.config_section_model_settings_desc),
+                    ) {
+                        ConfigFieldGroup {
+                            OutlinedTextField(
+                                value = name,
+                                onValueChange = { name = it },
+                                label = { Text(stringResource(R.string.config_name)) },
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = monochromeOutlinedTextFieldColors(),
                             )
-                        } else if (imageCaptionTextEnabled && chatModelSupportsImages) {
-                            InlineConfigNotice(
-                                text = stringResource(R.string.config_caption_model_multimodal_notice),
+                            SelectionField(
+                                title = stringResource(R.string.config_default_chat_model),
+                                options = chatModelOptions,
+                                selectedId = defaultChatProviderId,
+                                onSelect = { defaultChatProviderId = it },
+                            )
+                            SelectionField(
+                                title = stringResource(R.string.config_default_caption_model),
+                                options = captionModelOptions,
+                                selectedId = defaultVisionProviderId,
+                                onSelect = { defaultVisionProviderId = it },
+                            )
+                            Text(
+                                text = if (captionModelOptions.isEmpty()) {
+                                    stringResource(R.string.config_caption_model_empty)
+                                } else {
+                                    stringResource(R.string.config_caption_model_hint)
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MonochromeUi.textSecondary,
+                            )
+                            SelectionField(
+                                title = stringResource(R.string.config_default_stt_model),
+                                options = sttModelOptions,
+                                selectedId = defaultSttProviderId,
+                                onSelect = { defaultSttProviderId = it },
+                            )
+                            SelectionField(
+                                title = stringResource(R.string.config_default_tts_model),
+                                options = ttsModelOptions,
+                                selectedId = defaultTtsProviderId,
+                                onSelect = { defaultTtsProviderId = it },
                             )
                         }
-                        OutlinedTextField(
-                            value = imageCaptionPrompt,
-                            onValueChange = { imageCaptionPrompt = it },
-                            label = { Text(stringResource(R.string.config_caption_prompt)) },
-                            modifier = Modifier.fillMaxWidth(),
-                            minLines = 4,
-                            maxLines = 8,
-                            colors = monochromeOutlinedTextFieldColors(),
-                        )
-                        OutlinedTextField(
-                            value = ttsVoiceId,
-                            onValueChange = { ttsVoiceId = it },
-                            label = { Text(stringResource(R.string.config_tts_voice_placeholder)) },
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = monochromeOutlinedTextFieldColors(),
-                        )
+                        ConfigFieldGroup {
+                            ConfigToggleRow(
+                                title = stringResource(R.string.config_image_caption_text_title),
+                                subtitle = stringResource(R.string.config_image_caption_text_desc),
+                                checked = imageCaptionTextEnabled,
+                                onCheckedChange = { imageCaptionTextEnabled = it },
+                            )
+                            if (missingCaptionModel) {
+                                InlineConfigNotice(
+                                    text = stringResource(R.string.config_caption_model_required_notice),
+                                )
+                            } else if (imageCaptionTextEnabled && chatModelSupportsImages) {
+                                InlineConfigNotice(
+                                    text = stringResource(R.string.config_caption_model_multimodal_notice),
+                                )
+                            }
+                            OutlinedTextField(
+                                value = imageCaptionPrompt,
+                                onValueChange = { imageCaptionPrompt = it },
+                                label = { Text(stringResource(R.string.config_caption_prompt)) },
+                                modifier = Modifier.fillMaxWidth(),
+                                minLines = 4,
+                                maxLines = 8,
+                                colors = monochromeOutlinedTextFieldColors(),
+                            )
+                            SelectionField(
+                                title = stringResource(R.string.config_tts_voice_title),
+                                options = ttsVoiceOptions + (TtsVoiceCatalog.CUSTOM_VOICE_ID to stringResource(R.string.config_tts_voice_custom)),
+                                selectedId = selectedTtsVoiceChoice,
+                                onSelect = { selection ->
+                                    selectedTtsVoiceChoice = selection
+                                    ttsVoiceId = when (selection) {
+                                        TtsVoiceCatalog.DEFAULT_VOICE_ID -> ""
+                                        TtsVoiceCatalog.CUSTOM_VOICE_ID -> ttsVoiceId
+                                        else -> selection
+                                    }
+                                },
+                            )
+                            Text(
+                                text = when {
+                                    defaultTtsProvider == null -> stringResource(R.string.config_tts_voice_no_provider)
+                                    ttsVoiceOptions.size <= 1 -> stringResource(R.string.config_tts_voice_manual_hint)
+                                    else -> stringResource(R.string.config_tts_voice_hint)
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MonochromeUi.textSecondary,
+                            )
+                            if (selectedTtsVoiceChoice == TtsVoiceCatalog.CUSTOM_VOICE_ID || ttsVoiceOptions.size <= 1) {
+                                OutlinedTextField(
+                                    value = ttsVoiceId,
+                                    onValueChange = { ttsVoiceId = it },
+                                    label = { Text(stringResource(R.string.config_tts_voice_custom_value)) },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = monochromeOutlinedTextFieldColors(),
+                                )
+                            }
+                        }
+                    }
+                    ConfigSectionCard(
+                        title = stringResource(R.string.config_section_speech_settings),
+                        subtitle = stringResource(R.string.config_section_speech_settings_desc),
+                    ) {
+                        ConfigFieldGroup {
+                            ConfigToggleRow(
+                                title = stringResource(R.string.config_enable_stt),
+                                subtitle = stringResource(R.string.config_enable_stt_desc),
+                                checked = sttEnabled,
+                                onCheckedChange = { sttEnabled = it },
+                            )
+                            ConfigToggleRow(
+                                title = stringResource(R.string.config_enable_tts),
+                                subtitle = stringResource(R.string.config_enable_tts_desc),
+                                checked = ttsEnabled,
+                                onCheckedChange = { ttsEnabled = it },
+                            )
+                            ConfigToggleRow(
+                                title = stringResource(R.string.config_always_tts_title),
+                                subtitle = stringResource(R.string.config_always_tts_desc),
+                                checked = alwaysTtsEnabled,
+                                onCheckedChange = { alwaysTtsEnabled = it },
+                            )
+                            ConfigToggleRow(
+                                title = stringResource(R.string.config_tts_read_brackets_title),
+                                subtitle = stringResource(R.string.config_tts_read_brackets_desc),
+                                checked = ttsReadBracketedContent,
+                                onCheckedChange = { ttsReadBracketedContent = it },
+                            )
+                        }
+                    }
+                    ConfigSectionCard(
+                        title = stringResource(R.string.config_section_streaming_settings),
+                        subtitle = stringResource(R.string.config_section_streaming_settings_desc),
+                    ) {
+                        ConfigFieldGroup {
+                            ConfigToggleRow(
+                                title = stringResource(R.string.config_text_streaming_title),
+                                subtitle = stringResource(R.string.config_text_streaming_desc),
+                                checked = textStreamingEnabled,
+                                onCheckedChange = { textStreamingEnabled = it },
+                            )
+                            ConfigToggleRow(
+                                title = stringResource(R.string.config_voice_streaming_title),
+                                subtitle = stringResource(R.string.config_voice_streaming_desc),
+                                checked = voiceStreamingEnabled,
+                                onCheckedChange = { voiceStreamingEnabled = it },
+                            )
+                            OutlinedTextField(
+                                value = streamingMessageIntervalMs,
+                                onValueChange = { value ->
+                                    streamingMessageIntervalMs = value.filter { it.isDigit() }.take(4)
+                                },
+                                label = { Text(stringResource(R.string.config_streaming_interval_title)) },
+                                supportingText = {
+                                    Text(stringResource(R.string.config_streaming_interval_desc))
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                colors = monochromeOutlinedTextFieldColors(),
+                            )
+                        }
+                    }
+                    ConfigSectionCard(
+                        title = stringResource(R.string.config_section_runtime_helpers),
+                        subtitle = stringResource(R.string.config_section_runtime_helpers_desc),
+                    ) {
+                        ConfigFieldGroup {
+                            ConfigToggleRow(
+                                title = stringResource(R.string.config_time_awareness),
+                                subtitle = stringResource(R.string.config_time_awareness_desc),
+                                checked = realWorldTimeAwarenessEnabled,
+                                onCheckedChange = { realWorldTimeAwarenessEnabled = it },
+                            )
+                            ConfigToggleRow(
+                                title = stringResource(R.string.config_web_search_title),
+                                subtitle = stringResource(R.string.config_web_search_desc),
+                                checked = webSearchEnabled,
+                                onCheckedChange = { webSearchEnabled = it },
+                            )
+                            ConfigToggleRow(
+                                title = stringResource(R.string.config_proactive_title),
+                                subtitle = stringResource(R.string.config_proactive_desc),
+                                checked = proactiveEnabled,
+                                onCheckedChange = { proactiveEnabled = it },
+                            )
+                        }
                     }
                 }
             }
@@ -440,29 +513,6 @@ private fun ConfigDetailContent(
                     subtitle = stringResource(R.string.config_placeholder_advanced),
                 )
             }
-            item(key = "actions") {
-                if (profile.id != "default") {
-                    Surface(
-                        shape = RoundedCornerShape(26.dp),
-                        color = MonochromeUi.cardBackground,
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 14.dp),
-                            horizontalArrangement = Arrangement.End,
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            TextButton(
-                                colors = ButtonDefaults.textButtonColors(contentColor = androidx.compose.ui.graphics.Color(0xFFB42318)),
-                                onClick = { showDeleteConfirm = true },
-                            ) {
-                                Text(stringResource(R.string.common_delete))
-                            }
-                        }
-                    }
-                }
-            }
         }
 
         FloatingActionButton(
@@ -477,8 +527,10 @@ private fun ConfigDetailContent(
                         sttEnabled = sttEnabled,
                         ttsEnabled = ttsEnabled,
                         alwaysTtsEnabled = alwaysTtsEnabled,
+                        ttsReadBracketedContent = ttsReadBracketedContent,
                         textStreamingEnabled = textStreamingEnabled,
                         voiceStreamingEnabled = voiceStreamingEnabled,
+                        streamingMessageIntervalMs = streamingMessageIntervalMs.toIntOrNull()?.coerceIn(0, 5000) ?: profile.streamingMessageIntervalMs,
                         realWorldTimeAwarenessEnabled = realWorldTimeAwarenessEnabled,
                         imageCaptionTextEnabled = imageCaptionTextEnabled,
                         webSearchEnabled = webSearchEnabled,
@@ -497,36 +549,6 @@ private fun ConfigDetailContent(
             elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 6.dp),
         ) {
             Icon(Icons.Outlined.Done, contentDescription = stringResource(R.string.common_save))
-        }
-
-        if (showDeleteConfirm) {
-            AlertDialog(
-                onDismissRequest = { showDeleteConfirm = false },
-                containerColor = MonochromeUi.cardBackground,
-                titleContentColor = MonochromeUi.textPrimary,
-                textContentColor = MonochromeUi.textSecondary,
-                title = { Text(stringResource(R.string.config_delete_confirm_title)) },
-                text = { Text(stringResource(R.string.config_delete_single_confirm_message)) },
-                confirmButton = {
-                    TextButton(
-                        colors = ButtonDefaults.textButtonColors(contentColor = androidx.compose.ui.graphics.Color(0xFFB42318)),
-                        onClick = {
-                            showDeleteConfirm = false
-                            onDelete()
-                        },
-                    ) {
-                        Text(stringResource(R.string.common_delete))
-                    }
-                },
-                dismissButton = {
-                    TextButton(
-                        colors = ButtonDefaults.textButtonColors(contentColor = MonochromeUi.textSecondary),
-                        onClick = { showDeleteConfirm = false },
-                    ) {
-                        Text(stringResource(R.string.common_cancel))
-                    }
-                },
-            )
         }
     }
 }
