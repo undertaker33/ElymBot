@@ -8,6 +8,7 @@ import com.astrbot.android.model.FeatureSupportState
 import com.astrbot.android.model.ProviderCapability
 import com.astrbot.android.model.ProviderProfile
 import com.astrbot.android.model.ProviderType
+import com.astrbot.android.model.inferNativeStreamingRuleSupport
 import com.astrbot.android.model.inferMultimodalRuleSupport
 import com.astrbot.android.model.supportsChatCompletions
 import com.astrbot.android.model.usesOpenAiStyleChatApi
@@ -48,6 +49,12 @@ object ChatCompletionService {
     private const val NIGHT_SCORE = 0.2
     private const val PROBE_PASS_SCORE = 0.5
     private const val BAILIAN_STT_MAX_BYTES = 10 * 1024 * 1024
+    private val bracketPatterns = listOf(
+        Regex("（([^（）]+)）"),
+        Regex("\\(([^()]+)\\)"),
+        Regex("【([^【】]+)】"),
+        Regex("\\[([^\\[\\]]+)]"),
+    )
 
     @Volatile
     private var appContext: Context? = null
@@ -76,6 +83,10 @@ object ChatCompletionService {
         return inferMultimodalRuleSupport(provider.providerType, provider.model)
     }
 
+    fun detectNativeStreamingRule(provider: ProviderProfile): FeatureSupportState {
+        return inferNativeStreamingRuleSupport(provider.providerType, provider.model)
+    }
+
     fun probeMultimodalSupport(provider: ProviderProfile): FeatureSupportState {
         require(ProviderCapability.CHAT in provider.capabilities) { "Multimodal checks are only available for chat models." }
         require(provider.providerType.supportsChatCompletions()) { "This provider does not support chat completions." }
@@ -87,6 +98,20 @@ object ChatCompletionService {
             else -> FeatureSupportState.UNKNOWN
         }
         RuntimeLogRepository.append("Multimodal probe: provider=${provider.name} result=${result.name}")
+        return result
+    }
+
+    fun probeNativeStreamingSupport(provider: ProviderProfile): FeatureSupportState {
+        require(ProviderCapability.CHAT in provider.capabilities) { "Native streaming checks are only available for chat models." }
+        require(provider.providerType.supportsChatCompletions()) { "This provider does not support chat requests." }
+
+        val result = when {
+            provider.providerType.usesOpenAiStyleChatApi() -> probeOpenAiStyleNativeStreaming(provider)
+            provider.providerType == ProviderType.OLLAMA -> probeOllamaNativeStreaming(provider)
+            provider.providerType == ProviderType.GEMINI -> probeGeminiNativeStreaming(provider)
+            else -> FeatureSupportState.UNKNOWN
+        }
+        RuntimeLogRepository.append("Native streaming probe: provider=${provider.name} result=${result.name}")
         return result
     }
 
@@ -150,6 +175,28 @@ object ChatCompletionService {
         )
     }
 
+    suspend fun sendConfiguredChatStream(
+        provider: ProviderProfile,
+        messages: List<ConversationMessage>,
+        systemPrompt: String? = null,
+        config: ConfigProfile? = null,
+        availableProviders: List<ProviderProfile> = emptyList(),
+        onDelta: suspend (String) -> Unit,
+    ): String {
+        val preparedMessages = prepareMessagesForConfig(
+            provider = provider,
+            messages = messages,
+            config = config,
+            availableProviders = availableProviders,
+        )
+        return sendChatStream(
+            provider = provider,
+            messages = preparedMessages,
+            systemPrompt = systemPrompt,
+            onDelta = onDelta,
+        )
+    }
+
     fun transcribeAudio(
         provider: ProviderProfile,
         attachment: ConversationAttachment,
@@ -173,15 +220,20 @@ object ChatCompletionService {
         provider: ProviderProfile,
         text: String,
         voiceId: String = "",
+        readBracketedContent: Boolean = true,
     ): ConversationAttachment {
         require(ProviderCapability.TTS in provider.capabilities) { "This provider is not configured as a TTS model." }
+        val preparedInput = prepareTtsRequest(
+            text = text,
+            readBracketedContent = readBracketedContent,
+        )
         RuntimeLogRepository.append(
-            "TTS route: provider=${provider.name} type=${provider.providerType.name} model=${provider.model} voice=${voiceId.ifBlank { "-" }} chars=${text.length}",
+            "TTS route: provider=${provider.name} type=${provider.providerType.name} model=${provider.model} voice=${voiceId.ifBlank { "-" }} chars=${preparedInput.spokenText.length} style=${preparedInput.stylePrompt.take(80).ifBlank { "-" }}",
         )
         return when (provider.providerType) {
-            ProviderType.OPENAI_TTS -> synthesizeWithOpenAiTts(provider, text, voiceId)
-            ProviderType.BAILIAN_TTS -> synthesizeWithBailianTts(provider, text, voiceId)
-            ProviderType.MINIMAX_TTS -> synthesizeWithMiniMaxTts(provider, text, voiceId)
+            ProviderType.OPENAI_TTS -> synthesizeWithOpenAiTts(provider, preparedInput, voiceId)
+            ProviderType.BAILIAN_TTS -> synthesizeWithBailianTts(provider, preparedInput, voiceId)
+            ProviderType.MINIMAX_TTS -> synthesizeWithMiniMaxTts(provider, preparedInput, voiceId)
             else -> throw IllegalStateException("TTS routing is not implemented for ${provider.providerType.name}.")
         }
     }
@@ -199,6 +251,23 @@ object ChatCompletionService {
             provider.providerType == ProviderType.OLLAMA -> sendOllamaChat(provider, messages, systemPrompt)
             provider.providerType == ProviderType.GEMINI -> sendGeminiChat(provider, messages, systemPrompt)
             else -> throw IllegalStateException("Chat routing is not implemented for ${provider.providerType.name}.")
+        }
+    }
+
+    suspend fun sendChatStream(
+        provider: ProviderProfile,
+        messages: List<ConversationMessage>,
+        systemPrompt: String? = null,
+        onDelta: suspend (String) -> Unit,
+    ): String {
+        require(provider.providerType.supportsChatCompletions()) { "This provider type does not support chat requests." }
+        require(provider.capabilities.contains(ProviderCapability.CHAT)) { "This provider is not configured as a chat model." }
+
+        return when {
+            provider.providerType.usesOpenAiStyleChatApi() -> sendOpenAiStyleChatStream(provider, messages, systemPrompt, onDelta)
+            provider.providerType == ProviderType.OLLAMA -> sendOllamaChatStream(provider, messages, systemPrompt, onDelta)
+            provider.providerType == ProviderType.GEMINI -> sendGeminiChatStream(provider, messages, systemPrompt, onDelta)
+            else -> throw IllegalStateException("Streaming chat is not implemented for ${provider.providerType.name}.")
         }
     }
 
@@ -448,15 +517,23 @@ object ChatCompletionService {
 
     private fun synthesizeWithOpenAiTts(
         provider: ProviderProfile,
-        text: String,
+        request: PreparedTtsRequest,
         voiceId: String,
     ): ConversationAttachment {
         require(provider.apiKey.isNotBlank()) { "Provider API key is empty." }
+        val supportsInstructions = supportsOpenAiSpeechInstructions(provider.model)
+        if (request.stylePrompt.isNotBlank() && !supportsInstructions) {
+            RuntimeLogRepository.append("TTS style prompt skipped: OpenAI model ${provider.model} has no instruction channel")
+        }
         val payload = JSONObject().apply {
             put("model", provider.model)
-            put("input", text)
+            put("input", request.spokenText)
             put("voice", voiceId.ifBlank { "alloy" })
             put("format", "mp3")
+            request.styleHints.openAiInstruction
+                .takeIf { it.isNotBlank() }
+                .takeIf { supportsInstructions }
+                ?.let { put("instructions", it) }
         }
         val connection = openConnection(provider.baseUrl.trimEnd('/') + "/audio/speech", "POST").apply {
             setRequestProperty("Authorization", "Bearer ${provider.apiKey}")
@@ -484,7 +561,7 @@ object ChatCompletionService {
 
     private fun synthesizeWithBailianTts(
         provider: ProviderProfile,
-        text: String,
+        request: PreparedTtsRequest,
         voiceId: String,
     ): ConversationAttachment {
         require(provider.apiKey.isNotBlank()) { "Provider API key is empty." }
@@ -495,15 +572,26 @@ object ChatCompletionService {
                 "DashScope CosyVoice/Sambert models require a WebSocket route that is not implemented on Android yet. Use a qwen3-tts-* model for now.",
             )
         }
+        val supportsInstructions = supportsDashScopeSpeechInstructions(modelName)
+        if (request.stylePrompt.isNotBlank() && !supportsInstructions) {
+            RuntimeLogRepository.append("TTS style prompt skipped: DashScope model $modelName needs qwen3-tts-instruct-flash")
+        }
         val payload = JSONObject().apply {
             put("model", modelName)
             put("stream", true)
+            request.styleHints.dashScopeInstruction
+                .takeIf { it.isNotBlank() }
+                .takeIf { supportsInstructions }
+                ?.let {
+                    put("instructions", it)
+                    put("optimize_instructions", true)
+                }
             put(
                 "input",
                 JSONObject().apply {
-                    put("text", text)
+                    put("text", request.spokenText)
                     put("voice", voiceId.ifBlank { "Cherry" })
-                    put("language_type", inferDashScopeLanguageType(text))
+                    put("language_type", inferDashScopeLanguageType(request.spokenText))
                 },
             )
         }
@@ -521,14 +609,26 @@ object ChatCompletionService {
 
     private fun synthesizeWithMiniMaxTts(
         provider: ProviderProfile,
-        text: String,
+        request: PreparedTtsRequest,
         voiceId: String,
     ): ConversationAttachment {
         require(provider.apiKey.isNotBlank()) { "Provider API key is empty." }
         require(provider.model.isNotBlank()) { "TTS model is empty." }
+        val minimaxTags = request.styleHints
+            .takeIf { supportsMiniMaxExpressiveTag(provider.model) }
+            ?.miniMaxTags
+            .orEmpty()
+        val minimaxEmotion = request.styleHints.miniMaxEmotion
+        if (request.stylePrompt.isNotBlank() && minimaxTags.isEmpty() && minimaxEmotion == null) {
+            RuntimeLogRepository.append("TTS style prompt degraded: MiniMax could not map style hint to emotion/tag")
+        }
+        val spokenText = buildMiniMaxSpokenText(
+            spokenText = request.spokenText,
+            styleTags = minimaxTags,
+        )
         val payload = JSONObject().apply {
             put("model", provider.model)
-            put("text", text)
+            put("text", spokenText)
             put("stream", false)
             put("language_boost", "auto")
             put("output_format", "hex")
@@ -539,6 +639,7 @@ object ChatCompletionService {
                     put("speed", 1.0)
                     put("vol", 1.0)
                     put("pitch", 0)
+                    minimaxEmotion?.let { put("emotion", it) }
                 },
             )
             put(
@@ -647,6 +748,89 @@ object ChatCompletionService {
                 evaluateProbeDescription(content)
             },
         )
+    }
+
+    private fun probeOpenAiStyleNativeStreaming(provider: ProviderProfile): FeatureSupportState {
+        require(provider.apiKey.isNotBlank()) { "API key cannot be empty." }
+        val payload = JSONObject().apply {
+            put("model", provider.model)
+            put("stream", true)
+            put(
+                "messages",
+                JSONArray().put(
+                    JSONObject()
+                        .put("role", "user")
+                        .put("content", "Reply with exactly: streaming-ok"),
+                ),
+            )
+            put("max_tokens", 16)
+        }
+        val connection = openConnection(provider.baseUrl.trimEnd('/') + "/chat/completions", "POST").apply {
+            setRequestProperty("Authorization", "Bearer ${provider.apiKey}")
+        }
+        return executeStreamingProbeRequest(connection, payload) { line ->
+            JSONObject(line)
+                .optJSONArray("choices")
+                ?.optJSONObject(0)
+                ?.optJSONObject("delta")
+                ?.optString("content")
+                .orEmpty()
+        }
+    }
+
+    private fun probeOllamaNativeStreaming(provider: ProviderProfile): FeatureSupportState {
+        val payload = JSONObject().apply {
+            put("model", provider.model)
+            put("stream", true)
+            put(
+                "messages",
+                JSONArray().put(
+                    JSONObject()
+                        .put("role", "user")
+                        .put("content", "Reply with exactly: streaming-ok"),
+                ),
+            )
+        }
+        val connection = openConnection(provider.baseUrl.trimEnd('/') + "/api/chat", "POST")
+        return executeStreamingProbeRequest(connection, payload) { line ->
+            JSONObject(line)
+                .optJSONObject("message")
+                ?.optString("content")
+                .orEmpty()
+        }
+    }
+
+    private fun probeGeminiNativeStreaming(provider: ProviderProfile): FeatureSupportState {
+        require(provider.apiKey.isNotBlank()) { "API key cannot be empty." }
+        val modelName = if (provider.model.startsWith("models/")) provider.model else "models/${provider.model}"
+        val endpoint = provider.baseUrl.trimEnd('/') + "/$modelName:streamGenerateContent?alt=sse&key=" +
+            URLEncoder.encode(provider.apiKey, StandardCharsets.UTF_8.name())
+        val payload = JSONObject().apply {
+            put(
+                "contents",
+                JSONArray().put(
+                    JSONObject().put(
+                        "parts",
+                        JSONArray().put(JSONObject().put("text", "Reply with exactly: streaming-ok")),
+                    ),
+                ),
+            )
+            put(
+                "generationConfig",
+                JSONObject().put("maxOutputTokens", 16),
+            )
+        }
+        val connection = openConnection(endpoint, "POST")
+        return executeStreamingProbeRequest(connection, payload) { line ->
+            JSONObject(line)
+                .optJSONArray("candidates")
+                ?.optJSONObject(0)
+                ?.optJSONObject("content")
+                ?.optJSONArray("parts")
+                ?.optJSONObject(0)
+                ?.optString("text")
+                .orEmpty()
+        }
     }
 
     private fun probeOllamaMultimodal(provider: ProviderProfile): FeatureSupportState {
@@ -827,6 +1011,119 @@ object ChatCompletionService {
                 ?.optString("text")
                 ?.takeIf { it.isNotBlank() }
                 ?: throw IllegalStateException("Model response is empty.")
+        }
+    }
+
+    private suspend fun sendOpenAiStyleChatStream(
+        provider: ProviderProfile,
+        messages: List<ConversationMessage>,
+        systemPrompt: String?,
+        onDelta: suspend (String) -> Unit,
+    ): String {
+        require(provider.apiKey.isNotBlank()) { "Provider API key is empty." }
+        val payload = JSONObject().apply {
+            put("model", provider.model)
+            put("stream", true)
+            put(
+                "messages",
+                JSONArray().apply {
+                    if (!systemPrompt.isNullOrBlank()) {
+                        put(JSONObject().put("role", "system").put("content", systemPrompt))
+                    }
+                    messages.forEach { message ->
+                        put(JSONObject().put("role", message.role).put("content", buildOpenAiContent(message)))
+                    }
+                },
+            )
+        }
+        val connection = openConnection(provider.baseUrl.trimEnd('/') + "/chat/completions", "POST").apply {
+            setRequestProperty("Authorization", "Bearer ${provider.apiKey}")
+        }
+        return executeStreamingRequest(connection, payload, onDelta) { line ->
+            JSONObject(line)
+                .optJSONArray("choices")
+                ?.optJSONObject(0)
+                ?.optJSONObject("delta")
+                ?.optString("content")
+                .orEmpty()
+        }
+    }
+
+    private suspend fun sendOllamaChatStream(
+        provider: ProviderProfile,
+        messages: List<ConversationMessage>,
+        systemPrompt: String?,
+        onDelta: suspend (String) -> Unit,
+    ): String {
+        val payload = JSONObject().apply {
+            put("model", provider.model)
+            put("stream", true)
+            put(
+                "messages",
+                JSONArray().apply {
+                    if (!systemPrompt.isNullOrBlank()) {
+                        put(JSONObject().put("role", "system").put("content", systemPrompt))
+                    }
+                    messages.forEach { message ->
+                        put(
+                            JSONObject()
+                                .put("role", message.role)
+                                .put("content", message.content.ifBlank { "Describe this image." })
+                                .put("images", buildOllamaImages(message.attachments)),
+                        )
+                    }
+                },
+            )
+        }
+        val connection = openConnection(provider.baseUrl.trimEnd('/') + "/api/chat", "POST")
+        return executeStreamingRequest(connection, payload, onDelta) { line ->
+            JSONObject(line)
+                .optJSONObject("message")
+                ?.optString("content")
+                .orEmpty()
+        }
+    }
+
+    private suspend fun sendGeminiChatStream(
+        provider: ProviderProfile,
+        messages: List<ConversationMessage>,
+        systemPrompt: String?,
+        onDelta: suspend (String) -> Unit,
+    ): String {
+        require(provider.apiKey.isNotBlank()) { "Provider API key is empty." }
+        val modelName = if (provider.model.startsWith("models/")) provider.model else "models/${provider.model}"
+        val endpoint = provider.baseUrl.trimEnd('/') + "/$modelName:streamGenerateContent?alt=sse&key=" +
+            URLEncoder.encode(provider.apiKey, StandardCharsets.UTF_8.name())
+        val payload = JSONObject().apply {
+            if (!systemPrompt.isNullOrBlank()) {
+                put(
+                    "system_instruction",
+                    JSONObject().put("parts", JSONArray().put(JSONObject().put("text", systemPrompt))),
+                )
+            }
+            put(
+                "contents",
+                JSONArray().apply {
+                    messages.forEach { message ->
+                        put(
+                            JSONObject()
+                                .put("role", if (message.role == "assistant") "model" else "user")
+                                .put("parts", buildGeminiParts(message)),
+                        )
+                    }
+                },
+            )
+        }
+        val connection = openConnection(endpoint, "POST")
+        return executeStreamingRequest(connection, payload, onDelta) { line ->
+            JSONObject(line)
+                .optJSONArray("candidates")
+                ?.optJSONObject(0)
+                ?.optJSONObject("content")
+                ?.optJSONArray("parts")
+                ?.optJSONObject(0)
+                ?.optString("text")
+                .orEmpty()
         }
     }
 
@@ -1426,6 +1723,295 @@ object ChatCompletionService {
         return multimodalProbeSupport == FeatureSupportState.SUPPORTED ||
             multimodalRuleSupport == FeatureSupportState.SUPPORTED ||
             inferMultimodalRuleSupport(providerType, model) == FeatureSupportState.SUPPORTED
+    }
+
+    private fun executeStreamingProbeRequest(
+        connection: HttpURLConnection,
+        payload: JSONObject,
+        chunkParser: (String) -> String,
+    ): FeatureSupportState {
+        return try {
+            connection.doOutput = true
+            connection.outputStream.use { output ->
+                output.write(payload.toString().toByteArray(StandardCharsets.UTF_8))
+            }
+            val responseCode = connection.responseCode
+            if (responseCode !in 200..299) {
+                val body = readBody(connection, responseCode)
+                throw IllegalStateException("HTTP $responseCode: $body")
+            }
+
+            val chunks = mutableListOf<String>()
+            connection.inputStream.bufferedReader(StandardCharsets.UTF_8).useLines { lines ->
+                lines.forEach { rawLine ->
+                    val line = rawLine.removePrefix("data:").trim()
+                    if (line.isBlank() || line == "[DONE]") return@forEach
+                    val chunk = runCatching { chunkParser(line) }.getOrDefault("")
+                    if (chunk.isNotBlank()) {
+                        chunks += chunk
+                    }
+                }
+            }
+            val combined = chunks.joinToString("").trim()
+            RuntimeLogRepository.append("Native streaming probe chunks: ${combined.take(160)}")
+            when {
+                combined.contains("streaming-ok", ignoreCase = true) -> FeatureSupportState.SUPPORTED
+                combined.isNotBlank() -> FeatureSupportState.SUPPORTED
+                else -> FeatureSupportState.UNSUPPORTED
+            }
+        } catch (error: Exception) {
+            RuntimeLogRepository.append("Native streaming probe error: ${error.message ?: error.javaClass.simpleName}")
+            FeatureSupportState.UNKNOWN
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    private fun prepareTtsRequest(
+        text: String,
+        readBracketedContent: Boolean,
+    ): PreparedTtsRequest {
+        val matches = collectBracketMatches(text)
+        if (matches.isEmpty()) {
+            return PreparedTtsRequest(spokenText = text.trim())
+        }
+
+        val stylePrompt = matches.joinToString("，") { it.inner }
+        val spokenText = if (readBracketedContent) {
+            buildReadableBracketSpeech(text, matches)
+        } else {
+            buildSpeechWithoutBracketDirections(text, matches)
+        }.ifBlank {
+            buildReadableBracketSpeech(text, matches)
+        }
+        return PreparedTtsRequest(
+            spokenText = spokenText,
+            stylePrompt = stylePrompt,
+            styleHints = buildTtsStyleHints(stylePrompt),
+        )
+    }
+
+    private fun collectBracketMatches(text: String): List<BracketMatch> {
+        return bracketPatterns
+            .flatMap { pattern ->
+                pattern.findAll(text).mapNotNull { match ->
+                    val inner = match.groupValues.getOrNull(1).orEmpty().trim()
+                    inner.takeIf { it.isNotBlank() }?.let {
+                        BracketMatch(
+                            start = match.range.first,
+                            endExclusive = match.range.last + 1,
+                            inner = it,
+                        )
+                    }
+                }.toList()
+            }
+            .sortedWith(compareBy<BracketMatch> { it.start }.thenBy { it.endExclusive })
+            .fold(mutableListOf()) { acc, item ->
+                val last = acc.lastOrNull()
+                if (last == null || item.start >= last.endExclusive) {
+                    acc += item
+                }
+                acc
+            }
+    }
+
+    private fun buildReadableBracketSpeech(
+        text: String,
+        matches: List<BracketMatch>,
+    ): String {
+        val builder = StringBuilder()
+        var cursor = 0
+        matches.forEach { match ->
+            builder.append(text.substring(cursor, match.start))
+            val beforeChar = builder.lastOrNull()
+            val afterChar = text.getOrNull(match.endExclusive)
+            if (shouldInsertPause(beforeChar)) {
+                builder.append('，')
+            }
+            builder.append(match.inner)
+            if (shouldInsertPause(afterChar)) {
+                builder.append('，')
+            }
+            cursor = match.endExclusive
+        }
+        builder.append(text.substring(cursor))
+        return normalizeTtsText(builder.toString())
+    }
+
+    private fun buildSpeechWithoutBracketDirections(
+        text: String,
+        matches: List<BracketMatch>,
+    ): String {
+        val builder = StringBuilder()
+        var cursor = 0
+        matches.forEach { match ->
+            builder.append(text.substring(cursor, match.start))
+            cursor = match.endExclusive
+        }
+        builder.append(text.substring(cursor))
+        return normalizeTtsText(builder.toString())
+    }
+
+    private fun normalizeTtsText(text: String): String {
+        return text
+            .replace(Regex("[\\t\\r\\n ]+"), " ")
+            .replace(Regex("([，,。！？!?:：；;])\\s+"), "$1")
+            .replace(Regex("[，,]{2,}"), "，")
+            .replace(Regex("^[，,\\s]+"), "")
+            .replace(Regex("\\s+[，,。！？!?:：；;]"), "")
+            .trim()
+    }
+
+    private fun shouldInsertPause(char: Char?): Boolean {
+        if (char == null) return false
+        return !char.isWhitespace() && char !in setOf('，', ',', '。', '！', '？', '!', '?', '：', ':', '；', ';')
+    }
+
+    private fun supportsOpenAiSpeechInstructions(model: String): Boolean {
+        return model.trim().lowercase(Locale.US).contains("gpt-4o-mini-tts")
+    }
+
+    private fun supportsDashScopeSpeechInstructions(model: String): Boolean {
+        return model.trim().lowercase(Locale.US).contains("qwen3-tts-instruct")
+    }
+
+    private fun supportsMiniMaxExpressiveTag(model: String): Boolean {
+        val normalized = model.trim().lowercase(Locale.US)
+        return normalized.startsWith("speech-2.6") || normalized.startsWith("speech-2.8")
+    }
+
+    private fun buildMiniMaxSpokenText(
+        spokenText: String,
+        styleTags: List<String>,
+    ): String {
+        if (styleTags.isEmpty()) return spokenText
+        return (styleTags.joinToString(separator = " ") + " " + spokenText).trim()
+    }
+
+    private fun buildTtsStyleHints(stylePrompt: String): TtsStyleHints {
+        val normalized = stylePrompt.trim().lowercase(Locale.US)
+        if (normalized.isBlank()) {
+            return TtsStyleHints()
+        }
+
+        val matchedMappings = TtsStyleMappings.entries
+            .filter { mapping -> mapping.keywords.any(normalized::contains) }
+            .sortedByDescending { it.priority }
+        if (matchedMappings.isEmpty()) {
+            return TtsStyleHints(
+                openAiInstruction = buildGenericOpenAiInstruction(stylePrompt),
+                dashScopeInstruction = buildGenericDashScopeInstruction(stylePrompt),
+            )
+        }
+
+        val openAiSegments = linkedSetOf<String>()
+        val dashScopeSegments = linkedSetOf<String>()
+        val miniMaxTags = linkedSetOf<String>()
+        var miniMaxEmotion: String? = null
+
+        matchedMappings.forEach { mapping ->
+            mapping.openAiInstruction?.let(openAiSegments::add)
+            mapping.dashScopeInstruction?.let(dashScopeSegments::add)
+            mapping.miniMaxTags.forEach(miniMaxTags::add)
+            if (miniMaxEmotion == null && !mapping.miniMaxEmotion.isNullOrBlank()) {
+                miniMaxEmotion = mapping.miniMaxEmotion
+            }
+        }
+
+        return TtsStyleHints(
+            openAiInstruction = buildOpenAiInstructionFromSegments(openAiSegments, stylePrompt),
+            dashScopeInstruction = buildDashScopeInstructionFromSegments(dashScopeSegments, stylePrompt),
+            miniMaxEmotion = miniMaxEmotion,
+            miniMaxTags = miniMaxTags.take(3),
+        )
+    }
+
+    private fun buildOpenAiInstructionFromSegments(
+        segments: Set<String>,
+        rawPrompt: String,
+    ): String {
+        if (segments.isEmpty()) {
+            return buildGenericOpenAiInstruction(rawPrompt)
+        }
+        return buildString {
+            append("Do not read the bracketed directions aloud. Speak in Mandarin Chinese with ")
+            append(segments.joinToString(separator = ", "))
+            append(".")
+        }
+    }
+
+    private fun buildDashScopeInstructionFromSegments(
+        segments: Set<String>,
+        rawPrompt: String,
+    ): String {
+        if (segments.isEmpty()) {
+            return buildGenericDashScopeInstruction(rawPrompt)
+        }
+        return buildString {
+            append("请不要直接朗读括号中的提示词。整体请用")
+            append(segments.joinToString(separator = "、"))
+            append("的方式来演绎这段中文台词。")
+        }
+    }
+
+    private fun buildGenericOpenAiInstruction(stylePrompt: String): String {
+        return "Do not read the bracketed directions aloud. Use them as style guidance only: $stylePrompt"
+    }
+
+    private fun buildGenericDashScopeInstruction(stylePrompt: String): String {
+        return "请不要直接朗读括号中的提示词，而是将它们作为语气、情绪和演绎提示：$stylePrompt"
+    }
+
+    private data class PreparedTtsRequest(
+        val spokenText: String,
+        val stylePrompt: String = "",
+        val styleHints: TtsStyleHints = TtsStyleHints(),
+    )
+
+    private data class BracketMatch(
+        val start: Int,
+        val endExclusive: Int,
+        val inner: String,
+    )
+
+    private suspend fun executeStreamingRequest(
+        connection: HttpURLConnection,
+        payload: JSONObject,
+        onDelta: suspend (String) -> Unit,
+        chunkParser: (String) -> String,
+    ): String {
+        return try {
+            connection.doOutput = true
+            connection.outputStream.use { output ->
+                output.write(payload.toString().toByteArray(StandardCharsets.UTF_8))
+            }
+            val responseCode = connection.responseCode
+            if (responseCode !in 200..299) {
+                val body = readBody(connection, responseCode)
+                throw IllegalStateException("HTTP $responseCode: $body")
+            }
+
+            val chunks = mutableListOf<String>()
+            connection.inputStream.bufferedReader(StandardCharsets.UTF_8).use { reader ->
+                while (true) {
+                    val rawLine = reader.readLine() ?: break
+                    val line = rawLine.removePrefix("data:").trim()
+                    if (line.isBlank() || line == "[DONE]") {
+                        continue
+                    }
+                    val chunk = runCatching { chunkParser(line) }.getOrDefault("")
+                    if (chunk.isNotBlank()) {
+                        chunks += chunk
+                        onDelta(chunk)
+                    }
+                }
+            }
+            chunks.joinToString("").trim().ifBlank {
+                throw IllegalStateException("Model response is empty.")
+            }
+        } finally {
+            connection.disconnect()
+        }
     }
 
     private val NEGATIVE_PROBE_PATTERNS = listOf(

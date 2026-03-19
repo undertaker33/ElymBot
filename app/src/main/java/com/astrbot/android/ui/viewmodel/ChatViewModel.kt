@@ -8,12 +8,14 @@ import com.astrbot.android.data.ConfigRepository
 import com.astrbot.android.data.ConversationRepository
 import com.astrbot.android.data.PersonaRepository
 import com.astrbot.android.data.ProviderRepository
+import com.astrbot.android.data.StreamingResponseSegmenter
 import com.astrbot.android.model.ConversationAttachment
 import com.astrbot.android.model.BotProfile
 import com.astrbot.android.model.ConversationMessage
 import com.astrbot.android.model.ConversationSession
 import com.astrbot.android.model.ProviderCapability
 import com.astrbot.android.model.ProviderProfile
+import com.astrbot.android.model.hasNativeStreamingSupport
 import com.astrbot.android.runtime.RuntimeLogRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -219,41 +221,60 @@ class ChatViewModel : ViewModel() {
         viewModelScope.launch {
             try {
                 val currentSession = ConversationRepository.session(sessionId)
-                val response = withContext(Dispatchers.IO) {
-                    ChatCompletionService.sendConfiguredChat(
-                        provider = provider,
-                        messages = currentSession.messages.takeLast(currentSession.maxContextMessages),
-                        systemPrompt = buildSystemPrompt(persona?.systemPrompt),
-                        config = config,
-                        availableProviders = providers.value,
-                    )
-                }
                 val assistantMessageId = ConversationRepository.appendMessage(
                     sessionId = sessionId,
                     role = "assistant",
-                    content = if (config?.textStreamingEnabled == true) "" else response,
+                    content = "",
                 )
-                if (config?.textStreamingEnabled == true) {
-                    emitPseudoStreamingResponse(sessionId, assistantMessageId, response)
+                val response = if (config?.textStreamingEnabled == true && provider.hasNativeStreamingSupport()) {
+                    emitNativeStreamingResponse(
+                        sessionId = sessionId,
+                        messageId = assistantMessageId,
+                        provider = provider,
+                        currentSession = currentSession,
+                        systemPrompt = buildSystemPrompt(persona?.systemPrompt),
+                        config = config,
+                    )
+                } else {
+                    val fullResponse = withContext(Dispatchers.IO) {
+                        ChatCompletionService.sendConfiguredChat(
+                            provider = provider,
+                            messages = currentSession.messages.takeLast(currentSession.maxContextMessages),
+                            systemPrompt = buildSystemPrompt(persona?.systemPrompt),
+                            config = config,
+                            availableProviders = providers.value,
+                        )
+                    }
+                    if (config?.textStreamingEnabled == true) {
+                        emitPseudoStreamingResponse(sessionId, assistantMessageId, fullResponse)
+                    } else {
+                        ConversationRepository.updateMessage(sessionId, assistantMessageId, content = fullResponse)
+                    }
+                    fullResponse
                 }
                 if (wantsTts && ttsProvider != null) {
-                    runCatching {
-                        ChatCompletionService.synthesizeSpeech(
+                    if (config.voiceStreamingEnabled) {
+                        emitVoiceStreamingAttachments(
+                            sessionId = sessionId,
+                            messageId = assistantMessageId,
+                            response = response,
+                            provider = ttsProvider,
+                            voiceId = config.ttsVoiceId,
+                            readBracketedContent = config.ttsReadBracketedContent,
+                        )
+                    } else {
+                        synthesizeSingleVoiceReply(
                             provider = ttsProvider,
                             text = response,
                             voiceId = config.ttsVoiceId,
-                        )
-                    }.onSuccess { attachment ->
-                        RuntimeLogRepository.append(
-                            "Chat TTS success: provider=${ttsProvider.name} mime=${attachment.mimeType} size=${attachment.base64Data.length}",
-                        )
-                        ConversationRepository.updateMessage(
-                            sessionId = sessionId,
-                            messageId = assistantMessageId,
-                            attachments = listOf(attachment),
-                        )
-                    }.onFailure { error ->
-                        RuntimeLogRepository.append("Chat TTS failed: ${error.message ?: error.javaClass.simpleName}")
+                            readBracketedContent = config.ttsReadBracketedContent,
+                        )?.let { attachment ->
+                            ConversationRepository.updateMessage(
+                                sessionId = sessionId,
+                                messageId = assistantMessageId,
+                                attachments = listOf(attachment),
+                            )
+                        }
                     }
                 }
                 _uiState.value = _uiState.value.copy(isSending = false)
@@ -375,30 +396,174 @@ class ChatViewModel : ViewModel() {
         messageId: String,
         response: String,
     ) {
-        val segments = splitPseudoStreamingSegments(response)
+        val segments = StreamingResponseSegmenter.split(
+            text = response,
+            stripTrailingBoundaryPunctuation = true,
+        )
         if (segments.isEmpty()) {
             ConversationRepository.updateMessage(sessionId, messageId, content = response)
             return
         }
         val buffer = StringBuilder()
-        segments.forEach { segment ->
+        segments.forEachIndexed { index, segment ->
             buffer.append(segment)
             ConversationRepository.updateMessage(sessionId, messageId, content = buffer.toString())
-            delay(120)
+            if (index < segments.lastIndex) {
+                delay(selectedStreamingIntervalMs())
+            }
+        }
+        if (buffer.toString() != response) {
+            ConversationRepository.updateMessage(sessionId, messageId, content = response)
         }
     }
 
-    private fun splitPseudoStreamingSegments(response: String): List<String> {
-        val normalized = response.trim()
-        if (normalized.isBlank()) return emptyList()
-        val sentenceRegex = Regex(".*?[。！？!?~…]+|.+$", setOf(RegexOption.DOT_MATCHES_ALL))
-        return sentenceRegex.findAll(normalized)
-            .map { it.value.trim() }
-            .filter { it.isNotBlank() }
-            .flatMap { segment ->
-                if (segment.length <= 42) listOf(segment) else segment.chunked(42)
+    private suspend fun emitNativeStreamingResponse(
+        sessionId: String,
+        messageId: String,
+        provider: ProviderProfile,
+        currentSession: ConversationSession,
+        systemPrompt: String?,
+        config: com.astrbot.android.model.ConfigProfile,
+    ): String {
+        val visibleBuffer = StringBuilder()
+        val pendingBuffer = StringBuilder()
+        val response = withContext(Dispatchers.IO) {
+            ChatCompletionService.sendConfiguredChatStream(
+                provider = provider,
+                messages = currentSession.messages.takeLast(currentSession.maxContextMessages),
+                systemPrompt = systemPrompt,
+                config = config,
+                availableProviders = providers.value,
+            ) { delta ->
+                if (delta.isBlank()) return@sendConfiguredChatStream
+                pendingBuffer.append(delta)
+                flushStreamingMessageBuffer(
+                    sessionId = sessionId,
+                    messageId = messageId,
+                    visibleBuffer = visibleBuffer,
+                    pendingBuffer = pendingBuffer,
+                    intervalMs = selectedStreamingIntervalMs(config),
+                    force = false,
+                )
             }
-            .toList()
+        }
+        flushStreamingMessageBuffer(
+            sessionId = sessionId,
+            messageId = messageId,
+            visibleBuffer = visibleBuffer,
+            pendingBuffer = pendingBuffer,
+            intervalMs = selectedStreamingIntervalMs(config),
+            force = true,
+        )
+        if (visibleBuffer.toString() != response) {
+            ConversationRepository.updateMessage(sessionId, messageId, content = response)
+        }
+        return response
+    }
+
+    private suspend fun flushStreamingMessageBuffer(
+        sessionId: String,
+        messageId: String,
+        visibleBuffer: StringBuilder,
+        pendingBuffer: StringBuilder,
+        intervalMs: Long,
+        force: Boolean,
+    ) {
+        val drainResult = StreamingResponseSegmenter.drain(
+            text = pendingBuffer.toString(),
+            forceTail = force,
+            stripTrailingBoundaryPunctuation = true,
+        )
+        if (drainResult.segments.isEmpty()) {
+            return
+        }
+
+        pendingBuffer.clear()
+        pendingBuffer.append(drainResult.remainder)
+        drainResult.segments.forEachIndexed { index, segment ->
+            visibleBuffer.append(segment)
+            ConversationRepository.updateMessage(
+                sessionId = sessionId,
+                messageId = messageId,
+                content = visibleBuffer.toString(),
+            )
+            if (intervalMs > 0 && (index < drainResult.segments.lastIndex || !force)) {
+                delay(intervalMs)
+            }
+        }
+    }
+
+    private suspend fun emitVoiceStreamingAttachments(
+        sessionId: String,
+        messageId: String,
+        response: String,
+        provider: ProviderProfile,
+        voiceId: String,
+        readBracketedContent: Boolean,
+    ) {
+        val segments = StreamingResponseSegmenter.splitForVoiceStreaming(response)
+        if (segments.size <= 1) {
+            synthesizeSingleVoiceReply(
+                provider = provider,
+                text = response,
+                voiceId = voiceId,
+                readBracketedContent = readBracketedContent,
+            )?.let { attachment ->
+                ConversationRepository.updateMessage(sessionId, messageId, attachments = listOf(attachment))
+            }
+            return
+        }
+        val streamedAttachments = mutableListOf<ConversationAttachment>()
+        for (segment in segments) {
+            val attachment = synthesizeSingleVoiceReply(
+                provider = provider,
+                text = segment,
+                voiceId = voiceId,
+                readBracketedContent = readBracketedContent,
+            )
+            if (attachment == null) {
+                synthesizeSingleVoiceReply(
+                    provider = provider,
+                    text = response,
+                    voiceId = voiceId,
+                    readBracketedContent = readBracketedContent,
+                )?.let { fallback ->
+                    ConversationRepository.updateMessage(sessionId, messageId, attachments = listOf(fallback))
+                }
+                return
+            }
+            streamedAttachments += attachment
+            ConversationRepository.updateMessage(
+                sessionId = sessionId,
+                messageId = messageId,
+                attachments = streamedAttachments.toList(),
+            )
+            delay(selectedStreamingIntervalMs())
+        }
+    }
+
+    private suspend fun synthesizeSingleVoiceReply(
+        provider: ProviderProfile,
+        text: String,
+        voiceId: String,
+        readBracketedContent: Boolean,
+    ): ConversationAttachment? {
+        return withContext(Dispatchers.IO) {
+            runCatching {
+                ChatCompletionService.synthesizeSpeech(
+                    provider = provider,
+                    text = text,
+                    voiceId = voiceId,
+                    readBracketedContent = readBracketedContent,
+                )
+            }.onSuccess { attachment ->
+                RuntimeLogRepository.append(
+                    "Chat TTS success: provider=${provider.name} mime=${attachment.mimeType} size=${attachment.base64Data.length}",
+                )
+            }.onFailure { error ->
+                RuntimeLogRepository.append("Chat TTS failed: ${error.message ?: error.javaClass.simpleName}")
+            }.getOrNull()
+        }
     }
 
     private fun resolveSttProvider(providerId: String): ProviderProfile? {
@@ -426,5 +591,17 @@ class ChatViewModel : ViewModel() {
             promptParts += "Current local time: ${now.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss z"))}."
         }
         return promptParts.joinToString("\n\n").ifBlank { null }
+    }
+
+    private fun selectedStreamingIntervalMs(
+        config: com.astrbot.android.model.ConfigProfile? = selectedBot()
+            ?.configProfileId
+            ?.let(ConfigRepository::resolve),
+    ): Long {
+        return config
+            ?.streamingMessageIntervalMs
+            ?.coerceIn(0, 5000)
+            ?.toLong()
+            ?: 120L
     }
 }

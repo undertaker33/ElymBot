@@ -7,6 +7,7 @@ import com.astrbot.android.model.ProviderCapability
 import com.astrbot.android.model.ProviderProfile
 import com.astrbot.android.model.ProviderType
 import com.astrbot.android.model.defaultCapability
+import com.astrbot.android.model.inferNativeStreamingRuleSupport
 import com.astrbot.android.model.inferMultimodalRuleSupport
 import com.astrbot.android.runtime.RuntimeLogRepository
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -49,8 +50,11 @@ object ProviderRepository {
         enabled: Boolean = true,
         multimodalRuleSupport: FeatureSupportState = inferMultimodalRuleSupport(providerType, model),
         multimodalProbeSupport: FeatureSupportState = FeatureSupportState.UNKNOWN,
+        nativeStreamingRuleSupport: FeatureSupportState = inferNativeStreamingRuleSupport(providerType, model),
+        nativeStreamingProbeSupport: FeatureSupportState = FeatureSupportState.UNKNOWN,
         sttProbeSupport: FeatureSupportState = FeatureSupportState.UNKNOWN,
         ttsProbeSupport: FeatureSupportState = FeatureSupportState.UNKNOWN,
+        ttsVoiceOptions: List<String> = emptyList(),
     ): ProviderProfile {
         val resolvedId = id?.takeIf { it.isNotBlank() } ?: UUID.randomUUID().toString()
         val profile = normalizeProvider(
@@ -65,8 +69,11 @@ object ProviderRepository {
                 enabled = enabled,
                 multimodalRuleSupport = multimodalRuleSupport,
                 multimodalProbeSupport = multimodalProbeSupport,
+                nativeStreamingRuleSupport = nativeStreamingRuleSupport,
+                nativeStreamingProbeSupport = nativeStreamingProbeSupport,
                 sttProbeSupport = sttProbeSupport,
                 ttsProbeSupport = ttsProbeSupport,
+                ttsVoiceOptions = ttsVoiceOptions.map(String::trim).filter(String::isNotBlank).distinct(),
             ),
         )
         val exists = _providers.value.any { it.id == resolvedId }
@@ -110,6 +117,10 @@ object ProviderRepository {
 
     fun updateMultimodalProbeSupport(id: String, probeSupport: FeatureSupportState) {
         updateProbeSupport(id, probeSupport) { item, state -> item.copy(multimodalProbeSupport = state) }
+    }
+
+    fun updateNativeStreamingProbeSupport(id: String, probeSupport: FeatureSupportState) {
+        updateProbeSupport(id, probeSupport) { item, state -> item.copy(nativeStreamingProbeSupport = state) }
     }
 
     fun updateSttProbeSupport(id: String, probeSupport: FeatureSupportState) {
@@ -169,6 +180,14 @@ object ProviderRepository {
                                 item.optString("multimodalProbeSupport"),
                                 FeatureSupportState.UNKNOWN,
                             ),
+                            nativeStreamingRuleSupport = parseFeatureSupportState(
+                                item.optString("nativeStreamingRuleSupport"),
+                                inferNativeStreamingRuleSupport(providerType, model),
+                            ),
+                            nativeStreamingProbeSupport = parseFeatureSupportState(
+                                item.optString("nativeStreamingProbeSupport"),
+                                FeatureSupportState.UNKNOWN,
+                            ),
                             sttProbeSupport = parseFeatureSupportState(
                                 item.optString("sttProbeSupport"),
                                 FeatureSupportState.UNKNOWN,
@@ -177,6 +196,12 @@ object ProviderRepository {
                                 item.optString("ttsProbeSupport"),
                                 FeatureSupportState.UNKNOWN,
                             ),
+                            ttsVoiceOptions = buildList {
+                                val options = item.optJSONArray("ttsVoiceOptions") ?: JSONArray()
+                                for (voiceIndex in 0 until options.length()) {
+                                    options.optString(voiceIndex).trim().takeIf { it.isNotBlank() }?.let(::add)
+                                }
+                            },
                         ),
                     )
                 }
@@ -200,8 +225,16 @@ object ProviderRepository {
                         put("enabled", provider.enabled)
                         put("multimodalRuleSupport", provider.multimodalRuleSupport.name)
                         put("multimodalProbeSupport", provider.multimodalProbeSupport.name)
+                        put("nativeStreamingRuleSupport", provider.nativeStreamingRuleSupport.name)
+                        put("nativeStreamingProbeSupport", provider.nativeStreamingProbeSupport.name)
                         put("sttProbeSupport", provider.sttProbeSupport.name)
                         put("ttsProbeSupport", provider.ttsProbeSupport.name)
+                        put(
+                            "ttsVoiceOptions",
+                            JSONArray().apply {
+                                provider.ttsVoiceOptions.forEach(::put)
+                            },
+                        )
                         put(
                             "capabilities",
                             JSONArray().apply {
@@ -230,6 +263,8 @@ object ProviderRepository {
             model = normalizedModel,
             capabilities = provider.capabilities.ifEmpty { setOf(provider.providerType.defaultCapability()) },
             multimodalRuleSupport = inferMultimodalRuleSupport(provider.providerType, normalizedModel),
+            nativeStreamingRuleSupport = inferNativeStreamingRuleSupport(provider.providerType, normalizedModel),
+            ttsVoiceOptions = provider.ttsVoiceOptions.map(String::trim).filter(String::isNotBlank).distinct(),
         )
     }
 

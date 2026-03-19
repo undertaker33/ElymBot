@@ -65,6 +65,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.astrbot.android.R
 import com.astrbot.android.data.ChatCompletionService
+import com.astrbot.android.data.TtsVoiceCatalog
 import com.astrbot.android.model.FeatureSupportState
 import com.astrbot.android.model.ProviderCapability
 import com.astrbot.android.model.ProviderProfile
@@ -72,9 +73,11 @@ import com.astrbot.android.model.ProviderType
 import com.astrbot.android.model.defaultCapability
 import com.astrbot.android.model.displayLabel
 import com.astrbot.android.model.displayLabel as providerTypeDisplayLabel
+import com.astrbot.android.model.inferNativeStreamingRuleSupport
 import com.astrbot.android.model.inferMultimodalRuleSupport
 import com.astrbot.android.model.isVisibleInCatalog
 import com.astrbot.android.model.supportsMultimodalCheck
+import com.astrbot.android.model.supportsNativeStreamingCheck
 import com.astrbot.android.model.supportsPullModels
 import com.astrbot.android.model.visibleProviderTypesFor
 import com.astrbot.android.ui.MonochromeUi
@@ -138,6 +141,7 @@ internal fun ProviderCatalogContent(
     var isFetchingModels by remember { mutableStateOf(false) }
     var fetchedModels by remember { mutableStateOf(emptyList<String>()) }
     var isCheckingMultimodal by remember { mutableStateOf(false) }
+    var isCheckingNativeStreaming by remember { mutableStateOf(false) }
     var isCheckingStt by remember { mutableStateOf(false) }
     var isCheckingTts by remember { mutableStateOf(false) }
     var showImageHelp by remember { mutableStateOf(false) }
@@ -255,6 +259,7 @@ internal fun ProviderCatalogContent(
             fetchedModels = fetchedModels,
             isFetchingModels = isFetchingModels,
             isCheckingMultimodal = isCheckingMultimodal,
+            isCheckingNativeStreaming = isCheckingNativeStreaming,
             isCheckingStt = isCheckingStt,
             isCheckingTts = isCheckingTts,
             onDismiss = { editingProvider = null },
@@ -266,6 +271,9 @@ internal fun ProviderCatalogContent(
             },
             onPersistProbeSupport = { id, probeSupport ->
                 providerViewModel.updateMultimodalProbeSupport(id, probeSupport)
+            },
+            onPersistNativeStreamingProbeSupport = { id, probeSupport ->
+                providerViewModel.updateNativeStreamingProbeSupport(id, probeSupport)
             },
             onPersistSttProbeSupport = { id, probeSupport ->
                 providerViewModel.updateSttProbeSupport(id, probeSupport)
@@ -305,6 +313,22 @@ internal fun ProviderCatalogContent(
                     }
                     onResult(ruleResult, probeResult)
                     isCheckingMultimodal = false
+                }
+            },
+            onCheckNativeStreaming = { current, onResult ->
+                scope.launch {
+                    isCheckingNativeStreaming = true
+                    val ruleResult = ChatCompletionService.detectNativeStreamingRule(current)
+                    val probeResult = runCatching {
+                        withContext(Dispatchers.IO) {
+                            ChatCompletionService.probeNativeStreamingSupport(current)
+                        }
+                    }.getOrElse {
+                        Toast.makeText(context, it.message ?: it.javaClass.simpleName, Toast.LENGTH_LONG).show()
+                        FeatureSupportState.UNKNOWN
+                    }
+                    onResult(ruleResult, probeResult)
+                    isCheckingNativeStreaming = false
                 }
             },
             onCheckStt = { current, onResult ->
@@ -352,8 +376,11 @@ internal fun ProviderCatalogContent(
                     enabled = profile.enabled,
                     multimodalRuleSupport = profile.multimodalRuleSupport,
                     multimodalProbeSupport = profile.multimodalProbeSupport,
+                    nativeStreamingRuleSupport = profile.nativeStreamingRuleSupport,
+                    nativeStreamingProbeSupport = profile.nativeStreamingProbeSupport,
                     sttProbeSupport = profile.sttProbeSupport,
                     ttsProbeSupport = profile.ttsProbeSupport,
+                    ttsVoiceOptions = profile.ttsVoiceOptions,
                 )
                 Toast.makeText(context, context.getString(R.string.common_saved), Toast.LENGTH_SHORT).show()
                 editingProvider = null
@@ -528,15 +555,18 @@ private fun ProviderEditorDialog(
     fetchedModels: List<String>,
     isFetchingModels: Boolean,
     isCheckingMultimodal: Boolean,
+    isCheckingNativeStreaming: Boolean,
     isCheckingStt: Boolean,
     isCheckingTts: Boolean,
     onDismiss: () -> Unit,
     onDelete: () -> Unit,
     onPersistProbeSupport: (String, FeatureSupportState) -> Unit,
+    onPersistNativeStreamingProbeSupport: (String, FeatureSupportState) -> Unit,
     onPersistSttProbeSupport: (String, FeatureSupportState) -> Unit,
     onPersistTtsProbeSupport: (String, FeatureSupportState) -> Unit,
     onFetchModels: (ProviderProfile) -> Unit,
     onCheckMultimodal: (ProviderProfile, (FeatureSupportState, FeatureSupportState) -> Unit) -> Unit,
+    onCheckNativeStreaming: (ProviderProfile, (FeatureSupportState, FeatureSupportState) -> Unit) -> Unit,
     onCheckStt: (ProviderProfile, (FeatureSupportState, String) -> Unit) -> Unit,
     onCheckTts: (ProviderProfile, (FeatureSupportState) -> Unit) -> Unit,
     onSave: (ProviderProfile) -> Unit,
@@ -550,8 +580,11 @@ private fun ProviderEditorDialog(
     var enabled by remember(initialProvider.id) { mutableStateOf(initialProvider.enabled) }
     var multimodalRuleSupport by remember(initialProvider.id) { mutableStateOf(initialProvider.multimodalRuleSupport) }
     var multimodalProbeSupport by remember(initialProvider.id) { mutableStateOf(initialProvider.multimodalProbeSupport) }
+    var nativeStreamingRuleSupport by remember(initialProvider.id) { mutableStateOf(initialProvider.nativeStreamingRuleSupport) }
+    var nativeStreamingProbeSupport by remember(initialProvider.id) { mutableStateOf(initialProvider.nativeStreamingProbeSupport) }
     var sttProbeSupport by remember(initialProvider.id) { mutableStateOf(initialProvider.sttProbeSupport) }
     var ttsProbeSupport by remember(initialProvider.id) { mutableStateOf(initialProvider.ttsProbeSupport) }
+    var ttsVoiceOptionsText by remember(initialProvider.id) { mutableStateOf(initialProvider.ttsVoiceOptions.joinToString("\n")) }
     var sttProbePreview by remember(initialProvider.id) { mutableStateOf("") }
     val initialProbeFingerprint = remember(initialProvider.id) { probeFingerprint(initialProvider) }
     var lastProbeFingerprint by remember(initialProvider.id) { mutableStateOf(initialProbeFingerprint) }
@@ -565,6 +598,11 @@ private fun ProviderEditorDialog(
     }
     val displayedProbeSupport = if (currentProbeFingerprint == lastProbeFingerprint) {
         multimodalProbeSupport
+    } else {
+        FeatureSupportState.UNKNOWN
+    }
+    val displayedNativeStreamingProbeSupport = if (currentProbeFingerprint == lastProbeFingerprint) {
+        nativeStreamingProbeSupport
     } else {
         FeatureSupportState.UNKNOWN
     }
@@ -582,6 +620,19 @@ private fun ProviderEditorDialog(
         ttsProbeSupport
     } else {
         FeatureSupportState.UNKNOWN
+    }
+    val suggestedTtsVoiceOptions = remember(providerType) {
+        TtsVoiceCatalog.optionsFor(
+            ProviderProfile(
+                id = initialProvider.id,
+                name = name,
+                baseUrl = baseUrl,
+                model = model,
+                providerType = providerType,
+                apiKey = apiKey,
+                capabilities = setOf(providerType.defaultCapability()),
+            ),
+        ).mapNotNull { option -> option.first.takeIf { it.isNotBlank() } }
     }
 
     val capability = providerType.defaultCapability()
@@ -631,8 +682,15 @@ private fun ProviderEditorDialog(
                                     enabled = enabled,
                                     multimodalRuleSupport = multimodalRuleSupport,
                                     multimodalProbeSupport = displayedProbeSupport,
+                                    nativeStreamingRuleSupport = nativeStreamingRuleSupport,
+                                    nativeStreamingProbeSupport = displayedNativeStreamingProbeSupport,
                                     sttProbeSupport = displayedSttProbeSupport,
                                     ttsProbeSupport = displayedTtsProbeSupport,
+                                    ttsVoiceOptions = ttsVoiceOptionsText
+                                        .lines()
+                                        .map(String::trim)
+                                        .filter(String::isNotBlank)
+                                        .distinct(),
                                 ),
                             )
                         },
@@ -674,6 +732,7 @@ private fun ProviderEditorDialog(
                     onSelect = { selected ->
                         providerType = ProviderType.valueOf(selected)
                         multimodalRuleSupport = inferMultimodalRuleSupport(providerType, model)
+                        nativeStreamingRuleSupport = inferNativeStreamingRuleSupport(providerType, model)
                     },
                 )
                 OutlinedTextField(
@@ -696,6 +755,7 @@ private fun ProviderEditorDialog(
                     onValueChange = {
                         model = it
                         multimodalRuleSupport = inferMultimodalRuleSupport(providerType, it)
+                        nativeStreamingRuleSupport = inferNativeStreamingRuleSupport(providerType, it)
                     },
                     label = { Text(stringResource(R.string.provider_field_model)) },
                     modifier = Modifier.fillMaxWidth(),
@@ -745,6 +805,7 @@ private fun ProviderEditorDialog(
                                 onClick = {
                                     model = item
                                     multimodalRuleSupport = inferMultimodalRuleSupport(providerType, item)
+                                    nativeStreamingRuleSupport = inferNativeStreamingRuleSupport(providerType, item)
                                 },
                                 label = { Text(item) },
                                 colors = AssistChipDefaults.assistChipColors(
@@ -802,6 +863,50 @@ private fun ProviderEditorDialog(
                             }
                             SupportStatusRow(title = stringResource(R.string.provider_support_rule), state = multimodalRuleSupport)
                             SupportStatusRow(title = stringResource(R.string.provider_support_probe), state = displayedProbeSupport)
+                            if (providerType.supportsNativeStreamingCheck()) {
+                                OutlinedButton(
+                                    onClick = {
+                                        onCheckNativeStreaming(
+                                            initialProvider.copy(
+                                                baseUrl = baseUrl,
+                                                apiKey = apiKey,
+                                                model = model,
+                                                providerType = providerType,
+                                                capabilities = setOf(providerType.defaultCapability()),
+                                            ),
+                                        ) { rule, probe ->
+                                            nativeStreamingRuleSupport = rule
+                                            nativeStreamingProbeSupport = probe
+                                            lastProbeFingerprint = currentProbeFingerprint
+                                            if (initialProvider.id.isNotBlank() && currentProbeFingerprint == initialProbeFingerprint) {
+                                                onPersistNativeStreamingProbeSupport(initialProvider.id, probe)
+                                            }
+                                        }
+                                    },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .heightIn(min = 48.dp),
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MonochromeUi.textPrimary),
+                                ) {
+                                    Text(stringResource(R.string.provider_check_native_streaming))
+                                }
+                                if (isCheckingNativeStreaming) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.Center,
+                                    ) {
+                                        CircularProgressIndicator(color = MonochromeUi.textPrimary)
+                                    }
+                                }
+                                SupportStatusRow(
+                                    title = stringResource(R.string.provider_support_native_streaming_rule),
+                                    state = nativeStreamingRuleSupport,
+                                )
+                                SupportStatusRow(
+                                    title = stringResource(R.string.provider_support_native_streaming_probe),
+                                    state = displayedNativeStreamingProbeSupport,
+                                )
+                            }
                         }
                     }
                 } else if (capability == ProviderCapability.STT) {
@@ -916,6 +1021,53 @@ private fun ProviderEditorDialog(
                                 }
                             }
                             SupportStatusRow(title = stringResource(R.string.provider_support_tts_probe), state = displayedTtsProbeSupport)
+                            Text(
+                                text = stringResource(R.string.provider_tts_voice_options_title),
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MonochromeUi.textPrimary,
+                            )
+                            Text(
+                                text = stringResource(R.string.provider_tts_voice_options_desc),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MonochromeUi.textSecondary,
+                            )
+                            if (suggestedTtsVoiceOptions.isNotEmpty()) {
+                                FlowRow(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    suggestedTtsVoiceOptions.forEach { option ->
+                                        AssistChip(
+                                            onClick = {
+                                                val current = ttsVoiceOptionsText
+                                                    .lines()
+                                                    .map(String::trim)
+                                                    .filter(String::isNotBlank)
+                                                    .toMutableList()
+                                                if (option !in current) {
+                                                    current += option
+                                                    ttsVoiceOptionsText = current.joinToString("\n")
+                                                }
+                                            },
+                                            label = { Text(option) },
+                                            colors = AssistChipDefaults.assistChipColors(
+                                                containerColor = MonochromeUi.chipBackground,
+                                                labelColor = MonochromeUi.textSecondary,
+                                            ),
+                                        )
+                                    }
+                                }
+                            }
+                            OutlinedTextField(
+                                value = ttsVoiceOptionsText,
+                                onValueChange = { ttsVoiceOptionsText = it },
+                                label = { Text(stringResource(R.string.provider_tts_voice_options_field)) },
+                                modifier = Modifier.fillMaxWidth(),
+                                minLines = 3,
+                                maxLines = 6,
+                                colors = monochromeOutlinedTextFieldColors(),
+                            )
                         }
                     }
                 } else {
@@ -1068,6 +1220,7 @@ private fun createEmptyProvider(type: ProviderType): ProviderProfile {
         capabilities = setOf(type.defaultCapability()),
         enabled = true,
         multimodalRuleSupport = inferMultimodalRuleSupport(type, defaultModel),
+        nativeStreamingRuleSupport = inferNativeStreamingRuleSupport(type, defaultModel),
     )
 }
 

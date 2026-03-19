@@ -80,8 +80,29 @@ fun ProviderType.supportsMultimodalCheck(): Boolean {
     return defaultCapability() == ProviderCapability.CHAT
 }
 
+fun ProviderType.supportsNativeStreamingCheck(): Boolean {
+    return defaultCapability() == ProviderCapability.CHAT
+}
+
 fun visibleProviderTypesFor(capability: ProviderCapability): List<ProviderType> {
     return ProviderType.entries.filter { it.isVisibleInCatalog() && it.defaultCapability() == capability }
+}
+
+fun inferNativeStreamingRuleSupport(providerType: ProviderType, model: String): FeatureSupportState {
+    val normalizedModel = model.trim().lowercase()
+    if (!providerType.supportsNativeStreamingCheck()) return FeatureSupportState.UNSUPPORTED
+    return when (providerType) {
+        ProviderType.GEMINI -> FeatureSupportState.SUPPORTED
+        ProviderType.OLLAMA -> if (normalizedModel.isBlank()) FeatureSupportState.UNKNOWN else FeatureSupportState.SUPPORTED
+        ProviderType.OPENAI_COMPATIBLE,
+        ProviderType.DEEPSEEK,
+        ProviderType.QWEN,
+        ProviderType.ZHIPU,
+        ProviderType.XAI,
+        -> if (normalizedModel.isBlank()) FeatureSupportState.UNKNOWN else FeatureSupportState.SUPPORTED
+
+        else -> FeatureSupportState.UNSUPPORTED
+    }
 }
 
 fun inferMultimodalRuleSupport(providerType: ProviderType, model: String): FeatureSupportState {
@@ -116,4 +137,10 @@ fun inferMultimodalRuleSupport(providerType: ProviderType, model: String): Featu
 
         else -> FeatureSupportState.UNSUPPORTED
     }
+}
+
+fun ProviderProfile.hasNativeStreamingSupport(): Boolean {
+    return nativeStreamingProbeSupport == FeatureSupportState.SUPPORTED ||
+        nativeStreamingRuleSupport == FeatureSupportState.SUPPORTED ||
+        inferNativeStreamingRuleSupport(providerType, model) == FeatureSupportState.SUPPORTED
 }

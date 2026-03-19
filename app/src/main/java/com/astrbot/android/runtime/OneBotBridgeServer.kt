@@ -7,12 +7,14 @@ import com.astrbot.android.data.ConfigRepository
 import com.astrbot.android.data.ConversationRepository
 import com.astrbot.android.data.PersonaRepository
 import com.astrbot.android.data.ProviderRepository
+import com.astrbot.android.data.StreamingResponseSegmenter
 import com.astrbot.android.model.BotProfile
 import com.astrbot.android.model.ConversationAttachment
 import com.astrbot.android.model.PersonaProfile
 import com.astrbot.android.model.ProviderCapability
 import com.astrbot.android.model.ProviderProfile
 import com.astrbot.android.model.ConversationSession
+import com.astrbot.android.model.hasNativeStreamingSupport
 import fi.iki.elonen.NanoHTTPD.IHTTPSession
 import fi.iki.elonen.NanoWSD
 import fi.iki.elonen.NanoWSD.WebSocket
@@ -20,6 +22,7 @@ import fi.iki.elonen.NanoWSD.WebSocketFrame
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -246,13 +249,44 @@ object OneBotBridgeServer {
 
             val response = runCatching {
                 val currentSession = ConversationRepository.session(sessionId)
-                ChatCompletionService.sendConfiguredChat(
-                    provider = provider,
-                    messages = currentSession.messages.takeLast(persona?.maxContextMessages ?: currentSession.maxContextMessages),
-                    systemPrompt = buildSystemPrompt(bot, persona, event),
-                    config = config,
-                    availableProviders = ProviderRepository.providers.value,
-                )
+                if (config.textStreamingEnabled && provider.hasNativeStreamingSupport()) {
+                    val outboundBuffer = StringBuilder()
+                    ChatCompletionService.sendConfiguredChatStream(
+                        provider = provider,
+                        messages = currentSession.messages.takeLast(persona?.maxContextMessages ?: currentSession.maxContextMessages),
+                        systemPrompt = buildSystemPrompt(bot, persona, event),
+                        config = config,
+                        availableProviders = ProviderRepository.providers.value,
+                    ) { delta ->
+                        if (delta.isBlank()) return@sendConfiguredChatStream
+                        outboundBuffer.append(delta)
+                        if (!wantsTts) {
+                            flushStreamingReplyBuffer(
+                                event = event,
+                                outboundBuffer = outboundBuffer,
+                                intervalMs = streamingDelayMs(config),
+                                force = false,
+                            )
+                        }
+                    }.also {
+                        if (!wantsTts) {
+                            flushStreamingReplyBuffer(
+                                event = event,
+                                outboundBuffer = outboundBuffer,
+                                intervalMs = streamingDelayMs(config),
+                                force = true,
+                            )
+                        }
+                    }
+                } else {
+                    ChatCompletionService.sendConfiguredChat(
+                        provider = provider,
+                        messages = currentSession.messages.takeLast(persona?.maxContextMessages ?: currentSession.maxContextMessages),
+                        systemPrompt = buildSystemPrompt(bot, persona, event),
+                        config = config,
+                        availableProviders = ProviderRepository.providers.value,
+                    )
+                }
             }.getOrElse { error ->
                 val details = error.message ?: error.javaClass.simpleName
                 RuntimeLogRepository.append("Auto reply failed: $details")
@@ -261,29 +295,41 @@ object OneBotBridgeServer {
             }
 
             val assistantAttachments = if (wantsTts && ttsProvider != null) {
-                runCatching {
-                    ChatCompletionService.synthesizeSpeech(
-                        provider = ttsProvider,
-                        text = response,
-                        voiceId = config.ttsVoiceId,
-                    )
-                }.onFailure { error ->
-                    RuntimeLogRepository.append("QQ TTS failed: ${error.message ?: error.javaClass.simpleName}")
-                }.onSuccess { attachment ->
-                    RuntimeLogRepository.append(
-                        "QQ TTS success: provider=${ttsProvider.name} mime=${attachment.mimeType} size=${attachment.base64Data.length}",
-                    )
-                }.getOrNull()?.let(::listOf).orEmpty()
+                buildVoiceReplyAttachments(
+                    provider = ttsProvider,
+                    response = response,
+                    voiceId = config.ttsVoiceId,
+                    voiceStreamingEnabled = config.voiceStreamingEnabled,
+                    readBracketedContent = config.ttsReadBracketedContent,
+                )
             } else {
                 emptyList()
             }
 
             ConversationRepository.appendMessage(sessionId, "assistant", response, attachments = assistantAttachments)
-            sendReply(
-                event = event,
-                text = response,
-                attachments = assistantAttachments,
-            )
+            val sentVoiceReply = wantsTts && assistantAttachments.isNotEmpty()
+            if (sentVoiceReply) {
+                if (config.voiceStreamingEnabled && assistantAttachments.size > 1) {
+                    sendStreamingVoiceReply(event, assistantAttachments, config)
+                } else {
+                    sendReply(
+                        event = event,
+                        text = "",
+                        attachments = assistantAttachments,
+                    )
+                }
+            } else if (config.textStreamingEnabled && !provider.hasNativeStreamingSupport()) {
+                sendPseudoStreamingReply(event, response, config)
+            } else if (config.textStreamingEnabled && provider.hasNativeStreamingSupport()) {
+                if (wantsTts) {
+                    sendReply(event = event, text = response)
+                }
+            } else {
+                sendReply(
+                    event = event,
+                    text = response,
+                )
+            }
         }
     }
 
@@ -507,6 +553,142 @@ object OneBotBridgeServer {
         }.onFailure { error ->
             RuntimeLogRepository.append("QQ TTS attachment materialize failed: ${error.message ?: error.javaClass.simpleName}")
         }.getOrNull()
+    }
+
+    private suspend fun sendPseudoStreamingReply(
+        event: IncomingMessageEvent,
+        response: String,
+        config: com.astrbot.android.model.ConfigProfile,
+    ) {
+        val segments = StreamingResponseSegmenter.split(
+            text = response,
+            stripTrailingBoundaryPunctuation = true,
+        )
+        if (segments.isEmpty()) {
+            sendReply(event, response)
+            return
+        }
+        RuntimeLogRepository.append(
+            "QQ pseudo streaming started: target=${event.targetId} segments=${segments.size} chars=${response.length}",
+        )
+        segments.forEachIndexed { index, segment ->
+            sendReply(event, segment)
+            if (index < segments.lastIndex) {
+                delay(streamingDelayMs(config))
+            }
+        }
+    }
+
+    private suspend fun flushStreamingReplyBuffer(
+        event: IncomingMessageEvent,
+        outboundBuffer: StringBuilder,
+        intervalMs: Long,
+        force: Boolean,
+    ) {
+        val drainResult = StreamingResponseSegmenter.drain(
+            text = outboundBuffer.toString(),
+            forceTail = force,
+            stripTrailingBoundaryPunctuation = true,
+        )
+        if (drainResult.segments.isEmpty()) {
+            return
+        }
+
+        outboundBuffer.clear()
+        outboundBuffer.append(drainResult.remainder)
+        drainResult.segments.forEachIndexed { index, segment ->
+            sendReply(event, segment)
+            if (intervalMs > 0 && (index < drainResult.segments.lastIndex || !force)) {
+                delay(intervalMs)
+            }
+        }
+    }
+
+    private fun buildVoiceReplyAttachments(
+        provider: ProviderProfile,
+        response: String,
+        voiceId: String,
+        voiceStreamingEnabled: Boolean,
+        readBracketedContent: Boolean,
+    ): List<ConversationAttachment> {
+        if (!voiceStreamingEnabled) {
+            return synthesizeSingleVoiceReply(
+                provider = provider,
+                response = response,
+                voiceId = voiceId,
+                readBracketedContent = readBracketedContent,
+            )?.let(::listOf).orEmpty()
+        }
+        val segments = StreamingResponseSegmenter.splitForVoiceStreaming(response)
+        if (segments.size <= 1) {
+            return synthesizeSingleVoiceReply(
+                provider = provider,
+                response = response,
+                voiceId = voiceId,
+                readBracketedContent = readBracketedContent,
+            )?.let(::listOf).orEmpty()
+        }
+        val streamedAttachments = mutableListOf<ConversationAttachment>()
+        for (segment in segments) {
+            val attachment = synthesizeSingleVoiceReply(
+                provider = provider,
+                response = segment,
+                voiceId = voiceId,
+                readBracketedContent = readBracketedContent,
+            ) ?: return synthesizeSingleVoiceReply(
+                provider = provider,
+                response = response,
+                voiceId = voiceId,
+                readBracketedContent = readBracketedContent,
+            )?.let(::listOf).orEmpty()
+            streamedAttachments += attachment
+        }
+        RuntimeLogRepository.append(
+            "QQ voice streaming prepared: provider=${provider.name} segments=${streamedAttachments.size}",
+        )
+        return streamedAttachments
+    }
+
+    private fun synthesizeSingleVoiceReply(
+        provider: ProviderProfile,
+        response: String,
+        voiceId: String,
+        readBracketedContent: Boolean,
+    ): ConversationAttachment? {
+        return runCatching {
+            ChatCompletionService.synthesizeSpeech(
+                provider = provider,
+                text = response,
+                voiceId = voiceId,
+                readBracketedContent = readBracketedContent,
+            )
+        }.onFailure { error ->
+            RuntimeLogRepository.append("QQ TTS failed: ${error.message ?: error.javaClass.simpleName}")
+        }.onSuccess { attachment ->
+            RuntimeLogRepository.append(
+                "QQ TTS success: provider=${provider.name} mime=${attachment.mimeType} size=${attachment.base64Data.length}",
+            )
+        }.getOrNull()
+    }
+
+    private suspend fun sendStreamingVoiceReply(
+        event: IncomingMessageEvent,
+        attachments: List<ConversationAttachment>,
+        config: com.astrbot.android.model.ConfigProfile,
+    ) {
+        RuntimeLogRepository.append(
+            "QQ voice streaming started: target=${event.targetId} segments=${attachments.size}",
+        )
+        attachments.forEachIndexed { index, attachment ->
+            sendReply(event = event, text = "", attachments = listOf(attachment))
+            if (index < attachments.lastIndex) {
+                delay(streamingDelayMs(config))
+            }
+        }
+    }
+
+    private fun streamingDelayMs(config: com.astrbot.android.model.ConfigProfile): Long {
+        return config.streamingMessageIntervalMs.coerceIn(0, 5000).toLong()
     }
 
     private fun sendFailureNoticeIfNeeded(event: IncomingMessageEvent, message: String) {
