@@ -7,11 +7,13 @@ import android.text.format.DateFormat
 import android.util.Base64
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.horizontalScroll
@@ -60,6 +62,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -70,6 +73,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
@@ -83,11 +87,13 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -98,6 +104,7 @@ import com.astrbot.android.model.ConversationMessage
 import com.astrbot.android.model.ConversationSession
 import com.astrbot.android.model.ProviderCapability
 import com.astrbot.android.ui.AppMotionTokens
+import com.astrbot.android.ui.FloatingBottomNavFabBottomPadding
 import com.astrbot.android.ui.MonochromeUi
 import com.astrbot.android.ui.animateToItemWithAppMotion
 import com.astrbot.android.ui.monochromeSwitchColors
@@ -114,6 +121,7 @@ import java.util.UUID
 fun ChatScreen(
     chatViewModel: ChatViewModel = viewModel(),
     drawerState: DrawerState? = null,
+    floatingBottomNavPadding: Dp = 0.dp,
 ) {
     val context = LocalContext.current
     val providers by chatViewModel.providers.collectAsState()
@@ -138,6 +146,10 @@ fun ChatScreen(
     var pendingAttachments by remember(uiState.selectedSessionId) { mutableStateOf(emptyList<ConversationAttachment>()) }
     var selectedSessionIds by remember { mutableStateOf(emptySet<String>()) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
+    var sessionPendingDelete by remember { mutableStateOf<ConversationSession?>(null) }
+    var sessionPendingRename by remember { mutableStateOf<ConversationSession?>(null) }
+    var renameInput by remember { mutableStateOf("") }
+    var expandedSwipeSessionId by remember { mutableStateOf<String?>(null) }
     val selectionMode = selectedSessionIds.isNotEmpty()
 
     val pickImageLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
@@ -155,6 +167,12 @@ fun ChatScreen(
 
     BackHandler(enabled = selectionMode) {
         selectedSessionIds = emptySet()
+    }
+
+    LaunchedEffect(selectionMode) {
+        if (selectionMode) {
+            expandedSwipeSessionId = null
+        }
     }
 
     if (showDeleteConfirm) {
@@ -188,6 +206,73 @@ fun ChatScreen(
         )
     }
 
+    sessionPendingDelete?.let { session ->
+        AlertDialog(
+            onDismissRequest = { sessionPendingDelete = null },
+            containerColor = MonochromeUi.cardBackground,
+            titleContentColor = MonochromeUi.textPrimary,
+            textContentColor = MonochromeUi.textSecondary,
+            title = { Text(stringResource(R.string.chat_delete_conversation_title)) },
+            text = { Text(stringResource(R.string.chat_delete_conversation_message, session.title)) },
+            confirmButton = {
+                TextButton(
+                    colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFFB42318)),
+                    onClick = {
+                        chatViewModel.deleteSession(session.id)
+                        sessionPendingDelete = null
+                    },
+                ) {
+                    Text(stringResource(R.string.common_delete))
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    colors = ButtonDefaults.textButtonColors(contentColor = MonochromeUi.textSecondary),
+                    onClick = { sessionPendingDelete = null },
+                ) {
+                    Text(stringResource(R.string.common_cancel))
+                }
+            },
+        )
+    }
+
+    sessionPendingRename?.let { session ->
+        AlertDialog(
+            onDismissRequest = { sessionPendingRename = null },
+            containerColor = MonochromeUi.cardBackground,
+            titleContentColor = MonochromeUi.textPrimary,
+            textContentColor = MonochromeUi.textSecondary,
+            title = { Text(stringResource(R.string.chat_rename_title)) },
+            text = {
+                OutlinedTextField(
+                    value = renameInput,
+                    onValueChange = { renameInput = it },
+                    singleLine = true,
+                    label = { Text(stringResource(R.string.chat_rename_field_label)) },
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    colors = ButtonDefaults.textButtonColors(contentColor = MonochromeUi.textPrimary),
+                    onClick = {
+                        chatViewModel.renameSession(session.id, renameInput)
+                        sessionPendingRename = null
+                    },
+                ) {
+                    Text(stringResource(R.string.common_save))
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    colors = ButtonDefaults.textButtonColors(contentColor = MonochromeUi.textSecondary),
+                    onClick = { sessionPendingRename = null },
+                ) {
+                    Text(stringResource(R.string.common_cancel))
+                }
+            },
+        )
+    }
+
     ModalNavigationDrawer(
         drawerState = resolvedDrawerState,
         drawerContent = {
@@ -199,12 +284,13 @@ fun ChatScreen(
                 ModalDrawerSheet(
                     modifier = Modifier.fillMaxWidth(),
                     drawerContainerColor = MonochromeUi.drawerSurface,
+                    windowInsets = WindowInsets(0, 0, 0, 0),
                 ) {
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
                             .background(MonochromeUi.drawerSurface)
-                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                            .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 14.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
                         SessionDrawerTopToggle(
@@ -246,6 +332,20 @@ fun ChatScreen(
                                             selectedSessionIds = selectedSessionIds.toggle(session.id)
                                         }
                                     },
+                                    onTogglePinned = {
+                                        chatViewModel.toggleSessionPinned(session.id)
+                                    },
+                                    onRename = {
+                                        sessionPendingRename = session
+                                        renameInput = session.title
+                                    },
+                                    onDelete = {
+                                        sessionPendingDelete = session
+                                    },
+                                    swipeExpanded = expandedSwipeSessionId == session.id,
+                                    onSwipeExpandedChange = { expanded ->
+                                        expandedSwipeSessionId = if (expanded) session.id else null
+                                    },
                                 )
                             }
                         }
@@ -258,7 +358,7 @@ fun ChatScreen(
                         modifier = Modifier
                             .align(Alignment.BottomStart)
                             .navigationBarsPadding()
-                            .padding(horizontal = 20.dp, vertical = 24.dp),
+                            .padding(start = 20.dp, end = 20.dp, bottom = FloatingBottomNavFabBottomPadding),
                         containerColor = MonochromeUi.fabBackground,
                         contentColor = MonochromeUi.fabContent,
                         elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 6.dp),
@@ -281,6 +381,7 @@ fun ChatScreen(
                     pendingAttachments = pendingAttachments,
                     isSending = uiState.isSending,
                     canSend = (input.isNotBlank() || pendingAttachments.isNotEmpty()) && chatProviders.isNotEmpty(),
+                    floatingBottomNavPadding = floatingBottomNavPadding,
                     onInputChange = { input = it },
                     onRemoveAttachment = { attachmentId ->
                         pendingAttachments = pendingAttachments.filterNot { it.id == attachmentId }
@@ -399,6 +500,143 @@ private fun SessionDrawerItem(
     selectionMode: Boolean,
     onClick: () -> Unit,
     onLongPress: () -> Unit,
+    onTogglePinned: () -> Unit,
+    onRename: () -> Unit,
+    onDelete: () -> Unit,
+    swipeExpanded: Boolean,
+    onSwipeExpandedChange: (Boolean) -> Unit,
+) {
+    if (selectionMode) {
+        SessionDrawerCard(
+            session = session,
+            selected = selected,
+            selectionMode = true,
+            onClick = onClick,
+            onLongPress = onLongPress,
+        )
+        return
+    }
+
+    val actionCount = buildList {
+        add("pin")
+        if (session.canRename()) add("rename")
+        if (session.canDelete()) add("delete")
+    }.size
+    val revealWidth = SessionSwipeSizing.revealWidthDp(actionCount).dp
+    val density = LocalDensity.current
+    val revealWidthPx = with(density) { revealWidth.toPx() }
+    var rawOffsetX by remember(session.id, session.pinned, selectionMode) { mutableFloatStateOf(0f) }
+    val animatedOffsetX by animateFloatAsState(targetValue = rawOffsetX, label = "sessionDrawerOffset")
+
+    LaunchedEffect(swipeExpanded, revealWidthPx) {
+        rawOffsetX = if (swipeExpanded) revealWidthPx else 0f
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .pointerInput(session.id, selectionMode, revealWidthPx) {
+                detectHorizontalDragGestures(
+                    onHorizontalDrag = { change, dragAmount ->
+                        change.consume()
+                        rawOffsetX = SessionSwipeMotion.applyDrag(
+                            currentOffset = rawOffsetX,
+                            dragAmount = dragAmount,
+                            revealWidth = revealWidthPx,
+                        )
+                    },
+                    onDragEnd = {
+                        rawOffsetX = SessionSwipeMotion.settleOffset(
+                            currentOffset = rawOffsetX,
+                            revealWidth = revealWidthPx,
+                        )
+                        onSwipeExpandedChange(rawOffsetX > 0f)
+                    },
+                    onDragCancel = {
+                        rawOffsetX = 0f
+                        onSwipeExpandedChange(false)
+                    },
+                )
+            },
+    ) {
+        Row(
+            modifier = Modifier
+                .align(Alignment.CenterStart)
+                .widthIn(min = revealWidth)
+                .heightIn(min = 76.dp),
+            horizontalArrangement = Arrangement.spacedBy(SessionSwipeSizing.actionSpacingDp.dp, Alignment.Start),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            SessionSwipeAction(
+                label = stringResource(
+                    if (session.pinned) R.string.chat_unpin_action else R.string.chat_pin_action,
+                ),
+                destructive = false,
+                onClick = {
+                    rawOffsetX = 0f
+                    onTogglePinned()
+                },
+            )
+            if (session.canRename()) {
+                SessionSwipeAction(
+                    label = stringResource(R.string.chat_rename_action),
+                    destructive = false,
+                    onClick = {
+                        rawOffsetX = 0f
+                        onRename()
+                    },
+                )
+            }
+            if (session.canDelete()) {
+                SessionSwipeAction(
+                    label = stringResource(R.string.common_delete),
+                    destructive = true,
+                    onClick = {
+                        rawOffsetX = 0f
+                        onDelete()
+                    },
+                )
+            }
+        }
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .graphicsLayer { translationX = animatedOffsetX },
+        ) {
+            SessionDrawerCard(
+                session = session,
+                selected = selected,
+                selectionMode = false,
+                onClick = {
+                    if (rawOffsetX != 0f) {
+                        rawOffsetX = 0f
+                        onSwipeExpandedChange(false)
+                    } else {
+                        onClick()
+                    }
+                },
+                onLongPress = {
+                    if (rawOffsetX != 0f) {
+                        rawOffsetX = 0f
+                        onSwipeExpandedChange(false)
+                    } else {
+                        onLongPress()
+                    }
+                },
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun SessionDrawerCard(
+    session: ConversationSession,
+    selected: Boolean,
+    selectionMode: Boolean,
+    onClick: () -> Unit,
+    onLongPress: () -> Unit,
 ) {
     Surface(
         shape = RoundedCornerShape(16.dp),
@@ -434,6 +672,9 @@ private fun SessionDrawerItem(
                         style = MaterialTheme.typography.titleSmall,
                         modifier = Modifier.weight(1f, fill = false),
                     )
+                    if (session.pinned) {
+                        SessionPill(label = stringResource(R.string.chat_pinned_label), selected = true)
+                    }
                     if (session.isQqConversation()) {
                         SessionPill(label = stringResource(R.string.chat_message_source_qq), selected = false)
                     }
@@ -478,6 +719,34 @@ private fun SessionDrawerItem(
                     )
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun SessionSwipeAction(
+    label: String,
+    destructive: Boolean,
+    onClick: () -> Unit,
+) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(14.dp),
+        color = if (destructive) Color(0xFFB42318) else MonochromeUi.iconButtonSurface,
+    ) {
+        Box(
+            modifier = Modifier
+                .widthIn(min = SessionSwipeSizing.actionWidthDp.dp)
+                .heightIn(min = 58.dp)
+                .padding(horizontal = 8.dp, vertical = 10.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = label,
+                color = if (destructive) Color.White else MonochromeUi.textPrimary,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
         }
     }
 }
@@ -666,6 +935,7 @@ private fun ChatInputBar(
     pendingAttachments: List<ConversationAttachment>,
     isSending: Boolean,
     canSend: Boolean,
+    floatingBottomNavPadding: Dp,
     onInputChange: (String) -> Unit,
     onRemoveAttachment: (String) -> Unit,
     onAddImage: () -> Unit,
@@ -692,7 +962,7 @@ private fun ChatInputBar(
         modifier = Modifier
             .fillMaxWidth()
             .navigationBarsPadding()
-            .padding(start = 16.dp, end = 16.dp, top = 6.dp, bottom = 12.dp),
+            .padding(start = 16.dp, end = 16.dp, top = 6.dp, bottom = 12.dp + floatingBottomNavPadding),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         if (isVoiceRecording) {
@@ -1108,6 +1378,14 @@ private fun SessionPill(
 
 private fun ConversationSession.isQqConversation(): Boolean {
     return id.startsWith("qq-")
+}
+
+private fun ConversationSession.isQqPrivateConversation(): Boolean {
+    return id.startsWith("qq-") && "-private-" in id
+}
+
+private fun ConversationSession.canRename(): Boolean {
+    return isQqPrivateConversation()
 }
 
 private fun ConversationSession.canDelete(): Boolean {

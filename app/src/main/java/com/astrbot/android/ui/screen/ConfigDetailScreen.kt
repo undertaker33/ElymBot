@@ -5,7 +5,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -36,7 +35,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -66,11 +64,9 @@ import com.astrbot.android.model.ProviderProfile
 import com.astrbot.android.ui.animateToItemWithAppMotion
 import com.astrbot.android.ui.MonochromeUi
 import com.astrbot.android.ui.monochromeOutlinedTextFieldColors
-import com.astrbot.android.ui.monochromeSwitchColors
 import com.astrbot.android.ui.viewmodel.ConfigViewModel
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.material3.Switch
 import androidx.compose.foundation.text.KeyboardOptions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -109,7 +105,16 @@ fun ConfigDetailScreen(
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
-    val sections = remember { ConfigSection.entries }
+    val groups = remember { configDrawerGroups() }
+    val sections = remember(groups) { groups.flatMap { it.children } }
+    var expandedGroupTitles by remember {
+        mutableStateOf(
+            setOf(
+                R.string.config_nav_group_model,
+                R.string.config_nav_group_platform,
+            ),
+        )
+    }
     val currentSection by remember(listState, sections) {
         derivedStateOf {
             val visibleSectionKeys = listState.layoutInfo.visibleItemsInfo.mapNotNull { item ->
@@ -141,27 +146,67 @@ fun ConfigDetailScreen(
                     fontWeight = FontWeight.SemiBold,
                     color = MonochromeUi.textPrimary,
                 )
-                sections.forEach { section ->
-                    val selected = section == currentSection
+                groups.forEach { group ->
+                    val groupExpanded = expandedGroupTitles.contains(group.titleRes)
+                    val groupSelected = currentSection in group.children
                     Surface(
                         onClick = {
-                            scope.launch {
-                                listState.animateToItemWithAppMotion(section.ordinal)
-                                drawerState.close()
+                            if (group.children.isNotEmpty()) {
+                                expandedGroupTitles = expandedGroupTitles.toMutableSet().apply {
+                                    if (!add(group.titleRes)) {
+                                        remove(group.titleRes)
+                                    }
+                                }
                             }
                         },
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 12.dp, vertical = 4.dp),
                         shape = RoundedCornerShape(18.dp),
-                        color = if (selected) MonochromeUi.cardAltBackground else MonochromeUi.drawerSurface,
+                        color = if (groupSelected) MonochromeUi.cardAltBackground else MonochromeUi.drawerSurface,
                     ) {
-                        Text(
-                            text = stringResource(section.titleRes),
-                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-                            color = if (selected) MonochromeUi.textPrimary else MonochromeUi.textSecondary,
-                            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
-                        )
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 14.dp, vertical = 12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = stringResource(group.titleRes),
+                                color = if (groupSelected) MonochromeUi.textPrimary else MonochromeUi.textSecondary,
+                                fontWeight = if (groupSelected) FontWeight.SemiBold else FontWeight.Medium,
+                            )
+                            Text(
+                                text = if (group.children.isEmpty()) "" else if (groupExpanded) "-" else "+",
+                                color = MonochromeUi.textSecondary,
+                            )
+                        }
+                    }
+                    if (groupExpanded) {
+                        group.children.forEach { section ->
+                            val selected = section == currentSection
+                            Surface(
+                                onClick = {
+                                    scope.launch {
+                                        listState.animateToItemWithAppMotion(sections.indexOf(section))
+                                        drawerState.close()
+                                    }
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(start = 24.dp, end = 12.dp, top = 2.dp, bottom = 2.dp),
+                                shape = RoundedCornerShape(16.dp),
+                                color = if (selected) MonochromeUi.cardAltBackground else MonochromeUi.drawerSurface,
+                            ) {
+                                Text(
+                                    text = stringResource(section.titleRes),
+                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                                    color = if (selected) MonochromeUi.textPrimary else MonochromeUi.textSecondary,
+                                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -270,6 +315,28 @@ private fun ConfigDetailContent(
     var ttsVoiceId by remember(profile.id) { mutableStateOf(profile.ttsVoiceId) }
     var isPreviewingVoice by remember(profile.id) { mutableStateOf(false) }
     var imageCaptionPrompt by remember(profile.id) { mutableStateOf(profile.imageCaptionPrompt) }
+    var adminUids by remember(profile.id) { mutableStateOf(profile.adminUids) }
+    var sessionIsolationEnabled by remember(profile.id) { mutableStateOf(profile.sessionIsolationEnabled) }
+    var wakeWords by remember(profile.id) { mutableStateOf(profile.wakeWords) }
+    var wakeWordsAdminOnlyEnabled by remember(profile.id) { mutableStateOf(profile.wakeWordsAdminOnlyEnabled) }
+    var privateChatRequiresWakeWord by remember(profile.id) { mutableStateOf(profile.privateChatRequiresWakeWord) }
+    var replyTextPrefix by remember(profile.id) { mutableStateOf(profile.replyTextPrefix) }
+    var quoteSenderMessageEnabled by remember(profile.id) { mutableStateOf(profile.quoteSenderMessageEnabled) }
+    var mentionSenderEnabled by remember(profile.id) { mutableStateOf(profile.mentionSenderEnabled) }
+    var replyOnAtOnlyEnabled by remember(profile.id) { mutableStateOf(profile.replyOnAtOnlyEnabled) }
+    var whitelistEnabled by remember(profile.id) { mutableStateOf(profile.whitelistEnabled) }
+    var whitelistEntries by remember(profile.id) { mutableStateOf(profile.whitelistEntries) }
+    var logOnWhitelistMiss by remember(profile.id) { mutableStateOf(profile.logOnWhitelistMiss) }
+    var adminGroupBypassWhitelistEnabled by remember(profile.id) { mutableStateOf(profile.adminGroupBypassWhitelistEnabled) }
+    var adminPrivateBypassWhitelistEnabled by remember(profile.id) { mutableStateOf(profile.adminPrivateBypassWhitelistEnabled) }
+    var ignoreSelfMessageEnabled by remember(profile.id) { mutableStateOf(profile.ignoreSelfMessageEnabled) }
+    var ignoreAtAllEventEnabled by remember(profile.id) { mutableStateOf(profile.ignoreAtAllEventEnabled) }
+    var replyWhenPermissionDenied by remember(profile.id) { mutableStateOf(profile.replyWhenPermissionDenied) }
+    var rateLimitWindowSeconds by remember(profile.id) { mutableStateOf(profile.rateLimitWindowSeconds.toString()) }
+    var rateLimitMaxCount by remember(profile.id) { mutableStateOf(profile.rateLimitMaxCount.toString()) }
+    var rateLimitStrategy by remember(profile.id) { mutableStateOf(profile.rateLimitStrategy) }
+    var keywordDetectionEnabled by remember(profile.id) { mutableStateOf(profile.keywordDetectionEnabled) }
+    var keywordPatterns by remember(profile.id) { mutableStateOf(profile.keywordPatterns) }
     val unnamedConfigLabel = stringResource(R.string.config_unnamed)
     val defaultChatProvider = providers.firstOrNull { it.id == defaultChatProviderId }
     val defaultTtsProvider = providers.firstOrNull { it.id == defaultTtsProviderId }
@@ -368,7 +435,7 @@ private fun ConfigDetailContent(
                             )
                         }
                         ConfigFieldGroup {
-                            ConfigToggleRow(
+                            ConfigToggleField(
                                 title = stringResource(R.string.config_image_caption_text_title),
                                 subtitle = stringResource(R.string.config_image_caption_text_desc),
                                 checked = imageCaptionTextEnabled,
@@ -399,7 +466,7 @@ private fun ConfigDetailContent(
                         subtitle = stringResource(R.string.config_section_speech_settings_desc),
                     ) {
                         ConfigFieldGroup {
-                            ConfigToggleRow(
+                            ConfigToggleField(
                                 title = stringResource(R.string.config_enable_stt),
                                 subtitle = stringResource(R.string.config_enable_stt_desc),
                                 checked = sttEnabled,
@@ -411,7 +478,7 @@ private fun ConfigDetailContent(
                                     text = stringResource(R.string.config_stt_model_required_notice),
                                 )
                             }
-                            ConfigToggleRow(
+                            ConfigToggleField(
                                 title = stringResource(R.string.config_enable_tts),
                                 subtitle = stringResource(R.string.config_enable_tts_desc),
                                 checked = ttsEnabled,
@@ -423,14 +490,14 @@ private fun ConfigDetailContent(
                                     text = stringResource(R.string.config_tts_model_required_notice),
                                 )
                             }
-                            ConfigToggleRow(
+                            ConfigToggleField(
                                 title = stringResource(R.string.config_always_tts_title),
                                 subtitle = "",
                                 checked = alwaysTtsEnabled,
                                 enabled = ttsModelReady,
                                 onCheckedChange = { alwaysTtsEnabled = it },
                             )
-                            ConfigToggleRow(
+                            ConfigToggleField(
                                 title = stringResource(R.string.config_tts_read_brackets_title),
                                 subtitle = stringResource(R.string.config_tts_read_brackets_desc),
                                 checked = ttsReadBracketedContent,
@@ -506,13 +573,13 @@ private fun ConfigDetailContent(
                         subtitle = stringResource(R.string.config_section_streaming_settings_desc),
                     ) {
                         ConfigFieldGroup {
-                            ConfigToggleRow(
+                            ConfigToggleField(
                                 title = stringResource(R.string.config_text_streaming_title),
                                 subtitle = stringResource(R.string.config_text_streaming_desc),
                                 checked = textStreamingEnabled,
                                 onCheckedChange = { textStreamingEnabled = it },
                             )
-                            ConfigToggleRow(
+                            ConfigToggleField(
                                 title = stringResource(R.string.config_voice_streaming_title),
                                 subtitle = stringResource(R.string.config_voice_streaming_desc),
                                 checked = voiceStreamingEnabled,
@@ -538,19 +605,19 @@ private fun ConfigDetailContent(
                         subtitle = stringResource(R.string.config_section_runtime_helpers_desc),
                     ) {
                         ConfigFieldGroup {
-                            ConfigToggleRow(
+                            ConfigToggleField(
                                 title = stringResource(R.string.config_time_awareness),
                                 subtitle = stringResource(R.string.config_time_awareness_desc),
                                 checked = realWorldTimeAwarenessEnabled,
                                 onCheckedChange = { realWorldTimeAwarenessEnabled = it },
                             )
-                            ConfigToggleRow(
+                            ConfigToggleField(
                                 title = stringResource(R.string.config_web_search_title),
                                 subtitle = stringResource(R.string.config_web_search_desc),
                                 checked = webSearchEnabled,
                                 onCheckedChange = { webSearchEnabled = it },
                             )
-                            ConfigToggleRow(
+                            ConfigToggleField(
                                 title = stringResource(R.string.config_proactive_title),
                                 subtitle = stringResource(R.string.config_proactive_desc),
                                 checked = proactiveEnabled,
@@ -590,6 +657,82 @@ private fun ConfigDetailContent(
                     subtitle = stringResource(R.string.config_placeholder_advanced),
                 )
             }
+            item(key = ConfigSection.Admin.name) {
+                AdminSettingsSection(
+                    adminUids = adminUids,
+                    onAdminUidsChange = { adminUids = it },
+                )
+            }
+            item(key = ConfigSection.Session.name) {
+                SessionSettingsSection(
+                    sessionIsolationEnabled = sessionIsolationEnabled,
+                    onSessionIsolationEnabledChange = { sessionIsolationEnabled = it },
+                )
+            }
+            item(key = ConfigSection.Wake.name) {
+                WakeSettingsSection(
+                    wakeWords = wakeWords,
+                    onWakeWordsChange = { wakeWords = it },
+                    wakeWordsAdminOnlyEnabled = wakeWordsAdminOnlyEnabled,
+                    onWakeWordsAdminOnlyEnabledChange = { wakeWordsAdminOnlyEnabled = it },
+                    privateChatRequiresWakeWord = privateChatRequiresWakeWord,
+                    onPrivateChatRequiresWakeWordChange = { privateChatRequiresWakeWord = it },
+                )
+            }
+            item(key = ConfigSection.Reply.name) {
+                ReplySettingsSection(
+                    replyTextPrefix = replyTextPrefix,
+                    onReplyTextPrefixChange = { replyTextPrefix = it },
+                    quoteSenderMessageEnabled = quoteSenderMessageEnabled,
+                    onQuoteSenderMessageEnabledChange = { quoteSenderMessageEnabled = it },
+                    mentionSenderEnabled = mentionSenderEnabled,
+                    onMentionSenderEnabledChange = { mentionSenderEnabled = it },
+                    replyOnAtOnlyEnabled = replyOnAtOnlyEnabled,
+                    onReplyOnAtOnlyEnabledChange = { replyOnAtOnlyEnabled = it },
+                )
+            }
+            item(key = ConfigSection.Whitelist.name) {
+                WhitelistSettingsSection(
+                    whitelistEnabled = whitelistEnabled,
+                    onWhitelistEnabledChange = { whitelistEnabled = it },
+                    whitelistEntries = whitelistEntries,
+                    onWhitelistEntriesChange = { whitelistEntries = it },
+                    logOnWhitelistMiss = logOnWhitelistMiss,
+                    onLogOnWhitelistMissChange = { logOnWhitelistMiss = it },
+                    adminGroupBypassWhitelistEnabled = adminGroupBypassWhitelistEnabled,
+                    onAdminGroupBypassWhitelistEnabledChange = { adminGroupBypassWhitelistEnabled = it },
+                    adminPrivateBypassWhitelistEnabled = adminPrivateBypassWhitelistEnabled,
+                    onAdminPrivateBypassWhitelistEnabledChange = { adminPrivateBypassWhitelistEnabled = it },
+                )
+            }
+            item(key = ConfigSection.IgnorePermission.name) {
+                IgnorePermissionSettingsSection(
+                    ignoreSelfMessageEnabled = ignoreSelfMessageEnabled,
+                    onIgnoreSelfMessageEnabledChange = { ignoreSelfMessageEnabled = it },
+                    ignoreAtAllEventEnabled = ignoreAtAllEventEnabled,
+                    onIgnoreAtAllEventEnabledChange = { ignoreAtAllEventEnabled = it },
+                    replyWhenPermissionDenied = replyWhenPermissionDenied,
+                    onReplyWhenPermissionDeniedChange = { replyWhenPermissionDenied = it },
+                )
+            }
+            item(key = ConfigSection.RateLimit.name) {
+                RateLimitSettingsSection(
+                    rateLimitWindowSeconds = rateLimitWindowSeconds,
+                    onRateLimitWindowSecondsChange = { rateLimitWindowSeconds = it },
+                    rateLimitMaxCount = rateLimitMaxCount,
+                    onRateLimitMaxCountChange = { rateLimitMaxCount = it },
+                    rateLimitStrategy = rateLimitStrategy,
+                    onRateLimitStrategyChange = { rateLimitStrategy = it },
+                )
+            }
+            item(key = ConfigSection.Keyword.name) {
+                KeywordSettingsSection(
+                    keywordDetectionEnabled = keywordDetectionEnabled,
+                    onKeywordDetectionEnabledChange = { keywordDetectionEnabled = it },
+                    keywordPatterns = keywordPatterns,
+                    onKeywordPatternsChange = { keywordPatterns = it },
+                )
+            }
         }
 
         FloatingActionButton(
@@ -614,6 +757,28 @@ private fun ConfigDetailContent(
                         proactiveEnabled = proactiveEnabled,
                         ttsVoiceId = ttsVoiceId.trim(),
                         imageCaptionPrompt = imageCaptionPrompt.trim(),
+                        adminUids = adminUids,
+                        sessionIsolationEnabled = sessionIsolationEnabled,
+                        wakeWords = wakeWords,
+                        wakeWordsAdminOnlyEnabled = wakeWordsAdminOnlyEnabled,
+                        privateChatRequiresWakeWord = privateChatRequiresWakeWord,
+                        replyTextPrefix = replyTextPrefix.trim(),
+                        quoteSenderMessageEnabled = quoteSenderMessageEnabled,
+                        mentionSenderEnabled = mentionSenderEnabled,
+                        replyOnAtOnlyEnabled = replyOnAtOnlyEnabled,
+                        whitelistEnabled = whitelistEnabled,
+                        whitelistEntries = whitelistEntries,
+                        logOnWhitelistMiss = logOnWhitelistMiss,
+                        adminGroupBypassWhitelistEnabled = adminGroupBypassWhitelistEnabled,
+                        adminPrivateBypassWhitelistEnabled = adminPrivateBypassWhitelistEnabled,
+                        ignoreSelfMessageEnabled = ignoreSelfMessageEnabled,
+                        ignoreAtAllEventEnabled = ignoreAtAllEventEnabled,
+                        replyWhenPermissionDenied = replyWhenPermissionDenied,
+                        rateLimitWindowSeconds = rateLimitWindowSeconds.toIntOrNull() ?: profile.rateLimitWindowSeconds,
+                        rateLimitMaxCount = rateLimitMaxCount.toIntOrNull() ?: profile.rateLimitMaxCount,
+                        rateLimitStrategy = rateLimitStrategy,
+                        keywordDetectionEnabled = keywordDetectionEnabled,
+                        keywordPatterns = keywordPatterns,
                     ),
                 )
             },
@@ -628,140 +793,6 @@ private fun ConfigDetailContent(
             Icon(Icons.Outlined.Done, contentDescription = stringResource(R.string.common_save))
         }
     }
-}
-
-@Composable
-private fun ConfigFieldGroup(
-    content: @Composable ColumnScope.() -> Unit,
-) {
-    Surface(
-        shape = RoundedCornerShape(20.dp),
-        color = MonochromeUi.inputBackground,
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-            content = content,
-        )
-    }
-}
-
-@Composable
-private fun ConfigSectionCard(
-    title: String,
-    subtitle: String,
-    content: @Composable ColumnScope.() -> Unit,
-) {
-    Surface(
-        shape = RoundedCornerShape(26.dp),
-        color = MonochromeUi.cardBackground,
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-            content = {
-                Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = MonochromeUi.textPrimary)
-                Text(
-                    text = subtitle,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MonochromeUi.textSecondary,
-                )
-                content()
-            },
-        )
-    }
-}
-
-@Composable
-private fun PlaceholderSectionCard(
-    title: String,
-    subtitle: String,
-) {
-    Surface(
-        shape = RoundedCornerShape(26.dp),
-        color = MonochromeUi.cardBackground,
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = MonochromeUi.textPrimary)
-            Text(
-                text = subtitle,
-                style = MaterialTheme.typography.bodySmall,
-                color = MonochromeUi.textSecondary,
-            )
-        }
-    }
-}
-
-@Composable
-private fun InlineConfigNotice(
-    text: String,
-) {
-    Surface(
-        shape = RoundedCornerShape(18.dp),
-        color = MonochromeUi.inputBackground,
-    ) {
-        Text(
-            text = text,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 12.dp),
-            style = MaterialTheme.typography.bodySmall,
-            color = MonochromeUi.textSecondary,
-        )
-    }
-}
-
-@Composable
-private fun ConfigToggleRow(
-    title: String,
-    subtitle: String,
-    checked: Boolean,
-    enabled: Boolean = true,
-    onCheckedChange: (Boolean) -> Unit,
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(16.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(
-            modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(2.dp),
-        ) {
-            Text(title, fontWeight = FontWeight.SemiBold, color = MonochromeUi.textPrimary)
-            if (subtitle.isNotBlank()) {
-                Text(
-                    text = subtitle,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MonochromeUi.textSecondary,
-                )
-            }
-        }
-        Switch(
-            checked = checked,
-            onCheckedChange = onCheckedChange,
-            enabled = enabled,
-            colors = monochromeSwitchColors(),
-        )
-    }
-}
-
-private enum class ConfigSection(val titleRes: Int) {
-    ModelSettings(R.string.config_section_model_settings),
-    KnowledgeBase(R.string.config_section_knowledge_base),
-    ContextStrategy(R.string.config_section_context_strategy),
-    Search(R.string.config_section_search),
-    Automation(R.string.config_section_automation),
-    Advanced(R.string.config_section_advanced),
 }
 
 private fun ProviderProfile.hasMultimodalSupport(): Boolean {

@@ -102,6 +102,28 @@ data class ConfigProfile(
     val proactiveEnabled: Boolean = false,
     val ttsVoiceId: String = "",
     val imageCaptionPrompt: String = "Describe the image in detail before sending it to the chat model.",
+    val adminUids: List<String> = emptyList(),
+    val sessionIsolationEnabled: Boolean = false,
+    val wakeWords: List<String> = emptyList(),
+    val wakeWordsAdminOnlyEnabled: Boolean = false,
+    val privateChatRequiresWakeWord: Boolean = false,
+    val replyTextPrefix: String = "",
+    val quoteSenderMessageEnabled: Boolean = false,
+    val mentionSenderEnabled: Boolean = false,
+    val replyOnAtOnlyEnabled: Boolean = true,
+    val whitelistEnabled: Boolean = false,
+    val whitelistEntries: List<String> = emptyList(),
+    val logOnWhitelistMiss: Boolean = false,
+    val adminGroupBypassWhitelistEnabled: Boolean = true,
+    val adminPrivateBypassWhitelistEnabled: Boolean = true,
+    val ignoreSelfMessageEnabled: Boolean = true,
+    val ignoreAtAllEventEnabled: Boolean = true,
+    val replyWhenPermissionDenied: Boolean = false,
+    val rateLimitWindowSeconds: Int = 0,
+    val rateLimitMaxCount: Int = 0,
+    val rateLimitStrategy: String = "drop",
+    val keywordDetectionEnabled: Boolean = false,
+    val keywordPatterns: List<String> = emptyList(),
 )
 
 data class ConversationMessage(
@@ -130,6 +152,8 @@ data class ConversationSession(
     val maxContextMessages: Int,
     val sessionSttEnabled: Boolean = true,
     val sessionTtsEnabled: Boolean = true,
+    val pinned: Boolean = false,
+    val titleCustomized: Boolean = false,
     val messages: List<ConversationMessage>,
 )
 

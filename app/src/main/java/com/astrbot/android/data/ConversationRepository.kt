@@ -111,9 +111,11 @@ object ConversationRepository {
             maxContextMessages = 12,
             sessionSttEnabled = true,
             sessionTtsEnabled = true,
+            pinned = false,
+            titleCustomized = false,
             messages = emptyList(),
         )
-        _sessions.update { current -> listOf(created) + current }
+        _sessions.update { current -> sortSessions(listOf(created) + current) }
         persistSessions()
         RuntimeLogRepository.append("Conversation created: session=${created.id} bot=${created.botId}")
         return created
@@ -124,7 +126,7 @@ object ConversationRepository {
         _sessions.update { current ->
             val filtered = current.filterNot { it.id == sessionId }
             shouldPersist = filtered.size != current.size || current.size == 1
-            if (filtered.isEmpty()) defaultSessions() else filtered
+            sortSessions(if (filtered.isEmpty()) defaultSessions() else filtered)
         }
         if (shouldPersist) {
             persistSessions()
@@ -137,7 +139,7 @@ object ConversationRepository {
         _sessions.update { current ->
             val filtered = current.filterNot { it.botId == botId }
             shouldPersist = filtered.size != current.size
-            if (filtered.isEmpty()) defaultSessions() else filtered
+            sortSessions(if (filtered.isEmpty()) defaultSessions() else filtered)
         }
         if (shouldPersist) {
             persistSessions()
@@ -149,11 +151,51 @@ object ConversationRepository {
         val cleaned = title.trim().ifBlank { DEFAULT_SESSION_TITLE }
         _sessions.update { current ->
             current.map { item ->
-                if (item.id == sessionId) item.copy(title = cleaned) else item
+                if (item.id == sessionId) item.copy(title = cleaned, titleCustomized = true) else item
             }
         }
         persistSessions()
         RuntimeLogRepository.append("Conversation renamed: session=$sessionId title=$cleaned")
+    }
+
+    fun syncSystemSessionTitle(sessionId: String, title: String) {
+        val cleaned = title.trim().ifBlank { DEFAULT_SESSION_TITLE }
+        var updated = false
+        _sessions.update { current ->
+            current.map { item ->
+                if (item.id == sessionId && !item.titleCustomized && item.title != cleaned) {
+                    updated = true
+                    item.copy(title = cleaned, titleCustomized = false)
+                } else {
+                    item
+                }
+            }
+        }
+        if (updated) {
+            persistSessions()
+            RuntimeLogRepository.append("Conversation system title synced: session=$sessionId title=$cleaned")
+        }
+    }
+
+    fun toggleSessionPinned(sessionId: String) {
+        var pinned: Boolean? = null
+        _sessions.update { current ->
+            sortSessions(
+                current.map { item ->
+                    if (item.id == sessionId) {
+                        val next = !item.pinned
+                        pinned = next
+                        item.copy(pinned = next)
+                    } else {
+                        item
+                    }
+                },
+            )
+        }
+        if (pinned != null) {
+            persistSessions()
+            RuntimeLogRepository.append("Conversation pin toggled: session=$sessionId pinned=$pinned")
+        }
     }
 
     fun buildContextPreview(sessionId: String): String {
@@ -181,6 +223,8 @@ object ConversationRepository {
             current.map { item ->
                 if (item.id == currentSession.id) item.copy(messages = item.messages + message) else item
             }
+        }.also {
+            _sessions.value = sortSessions(_sessions.value)
         }
         persistSessions()
         RuntimeLogRepository.append(
@@ -236,6 +280,8 @@ object ConversationRepository {
             current.map { item ->
                 if (item.id == currentSession.id) item.copy(messages = messages) else item
             }
+        }.also {
+            _sessions.value = sortSessions(_sessions.value)
         }
         persistSessions()
         RuntimeLogRepository.append("Conversation replaced: session=$sessionId messages=${messages.size}")
@@ -321,7 +367,7 @@ object ConversationRepository {
             }
             .distinctBy { it.id }
             .ifEmpty { defaultSessions() }
-            .sortedByDescending { session -> session.messages.maxOfOrNull { it.timestamp } ?: 0L }
+            .let(::sortSessions)
 
         _sessions.value = normalized
         if (initializationLoaded.get()) {
@@ -377,8 +423,9 @@ object ConversationRepository {
         }
 
         val merged = currentByKey.values
+            .toList()
             .ifEmpty { defaultSessions() }
-            .sortedByDescending { session -> session.messages.maxOfOrNull { it.timestamp } ?: 0L }
+            .let(::sortSessions)
 
         _sessions.value = merged
         if (initializationLoaded.get()) {
@@ -404,9 +451,11 @@ object ConversationRepository {
             maxContextMessages = 12,
             sessionSttEnabled = true,
             sessionTtsEnabled = true,
+            pinned = false,
+            titleCustomized = false,
             messages = emptyList(),
         )
-        _sessions.update { current -> listOf(created) + current }
+        _sessions.update { current -> sortSessions(listOf(created) + current) }
         persistSessions()
         RuntimeLogRepository.append("Conversation created: session=$sessionId")
         return created
@@ -479,6 +528,8 @@ object ConversationRepository {
                 maxContextMessages = 12,
                 sessionSttEnabled = true,
                 sessionTtsEnabled = true,
+                pinned = false,
+                titleCustomized = false,
                 messages = listOf(
                     ConversationMessage(
                         id = UUID.randomUUID().toString(),
@@ -518,9 +569,16 @@ object ConversationRepository {
         return mergeDefaultSession(
             merged.values
                 .filterNot { it.id == DEFAULT_SESSION_ID }
-                .sortedByDescending { session -> session.messages.maxOfOrNull { it.timestamp } ?: 0L },
+                .let(::sortSessions),
         )
     }
+}
+
+private fun sortSessions(sessions: List<ConversationSession>): List<ConversationSession> {
+    return sessions.sortedWith(
+        compareByDescending<ConversationSession> { it.pinned }
+            .thenByDescending { it.messages.maxOfOrNull { message -> message.timestamp } ?: 0L },
+    )
 }
 
 private fun ConversationSession.toEntity(): ConversationEntity {
@@ -533,6 +591,8 @@ private fun ConversationSession.toEntity(): ConversationEntity {
         maxContextMessages = maxContextMessages,
         sessionSttEnabled = sessionSttEnabled,
         sessionTtsEnabled = sessionTtsEnabled,
+        pinned = pinned,
+        titleCustomized = titleCustomized,
         messagesJson = JSONArray().apply {
             messages.forEach { message ->
                 put(
@@ -581,6 +641,8 @@ private fun ConversationEntity.toSession(): ConversationSession {
         maxContextMessages = maxContextMessages,
         sessionSttEnabled = sessionSttEnabled,
         sessionTtsEnabled = sessionTtsEnabled,
+        pinned = pinned,
+        titleCustomized = titleCustomized,
         messages = buildList {
             for (index in 0 until messagesArray.length()) {
                 add(messagesArray.optJSONObject(index)?.toMessage() ?: continue)
@@ -600,6 +662,8 @@ private fun JSONObject.toSession(): ConversationSession {
         maxContextMessages = optInt("maxContextMessages", 12),
         sessionSttEnabled = optBoolean("sessionSttEnabled", true),
         sessionTtsEnabled = optBoolean("sessionTtsEnabled", true),
+        pinned = optBoolean("pinned", false),
+        titleCustomized = optBoolean("titleCustomized", false),
         messages = buildList {
             for (index in 0 until messagesArray.length()) {
                 add(messagesArray.optJSONObject(index)?.toMessage() ?: continue)
@@ -653,5 +717,7 @@ private fun ConversationSession.importDedupKey(): String {
 private fun ConversationSession.qqConversationDedupKeyOrNull(): String? {
     val match = Regex("""^qq-(.+?)-(private|group)-(.+)$""").matchEntire(id) ?: return null
     val (botId, peerType, peerId) = match.destructured
+    // Isolated group sessions encode "...-group-{groupId}-user-{userId}" in the peer segment,
+    // so imported persona/context state stays independent per member instead of being merged.
     return "qq:$botId:$peerType:$peerId"
 }

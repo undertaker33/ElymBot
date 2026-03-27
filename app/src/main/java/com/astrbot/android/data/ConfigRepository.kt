@@ -133,6 +133,28 @@ object ConfigRepository {
                                 "imageCaptionPrompt",
                                 defaultProfiles().first().imageCaptionPrompt,
                             ),
+                            adminUids = item.optStringList("adminUids"),
+                            sessionIsolationEnabled = item.optBoolean("sessionIsolationEnabled", false),
+                            wakeWords = item.optStringList("wakeWords"),
+                            wakeWordsAdminOnlyEnabled = item.optBoolean("wakeWordsAdminOnlyEnabled", false),
+                            privateChatRequiresWakeWord = item.optBoolean("privateChatRequiresWakeWord", false),
+                            replyTextPrefix = item.optString("replyTextPrefix"),
+                            quoteSenderMessageEnabled = item.optBoolean("quoteSenderMessageEnabled", false),
+                            mentionSenderEnabled = item.optBoolean("mentionSenderEnabled", false),
+                            replyOnAtOnlyEnabled = item.optBoolean("replyOnAtOnlyEnabled", true),
+                            whitelistEnabled = item.optBoolean("whitelistEnabled", false),
+                            whitelistEntries = item.optStringList("whitelistEntries"),
+                            logOnWhitelistMiss = item.optBoolean("logOnWhitelistMiss", false),
+                            adminGroupBypassWhitelistEnabled = item.optBoolean("adminGroupBypassWhitelistEnabled", true),
+                            adminPrivateBypassWhitelistEnabled = item.optBoolean("adminPrivateBypassWhitelistEnabled", true),
+                            ignoreSelfMessageEnabled = item.optBoolean("ignoreSelfMessageEnabled", true),
+                            ignoreAtAllEventEnabled = item.optBoolean("ignoreAtAllEventEnabled", true),
+                            replyWhenPermissionDenied = item.optBoolean("replyWhenPermissionDenied", false),
+                            rateLimitWindowSeconds = item.optInt("rateLimitWindowSeconds", 0),
+                            rateLimitMaxCount = item.optInt("rateLimitMaxCount", 0),
+                            rateLimitStrategy = item.optString("rateLimitStrategy", "drop"),
+                            keywordDetectionEnabled = item.optBoolean("keywordDetectionEnabled", false),
+                            keywordPatterns = item.optStringList("keywordPatterns"),
                         ),
                     )
                 }
@@ -166,6 +188,28 @@ object ConfigRepository {
                         put("proactiveEnabled", profile.proactiveEnabled)
                         put("ttsVoiceId", profile.ttsVoiceId)
                         put("imageCaptionPrompt", profile.imageCaptionPrompt)
+                        put("adminUids", JSONArray(profile.adminUids))
+                        put("sessionIsolationEnabled", profile.sessionIsolationEnabled)
+                        put("wakeWords", JSONArray(profile.wakeWords))
+                        put("wakeWordsAdminOnlyEnabled", profile.wakeWordsAdminOnlyEnabled)
+                        put("privateChatRequiresWakeWord", profile.privateChatRequiresWakeWord)
+                        put("replyTextPrefix", profile.replyTextPrefix)
+                        put("quoteSenderMessageEnabled", profile.quoteSenderMessageEnabled)
+                        put("mentionSenderEnabled", profile.mentionSenderEnabled)
+                        put("replyOnAtOnlyEnabled", profile.replyOnAtOnlyEnabled)
+                        put("whitelistEnabled", profile.whitelistEnabled)
+                        put("whitelistEntries", JSONArray(profile.whitelistEntries))
+                        put("logOnWhitelistMiss", profile.logOnWhitelistMiss)
+                        put("adminGroupBypassWhitelistEnabled", profile.adminGroupBypassWhitelistEnabled)
+                        put("adminPrivateBypassWhitelistEnabled", profile.adminPrivateBypassWhitelistEnabled)
+                        put("ignoreSelfMessageEnabled", profile.ignoreSelfMessageEnabled)
+                        put("ignoreAtAllEventEnabled", profile.ignoreAtAllEventEnabled)
+                        put("replyWhenPermissionDenied", profile.replyWhenPermissionDenied)
+                        put("rateLimitWindowSeconds", profile.rateLimitWindowSeconds)
+                        put("rateLimitMaxCount", profile.rateLimitMaxCount)
+                        put("rateLimitStrategy", profile.rateLimitStrategy)
+                        put("keywordDetectionEnabled", profile.keywordDetectionEnabled)
+                        put("keywordPatterns", JSONArray(profile.keywordPatterns))
                     },
                 )
             }
@@ -182,6 +226,14 @@ object ConfigRepository {
             name = profile.name.trim().ifBlank { "Unnamed Config" },
             streamingMessageIntervalMs = profile.streamingMessageIntervalMs.coerceIn(0, 5000),
             imageCaptionPrompt = profile.imageCaptionPrompt.trim().ifBlank { defaultProfiles().first().imageCaptionPrompt },
+            adminUids = profile.adminUids.normalizeStringList(),
+            wakeWords = profile.wakeWords.normalizeStringList(),
+            replyTextPrefix = profile.replyTextPrefix.trim(),
+            whitelistEntries = profile.whitelistEntries.normalizeStringList(),
+            rateLimitWindowSeconds = profile.rateLimitWindowSeconds.coerceAtLeast(0),
+            rateLimitMaxCount = profile.rateLimitMaxCount.coerceAtLeast(0),
+            rateLimitStrategy = profile.rateLimitStrategy.takeIf { it == "drop" || it == "stash" } ?: "drop",
+            keywordPatterns = profile.keywordPatterns.normalizeStringList(),
         )
     }
 
@@ -192,5 +244,22 @@ object ConfigRepository {
                 name = "Default Config",
             ),
         )
+    }
+
+    private fun JSONObject.optStringList(key: String): List<String> {
+        val array = optJSONArray(key) ?: return emptyList()
+        return buildList {
+            for (index in 0 until array.length()) {
+                add(array.opt(index)?.toString().orEmpty())
+            }
+        }
+    }
+
+    private fun List<String>.normalizeStringList(): List<String> {
+        return asSequence()
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .distinct()
+            .toList()
     }
 }
