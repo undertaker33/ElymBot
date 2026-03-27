@@ -226,6 +226,7 @@ fun AstrBotApp(bridgeViewModel: BridgeViewModel = viewModel()) {
                     ChatScreen(
                         chatViewModel = chatViewModel,
                         drawerState = chatDrawerState,
+                        floatingBottomNavPadding = chatBottomBarPadding(showFloatingBottomNav),
                     )
                 }
                 composable(AppDestination.Config.route) {

@@ -15,6 +15,13 @@ import com.astrbot.android.model.ProviderCapability
 import com.astrbot.android.model.ProviderProfile
 import com.astrbot.android.model.ConversationSession
 import com.astrbot.android.model.hasNativeStreamingSupport
+import com.astrbot.android.runtime.qq.QqKeywordDetector
+import com.astrbot.android.runtime.qq.QqConversationTitleResolver
+import com.astrbot.android.runtime.qq.QqReplyFormatter
+import com.astrbot.android.runtime.qq.QqReplyPolicyEvaluator
+import com.astrbot.android.runtime.qq.QqReplyPolicyInput
+import com.astrbot.android.runtime.qq.QqRateLimiter
+import com.astrbot.android.runtime.qq.QqSessionKeyFactory
 import fi.iki.elonen.NanoHTTPD.IHTTPSession
 import fi.iki.elonen.NanoWSD
 import fi.iki.elonen.NanoWSD.WebSocket
@@ -43,6 +50,8 @@ object OneBotBridgeServer {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val started = AtomicBoolean(false)
+    private val rateLimiter = QqRateLimiter()
+    private val stashReplayJobs = ConcurrentHashMap<String, AtomicBoolean>()
     private val recentMessageIds = object : LinkedHashMap<String, Unit>(MAX_RECENT_MESSAGE_IDS, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Unit>?): Boolean {
             return size > MAX_RECENT_MESSAGE_IDS
@@ -147,31 +156,74 @@ object OneBotBridgeServer {
         }
 
         val event = parseMessageEvent(json) ?: return
-        if (!shouldReply(event)) return
+        val bot = resolveReplyBot(event) ?: return
+        if (!bot.autoReplyEnabled) return
+        val config = ConfigRepository.resolve(bot.configProfileId)
+        val replyDecision = evaluateReplyPolicy(event, bot, config)
+        if (!replyDecision.shouldReply) {
+            if (replyDecision.shouldLogInfo) {
+                RuntimeLogRepository.append(
+                    "QQ reply blocked: reason=${replyDecision.reason} user=${event.userId} group=${event.groupId.ifBlank { "-" }}",
+                )
+            }
+            replyDecision.permissionDeniedNotice?.let { notice ->
+                sendReply(event, notice)
+            }
+            return
+        }
+        if (config.keywordDetectionEnabled && QqKeywordDetector(config.keywordPatterns).matches(event.text)) {
+            RuntimeLogRepository.append("QQ inbound keyword blocked: user=${event.userId} group=${event.groupId.ifBlank { "-" }}")
+            if (config.replyWhenPermissionDenied) {
+                sendReply(event, "Blocked by keyword policy.")
+            }
+            return
+        }
+        val rateLimitResult = rateLimiter.tryAcquire(
+            sourceKey = buildRateLimitSourceKey(bot, event),
+            windowSeconds = config.rateLimitWindowSeconds,
+            maxCount = config.rateLimitMaxCount,
+            strategy = config.rateLimitStrategy,
+            payload = event,
+        )
+        if (!rateLimitResult.allowed) {
+            RuntimeLogRepository.append(
+                "QQ rate limit blocked: bot=${bot.id} user=${event.userId} group=${event.groupId.ifBlank { "-" }} strategy=${config.rateLimitStrategy}",
+            )
+            if (rateLimitResult.stashed) {
+                scheduleStashReplay(
+                    bot = bot,
+                    config = config,
+                    sourceKey = buildRateLimitSourceKey(bot, event),
+                )
+            } else if (config.replyWhenPermissionDenied) {
+                sendReply(event, "Rate limit exceeded.")
+            }
+            return
+        }
         if (event.messageId.isNotBlank() && !markMessageId(event.messageId)) {
             RuntimeLogRepository.append("OneBot duplicate message ignored: ${event.messageId}")
             return
         }
 
-        processMessageEvent(event)
+        processMessageEvent(event, bot, config)
     }
 
-    private suspend fun processMessageEvent(event: IncomingMessageEvent) {
-        val bot = resolveReplyBot(event) ?: run {
-            RuntimeLogRepository.append("Auto reply skipped: no QQ bot profile available")
-            return
-        }
+    private suspend fun processMessageEvent(
+        event: IncomingMessageEvent,
+        bot: BotProfile,
+        config: com.astrbot.android.model.ConfigProfile,
+    ) {
         if (!bot.autoReplyEnabled) {
             RuntimeLogRepository.append("Auto reply skipped: bot ${bot.id} is disabled")
             return
         }
 
-        val sessionId = buildSessionId(bot, event)
+        val sessionId = buildSessionId(bot, event, config)
         val sessionTitle = buildSessionTitle(event)
         ConversationSessionLockManager.withLock(sessionId) lock@{
             val session = ConversationRepository.session(sessionId)
-            if (session.title != sessionTitle) {
-                ConversationRepository.renameSession(sessionId, sessionTitle)
+            if (session.title != sessionTitle || !session.titleCustomized) {
+                ConversationRepository.syncSystemSessionTitle(sessionId, sessionTitle)
             }
             val persona = resolvePersona(bot, session.personaId)
             if (handleBotCommand(event, bot, sessionId, session, persona)) {
@@ -189,8 +241,6 @@ object OneBotBridgeServer {
                 personaId = persona?.id.orEmpty(),
                 botId = bot.id,
             )
-
-            val config = ConfigRepository.resolve(bot.configProfileId)
             val ttsSuffixMatched = event.text.trim().endsWith("~")
             val alwaysTtsEnabled = config.alwaysTtsEnabled
             val wantsTts = config.ttsEnabled &&
@@ -301,44 +351,125 @@ object OneBotBridgeServer {
                 emptyList()
             }
 
-            ConversationRepository.appendMessage(sessionId, "assistant", response, attachments = assistantAttachments)
-            val sentVoiceReply = wantsTts && assistantAttachments.isNotEmpty()
+            val outboundBlocked = config.keywordDetectionEnabled && QqKeywordDetector(config.keywordPatterns).matches(response)
+            val outboundText = if (outboundBlocked) {
+                RuntimeLogRepository.append("QQ outbound keyword blocked: session=$sessionId")
+                "Blocked by keyword policy."
+            } else {
+                response
+            }
+            val outboundAttachments = if (outboundBlocked) emptyList() else assistantAttachments
+
+            ConversationRepository.appendMessage(sessionId, "assistant", outboundText, attachments = outboundAttachments)
+            val sentVoiceReply = wantsTts && outboundAttachments.isNotEmpty()
             if (sentVoiceReply) {
-                if (config.voiceStreamingEnabled && assistantAttachments.size > 1) {
-                    sendStreamingVoiceReply(event, assistantAttachments, config)
+                if (config.voiceStreamingEnabled && outboundAttachments.size > 1) {
+                    sendStreamingVoiceReply(event, outboundAttachments, config)
                 } else {
                     sendReply(
                         event = event,
                         text = "",
-                        attachments = assistantAttachments,
+                        attachments = outboundAttachments,
                     )
                 }
             } else if (config.textStreamingEnabled && !provider.hasNativeStreamingSupport()) {
-                sendPseudoStreamingReply(event, response, config)
+                sendPseudoStreamingReply(event, outboundText, config)
             } else if (config.textStreamingEnabled && provider.hasNativeStreamingSupport()) {
                 if (wantsTts) {
-                    sendReply(event = event, text = response)
+                    sendReply(event = event, text = outboundText)
                 }
             } else {
                 sendReply(
                     event = event,
-                    text = response,
+                    text = outboundText,
                 )
             }
         }
     }
 
-    private fun shouldReply(event: IncomingMessageEvent): Boolean {
-        if (event.text.isBlank() && event.attachments.isEmpty()) return false
-        if (event.selfId.isNotBlank() && event.selfId == event.userId) return false
+    private fun evaluateReplyPolicy(
+        event: IncomingMessageEvent,
+        bot: BotProfile,
+        config: com.astrbot.android.model.ConfigProfile,
+    ) = QqReplyPolicyEvaluator.evaluate(
+        QqReplyPolicyInput(
+            messageType = event.messageType,
+            text = event.text,
+            userId = event.userId,
+            groupId = event.groupId.ifBlank { null },
+            isCommand = isBotCommand(event.text),
+            mentionsSelf = event.mentionsSelf,
+            mentionsAll = event.mentionsAll,
+            isSelfMessage = event.selfId.isNotBlank() && event.selfId == event.userId,
+            ignoreSelfMessageEnabled = config.ignoreSelfMessageEnabled,
+            ignoreAtAllEventEnabled = config.ignoreAtAllEventEnabled,
+            isAdmin = event.userId in config.adminUids,
+            whitelistEnabled = config.whitelistEnabled,
+            whitelistEntries = config.whitelistEntries,
+            logOnWhitelistMiss = config.logOnWhitelistMiss,
+            adminGroupBypassWhitelistEnabled = config.adminGroupBypassWhitelistEnabled,
+            adminPrivateBypassWhitelistEnabled = config.adminPrivateBypassWhitelistEnabled,
+            replyWhenPermissionDenied = config.replyWhenPermissionDenied,
+            replyOnAtOnlyEnabled = config.replyOnAtOnlyEnabled,
+            wakeWords = (bot.triggerWords + config.wakeWords).distinct(),
+            wakeWordsAdminOnlyEnabled = config.wakeWordsAdminOnlyEnabled,
+            privateChatRequiresWakeWord = config.privateChatRequiresWakeWord,
+            hasExplicitAtTrigger = true,
+        ),
+    )
 
-        val bot = resolveReplyBot(event) ?: return false
-        if (!bot.autoReplyEnabled) return false
+    private fun buildRateLimitSourceKey(bot: BotProfile, event: IncomingMessageEvent): String {
+        return listOf(bot.id, event.messageType, event.groupId, event.userId)
+            .filter { it.isNotBlank() }
+            .joinToString(":")
+    }
 
-        return when (event.messageType) {
-            "private" -> true
-            "group" -> isBotCommand(event.text) || event.mentionsSelf || containsTriggerWord(event.text, bot.triggerWords)
-            else -> false
+    private fun scheduleStashReplay(
+        bot: BotProfile,
+        config: com.astrbot.android.model.ConfigProfile,
+        sourceKey: String,
+    ) {
+        if (config.rateLimitStrategy != "stash" || config.rateLimitWindowSeconds <= 0) return
+        val guard = stashReplayJobs.getOrPut(sourceKey) { AtomicBoolean(false) }
+        if (!guard.compareAndSet(false, true)) return
+        scope.launch {
+            try {
+                while (true) {
+                    delay(config.rateLimitWindowSeconds * 1000L)
+                    val replayEvents = rateLimiter.releaseReady(
+                        sourceKey = sourceKey,
+                        windowSeconds = config.rateLimitWindowSeconds,
+                        maxCount = config.rateLimitMaxCount,
+                    )
+                    if (replayEvents.isEmpty()) {
+                        if (rateLimiter.drainReady(sourceKey).isEmpty()) {
+                            return@launch
+                        }
+                        continue
+                    }
+                    replayEvents.forEach { payload ->
+                        val event = payload as? IncomingMessageEvent ?: return@forEach
+                        val reboundConfig = ConfigRepository.resolve(bot.configProfileId)
+                        val replyDecision = evaluateReplyPolicy(event, bot, reboundConfig)
+                        if (!replyDecision.shouldReply) return@forEach
+                        if (reboundConfig.keywordDetectionEnabled && QqKeywordDetector(reboundConfig.keywordPatterns).matches(event.text)) {
+                            return@forEach
+                        }
+                        if (event.messageId.isNotBlank() && !markMessageId(event.messageId)) {
+                            return@forEach
+                        }
+                        processMessageEvent(event, bot, reboundConfig)
+                    }
+                    if (rateLimiter.drainReady(sourceKey).isEmpty()) {
+                        return@launch
+                    }
+                }
+            } finally {
+                guard.set(false)
+                if (rateLimiter.drainReady(sourceKey).isNotEmpty()) {
+                    scheduleStashReplay(bot, ConfigRepository.resolve(bot.configProfileId), sourceKey)
+                }
+            }
         }
     }
 
@@ -408,18 +539,27 @@ object OneBotBridgeServer {
         ).joinToString(separator = "\n\n").ifBlank { null }
     }
 
-    private fun buildSessionId(bot: BotProfile, event: IncomingMessageEvent): String {
-        return when (event.messageType) {
-            "group" -> "qq-${bot.id}-group-${event.groupId}"
-            else -> "qq-${bot.id}-private-${event.userId}"
-        }
+    private fun buildSessionId(
+        bot: BotProfile,
+        event: IncomingMessageEvent,
+        config: com.astrbot.android.model.ConfigProfile,
+    ): String {
+        return QqSessionKeyFactory.build(
+            botId = bot.id,
+            messageType = event.messageType,
+            groupId = event.groupId,
+            userId = event.userId,
+            isolated = config.sessionIsolationEnabled,
+        )
     }
 
     private fun buildSessionTitle(event: IncomingMessageEvent): String {
-        return when (event.messageType) {
-            "group" -> "QQ Group ${event.groupId}"
-            else -> "QQ Private ${event.senderName.ifBlank { event.userId }}"
-        }
+        return QqConversationTitleResolver.build(
+            messageType = event.messageType,
+            groupId = event.groupId,
+            userId = event.userId,
+            senderName = event.senderName,
+        )
     }
 
     private fun buildPromptContent(
@@ -453,7 +593,16 @@ object OneBotBridgeServer {
             return
         }
 
-        val messagePayload: Any = buildReplyPayload(text, attachments)
+        val config = resolveReplyBot(event)?.let { ConfigRepository.resolve(it.configProfileId) }
+        val decoration = QqReplyFormatter.buildDecoration(
+            messageType = event.messageType,
+            messageId = event.messageId,
+            senderUserId = event.userId,
+            replyTextPrefix = config?.replyTextPrefix.orEmpty(),
+            quoteSenderMessageEnabled = config?.quoteSenderMessageEnabled == true,
+            mentionSenderEnabled = config?.mentionSenderEnabled == true,
+        )
+        val messagePayload: Any = buildReplyPayload(text, attachments, decoration)
         val params = JSONObject().apply {
             put("message", messagePayload)
             put("auto_escape", false)
@@ -481,16 +630,41 @@ object OneBotBridgeServer {
         }
     }
 
-    private fun buildReplyPayload(text: String, attachments: List<ConversationAttachment>): Any {
-        if (attachments.isEmpty()) {
-            return text
+    private fun buildReplyPayload(
+        text: String,
+        attachments: List<ConversationAttachment>,
+        decoration: com.astrbot.android.runtime.qq.QqReplyDecoration,
+    ): Any {
+        val finalText = decoration.textPrefix + text
+        if (
+            attachments.isEmpty() &&
+            decoration.quoteMessageId == null &&
+            decoration.mentionUserId == null
+        ) {
+            return finalText
         }
         val payload = JSONArray().apply {
-            if (text.isNotBlank()) {
+            decoration.quoteMessageId?.let { messageId ->
+                put(
+                    JSONObject().put("type", "reply").put(
+                        "data",
+                        JSONObject().put("id", messageId),
+                    ),
+                )
+            }
+            decoration.mentionUserId?.let { userId ->
+                put(
+                    JSONObject().put("type", "at").put(
+                        "data",
+                        JSONObject().put("qq", userId),
+                    ),
+                )
+            }
+            if (finalText.isNotBlank()) {
                 put(
                     JSONObject().put("type", "text").put(
                         "data",
-                        JSONObject().put("text", text),
+                        JSONObject().put("text", finalText),
                     ),
                 )
             }
@@ -524,7 +698,7 @@ object OneBotBridgeServer {
                 }
             }
         }
-        return if (payload.length() > 0) payload else text
+        return if (payload.length() > 0) payload else finalText
     }
 
     private fun materializeAudioAttachmentForOneBot(attachment: ConversationAttachment): String? {
@@ -849,6 +1023,7 @@ object OneBotBridgeServer {
                 else -> parsedMessage.text
             },
             mentionsSelf = parsedMessage.mentionsSelf,
+            mentionsAll = parsedMessage.mentionsAll,
             attachments = parsedMessage.attachments,
             senderName = senderName,
         )
@@ -862,6 +1037,7 @@ object OneBotBridgeServer {
         if (rawMessage is JSONArray) {
             val builder = StringBuilder()
             var mentionsSelf = false
+            var mentionsAll = false
             val attachments = mutableListOf<ConversationAttachment>()
             for (index in 0 until rawMessage.length()) {
                 val segment = rawMessage.optJSONObject(index) ?: continue
@@ -871,6 +1047,9 @@ object OneBotBridgeServer {
                         val qq = segment.optJSONObject("data")?.optString("qq").orEmpty()
                         if (qq.isNotBlank() && qq == selfId) {
                             mentionsSelf = true
+                        }
+                        if (qq.equals("all", ignoreCase = true)) {
+                            mentionsAll = true
                         }
                     }
                     "image" -> {
@@ -898,6 +1077,7 @@ object OneBotBridgeServer {
             return ParsedMessage(
                 text = builder.toString().trim(),
                 mentionsSelf = mentionsSelf,
+                mentionsAll = mentionsAll,
                 attachments = attachments,
             )
         }
@@ -906,6 +1086,7 @@ object OneBotBridgeServer {
             return ParsedMessage(
                 text = rawMessage.trim(),
                 mentionsSelf = false,
+                mentionsAll = false,
                 attachments = emptyList(),
             )
         }
@@ -913,16 +1094,9 @@ object OneBotBridgeServer {
         return ParsedMessage(
             text = fallbackText.trim(),
             mentionsSelf = false,
+            mentionsAll = false,
             attachments = emptyList(),
         )
-    }
-
-    private fun containsTriggerWord(text: String, triggerWords: List<String>): Boolean {
-        val normalizedText = text.lowercase()
-        return triggerWords
-            .map { it.trim().lowercase() }
-            .filter { it.isNotBlank() }
-            .any { trigger -> normalizedText.contains(trigger) }
     }
 
     private fun isBotCommand(text: String): Boolean {
@@ -989,6 +1163,7 @@ object OneBotBridgeServer {
     private data class ParsedMessage(
         val text: String,
         val mentionsSelf: Boolean,
+        val mentionsAll: Boolean,
         val attachments: List<ConversationAttachment>,
     )
 
@@ -1001,6 +1176,7 @@ object OneBotBridgeServer {
         val text: String,
         val promptContent: String,
         val mentionsSelf: Boolean,
+        val mentionsAll: Boolean,
         val attachments: List<ConversationAttachment>,
         val senderName: String,
     ) {

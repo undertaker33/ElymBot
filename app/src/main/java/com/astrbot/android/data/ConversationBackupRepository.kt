@@ -329,6 +329,8 @@ private fun ConversationSession.toJson(): JSONObject {
         .put("maxContextMessages", maxContextMessages)
         .put("sessionSttEnabled", sessionSttEnabled)
         .put("sessionTtsEnabled", sessionTtsEnabled)
+        .put("pinned", pinned)
+        .put("titleCustomized", titleCustomized)
         .put("messages", JSONArray().apply {
             messages.forEach { put(it.toJson()) }
         })
@@ -366,6 +368,8 @@ private fun JSONObject.toConversationSession(): ConversationSession {
         maxContextMessages = optInt("maxContextMessages", 12),
         sessionSttEnabled = optBoolean("sessionSttEnabled", true),
         sessionTtsEnabled = optBoolean("sessionTtsEnabled", true),
+        pinned = optBoolean("pinned", false),
+        titleCustomized = optBoolean("titleCustomized", false),
         messages = buildList {
             for (index in 0 until messagesArray.length()) {
                 val messageObject = messagesArray.optJSONObject(index) ?: continue

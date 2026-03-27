@@ -193,6 +193,14 @@ class ChatViewModel : ViewModel() {
         }
     }
 
+    fun renameSession(sessionId: String, title: String) {
+        ConversationRepository.renameSession(sessionId, title)
+    }
+
+    fun toggleSessionPinned(sessionId: String) {
+        ConversationRepository.toggleSessionPinned(sessionId)
+    }
+
     fun toggleSessionStt() {
         val sessionId = _uiState.value.selectedSessionId
         val session = ConversationRepository.session(sessionId)
@@ -487,7 +495,7 @@ class ChatViewModel : ViewModel() {
         if (session.title != ConversationRepository.DEFAULT_SESSION_TITLE) return
         val title = content.lines().firstOrNull().orEmpty().trim().take(32)
             .ifBlank { ConversationRepository.DEFAULT_SESSION_TITLE }
-        ConversationRepository.renameSession(sessionId, title)
+        ConversationRepository.syncSystemSessionTitle(sessionId, title)
     }
 
     private fun handleSessionCommand(sessionId: String, content: String): Boolean {

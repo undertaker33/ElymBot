@@ -13,6 +13,8 @@ data class ConversationEntity(
     val maxContextMessages: Int,
     val sessionSttEnabled: Boolean,
     val sessionTtsEnabled: Boolean,
+    val pinned: Boolean,
+    val titleCustomized: Boolean,
     val messagesJson: String,
     val updatedAt: Long,
 )

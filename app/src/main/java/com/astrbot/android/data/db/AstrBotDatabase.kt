@@ -9,7 +9,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [BotEntity::class, ConversationEntity::class],
-    version = 3,
+    version = 4,
     exportSchema = false,
 )
 abstract class AstrBotDatabase : RoomDatabase() {
@@ -33,10 +33,23 @@ abstract class AstrBotDatabase : RoomDatabase() {
                         maxContextMessages INTEGER NOT NULL,
                         sessionSttEnabled INTEGER NOT NULL,
                         sessionTtsEnabled INTEGER NOT NULL,
+                        pinned INTEGER NOT NULL DEFAULT 0,
+                        titleCustomized INTEGER NOT NULL DEFAULT 0,
                         messagesJson TEXT NOT NULL,
                         updatedAt INTEGER NOT NULL
                     )
                     """.trimIndent(),
+                )
+            }
+        }
+
+        private val migration3To4 = object : Migration(3, 4) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    "ALTER TABLE conversations ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0",
+                )
+                database.execSQL(
+                    "ALTER TABLE conversations ADD COLUMN titleCustomized INTEGER NOT NULL DEFAULT 0",
                 )
             }
         }
@@ -48,7 +61,7 @@ abstract class AstrBotDatabase : RoomDatabase() {
                     AstrBotDatabase::class.java,
                     "astrbot-native.db",
                 )
-                    .addMigrations(migration2To3)
+                    .addMigrations(migration2To3, migration3To4)
                     .build()
                     .also { instance = it }
             }

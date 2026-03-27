@@ -57,10 +57,13 @@ internal fun shouldShowFloatingBottomNav(
     imeVisible: Boolean,
 ): Boolean = activeMainRoute != null && !(activeMainRoute == AppDestination.Chat.route && imeVisible)
 
+@Suppress("UNUSED_PARAMETER")
 internal fun floatingBottomNavContentPadding(
     activeMainRoute: String?,
     visible: Boolean,
-) = if (visible && activeMainRoute == AppDestination.Chat.route) FloatingBottomNavReservedPadding else 0.dp
+) = 0.dp
+
+internal fun chatBottomBarPadding(visible: Boolean) = if (visible) FloatingBottomNavReservedPadding else 0.dp
 
 @Composable
 internal fun SelectionModeTopBar(

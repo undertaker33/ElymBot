@@ -19,12 +19,15 @@ class FloatingBottomNavBarTest {
     }
 
     @Test
-    fun `reserves content padding only for chat route when floating bottom nav is visible`() {
+    fun `route container does not reserve extra bottom padding for floating bottom nav`() {
         assertEquals(0.dp, floatingBottomNavContentPadding(activeMainRoute = AppDestination.Me.route, visible = true))
         assertEquals(0.dp, floatingBottomNavContentPadding(activeMainRoute = AppDestination.Chat.route, visible = false))
-        assertEquals(
-            FloatingBottomNavReservedPadding,
-            floatingBottomNavContentPadding(activeMainRoute = AppDestination.Chat.route, visible = true),
-        )
+        assertEquals(0.dp, floatingBottomNavContentPadding(activeMainRoute = AppDestination.Chat.route, visible = true))
+    }
+
+    @Test
+    fun `chat input area still reserves space for floating bottom nav`() {
+        assertEquals(0.dp, chatBottomBarPadding(visible = false))
+        assertEquals(FloatingBottomNavReservedPadding, chatBottomBarPadding(visible = true))
     }
 }
