@@ -1,7 +1,8 @@
 package com.astrbot.android.data.backup
 
-import com.astrbot.android.model.ConversationMessage
-import com.astrbot.android.model.ConversationSession
+import com.astrbot.android.model.chat.ConversationMessage
+import com.astrbot.android.model.chat.ConversationSession
+import com.astrbot.android.model.chat.MessageType
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -80,8 +81,51 @@ class AppBackupJsonTest {
         val restored = reparsed.modules.conversations.records.single() as ConversationSession
 
         assertEquals("session-a", restored.id)
+        assertEquals("qq", restored.platformId)
+        assertEquals(MessageType.FriendMessage, restored.messageType)
+        assertEquals("friend:10001", restored.originSessionId)
         assertEquals(1, restored.messages.size)
         assertEquals("hello", restored.messages.single().content)
+    }
+
+    @Test
+    fun conversation_snapshot_deserialize_defaults_missing_explicit_session_fields() {
+        val sessionJson = JSONObject(
+            """
+            {
+              "id": "legacy-session",
+              "title": "Legacy",
+              "botId": "qq-main",
+              "personaId": "",
+              "providerId": "",
+              "maxContextMessages": 12,
+              "sessionSttEnabled": true,
+              "sessionTtsEnabled": true,
+              "pinned": false,
+              "titleCustomized": false,
+              "messages": []
+            }
+            """.trimIndent(),
+        )
+
+        val restored = AppBackupJson.parseManifest(
+            JSONObject()
+                .put("schema", AppBackupJson.FULL_BACKUP_SCHEMA)
+                .put("createdAt", 1L)
+                .put(
+                    "modules",
+                    JSONObject().put(
+                        "conversations",
+                        JSONObject()
+                            .put("count", 1)
+                            .put("records", org.json.JSONArray().put(sessionJson)),
+                    ),
+                ),
+        ).modules.conversations.records.single() as ConversationSession
+
+        assertEquals("app", restored.platformId)
+        assertEquals(MessageType.OtherMessage, restored.messageType)
+        assertEquals("legacy-session", restored.originSessionId)
     }
 
     private fun testSession(id: String): ConversationSession {
@@ -91,6 +135,9 @@ class AppBackupJsonTest {
             botId = "qq-main",
             personaId = "default",
             providerId = "openai-chat",
+            platformId = "qq",
+            messageType = MessageType.FriendMessage,
+            originSessionId = "friend:10001",
             maxContextMessages = 12,
             sessionSttEnabled = true,
             sessionTtsEnabled = false,
