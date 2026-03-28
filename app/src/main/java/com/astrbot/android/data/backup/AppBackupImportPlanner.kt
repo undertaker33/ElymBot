@@ -7,6 +7,7 @@ import com.astrbot.android.model.PersonaProfile
 import com.astrbot.android.model.ProviderProfile
 import com.astrbot.android.model.SavedQqAccount
 import com.astrbot.android.model.TtsVoiceReferenceAsset
+import com.astrbot.android.model.chat.MessageType
 
 enum class AppBackupModuleKind {
     BOTS,
@@ -296,11 +297,11 @@ internal fun moduleConflictFor(
 }
 
 private fun ConversationSession.importDedupKey(): String {
-    return qqConversationDedupKeyOrNull() ?: "app:$id"
-}
-
-private fun ConversationSession.qqConversationDedupKeyOrNull(): String? {
-    val match = Regex("""^qq-(.+?)-(private|group)-(.+)$""").matchEntire(id) ?: return null
-    val (botId, peerType, peerId) = match.destructured
-    return "qq:$botId:$peerType:$peerId"
+    if (platformId != "qq") return "app:$id"
+    val peerType = when (messageType) {
+        MessageType.FriendMessage -> "friend"
+        MessageType.GroupMessage -> "group"
+        MessageType.OtherMessage -> "other"
+    }
+    return "qq:$botId:$peerType:$originSessionId"
 }

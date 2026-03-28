@@ -7,6 +7,8 @@ import com.astrbot.android.data.db.ConversationEntity
 import com.astrbot.android.model.ConversationAttachment
 import com.astrbot.android.model.ConversationMessage
 import com.astrbot.android.model.ConversationSession
+import com.astrbot.android.model.chat.MessageType
+import com.astrbot.android.model.chat.defaultSessionRefFor
 import com.astrbot.android.runtime.RuntimeLogRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -588,6 +590,9 @@ private fun ConversationSession.toEntity(): ConversationEntity {
         botId = botId,
         personaId = personaId,
         providerId = providerId,
+        platformId = platformId,
+        messageType = messageType.wireValue,
+        originSessionId = originSessionId,
         maxContextMessages = maxContextMessages,
         sessionSttEnabled = sessionSttEnabled,
         sessionTtsEnabled = sessionTtsEnabled,
@@ -632,12 +637,16 @@ private fun ConversationEntity.toSession(): ConversationSession {
             RuntimeLogRepository.append("Conversation messages reset for session=$id because JSON was invalid")
             JSONArray()
         }
+    val defaultRef = defaultSessionRefFor(id)
     return ConversationSession(
         id = id,
         title = title,
         botId = botId,
         personaId = personaId,
         providerId = providerId,
+        platformId = platformId.ifBlank { defaultRef.platformId },
+        messageType = MessageType.fromWireValue(messageType) ?: defaultRef.messageType,
+        originSessionId = originSessionId.ifBlank { defaultRef.originSessionId },
         maxContextMessages = maxContextMessages,
         sessionSttEnabled = sessionSttEnabled,
         sessionTtsEnabled = sessionTtsEnabled,
@@ -653,12 +662,17 @@ private fun ConversationEntity.toSession(): ConversationSession {
 
 private fun JSONObject.toSession(): ConversationSession {
     val messagesArray = optJSONArray("messages") ?: JSONArray()
+    val id = optString("id").ifBlank { UUID.randomUUID().toString() }
+    val defaultRef = defaultSessionRefFor(id)
     return ConversationSession(
-        id = optString("id").ifBlank { UUID.randomUUID().toString() },
+        id = id,
         title = optString("title").ifBlank { ConversationRepository.DEFAULT_SESSION_TITLE },
         botId = optString("botId").ifBlank { "qq-main" },
         personaId = optString("personaId").takeUnless { it.isBlank() || it == "default" }.orEmpty(),
         providerId = optString("providerId"),
+        platformId = optString("platformId").ifBlank { defaultRef.platformId },
+        messageType = MessageType.fromWireValue(optString("messageType")) ?: defaultRef.messageType,
+        originSessionId = optString("originSessionId").ifBlank { defaultRef.originSessionId },
         maxContextMessages = optInt("maxContextMessages", 12),
         sessionSttEnabled = optBoolean("sessionSttEnabled", true),
         sessionTtsEnabled = optBoolean("sessionTtsEnabled", true),
@@ -711,13 +725,11 @@ private object ConversationDatabaseHolder {
 }
 
 private fun ConversationSession.importDedupKey(): String {
-    return qqConversationDedupKeyOrNull() ?: "app:$id"
-}
-
-private fun ConversationSession.qqConversationDedupKeyOrNull(): String? {
-    val match = Regex("""^qq-(.+?)-(private|group)-(.+)$""").matchEntire(id) ?: return null
-    val (botId, peerType, peerId) = match.destructured
-    // Isolated group sessions encode "...-group-{groupId}-user-{userId}" in the peer segment,
-    // so imported persona/context state stays independent per member instead of being merged.
-    return "qq:$botId:$peerType:$peerId"
+    if (platformId != "qq") return "app:$id"
+    val peerType = when (messageType) {
+        MessageType.FriendMessage -> "friend"
+        MessageType.GroupMessage -> "group"
+        MessageType.OtherMessage -> "other"
+    }
+    return "qq:$botId:$peerType:$originSessionId"
 }

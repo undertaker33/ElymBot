@@ -126,37 +126,6 @@ data class ConfigProfile(
     val keywordPatterns: List<String> = emptyList(),
 )
 
-data class ConversationMessage(
-    val id: String,
-    val role: String,
-    val content: String,
-    val timestamp: Long,
-    val attachments: List<ConversationAttachment> = emptyList(),
-)
-
-data class ConversationAttachment(
-    val id: String,
-    val type: String = "image",
-    val mimeType: String = "image/jpeg",
-    val fileName: String = "",
-    val base64Data: String = "",
-    val remoteUrl: String = "",
-)
-
-data class ConversationSession(
-    val id: String,
-    val title: String,
-    val botId: String,
-    val personaId: String,
-    val providerId: String,
-    val maxContextMessages: Int,
-    val sessionSttEnabled: Boolean = true,
-    val sessionTtsEnabled: Boolean = true,
-    val pinned: Boolean = false,
-    val titleCustomized: Boolean = false,
-    val messages: List<ConversationMessage>,
-)
-
 data class BotRuntimeState(
     val qqEnabled: Boolean = true,
     val napCatContainerEnabled: Boolean = true,

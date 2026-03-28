@@ -5,6 +5,8 @@ import android.net.Uri
 import com.astrbot.android.model.ConversationAttachment
 import com.astrbot.android.model.ConversationMessage
 import com.astrbot.android.model.ConversationSession
+import com.astrbot.android.model.chat.MessageType
+import com.astrbot.android.model.chat.defaultSessionRefFor
 import com.astrbot.android.runtime.RuntimeLogRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -326,6 +328,9 @@ private fun ConversationSession.toJson(): JSONObject {
         .put("botId", botId)
         .put("personaId", personaId)
         .put("providerId", providerId)
+        .put("platformId", platformId)
+        .put("messageType", messageType.wireValue)
+        .put("originSessionId", originSessionId)
         .put("maxContextMessages", maxContextMessages)
         .put("sessionSttEnabled", sessionSttEnabled)
         .put("sessionTtsEnabled", sessionTtsEnabled)
@@ -359,12 +364,17 @@ private fun ConversationAttachment.toJson(): JSONObject {
 
 private fun JSONObject.toConversationSession(): ConversationSession {
     val messagesArray = optJSONArray("messages") ?: JSONArray()
+    val id = optString("id").ifBlank { UUID.randomUUID().toString() }
+    val defaultRef = defaultSessionRefFor(id)
     return ConversationSession(
-        id = optString("id").ifBlank { UUID.randomUUID().toString() },
+        id = id,
         title = optString("title").ifBlank { ConversationRepository.DEFAULT_SESSION_TITLE },
         botId = optString("botId").ifBlank { BotRepository.selectedBotId.value },
         personaId = optString("personaId").takeUnless { it.isBlank() || it == "default" }.orEmpty(),
         providerId = optString("providerId"),
+        platformId = optString("platformId").ifBlank { defaultRef.platformId },
+        messageType = MessageType.fromWireValue(optString("messageType")) ?: defaultRef.messageType,
+        originSessionId = optString("originSessionId").ifBlank { defaultRef.originSessionId },
         maxContextMessages = optInt("maxContextMessages", 12),
         sessionSttEnabled = optBoolean("sessionSttEnabled", true),
         sessionTtsEnabled = optBoolean("sessionTtsEnabled", true),

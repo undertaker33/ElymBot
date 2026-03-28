@@ -1,6 +1,7 @@
 package com.astrbot.android.data
 
 import com.astrbot.android.model.ConversationSession
+import com.astrbot.android.model.chat.MessageType
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -87,6 +88,31 @@ class ConversationRepositoryTest {
     }
 
     @Test
+    fun explicit_session_identity_drives_qq_dedup_even_when_ids_change() {
+        val existing = testSession(
+            id = "local-a",
+            personaId = "persona-a",
+            platformId = "qq",
+            messageType = MessageType.FriendMessage,
+            originSessionId = "friend:10001",
+        )
+        val incoming = testSession(
+            id = "local-b",
+            personaId = "persona-b",
+            platformId = "qq",
+            messageType = MessageType.FriendMessage,
+            originSessionId = "friend:10001",
+        )
+
+        ConversationRepository.restoreSessions(listOf(existing))
+
+        val preview = ConversationRepository.previewImportedSessions(listOf(incoming))
+
+        assertEquals(1, preview.duplicateSessions.size)
+        assertTrue(preview.newSessions.isEmpty())
+    }
+
+    @Test
     fun pinned_sessions_are_sorted_ahead_of_recent_unpinned_sessions() {
         val unpinnedRecent = testSession(
             id = "recent",
@@ -135,6 +161,9 @@ class ConversationRepositoryTest {
         title: String = id,
         pinned: Boolean = false,
         latestTimestamp: Long = 0L,
+        platformId: String = "app",
+        messageType: MessageType = MessageType.OtherMessage,
+        originSessionId: String = id,
     ): ConversationSession {
         return ConversationSession(
             id = id,
@@ -142,6 +171,9 @@ class ConversationRepositoryTest {
             botId = "qq-main",
             personaId = personaId,
             providerId = "",
+            platformId = platformId,
+            messageType = messageType,
+            originSessionId = originSessionId,
             maxContextMessages = 12,
             sessionSttEnabled = true,
             sessionTtsEnabled = true,

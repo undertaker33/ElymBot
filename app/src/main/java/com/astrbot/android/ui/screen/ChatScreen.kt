@@ -103,6 +103,7 @@ import com.astrbot.android.model.ConversationAttachment
 import com.astrbot.android.model.ConversationMessage
 import com.astrbot.android.model.ConversationSession
 import com.astrbot.android.model.ProviderCapability
+import com.astrbot.android.model.chat.MessageType
 import com.astrbot.android.ui.AppMotionTokens
 import com.astrbot.android.ui.FloatingBottomNavFabBottomPadding
 import com.astrbot.android.ui.MonochromeUi
@@ -1377,11 +1378,11 @@ private fun SessionPill(
 }
 
 private fun ConversationSession.isQqConversation(): Boolean {
-    return id.startsWith("qq-")
+    return platformId == "qq"
 }
 
 private fun ConversationSession.isQqPrivateConversation(): Boolean {
-    return id.startsWith("qq-") && "-private-" in id
+    return platformId == "qq" && messageType == MessageType.FriendMessage
 }
 
 private fun ConversationSession.canRename(): Boolean {

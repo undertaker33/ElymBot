@@ -3,6 +3,8 @@ package com.astrbot.android.data.backup
 import com.astrbot.android.model.ConversationAttachment
 import com.astrbot.android.model.ConversationMessage
 import com.astrbot.android.model.ConversationSession
+import com.astrbot.android.model.chat.MessageType
+import com.astrbot.android.model.chat.defaultSessionRefFor
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
@@ -127,6 +129,9 @@ private fun ConversationSession.toJson(): JSONObject {
         .put("botId", botId)
         .put("personaId", personaId)
         .put("providerId", providerId)
+        .put("platformId", platformId)
+        .put("messageType", messageType.wireValue)
+        .put("originSessionId", originSessionId)
         .put("maxContextMessages", maxContextMessages)
         .put("sessionSttEnabled", sessionSttEnabled)
         .put("sessionTtsEnabled", sessionTtsEnabled)
@@ -156,12 +161,17 @@ private fun ConversationAttachment.toJson(): JSONObject {
 
 private fun JSONObject.toConversationSession(): ConversationSession {
     val messagesArray = optJSONArray("messages") ?: JSONArray()
+    val id = optString("id").ifBlank { UUID.randomUUID().toString() }
+    val defaultRef = defaultSessionRefFor(id)
     return ConversationSession(
-        id = optString("id").ifBlank { UUID.randomUUID().toString() },
+        id = id,
         title = optString("title"),
         botId = optString("botId"),
         personaId = optString("personaId"),
         providerId = optString("providerId"),
+        platformId = optString("platformId").ifBlank { defaultRef.platformId },
+        messageType = MessageType.fromWireValue(optString("messageType")) ?: defaultRef.messageType,
+        originSessionId = optString("originSessionId").ifBlank { defaultRef.originSessionId },
         maxContextMessages = optInt("maxContextMessages", 12),
         sessionSttEnabled = optBoolean("sessionSttEnabled", true),
         sessionTtsEnabled = optBoolean("sessionTtsEnabled", true),
