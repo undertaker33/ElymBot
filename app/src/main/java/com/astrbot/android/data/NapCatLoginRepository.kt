@@ -19,11 +19,19 @@ object NapCatLoginRepository {
     private const val PREFS_NAME = "napcat_login_state"
     private const val KEY_LAST_QUICK_LOGIN_UIN = "last_quick_login_uin"
     private const val KEY_SAVED_ACCOUNTS = "saved_accounts"
+    private const val RUNTIME_DIAGNOSTIC_THROTTLE_MS = 20_000L
 
     private var preferences: SharedPreferences? = null
     private var appContext: Context? = null
+    private var lastRuntimeDiagnosticAt: Long = 0L
     private val _loginState = MutableStateFlow(NapCatLoginState())
     val loginState: StateFlow<NapCatLoginState> = _loginState.asStateFlow()
+
+    internal fun buildRuntimeDiagnosticsLinesForTests(
+        filesDir: File,
+        trigger: String,
+        detail: String,
+    ): List<String> = buildRuntimeDiagnosticsLines(filesDir, trigger, detail)
 
     fun initialize(context: Context) {
         if (preferences != null) return
@@ -103,6 +111,7 @@ object NapCatLoginRepository {
                 loginError = message,
                 lastUpdated = System.currentTimeMillis(),
             )
+            maybeLogRuntimeDiagnostics(trigger = "refresh", detail = message)
             if (manual) {
                 RuntimeLogRepository.append("QQ login refresh error: $message")
             }
@@ -506,7 +515,76 @@ object NapCatLoginRepository {
             loginError = message,
             lastUpdated = System.currentTimeMillis(),
         )
+        maybeLogRuntimeDiagnostics(trigger = prefix, detail = message)
         RuntimeLogRepository.append("$prefix: $message")
+    }
+
+    private fun maybeLogRuntimeDiagnostics(trigger: String, detail: String) {
+        val normalizedDetail = detail.trim()
+        if (!shouldLogRuntimeDiagnostics(normalizedDetail)) {
+            return
+        }
+        val context = appContext ?: return
+        val now = System.currentTimeMillis()
+        if (now - lastRuntimeDiagnosticAt < RUNTIME_DIAGNOSTIC_THROTTLE_MS) {
+            return
+        }
+        lastRuntimeDiagnosticAt = now
+        buildRuntimeDiagnosticsLines(context.filesDir, trigger, normalizedDetail)
+            .forEach(RuntimeLogRepository::append)
+    }
+
+    private fun shouldLogRuntimeDiagnostics(detail: String): Boolean {
+        val normalized = detail.lowercase()
+        return normalized.contains("token is invalid") ||
+            normalized.contains("login rate limit") ||
+            normalized.contains("missing webui credential") ||
+            normalized.contains("webui login failed")
+    }
+
+    private fun buildRuntimeDiagnosticsLines(
+        filesDir: File,
+        trigger: String,
+        detail: String,
+    ): List<String> {
+        val runtimeDir = File(filesDir, "runtime")
+        val configDir = File(runtimeDir, "rootfs/ubuntu/root/napcat/config")
+        val webuiFile = File(configDir, "webui.json")
+        val onebotFile = File(configDir, "onebot11.json")
+        val napcatLogFile = File(runtimeDir, "logs/napcat.log")
+
+        val diagnostics = mutableListOf<String>()
+        diagnostics += "QQ login runtime diag: trigger=$trigger detail=$detail runtimeDir=${runtimeDir.absolutePath}"
+        diagnostics += "QQ login runtime diag: webui.json exists=${webuiFile.exists()} snapshot=${webuiFile.readCompactSnapshot()}"
+        diagnostics += "QQ login runtime diag: onebot11.json exists=${onebotFile.exists()} snapshot=${onebotFile.readCompactSnapshot()}"
+        diagnostics += "QQ login runtime diag: napcat.log exists=${napcatLogFile.exists()} tail=${napcatLogFile.readTailSnapshot()}"
+        return diagnostics
+    }
+
+    private fun File.readCompactSnapshot(maxChars: Int = 500): String {
+        if (!exists() || !isFile) {
+            return "<missing>"
+        }
+        return runCatching {
+            readText()
+                .replace(Regex("\\s+"), " ")
+                .trim()
+                .take(maxChars)
+        }.getOrElse { "<unreadable:${it.message ?: it.javaClass.simpleName}>" }
+    }
+
+    private fun File.readTailSnapshot(maxLines: Int = 8, maxChars: Int = 500): String {
+        if (!exists() || !isFile) {
+            return "<missing>"
+        }
+        return runCatching {
+            readLines()
+                .takeLast(maxLines)
+                .joinToString(" | ") { line -> line.trim() }
+                .replace(Regex("\\s+"), " ")
+                .trim()
+                .take(maxChars)
+        }.getOrElse { "<unreadable:${it.message ?: it.javaClass.simpleName}>" }
     }
 
     private fun saveQuickLoginUinLocally(uin: String) {

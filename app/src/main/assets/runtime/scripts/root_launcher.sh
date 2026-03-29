@@ -42,6 +42,20 @@ write_progress() {
   fi
 }
 
+log_config_snapshot() {
+  local label="$1"
+  local file="$2"
+
+  if [ ! -f "$file" ]; then
+    echo "${label}: missing (${file})"
+    return 0
+  fi
+
+  local snapshot=""
+  snapshot="$(tr '\n' ' ' < "$file" | sed 's/[[:space:]]\+/ /g' | cut -c1-600)"
+  echo "${label}: ${snapshot}"
+}
+
 mark_installer_cached() {
   local cached="$1"
 
@@ -196,6 +210,8 @@ backup_napcat_config() {
   if [ -d "$NAPCAT_CONFIG_DIR" ]; then
     write_progress 38 "backup-config" 0
     echo "backing up napcat config"
+    log_config_snapshot "existing webui.json before backup" "$NAPCAT_CONFIG_DIR/webui.json"
+    log_config_snapshot "existing onebot11.json before backup" "$NAPCAT_CONFIG_DIR/onebot11.json"
     rm -rf "$NAPCAT_CONFIG_BACKUP"
     mkdir -p "$NAPCAT_CONFIG_BACKUP"
     cp -R "$NAPCAT_CONFIG_DIR"/. "$NAPCAT_CONFIG_BACKUP"/ 2>/dev/null || true
@@ -208,6 +224,8 @@ restore_napcat_config() {
     echo "restoring napcat config"
     mkdir -p "$NAPCAT_CONFIG_DIR"
     cp -R "$NAPCAT_CONFIG_BACKUP"/. "$NAPCAT_CONFIG_DIR"/ 2>/dev/null || true
+    log_config_snapshot "restored webui.json" "$NAPCAT_CONFIG_DIR/webui.json"
+    log_config_snapshot "restored onebot11.json" "$NAPCAT_CONFIG_DIR/onebot11.json"
     rm -rf "$NAPCAT_CONFIG_BACKUP"
   fi
 }
@@ -311,6 +329,7 @@ ensure_napcat_installed() {
 write_runtime_config() {
   write_progress 90 "write-config" 0
   mkdir -p "$NAPCAT_CONFIG_DIR"
+  echo "writing runtime config: preferred_port=${NAPCAT_WEBUI_PREFERRED_PORT} secret_key=${NAPCAT_WEBUI_SECRET_KEY} jwt_key=${NAPCAT_WEBUI_JWT_SECRET_KEY}"
   cat > "$NAPCAT_CONFIG_DIR/webui.json" <<'EOF'
 {
   "host": "127.0.0.1",
@@ -319,8 +338,10 @@ write_runtime_config() {
   "disableWebUI": false
 }
 EOF
+  log_config_snapshot "final webui.json after write" "$NAPCAT_CONFIG_DIR/webui.json"
 
   if [ ! -f "$NAPCAT_CONFIG_DIR/onebot11.json" ] || ! grep -q 'ws://127.0.0.1:6199/ws' "$NAPCAT_CONFIG_DIR/onebot11.json"; then
+    echo "writing onebot11.json for AstrBot bridge"
     cat > "$NAPCAT_CONFIG_DIR/onebot11.json" <<'EOF'
 {
   "network": {
@@ -346,7 +367,10 @@ EOF
   "parseMultMsg": false
 }
 EOF
+  else
+    echo "preserving existing onebot11.json"
   fi
+  log_config_snapshot "final onebot11.json after write" "$NAPCAT_CONFIG_DIR/onebot11.json"
 }
 
 write_progress 10 "prepare-container" 0

@@ -60,6 +60,7 @@ import com.astrbot.android.ui.screen.SettingsScreen
 import com.astrbot.android.ui.screen.SubPageScaffold
 import com.astrbot.android.ui.viewmodel.ChatViewModel
 import com.astrbot.android.ui.viewmodel.BridgeViewModel
+import com.astrbot.android.ui.viewmodel.QQLoginViewModel
 import com.astrbot.android.data.backup.AppBackupModuleKind
 import kotlinx.coroutines.launch
 
@@ -68,6 +69,7 @@ fun AstrBotApp(bridgeViewModel: BridgeViewModel = viewModel()) {
     val navController = rememberNavController()
     val context = LocalContext.current
     val chatViewModel: ChatViewModel = viewModel()
+    val qqLoginViewModel: QQLoginViewModel = viewModel()
     val chatDrawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     var botModelsSelected by remember { mutableStateOf(false) }
@@ -268,9 +270,15 @@ fun AstrBotApp(bridgeViewModel: BridgeViewModel = viewModel()) {
                     QQAccountCenterScreen(
                         onBack = { AppNavigator.back(navController) },
                         onOpenLogin = { AppNavigator.open(navController, AppDestination.QQLogin.route) },
+                        qqLoginViewModel = qqLoginViewModel,
                     )
                 }
-                composable(AppDestination.QQLogin.route) { QQLoginScreen(onBack = { AppNavigator.back(navController) }) }
+                composable(AppDestination.QQLogin.route) {
+                    QQLoginScreen(
+                        onBack = { AppNavigator.back(navController) },
+                        qqLoginViewModel = qqLoginViewModel,
+                    )
+                }
                 composable(AppDestination.SettingsHub.route) {
                     SettingsHubScreen(
                         onBack = { AppNavigator.back(navController) },

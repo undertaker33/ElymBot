@@ -36,6 +36,28 @@ object ChatCompletionService {
         val transcript: String,
     )
 
+    internal enum class ImageHandlingMode {
+        UNCHANGED,
+        DIRECT_MULTIMODAL,
+        CAPTION_TEXT,
+        STRIP_ATTACHMENTS,
+    }
+
+    internal enum class ImageHandlingReason {
+        NO_IMAGE_ATTACHMENTS,
+        CHAT_PROVIDER_SUPPORTS_IMAGES,
+        CAPTION_PROVIDER_SELECTED,
+        CAPTION_MODE_DISABLED,
+        CAPTION_PROVIDER_NOT_SELECTED,
+        CAPTION_PROVIDER_UNAVAILABLE,
+    }
+
+    internal data class ImageHandlingPlan(
+        val mode: ImageHandlingMode,
+        val reason: ImageHandlingReason,
+        val captionProvider: ProviderProfile? = null,
+    )
+
     private const val MULTIMODAL_PROMPT =
         "Briefly describe this image in one or two sentences. Mention the main landmark or tower, the city skyline or waterfront, and whether it is day or night."
     private const val PROBE_IMAGE_ASSET_NAME = "vl_probe_scene.jpg"
@@ -65,6 +87,27 @@ object ChatCompletionService {
 
     @Volatile
     private var probeSttAudioBase64: String? = null
+
+    internal fun extractOpenAiStyleStreamingContentForTests(line: String): String {
+        return extractOpenAiStyleStreamingContent(line)
+    }
+
+    internal fun resolveImageHandlingPlanForTests(
+        provider: ProviderProfile,
+        messages: List<ConversationMessage>,
+        config: ConfigProfile?,
+        availableProviders: List<ProviderProfile>,
+    ): ImageHandlingPlan {
+        val normalizedMessages = sanitizeConversationMessages(
+            retainOnlyLatestUserAttachments(messages),
+        )
+        return resolveImageHandlingPlan(
+            provider = provider,
+            messages = normalizedMessages,
+            config = config,
+            availableProviders = availableProviders,
+        )
+    }
 
     fun initialize(context: Context) {
         appContext = context.applicationContext
@@ -295,31 +338,57 @@ object ChatCompletionService {
         if (!latestUserHasImages) {
             return normalizedMessages
         }
-        if (config?.imageCaptionTextEnabled == true) {
-            val captionProvider = resolveCaptionProvider(
-                chatProvider = provider,
-                config = config,
-                availableProviders = availableProviders,
-            )
-            if (captionProvider == null) {
-                RuntimeLogRepository.append("Image route: caption mode enabled but no multimodal caption provider available, attachments stripped")
-                return normalizedMessages.map { it.copy(attachments = emptyList()) }
+        val plan = resolveImageHandlingPlan(provider, normalizedMessages, config, availableProviders)
+        return when (plan.mode) {
+            ImageHandlingMode.UNCHANGED -> normalizedMessages
+            ImageHandlingMode.DIRECT_MULTIMODAL -> {
+                RuntimeLogRepository.append(
+                    "Image route: direct multimodal chat provider=${provider.name} captionSwitch=${config?.imageCaptionTextEnabled == true}",
+                )
+                normalizedMessages
             }
-            RuntimeLogRepository.append("Image route: caption text mode using provider=${captionProvider.name}")
-            return buildCaptionedMessages(
-                messages = normalizedMessages,
-                captionProvider = captionProvider,
-                prompt = config.imageCaptionPrompt,
-            )
-        }
 
-        if (provider.hasMultimodalSupport()) {
-            RuntimeLogRepository.append("Image route: direct multimodal chat provider=${provider.name}")
-            return normalizedMessages
-        }
+            ImageHandlingMode.CAPTION_TEXT -> {
+                val captionProvider = requireNotNull(plan.captionProvider)
+                RuntimeLogRepository.append(
+                    "Image route: caption text mode using configured provider=${captionProvider.name} selected=${config?.defaultVisionProviderId.orEmpty().ifBlank { "-" }}",
+                )
+                buildCaptionedMessages(
+                    messages = normalizedMessages,
+                    captionProvider = captionProvider,
+                    prompt = config?.imageCaptionPrompt.orEmpty(),
+                )
+            }
 
-        RuntimeLogRepository.append("Image route: chat provider has no multimodal support and caption mode is off, attachments stripped")
-        return normalizedMessages.map { it.copy(attachments = emptyList()) }
+            ImageHandlingMode.STRIP_ATTACHMENTS -> {
+                when (plan.reason) {
+                    ImageHandlingReason.CAPTION_MODE_DISABLED -> {
+                        RuntimeLogRepository.append(
+                            "Image route: chat provider has no multimodal support and caption mode is off, attachments stripped",
+                        )
+                    }
+
+                    ImageHandlingReason.CAPTION_PROVIDER_NOT_SELECTED -> {
+                        RuntimeLogRepository.append(
+                            "Image route: caption mode enabled but no caption provider selected in config, attachments stripped",
+                        )
+                    }
+
+                    ImageHandlingReason.CAPTION_PROVIDER_UNAVAILABLE -> {
+                        RuntimeLogRepository.append(
+                            "Image route: caption mode enabled but selected caption provider is unavailable id=${config?.defaultVisionProviderId.orEmpty().ifBlank { "-" }}, attachments stripped",
+                        )
+                    }
+
+                    else -> {
+                        RuntimeLogRepository.append(
+                            "Image route: attachments stripped reason=${plan.reason.name}",
+                        )
+                    }
+                }
+                normalizedMessages.map { it.copy(attachments = emptyList()) }
+            }
+        }
     }
 
     private fun retainOnlyLatestUserAttachments(messages: List<ConversationMessage>): List<ConversationMessage> {
@@ -351,23 +420,99 @@ object ChatCompletionService {
         }
     }
 
-    private fun resolveCaptionProvider(
-        chatProvider: ProviderProfile,
+    private fun resolveImageHandlingPlanWithConfig(
+        provider: ProviderProfile,
+        messages: List<ConversationMessage>,
         config: ConfigProfile,
         availableProviders: List<ProviderProfile>,
-    ): ProviderProfile? {
-        val multimodalProviders = availableProviders.filter {
-            it.enabled &&
+    ): ImageHandlingPlan {
+        val latestUserHasImages = messages
+            .lastOrNull { it.role == "user" }
+            ?.attachments
+            ?.any { it.type == "image" } == true
+        if (!latestUserHasImages) {
+            return ImageHandlingPlan(
+                mode = ImageHandlingMode.UNCHANGED,
+                reason = ImageHandlingReason.NO_IMAGE_ATTACHMENTS,
+            )
+        }
+
+        if (provider.hasMultimodalSupport()) {
+            return ImageHandlingPlan(
+                mode = ImageHandlingMode.DIRECT_MULTIMODAL,
+                reason = ImageHandlingReason.CHAT_PROVIDER_SUPPORTS_IMAGES,
+            )
+        }
+
+        if (!config.imageCaptionTextEnabled) {
+            return ImageHandlingPlan(
+                mode = ImageHandlingMode.STRIP_ATTACHMENTS,
+                reason = ImageHandlingReason.CAPTION_MODE_DISABLED,
+            )
+        }
+
+        val selectedCaptionProviderId = config.defaultVisionProviderId.trim()
+        if (selectedCaptionProviderId.isBlank()) {
+            return ImageHandlingPlan(
+                mode = ImageHandlingMode.STRIP_ATTACHMENTS,
+                reason = ImageHandlingReason.CAPTION_PROVIDER_NOT_SELECTED,
+            )
+        }
+
+        val captionProvider = availableProviders.firstOrNull {
+            it.id == selectedCaptionProviderId &&
+                it.enabled &&
                 ProviderCapability.CHAT in it.capabilities &&
                 it.hasMultimodalSupport()
         }
-        return multimodalProviders.firstOrNull { it.id == config.defaultVisionProviderId }
-            ?: chatProvider.takeIf {
-                it.enabled &&
-                    ProviderCapability.CHAT in it.capabilities &&
-                    it.hasMultimodalSupport()
-            }
-            ?: multimodalProviders.firstOrNull()
+        return if (captionProvider != null) {
+            ImageHandlingPlan(
+                mode = ImageHandlingMode.CAPTION_TEXT,
+                reason = ImageHandlingReason.CAPTION_PROVIDER_SELECTED,
+                captionProvider = captionProvider,
+            )
+        } else {
+            ImageHandlingPlan(
+                mode = ImageHandlingMode.STRIP_ATTACHMENTS,
+                reason = ImageHandlingReason.CAPTION_PROVIDER_UNAVAILABLE,
+            )
+        }
+    }
+
+    private fun resolveImageHandlingPlan(
+        provider: ProviderProfile,
+        messages: List<ConversationMessage>,
+        config: ConfigProfile?,
+        availableProviders: List<ProviderProfile>,
+    ): ImageHandlingPlan {
+        val latestUserHasImages = messages
+            .lastOrNull { it.role == "user" }
+            ?.attachments
+            ?.any { it.type == "image" } == true
+        if (!latestUserHasImages) {
+            return ImageHandlingPlan(
+                mode = ImageHandlingMode.UNCHANGED,
+                reason = ImageHandlingReason.NO_IMAGE_ATTACHMENTS,
+            )
+        }
+        return if (config != null) {
+            resolveImageHandlingPlanWithConfig(
+                provider = provider,
+                messages = messages,
+                config = config,
+                availableProviders = availableProviders,
+            )
+        } else if (provider.hasMultimodalSupport()) {
+            ImageHandlingPlan(
+                mode = ImageHandlingMode.DIRECT_MULTIMODAL,
+                reason = ImageHandlingReason.CHAT_PROVIDER_SUPPORTS_IMAGES,
+            )
+        } else {
+            ImageHandlingPlan(
+                mode = ImageHandlingMode.STRIP_ATTACHMENTS,
+                reason = ImageHandlingReason.CAPTION_MODE_DISABLED,
+            )
+        }
     }
 
     private fun buildCaptionedMessages(
@@ -1084,14 +1229,7 @@ object ChatCompletionService {
             endpoint = provider.baseUrl.trimEnd('/') + "/chat/completions",
             apiKey = provider.apiKey,
         ) { connection ->
-            executeStreamingRequest(connection, payload, onDelta) { line ->
-                JSONObject(line)
-                    .optJSONArray("choices")
-                    ?.optJSONObject(0)
-                    ?.optJSONObject("delta")
-                    ?.optString("content")
-                    .orEmpty()
-            }
+            executeStreamingRequest(connection, payload, onDelta, ::extractOpenAiStyleStreamingContent)
         }
     }
 
@@ -2067,6 +2205,20 @@ object ChatCompletionService {
     ): String {
         if (styleTags.isEmpty()) return spokenText
         return (styleTags.joinToString(separator = " ") + " " + spokenText).trim()
+    }
+
+    private fun extractOpenAiStyleStreamingContent(line: String): String {
+        val delta = JSONObject(line)
+            .optJSONArray("choices")
+            ?.optJSONObject(0)
+            ?.optJSONObject("delta")
+            ?: return ""
+        val rawContent = delta.opt("content")
+        return if (rawContent == null || rawContent == JSONObject.NULL) {
+            ""
+        } else {
+            rawContent.toString().takeUnless { it == "null" }.orEmpty()
+        }
     }
 
     private fun buildTtsStyleHints(stylePrompt: String): TtsStyleHints {

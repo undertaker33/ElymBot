@@ -1,5 +1,6 @@
 package com.astrbot.android.ui.screen
 
+import android.content.Context
 import android.graphics.Bitmap
 import android.widget.Toast
 import android.webkit.JavascriptInterface
@@ -51,12 +52,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.viewmodel.compose.viewModel
 import com.astrbot.android.model.NapCatLoginState
 import com.astrbot.android.model.SavedQqAccount
 import com.astrbot.android.ui.MonochromeUi
 import com.astrbot.android.ui.monochromeOutlinedTextFieldColors
 import com.astrbot.android.ui.viewmodel.QQLoginViewModel
+import com.astrbot.android.ui.viewmodel.buildQqLoginVersionMarker
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.qrcode.QRCodeWriter
 import kotlinx.coroutines.launch
@@ -65,10 +66,15 @@ import kotlinx.coroutines.launch
 fun QQAccountCenterScreen(
     onBack: () -> Unit,
     onOpenLogin: () -> Unit,
-    qqLoginViewModel: QQLoginViewModel = viewModel(),
+    qqLoginViewModel: QQLoginViewModel,
 ) {
     val context = LocalContext.current
     val loginState by qqLoginViewModel.loginState.collectAsState()
+    val versionMarker = remember(context) { resolveQqLoginVersionMarker(context) }
+    DisposableEffect(qqLoginViewModel, versionMarker) {
+        qqLoginViewModel.onScreenVisible("qq-account", versionMarker)
+        onDispose { qqLoginViewModel.onScreenHidden("qq-account") }
+    }
 
     Scaffold(
         topBar = { SubPageHeader(title = "QQ 账号", onBack = onBack) },
@@ -147,8 +153,9 @@ fun QQAccountCenterScreen(
 @Composable
 fun QQLoginScreen(
     onBack: () -> Unit,
-    qqLoginViewModel: QQLoginViewModel = viewModel(),
+    qqLoginViewModel: QQLoginViewModel,
 ) {
+    val context = LocalContext.current
     val loginState by qqLoginViewModel.loginState.collectAsState()
     val quickLoginEnabled = loginState.canQuickLogin()
     val qrBitmap = remember(loginState.qrCodeUrl) {
@@ -157,6 +164,11 @@ fun QQLoginScreen(
     var loginMode by remember { mutableStateOf(QqLoginMode.Qr) }
     var uinInput by remember { mutableStateOf("") }
     var passwordInput by remember { mutableStateOf("") }
+    val versionMarker = remember(context) { resolveQqLoginVersionMarker(context) }
+    DisposableEffect(qqLoginViewModel, versionMarker) {
+        qqLoginViewModel.onScreenVisible("qq-login", versionMarker)
+        onDispose { qqLoginViewModel.onScreenHidden("qq-login") }
+    }
 
     LaunchedEffect(loginState.quickLoginUin, loginState.uin) {
         if (uinInput.isBlank()) {
@@ -841,6 +853,18 @@ private fun buildLoginQrBitmap(content: String, sizePx: Int): Bitmap {
         }
     }
     return bitmap
+}
+
+private fun resolveQqLoginVersionMarker(context: Context): String {
+    return runCatching {
+        val packageInfo = context.packageManager.getPackageInfo(context.packageName, 0)
+        buildQqLoginVersionMarker(
+            versionName = packageInfo.versionName.orEmpty().ifBlank { "unknown" },
+            versionCode = packageInfo.longVersionCode,
+        )
+    }.getOrElse { error ->
+        "QQ login diagnostics build: versionName=unknown versionCode=unknown marker=qq-login-diag-v3-poll-singleton detail=${error.javaClass.simpleName}"
+    }
 }
 
 private enum class QqLoginMode {

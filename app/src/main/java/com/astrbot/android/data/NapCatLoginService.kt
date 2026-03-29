@@ -1,19 +1,39 @@
 package com.astrbot.android.data
 
+import com.astrbot.android.runtime.RuntimeLogRepository
 import com.astrbot.android.model.NapCatLoginState
 import com.astrbot.android.model.SavedQqAccount
 import org.json.JSONObject
 import org.json.JSONArray
 import java.io.BufferedReader
 import java.io.InputStreamReader
+import java.net.ConnectException
 import java.net.HttpURLConnection
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
 import java.net.URL
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
+import org.json.JSONException
 
 object NapCatLoginService {
     private const val WEB_UI_TOKEN = "astrbot_android_webui"
     private var credential: String = ""
+    private var postJsonOverride: ((String, JSONObject, String?) -> JSONObject)? = null
+
+    internal enum class LoginFailureCategory {
+        AUTH_TOKEN_EXPIRED,
+        AUTH_LOGIN_FAILED,
+        API_BUSINESS_REJECTED,
+        EMPTY_OR_MALFORMED_RESPONSE,
+        NETWORK_FAILURE,
+    }
+
+    private class LoginServiceException(
+        val category: LoginFailureCategory,
+        override val message: String,
+        cause: Throwable? = null,
+    ) : IllegalStateException(message, cause)
 
     data class NewDeviceQrCodeResult(
         val qrUrl: String,
@@ -39,6 +59,22 @@ object NapCatLoginService {
         val message: String,
         val data: Any?,
     )
+
+    internal fun resetForTests() {
+        credential = ""
+        postJsonOverride = null
+    }
+
+    internal fun setPostJsonOverrideForTests(override: ((String, JSONObject, String?) -> JSONObject)?) {
+        postJsonOverride = override
+    }
+
+    internal fun debugCredentialForTests(): String = credential
+
+    internal fun classifyFailureForTests(
+        message: String?,
+        cause: Throwable?,
+    ): LoginFailureCategory = classifyFailure(message, cause)
 
     fun clearCredential() {
         credential = ""
@@ -275,42 +311,109 @@ object NapCatLoginService {
         payload: JSONObject,
         retryUnauthorized: Boolean = true,
     ): ApiEnvelope {
-        val response = postJson(
-            endpoint = normalizeApiBaseUrl(baseUrl) + path,
+        val endpoint = normalizeApiBaseUrl(baseUrl) + path
+        val authorization = ensureCredential(baseUrl, phase = "request", clearedCredential = false)
+        val envelope = executeApiRequest(
+            endpoint = endpoint,
+            path = path,
             payload = payload,
-            authorization = ensureCredential(baseUrl),
+            authorization = authorization,
+            phase = "request",
+            clearedCredential = false,
         )
-        val envelope = ApiEnvelope(
-            code = response.optInt("code", 1),
-            message = response.optString("message").ifBlank {
-                if (response.optInt("code", 1) == 0) "success" else "Unknown error"
-            },
-            data = response.opt("data").takeUnless { it == null || it == JSONObject.NULL },
+        if (envelope.code == 0) {
+            return envelope
+        }
+
+        val failureCategory = classifyFailure(envelope.message, null)
+        logApiFailure(
+            path = path,
+            phase = "request",
+            category = failureCategory,
+            detail = envelope.message,
+            clearedCredential = false,
         )
 
-        if (
-            envelope.code != 0 &&
-            retryUnauthorized &&
-            envelope.message.contains("Unauthorized", ignoreCase = true)
-        ) {
-            clearCredential()
-            return authorizedPostResponse(baseUrl, path, payload, retryUnauthorized = false)
+        if (failureCategory != LoginFailureCategory.AUTH_TOKEN_EXPIRED || !retryUnauthorized) {
+            return envelope
         }
-        return envelope
+
+        clearCredential()
+        RuntimeLogRepository.append("QQ login auth recovery: path=$path phase=auth-relogin detail=credential cache cleared")
+        val retryAuthorization = ensureCredential(baseUrl, phase = "auth-relogin", clearedCredential = true)
+        val retryEnvelope = executeApiRequest(
+            endpoint = endpoint,
+            path = path,
+            payload = payload,
+            authorization = retryAuthorization,
+            phase = "retry",
+            clearedCredential = true,
+        )
+        if (retryEnvelope.code != 0) {
+            logApiFailure(
+                path = path,
+                phase = "retry",
+                category = classifyFailure(retryEnvelope.message, null),
+                detail = retryEnvelope.message,
+                clearedCredential = true,
+            )
+        } else {
+            RuntimeLogRepository.append("QQ login api recovered: path=$path phase=retry clearedCredential=true")
+        }
+        return retryEnvelope
     }
 
-    private fun ensureCredential(baseUrl: String): String {
+    private fun ensureCredential(
+        baseUrl: String,
+        phase: String,
+        clearedCredential: Boolean,
+    ): String {
         if (credential.isNotBlank()) return credential
 
-        val loginResponse = postJson(
-            endpoint = normalizeApiBaseUrl(baseUrl) + "/auth/login",
-            payload = JSONObject().apply {
-                put("hash", sha256("$WEB_UI_TOKEN.napcat"))
-            },
-            authorization = null,
+        val path = "/auth/login"
+        RuntimeLogRepository.append(
+            "QQ login auth request: path=$path phase=$phase strategy=sha256(token.napcat) baseUrl=${normalizeBaseUrl(baseUrl)} configuredToken=$WEB_UI_TOKEN",
         )
+        val loginResponse = try {
+            postJson(
+                endpoint = normalizeApiBaseUrl(baseUrl) + path,
+                payload = JSONObject().apply {
+                    put("hash", sha256("$WEB_UI_TOKEN.napcat"))
+                },
+                authorization = null,
+            )
+        } catch (error: Exception) {
+            val category = if (classifyFailure(null, error) == LoginFailureCategory.NETWORK_FAILURE) {
+                LoginFailureCategory.NETWORK_FAILURE
+            } else {
+                LoginFailureCategory.AUTH_LOGIN_FAILED
+            }
+            logApiFailure(
+                path = path,
+                phase = phase,
+                category = category,
+                detail = error.message ?: error.javaClass.simpleName,
+                clearedCredential = clearedCredential,
+            )
+            throw LoginServiceException(
+                category = category,
+                message = error.message ?: "WebUI login failed",
+                cause = error,
+            )
+        }
         if (loginResponse.optInt("code", 1) != 0) {
-            throw IllegalStateException(loginResponse.optString("message").ifBlank { "WebUI login failed" })
+            val detail = loginResponse.optString("message").ifBlank { "WebUI login failed" }
+            logApiFailure(
+                path = path,
+                phase = phase,
+                category = LoginFailureCategory.AUTH_LOGIN_FAILED,
+                detail = detail,
+                clearedCredential = clearedCredential,
+            )
+            throw LoginServiceException(
+                category = LoginFailureCategory.AUTH_LOGIN_FAILED,
+                message = detail,
+            )
         }
 
         credential = loginResponse
@@ -318,9 +421,77 @@ object NapCatLoginService {
             ?.optString("Credential")
             .orEmpty()
         if (credential.isBlank()) {
-            throw IllegalStateException("Missing WebUI credential")
+            val detail = "Missing WebUI credential"
+            logApiFailure(
+                path = path,
+                phase = phase,
+                category = LoginFailureCategory.EMPTY_OR_MALFORMED_RESPONSE,
+                detail = detail,
+                clearedCredential = clearedCredential,
+            )
+            throw LoginServiceException(
+                category = LoginFailureCategory.EMPTY_OR_MALFORMED_RESPONSE,
+                message = detail,
+            )
         }
+        RuntimeLogRepository.append("QQ login auth success: path=$path phase=$phase clearedCredential=$clearedCredential")
         return credential
+    }
+
+    private fun executeApiRequest(
+        endpoint: String,
+        path: String,
+        payload: JSONObject,
+        authorization: String,
+        phase: String,
+        clearedCredential: Boolean,
+    ): ApiEnvelope {
+        val response = try {
+            postJson(
+                endpoint = endpoint,
+                payload = payload,
+                authorization = authorization,
+            )
+        } catch (error: Exception) {
+            val category = classifyFailure(null, error)
+            logApiFailure(
+                path = path,
+                phase = phase,
+                category = category,
+                detail = error.message ?: error.javaClass.simpleName,
+                clearedCredential = clearedCredential,
+            )
+            throw LoginServiceException(
+                category = category,
+                message = error.message ?: "QQ login request failed",
+                cause = error,
+            )
+        }
+        return toApiEnvelope(response)
+    }
+
+    private fun toApiEnvelope(response: JSONObject): ApiEnvelope {
+        val code = response.optInt("code", 1)
+        val message = response.optString("message").ifBlank {
+            if (code == 0) "success" else "Unknown error"
+        }
+        return ApiEnvelope(
+            code = code,
+            message = message,
+            data = response.opt("data").takeUnless { it == null || it == JSONObject.NULL },
+        )
+    }
+
+    private fun logApiFailure(
+        path: String,
+        phase: String,
+        category: LoginFailureCategory,
+        detail: String,
+        clearedCredential: Boolean,
+    ) {
+        RuntimeLogRepository.append(
+            "QQ login api error: path=$path phase=$phase category=$category clearedCredential=$clearedCredential detail=$detail",
+        )
     }
 
     private fun postJson(
@@ -328,6 +499,9 @@ object NapCatLoginService {
         payload: JSONObject,
         authorization: String?,
     ): JSONObject {
+        postJsonOverride?.let { override ->
+            return override(endpoint, payload, authorization)
+        }
         val connection = URL(endpoint).openConnection() as HttpURLConnection
         return try {
             connection.requestMethod = "POST"
@@ -346,13 +520,20 @@ object NapCatLoginService {
             val responseCode = connection.responseCode
             val body = readBody(connection, responseCode)
             if (body.isBlank()) {
-                return JSONObject().apply {
-                    put("code", if (responseCode in 200..299) 0 else 1)
-                    put("message", "Empty response")
-                    put("data", JSONObject())
-                }
+                throw LoginServiceException(
+                    category = LoginFailureCategory.EMPTY_OR_MALFORMED_RESPONSE,
+                    message = "Empty response",
+                )
             }
             JSONObject(body)
+        } catch (error: LoginServiceException) {
+            throw error
+        } catch (error: JSONException) {
+            throw LoginServiceException(
+                category = LoginFailureCategory.EMPTY_OR_MALFORMED_RESPONSE,
+                message = error.message ?: "Malformed response",
+                cause = error,
+            )
         } finally {
             connection.disconnect()
         }
@@ -368,7 +549,10 @@ object NapCatLoginService {
 
     private fun requireSuccess(response: ApiEnvelope): Any? {
         if (response.code != 0) {
-            throw IllegalStateException(response.message.ifBlank { "Unknown error" })
+            throw LoginServiceException(
+                category = classifyFailure(response.message, null),
+                message = response.message.ifBlank { "Unknown error" },
+            )
         }
         return response.data
     }
@@ -429,6 +613,30 @@ object NapCatLoginService {
     private fun normalizeApiBaseUrl(baseUrl: String): String {
         val normalized = normalizeBaseUrl(baseUrl)
         return if (normalized.endsWith("/api")) normalized else "$normalized/api"
+    }
+
+    private fun classifyFailure(
+        message: String?,
+        cause: Throwable?,
+    ): LoginFailureCategory {
+        val normalizedMessage = message.orEmpty().trim().lowercase()
+        return when {
+            normalizedMessage == "unauthorized" ||
+                normalizedMessage.contains("token is invalid") ||
+                normalizedMessage.contains("invalid token") -> LoginFailureCategory.AUTH_TOKEN_EXPIRED
+
+            cause is SocketTimeoutException ||
+                cause is ConnectException ||
+                cause is UnknownHostException ||
+                (cause is java.io.IOException && cause !is JSONException) -> LoginFailureCategory.NETWORK_FAILURE
+
+            cause is JSONException ||
+                normalizedMessage == "empty response" ||
+                normalizedMessage.contains("missing webui credential") ||
+                normalizedMessage.contains("malformed response") -> LoginFailureCategory.EMPTY_OR_MALFORMED_RESPONSE
+
+            else -> LoginFailureCategory.API_BUSINESS_REJECTED
+        }
     }
 
     private fun sha256(value: String): String {

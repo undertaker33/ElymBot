@@ -5,7 +5,9 @@ import androidx.lifecycle.viewModelScope
 import com.astrbot.android.data.NapCatLoginRepository
 import com.astrbot.android.data.NapCatLoginService
 import com.astrbot.android.model.NapCatLoginState
+import com.astrbot.android.runtime.RuntimeLogRepository
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.isActive
@@ -14,9 +16,51 @@ import kotlinx.coroutines.withContext
 
 class QQLoginViewModel : ViewModel() {
     val loginState: StateFlow<NapCatLoginState> = NapCatLoginRepository.loginState
+    private val pollingTracker = QQLoginPollingTracker()
+    private var pollingJob: Job? = null
+    private var buildMarkerLogged = false
 
-    init {
-        viewModelScope.launch {
+    fun onScreenVisible(screenTag: String, versionMarker: String) {
+        when (pollingTracker.onScreenVisible(screenTag)) {
+            QQLoginPollingTransition.START -> {
+                logBuildMarkerIfNeeded(versionMarker)
+                RuntimeLogRepository.append(
+                    "QQ login polling started: screens=${pollingTracker.activeScreenSummary()} intervalLoggedOutMs=3000 intervalLoggedInMs=5000",
+                )
+                startPollingLoop()
+            }
+
+            QQLoginPollingTransition.KEEP_RUNNING,
+            QQLoginPollingTransition.NO_CHANGE,
+            QQLoginPollingTransition.STOP,
+            -> Unit
+        }
+    }
+
+    fun onScreenHidden(screenTag: String) {
+        when (pollingTracker.onScreenHidden(screenTag)) {
+            QQLoginPollingTransition.STOP -> {
+                pollingJob?.cancel()
+                pollingJob = null
+                RuntimeLogRepository.append("QQ login polling stopped: no visible QQ login screens remain")
+            }
+
+            QQLoginPollingTransition.START,
+            QQLoginPollingTransition.KEEP_RUNNING,
+            QQLoginPollingTransition.NO_CHANGE,
+            -> Unit
+        }
+    }
+
+    override fun onCleared() {
+        pollingJob?.cancel()
+        pollingJob = null
+        super.onCleared()
+    }
+
+    private fun startPollingLoop() {
+        if (pollingJob?.isActive == true) return
+        pollingJob = viewModelScope.launch {
             while (isActive) {
                 runCatching {
                     withContext(Dispatchers.IO) {
@@ -83,4 +127,51 @@ class QQLoginViewModel : ViewModel() {
             runCatching { block() }
         }
     }
+
+    private fun logBuildMarkerIfNeeded(versionMarker: String) {
+        if (buildMarkerLogged) return
+        buildMarkerLogged = true
+        RuntimeLogRepository.append(versionMarker)
+    }
+}
+
+internal enum class QQLoginPollingTransition {
+    START,
+    KEEP_RUNNING,
+    STOP,
+    NO_CHANGE,
+}
+
+internal class QQLoginPollingTracker {
+    private val activeScreens = linkedSetOf<String>()
+
+    fun onScreenVisible(screenTag: String): QQLoginPollingTransition {
+        val normalizedTag = screenTag.trim()
+        if (normalizedTag.isBlank()) return QQLoginPollingTransition.NO_CHANGE
+        if (!activeScreens.add(normalizedTag)) return QQLoginPollingTransition.NO_CHANGE
+        return if (activeScreens.size == 1) {
+            QQLoginPollingTransition.START
+        } else {
+            QQLoginPollingTransition.KEEP_RUNNING
+        }
+    }
+
+    fun onScreenHidden(screenTag: String): QQLoginPollingTransition {
+        val normalizedTag = screenTag.trim()
+        if (normalizedTag.isBlank()) return QQLoginPollingTransition.NO_CHANGE
+        if (!activeScreens.remove(normalizedTag)) return QQLoginPollingTransition.NO_CHANGE
+        return if (activeScreens.isEmpty()) {
+            QQLoginPollingTransition.STOP
+        } else {
+            QQLoginPollingTransition.KEEP_RUNNING
+        }
+    }
+
+    fun activeScreenCount(): Int = activeScreens.size
+
+    fun activeScreenSummary(): String = activeScreens.joinToString(separator = ",")
+}
+
+internal fun buildQqLoginVersionMarker(versionName: String, versionCode: Long): String {
+    return "QQ login diagnostics build: versionName=$versionName versionCode=$versionCode marker=qq-login-diag-v3-poll-singleton"
 }
