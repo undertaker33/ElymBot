@@ -2,10 +2,11 @@ package com.astrbot.android.ui.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.astrbot.android.data.NapCatLoginRepository
 import com.astrbot.android.data.NapCatLoginService
+import com.astrbot.android.di.DefaultQQLoginViewModelDependencies
+import com.astrbot.android.di.QQLoginViewModelDependencies
 import com.astrbot.android.model.NapCatLoginState
-import com.astrbot.android.runtime.RuntimeLogRepository
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -14,8 +15,11 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-class QQLoginViewModel : ViewModel() {
-    val loginState: StateFlow<NapCatLoginState> = NapCatLoginRepository.loginState
+class QQLoginViewModel(
+    private val dependencies: QQLoginViewModelDependencies = DefaultQQLoginViewModelDependencies,
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+) : ViewModel() {
+    val loginState: StateFlow<NapCatLoginState> = dependencies.loginState
     private val pollingTracker = QQLoginPollingTracker()
     private var pollingJob: Job? = null
     private var buildMarkerLogged = false
@@ -24,7 +28,7 @@ class QQLoginViewModel : ViewModel() {
         when (pollingTracker.onScreenVisible(screenTag)) {
             QQLoginPollingTransition.START -> {
                 logBuildMarkerIfNeeded(versionMarker)
-                RuntimeLogRepository.append(
+                dependencies.log(
                     "QQ login polling started: screens=${pollingTracker.activeScreenSummary()} intervalLoggedOutMs=3000 intervalLoggedInMs=5000",
                 )
                 startPollingLoop()
@@ -42,7 +46,7 @@ class QQLoginViewModel : ViewModel() {
             QQLoginPollingTransition.STOP -> {
                 pollingJob?.cancel()
                 pollingJob = null
-                RuntimeLogRepository.append("QQ login polling stopped: no visible QQ login screens remain")
+                dependencies.log("QQ login polling stopped: no visible QQ login screens remain")
             }
 
             QQLoginPollingTransition.START,
@@ -63,8 +67,8 @@ class QQLoginViewModel : ViewModel() {
         pollingJob = viewModelScope.launch {
             while (isActive) {
                 runCatching {
-                    withContext(Dispatchers.IO) {
-                        NapCatLoginRepository.refresh()
+                    withContext(ioDispatcher) {
+                        dependencies.refresh()
                     }
                 }
                 delay(if (loginState.value.isLogin) 5000 else 3000)
@@ -73,27 +77,27 @@ class QQLoginViewModel : ViewModel() {
     }
 
     fun refreshNow() {
-        launchIo { NapCatLoginRepository.refresh(manual = true) }
+        launchIo { dependencies.refresh(manual = true) }
     }
 
     fun refreshQrCode() {
-        launchIo { NapCatLoginRepository.refreshQrCode() }
+        launchIo { dependencies.refreshQrCode() }
     }
 
     fun quickLoginSavedAccount(uin: String? = null) {
-        launchIo { NapCatLoginRepository.quickLoginSavedAccount(uin) }
+        launchIo { dependencies.quickLoginSavedAccount(uin) }
     }
 
     fun saveQuickLoginAccount(uin: String) {
-        launchIo { NapCatLoginRepository.saveQuickLoginAccount(uin) }
+        launchIo { dependencies.saveQuickLoginAccount(uin) }
     }
 
     fun logoutCurrentAccount() {
-        launchIo { NapCatLoginRepository.logoutCurrentAccount() }
+        launchIo { dependencies.logoutCurrentAccount() }
     }
 
     fun passwordLogin(uin: String, password: String) {
-        launchIo { NapCatLoginRepository.passwordLogin(uin, password) }
+        launchIo { dependencies.passwordLogin(uin, password) }
     }
 
     fun captchaLogin(
@@ -103,27 +107,27 @@ class QQLoginViewModel : ViewModel() {
         randstr: String,
         sid: String,
     ) {
-        launchIo { NapCatLoginRepository.captchaLogin(uin, password, ticket, randstr, sid) }
+        launchIo { dependencies.captchaLogin(uin, password, ticket, randstr, sid) }
     }
 
     fun newDeviceLogin(uin: String, password: String, verifiedToken: String? = null) {
-        launchIo { NapCatLoginRepository.newDeviceLogin(uin, password, verifiedToken) }
+        launchIo { dependencies.newDeviceLogin(uin, password, verifiedToken) }
     }
 
     suspend fun getNewDeviceQRCode(): NapCatLoginService.NewDeviceQrCodeResult {
-        return withContext(Dispatchers.IO) {
-            NapCatLoginRepository.getNewDeviceQRCode()
+        return withContext(ioDispatcher) {
+            dependencies.getNewDeviceQRCode()
         }
     }
 
     suspend fun pollNewDeviceQRCode(bytesToken: String): NapCatLoginService.NewDeviceQrPollResult {
-        return withContext(Dispatchers.IO) {
-            NapCatLoginRepository.pollNewDeviceQRCode(bytesToken)
+        return withContext(ioDispatcher) {
+            dependencies.pollNewDeviceQRCode(bytesToken)
         }
     }
 
     private fun launchIo(block: suspend () -> Unit) {
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             runCatching { block() }
         }
     }
@@ -131,7 +135,7 @@ class QQLoginViewModel : ViewModel() {
     private fun logBuildMarkerIfNeeded(versionMarker: String) {
         if (buildMarkerLogged) return
         buildMarkerLogged = true
-        RuntimeLogRepository.append(versionMarker)
+        dependencies.log(versionMarker)
     }
 }
 

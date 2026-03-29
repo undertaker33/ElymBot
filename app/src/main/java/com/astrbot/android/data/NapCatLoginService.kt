@@ -1,25 +1,28 @@
 package com.astrbot.android.data
 
+import com.astrbot.android.data.http.AstrBotHttpClient
+import com.astrbot.android.data.http.AstrBotHttpException
+import com.astrbot.android.data.http.HttpFailureCategory
+import com.astrbot.android.data.http.HttpMethod
+import com.astrbot.android.data.http.HttpRequestSpec
+import com.astrbot.android.data.http.OkHttpAstrBotHttpClient
 import com.astrbot.android.runtime.RuntimeLogRepository
+import com.astrbot.android.runtime.RuntimeSecretRepository
 import com.astrbot.android.model.NapCatLoginState
 import com.astrbot.android.model.SavedQqAccount
 import org.json.JSONObject
 import org.json.JSONArray
-import java.io.BufferedReader
-import java.io.InputStreamReader
 import java.net.ConnectException
-import java.net.HttpURLConnection
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
-import java.net.URL
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import org.json.JSONException
 
 object NapCatLoginService {
-    private const val WEB_UI_TOKEN = "astrbot_android_webui"
     private var credential: String = ""
     private var postJsonOverride: ((String, JSONObject, String?) -> JSONObject)? = null
+    private var httpClient: AstrBotHttpClient = OkHttpAstrBotHttpClient()
 
     internal enum class LoginFailureCategory {
         AUTH_TOKEN_EXPIRED,
@@ -63,10 +66,15 @@ object NapCatLoginService {
     internal fun resetForTests() {
         credential = ""
         postJsonOverride = null
+        httpClient = OkHttpAstrBotHttpClient()
     }
 
     internal fun setPostJsonOverrideForTests(override: ((String, JSONObject, String?) -> JSONObject)?) {
         postJsonOverride = override
+    }
+
+    internal fun setHttpClientOverrideForTests(override: AstrBotHttpClient?) {
+        httpClient = override ?: OkHttpAstrBotHttpClient()
     }
 
     internal fun debugCredentialForTests(): String = credential
@@ -75,6 +83,10 @@ object NapCatLoginService {
         message: String?,
         cause: Throwable?,
     ): LoginFailureCategory = classifyFailure(message, cause)
+
+    internal fun maskSecretForTests(value: String): String = maskSecret(value)
+
+    internal fun sanitizeDetailForLogsForTests(detail: String): String = sanitizeNapCatDetailForLogs(detail)
 
     fun clearCredential() {
         credential = ""
@@ -371,14 +383,15 @@ object NapCatLoginService {
         if (credential.isNotBlank()) return credential
 
         val path = "/auth/login"
+        val webUiToken = RuntimeSecretRepository.getOrCreateWebUiToken()
         RuntimeLogRepository.append(
-            "QQ login auth request: path=$path phase=$phase strategy=sha256(token.napcat) baseUrl=${normalizeBaseUrl(baseUrl)} configuredToken=$WEB_UI_TOKEN",
+            "QQ login auth request: path=$path phase=$phase strategy=sha256(token.napcat) baseUrl=${normalizeBaseUrl(baseUrl)} configuredToken=${maskSecret(webUiToken)}",
         )
         val loginResponse = try {
             postJson(
                 endpoint = normalizeApiBaseUrl(baseUrl) + path,
                 payload = JSONObject().apply {
-                    put("hash", sha256("$WEB_UI_TOKEN.napcat"))
+                    put("hash", sha256("$webUiToken.napcat"))
                 },
                 authorization = null,
             )
@@ -490,7 +503,7 @@ object NapCatLoginService {
         clearedCredential: Boolean,
     ) {
         RuntimeLogRepository.append(
-            "QQ login api error: path=$path phase=$phase category=$category clearedCredential=$clearedCredential detail=$detail",
+            "QQ login api error: path=$path phase=$phase category=$category clearedCredential=$clearedCredential detail=${sanitizeNapCatDetailForLogs(detail)}",
         )
     }
 
@@ -502,23 +515,23 @@ object NapCatLoginService {
         postJsonOverride?.let { override ->
             return override(endpoint, payload, authorization)
         }
-        val connection = URL(endpoint).openConnection() as HttpURLConnection
         return try {
-            connection.requestMethod = "POST"
-            connection.connectTimeout = 10_000
-            connection.readTimeout = 15_000
-            connection.doOutput = true
-            connection.setRequestProperty("Content-Type", "application/json")
-            if (!authorization.isNullOrBlank()) {
-                connection.setRequestProperty("Authorization", "Bearer $authorization")
-            }
-
-            connection.outputStream.use { output ->
-                output.write(payload.toString().toByteArray(StandardCharsets.UTF_8))
-            }
-
-            val responseCode = connection.responseCode
-            val body = readBody(connection, responseCode)
+            val body = httpClient.execute(
+                HttpRequestSpec(
+                    method = HttpMethod.POST,
+                    url = endpoint,
+                    headers = buildMap {
+                        put("Content-Type", "application/json")
+                        if (!authorization.isNullOrBlank()) {
+                            put("Authorization", "Bearer $authorization")
+                        }
+                    },
+                    body = payload.toString(),
+                    contentType = "application/json",
+                    connectTimeoutMs = 10_000,
+                    readTimeoutMs = 15_000,
+                ),
+            ).body
             if (body.isBlank()) {
                 throw LoginServiceException(
                     category = LoginFailureCategory.EMPTY_OR_MALFORMED_RESPONSE,
@@ -534,16 +547,6 @@ object NapCatLoginService {
                 message = error.message ?: "Malformed response",
                 cause = error,
             )
-        } finally {
-            connection.disconnect()
-        }
-    }
-
-    private fun readBody(connection: HttpURLConnection, responseCode: Int): String {
-        val stream = if (responseCode in 200..299) connection.inputStream else connection.errorStream
-        if (stream == null) return ""
-        return BufferedReader(InputStreamReader(stream, StandardCharsets.UTF_8)).use { reader ->
-            reader.readText()
         }
     }
 
@@ -625,6 +628,9 @@ object NapCatLoginService {
                 normalizedMessage.contains("token is invalid") ||
                 normalizedMessage.contains("invalid token") -> LoginFailureCategory.AUTH_TOKEN_EXPIRED
 
+            cause is AstrBotHttpException && cause.category == HttpFailureCategory.TIMEOUT -> LoginFailureCategory.NETWORK_FAILURE
+            cause is AstrBotHttpException && cause.category == HttpFailureCategory.NETWORK -> LoginFailureCategory.NETWORK_FAILURE
+
             cause is SocketTimeoutException ||
                 cause is ConnectException ||
                 cause is UnknownHostException ||
@@ -645,7 +651,30 @@ object NapCatLoginService {
     }
 
     private fun md5Hex(value: String): String {
+        // NapCat WebUI currently requires MD5 for QQ password submission.
         val digest = MessageDigest.getInstance("MD5").digest(value.toByteArray(StandardCharsets.UTF_8))
         return digest.joinToString(separator = "") { byte -> "%02x".format(byte) }
+    }
+
+    private fun maskSecret(value: String): String {
+        return if (value.isBlank()) {
+            "<empty>"
+        } else {
+            "<redacted:${value.length}>"
+        }
+    }
+
+    private fun sanitizeNapCatDetailForLogs(detail: String): String {
+        if (detail.isBlank()) return detail
+        return detail
+            .replace(Regex("""(configuredToken=)([^,\s]+)""")) { match ->
+                match.groupValues[1] + maskSecret(match.groupValues[2])
+            }
+            .replace(Regex("""(credential=)([^,\s]+)""")) { match ->
+                match.groupValues[1] + maskSecret(match.groupValues[2])
+            }
+            .replace(Regex("""(Authorization:\s*Bearer\s+)([^,\s]+)""", RegexOption.IGNORE_CASE)) { match ->
+                match.groupValues[1] + maskSecret(match.groupValues[2])
+            }
     }
 }

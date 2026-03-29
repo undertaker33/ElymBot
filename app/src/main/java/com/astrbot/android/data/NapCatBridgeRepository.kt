@@ -2,12 +2,18 @@ package com.astrbot.android.data
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.astrbot.android.data.db.AppPreferenceDao
+import com.astrbot.android.data.db.AppPreferenceEntity
+import com.astrbot.android.data.db.AstrBotDatabase
 import com.astrbot.android.model.NapCatBridgeConfig
 import com.astrbot.android.model.NapCatRuntimeState
+import com.astrbot.android.model.RuntimeStatus
 import com.astrbot.android.runtime.RuntimeLogRepository
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.runBlocking
 
 object NapCatBridgeRepository {
     private const val PREFS_NAME = "napcat_bridge_config"
@@ -19,8 +25,10 @@ object NapCatBridgeRepository {
     private const val KEY_STOP_COMMAND = "stop_command"
     private const val KEY_STATUS_COMMAND = "status_command"
     private const val KEY_COMMAND_PREVIEW = "command_preview"
+    private const val PREF_LEGACY_BRIDGE_CONFIG_MIGRATED = "legacy_bridge_config_migrated"
 
-    private var preferences: SharedPreferences? = null
+    private var appPreferenceDao: AppPreferenceDao = BridgeAppPreferenceDaoPlaceholder.instance
+    private var legacyPreferences: SharedPreferences? = null
     private val _config = MutableStateFlow(
         NapCatBridgeConfig(
             commandPreview = "Start NapCat runtime",
@@ -35,9 +43,13 @@ object NapCatBridgeRepository {
     val runtimeState: StateFlow<NapCatRuntimeState> = _runtimeState.asStateFlow()
 
     fun initialize(context: Context) {
-        if (preferences != null) return
-        preferences = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        _config.value = loadConfig(defaults = _config.value)
+        val database = AstrBotDatabase.get(context)
+        appPreferenceDao = database.appPreferenceDao()
+        legacyPreferences = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        runBlocking(Dispatchers.IO) {
+            seedStorageIfNeeded(defaults = _config.value)
+            _config.value = loadConfig(defaults = _config.value)
+        }
         RuntimeLogRepository.append(
             "Bridge config loaded: endpoint=${_config.value.endpoint} health=${_config.value.healthUrl} autoStart=${_config.value.autoStart}",
         )
@@ -52,7 +64,7 @@ object NapCatBridgeRepository {
     }
 
     fun applyRuntimeDefaults(defaults: NapCatBridgeConfig) {
-        val mergedConfig = loadConfig(defaults)
+        val mergedConfig = runBlocking(Dispatchers.IO) { loadConfig(defaults) }
         _config.value = mergedConfig
         RuntimeLogRepository.append(
             "Bridge runtime defaults applied: endpoint=${mergedConfig.endpoint} health=${mergedConfig.healthUrl} autoStart=${mergedConfig.autoStart}",
@@ -61,7 +73,7 @@ object NapCatBridgeRepository {
 
     fun markStarting() {
         _runtimeState.value = _runtimeState.value.copy(
-            status = "Starting",
+            statusType = RuntimeStatus.STARTING,
             lastAction = "Start requested",
             lastCheckAt = System.currentTimeMillis(),
             details = "Preparing container and network installer",
@@ -76,7 +88,7 @@ object NapCatBridgeRepository {
         details: String = "Local bridge is ready for QQ message transport",
     ) {
         _runtimeState.value = _runtimeState.value.copy(
-            status = "Running",
+            statusType = RuntimeStatus.RUNNING,
             lastAction = "Runtime active",
             lastCheckAt = System.currentTimeMillis(),
             pidHint = pidHint,
@@ -93,7 +105,7 @@ object NapCatBridgeRepository {
     ) {
         val current = _runtimeState.value
         _runtimeState.value = current.copy(
-            status = "Starting",
+            statusType = RuntimeStatus.STARTING,
             lastAction = "Process started",
             lastCheckAt = System.currentTimeMillis(),
             pidHint = pidHint,
@@ -105,7 +117,7 @@ object NapCatBridgeRepository {
 
     fun markStopped(reason: String = "Stopped manually") {
         _runtimeState.value = _runtimeState.value.copy(
-            status = "Stopped",
+            statusType = RuntimeStatus.STOPPED,
             lastAction = reason,
             lastCheckAt = System.currentTimeMillis(),
             pidHint = "",
@@ -118,10 +130,10 @@ object NapCatBridgeRepository {
 
     fun markChecking() {
         _runtimeState.value = _runtimeState.value.copy(
-            status = when (_runtimeState.value.status) {
-                "Running" -> "Running"
-                "Starting" -> "Starting"
-                else -> "Checking"
+            statusType = when (_runtimeState.value.statusType) {
+                RuntimeStatus.RUNNING -> RuntimeStatus.RUNNING
+                RuntimeStatus.STARTING -> RuntimeStatus.STARTING
+                else -> RuntimeStatus.CHECKING
             },
             lastAction = "Health check",
             lastCheckAt = System.currentTimeMillis(),
@@ -131,7 +143,7 @@ object NapCatBridgeRepository {
 
     fun markError(message: String) {
         _runtimeState.value = _runtimeState.value.copy(
-            status = "Error",
+            statusType = RuntimeStatus.ERROR,
             lastAction = "Bridge error",
             lastCheckAt = System.currentTimeMillis(),
             details = message,
@@ -161,31 +173,78 @@ object NapCatBridgeRepository {
         )
     }
 
-    private fun loadConfig(defaults: NapCatBridgeConfig): NapCatBridgeConfig {
-        val prefs = preferences ?: return defaults
+    internal fun resetRuntimeStateForTests() {
+        _runtimeState.value = NapCatRuntimeState()
+    }
+
+    private suspend fun loadConfig(defaults: NapCatBridgeConfig): NapCatBridgeConfig {
         return defaults.copy(
-            runtimeMode = prefs.getString(KEY_RUNTIME_MODE, defaults.runtimeMode) ?: defaults.runtimeMode,
-            endpoint = prefs.getString(KEY_ENDPOINT, defaults.endpoint) ?: defaults.endpoint,
-            healthUrl = prefs.getString(KEY_HEALTH_URL, defaults.healthUrl) ?: defaults.healthUrl,
-            autoStart = prefs.getBoolean(KEY_AUTO_START, defaults.autoStart),
-            startCommand = prefs.getString(KEY_START_COMMAND, defaults.startCommand) ?: defaults.startCommand,
-            stopCommand = prefs.getString(KEY_STOP_COMMAND, defaults.stopCommand) ?: defaults.stopCommand,
-            statusCommand = prefs.getString(KEY_STATUS_COMMAND, defaults.statusCommand) ?: defaults.statusCommand,
-            commandPreview = prefs.getString(KEY_COMMAND_PREVIEW, defaults.commandPreview) ?: defaults.commandPreview,
+            runtimeMode = appPreferenceDao.getValue(KEY_RUNTIME_MODE).orEmpty().ifBlank { defaults.runtimeMode },
+            endpoint = appPreferenceDao.getValue(KEY_ENDPOINT).orEmpty().ifBlank { defaults.endpoint },
+            healthUrl = appPreferenceDao.getValue(KEY_HEALTH_URL).orEmpty().ifBlank { defaults.healthUrl },
+            autoStart = appPreferenceDao.getValue(KEY_AUTO_START)?.toBooleanStrictOrNull() ?: defaults.autoStart,
+            startCommand = appPreferenceDao.getValue(KEY_START_COMMAND).orEmpty().ifBlank { defaults.startCommand },
+            stopCommand = appPreferenceDao.getValue(KEY_STOP_COMMAND).orEmpty().ifBlank { defaults.stopCommand },
+            statusCommand = appPreferenceDao.getValue(KEY_STATUS_COMMAND).orEmpty().ifBlank { defaults.statusCommand },
+            commandPreview = appPreferenceDao.getValue(KEY_COMMAND_PREVIEW).orEmpty().ifBlank { defaults.commandPreview },
         )
     }
 
     private fun persistConfig(config: NapCatBridgeConfig) {
-        preferences
-            ?.edit()
-            ?.putString(KEY_RUNTIME_MODE, config.runtimeMode)
-            ?.putString(KEY_ENDPOINT, config.endpoint)
-            ?.putString(KEY_HEALTH_URL, config.healthUrl)
-            ?.putBoolean(KEY_AUTO_START, config.autoStart)
-            ?.putString(KEY_START_COMMAND, config.startCommand)
-            ?.putString(KEY_STOP_COMMAND, config.stopCommand)
-            ?.putString(KEY_STATUS_COMMAND, config.statusCommand)
-            ?.putString(KEY_COMMAND_PREVIEW, config.commandPreview)
-            ?.apply()
+        runBlocking(Dispatchers.IO) {
+            persistPreference(KEY_RUNTIME_MODE, config.runtimeMode)
+            persistPreference(KEY_ENDPOINT, config.endpoint)
+            persistPreference(KEY_HEALTH_URL, config.healthUrl)
+            persistPreference(KEY_AUTO_START, config.autoStart.toString())
+            persistPreference(KEY_START_COMMAND, config.startCommand)
+            persistPreference(KEY_STOP_COMMAND, config.stopCommand)
+            persistPreference(KEY_STATUS_COMMAND, config.statusCommand)
+            persistPreference(KEY_COMMAND_PREVIEW, config.commandPreview)
+        }
+    }
+
+    private suspend fun seedStorageIfNeeded(defaults: NapCatBridgeConfig) {
+        if (appPreferenceDao.getValue(PREF_LEGACY_BRIDGE_CONFIG_MIGRATED) != "true") {
+            val imported = parseLegacyNapCatBridgeConfig(
+                defaults = defaults,
+                values = mapOf(
+                    KEY_RUNTIME_MODE to legacyPreferences?.getString(KEY_RUNTIME_MODE, null),
+                    KEY_ENDPOINT to legacyPreferences?.getString(KEY_ENDPOINT, null),
+                    KEY_HEALTH_URL to legacyPreferences?.getString(KEY_HEALTH_URL, null),
+                    KEY_AUTO_START to legacyPreferences?.getBoolean(KEY_AUTO_START, defaults.autoStart),
+                    KEY_START_COMMAND to legacyPreferences?.getString(KEY_START_COMMAND, null),
+                    KEY_STOP_COMMAND to legacyPreferences?.getString(KEY_STOP_COMMAND, null),
+                    KEY_STATUS_COMMAND to legacyPreferences?.getString(KEY_STATUS_COMMAND, null),
+                    KEY_COMMAND_PREVIEW to legacyPreferences?.getString(KEY_COMMAND_PREVIEW, null),
+                ),
+            )
+            persistPreference(KEY_RUNTIME_MODE, imported.runtimeMode)
+            persistPreference(KEY_ENDPOINT, imported.endpoint)
+            persistPreference(KEY_HEALTH_URL, imported.healthUrl)
+            persistPreference(KEY_AUTO_START, imported.autoStart.toString())
+            persistPreference(KEY_START_COMMAND, imported.startCommand)
+            persistPreference(KEY_STOP_COMMAND, imported.stopCommand)
+            persistPreference(KEY_STATUS_COMMAND, imported.statusCommand)
+            persistPreference(KEY_COMMAND_PREVIEW, imported.commandPreview)
+            persistPreference(PREF_LEGACY_BRIDGE_CONFIG_MIGRATED, "true")
+        }
+    }
+
+    private suspend fun persistPreference(key: String, value: String) {
+        appPreferenceDao.upsert(
+            AppPreferenceEntity(
+                key = key,
+                value = value,
+                updatedAt = System.currentTimeMillis(),
+            ),
+        )
+    }
+}
+
+private object BridgeAppPreferenceDaoPlaceholder {
+    val instance = object : AppPreferenceDao {
+        override fun observeValue(key: String) = kotlinx.coroutines.flow.flowOf<String?>(null)
+        override suspend fun getValue(key: String): String? = null
+        override suspend fun upsert(entity: AppPreferenceEntity) = Unit
     }
 }

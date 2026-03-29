@@ -1,42 +1,46 @@
 package com.astrbot.android.ui.viewmodel
 
 import android.app.Application
-import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.astrbot.android.data.RuntimeAssetRepository
+import com.astrbot.android.di.DefaultRuntimeAssetViewModelDependencies
+import com.astrbot.android.di.RuntimeAssetViewModelDependencies
 import com.astrbot.android.model.RuntimeAssetState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 
-class RuntimeAssetViewModel(application: Application) : AndroidViewModel(application) {
-    val state: StateFlow<RuntimeAssetState> = RuntimeAssetRepository.state
+class RuntimeAssetViewModel(
+    application: Application,
+    private val dependencies: RuntimeAssetViewModelDependencies = DefaultRuntimeAssetViewModelDependencies(application),
+) : ViewModel() {
+    val state: StateFlow<RuntimeAssetState> = dependencies.state
 
     fun refresh() {
-        RuntimeAssetRepository.refresh(getApplication())
+        dependencies.refresh()
     }
 
     fun downloadAsset(assetId: String) {
         viewModelScope.launch(Dispatchers.IO) {
-            RuntimeAssetRepository.downloadAsset(getApplication(), assetId)
+            dependencies.downloadAsset(assetId)
         }
     }
 
     fun clearAsset(assetId: String) {
         viewModelScope.launch(Dispatchers.IO) {
-            RuntimeAssetRepository.clearAsset(getApplication(), assetId)
+            dependencies.clearAsset(assetId)
         }
     }
 
     fun downloadOnDeviceTtsModel(modelId: String) {
         viewModelScope.launch(Dispatchers.IO) {
-            RuntimeAssetRepository.downloadOnDeviceTtsModel(getApplication(), modelId)
+            dependencies.downloadOnDeviceTtsModel(modelId)
         }
     }
 
     fun clearOnDeviceTtsModel(modelId: String) {
         viewModelScope.launch(Dispatchers.IO) {
-            RuntimeAssetRepository.clearOnDeviceTtsModel(getApplication(), modelId)
+            dependencies.clearOnDeviceTtsModel(modelId)
         }
     }
 }

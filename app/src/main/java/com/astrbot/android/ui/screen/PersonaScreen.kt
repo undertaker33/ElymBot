@@ -49,7 +49,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.viewmodel.compose.viewModel
+import com.astrbot.android.di.astrBotViewModel
 import com.astrbot.android.R
 import com.astrbot.android.model.PersonaProfile
 import com.astrbot.android.ui.FloatingBottomNavFabBottomPadding
@@ -61,7 +61,7 @@ import java.util.UUID
 
 @Composable
 fun PersonaScreen(
-    personaViewModel: PersonaViewModel = viewModel(),
+    personaViewModel: PersonaViewModel = astrBotViewModel(),
 ) {
     val personas by personaViewModel.personas.collectAsState()
     val context = LocalContext.current

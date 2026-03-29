@@ -1,16 +1,19 @@
 package com.astrbot.android.ui.viewmodel
 
 import androidx.lifecycle.ViewModel
-import com.astrbot.android.data.NapCatBridgeRepository
+import com.astrbot.android.di.BridgeViewModelDependencies
+import com.astrbot.android.di.DefaultBridgeViewModelDependencies
 import com.astrbot.android.model.NapCatBridgeConfig
 import com.astrbot.android.model.NapCatRuntimeState
 import kotlinx.coroutines.flow.StateFlow
 
-class BridgeViewModel : ViewModel() {
-    val config: StateFlow<NapCatBridgeConfig> = NapCatBridgeRepository.config
-    val runtimeState: StateFlow<NapCatRuntimeState> = NapCatBridgeRepository.runtimeState
+class BridgeViewModel(
+    private val dependencies: BridgeViewModelDependencies = DefaultBridgeViewModelDependencies,
+) : ViewModel() {
+    val config: StateFlow<NapCatBridgeConfig> = dependencies.config
+    val runtimeState: StateFlow<NapCatRuntimeState> = dependencies.runtimeState
 
     fun saveConfig(config: NapCatBridgeConfig) {
-        NapCatBridgeRepository.updateConfig(config)
+        dependencies.saveConfig(config)
     }
 }

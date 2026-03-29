@@ -1,9 +1,9 @@
 package com.astrbot.android.data
 
 import android.content.Context
-import android.content.SharedPreferences
 import com.astrbot.android.model.NapCatLoginState
 import com.astrbot.android.model.SavedQqAccount
+import com.astrbot.android.model.RuntimeStatus
 import com.astrbot.android.runtime.BridgeCommandRunner
 import com.astrbot.android.runtime.ContainerRuntimeInstaller
 import com.astrbot.android.runtime.ContainerBridgeController
@@ -13,15 +13,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.delay
-import org.json.JSONArray
 
 object NapCatLoginRepository {
-    private const val PREFS_NAME = "napcat_login_state"
-    private const val KEY_LAST_QUICK_LOGIN_UIN = "last_quick_login_uin"
-    private const val KEY_SAVED_ACCOUNTS = "saved_accounts"
     private const val RUNTIME_DIAGNOSTIC_THROTTLE_MS = 20_000L
 
-    private var preferences: SharedPreferences? = null
     private var appContext: Context? = null
     private var lastRuntimeDiagnosticAt: Long = 0L
     private val _loginState = MutableStateFlow(NapCatLoginState())
@@ -31,12 +26,11 @@ object NapCatLoginRepository {
         filesDir: File,
         trigger: String,
         detail: String,
-    ): List<String> = buildRuntimeDiagnosticsLines(filesDir, trigger, detail)
+    ): List<String> = NapCatLoginDiagnostics.buildRuntimeDiagnosticsLines(filesDir, trigger, detail)
 
     fun initialize(context: Context) {
-        if (preferences != null) return
         appContext = context.applicationContext
-        preferences = appContext?.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        NapCatLoginLocalStore.initialize(appContext ?: context.applicationContext)
         val savedQuickLoginUin = loadSavedQuickLoginUin()
         val savedAccounts = loadSavedAccounts()
         if (savedQuickLoginUin.isNotBlank()) {
@@ -530,7 +524,7 @@ object NapCatLoginRepository {
             return
         }
         lastRuntimeDiagnosticAt = now
-        buildRuntimeDiagnosticsLines(context.filesDir, trigger, normalizedDetail)
+        NapCatLoginDiagnostics.buildRuntimeDiagnosticsLines(context.filesDir, trigger, normalizedDetail)
             .forEach(RuntimeLogRepository::append)
     }
 
@@ -542,163 +536,40 @@ object NapCatLoginRepository {
             normalized.contains("webui login failed")
     }
 
-    private fun buildRuntimeDiagnosticsLines(
-        filesDir: File,
-        trigger: String,
-        detail: String,
-    ): List<String> {
-        val runtimeDir = File(filesDir, "runtime")
-        val configDir = File(runtimeDir, "rootfs/ubuntu/root/napcat/config")
-        val webuiFile = File(configDir, "webui.json")
-        val onebotFile = File(configDir, "onebot11.json")
-        val napcatLogFile = File(runtimeDir, "logs/napcat.log")
-
-        val diagnostics = mutableListOf<String>()
-        diagnostics += "QQ login runtime diag: trigger=$trigger detail=$detail runtimeDir=${runtimeDir.absolutePath}"
-        diagnostics += "QQ login runtime diag: webui.json exists=${webuiFile.exists()} snapshot=${webuiFile.readCompactSnapshot()}"
-        diagnostics += "QQ login runtime diag: onebot11.json exists=${onebotFile.exists()} snapshot=${onebotFile.readCompactSnapshot()}"
-        diagnostics += "QQ login runtime diag: napcat.log exists=${napcatLogFile.exists()} tail=${napcatLogFile.readTailSnapshot()}"
-        return diagnostics
-    }
-
-    private fun File.readCompactSnapshot(maxChars: Int = 500): String {
-        if (!exists() || !isFile) {
-            return "<missing>"
-        }
-        return runCatching {
-            readText()
-                .replace(Regex("\\s+"), " ")
-                .trim()
-                .take(maxChars)
-        }.getOrElse { "<unreadable:${it.message ?: it.javaClass.simpleName}>" }
-    }
-
-    private fun File.readTailSnapshot(maxLines: Int = 8, maxChars: Int = 500): String {
-        if (!exists() || !isFile) {
-            return "<missing>"
-        }
-        return runCatching {
-            readLines()
-                .takeLast(maxLines)
-                .joinToString(" | ") { line -> line.trim() }
-                .replace(Regex("\\s+"), " ")
-                .trim()
-                .take(maxChars)
-        }.getOrElse { "<unreadable:${it.message ?: it.javaClass.simpleName}>" }
-    }
-
     private fun saveQuickLoginUinLocally(uin: String) {
-        val cleanedUin = uin.trim()
-        if (cleanedUin.isBlank()) return
-        preferences
-            ?.edit()
-            ?.putString(KEY_LAST_QUICK_LOGIN_UIN, cleanedUin)
-            ?.apply()
+        NapCatLoginLocalStore.saveQuickLoginUin(uin)
     }
 
     private fun loadSavedQuickLoginUin(): String {
-        return preferences
-            ?.getString(KEY_LAST_QUICK_LOGIN_UIN, "")
-            .orEmpty()
-            .trim()
+        return NapCatLoginLocalStore.loadSavedQuickLoginUin()
     }
 
     private fun loadSavedAccounts(): List<SavedQqAccount> {
-        val raw = preferences?.getString(KEY_SAVED_ACCOUNTS, "").orEmpty()
-        if (raw.isBlank()) return emptyList()
-        return runCatching {
-            val array = JSONArray(raw)
-            buildList {
-                for (index in 0 until array.length()) {
-                    val item = array.optJSONObject(index) ?: continue
-                    val uin = item.optString("uin").trim()
-                    if (uin.isBlank()) continue
-                    add(
-                        SavedQqAccount(
-                            uin = uin,
-                            nickName = item.optString("nickName").trim(),
-                            avatarUrl = item.optString("avatarUrl").trim(),
-                        ),
-                    )
-                }
-            }
-        }.getOrDefault(emptyList())
+        return NapCatLoginLocalStore.loadSavedAccounts()
     }
 
     private fun persistSavedAccounts(accounts: List<SavedQqAccount>) {
-        val normalized = accounts
-            .mapNotNull { account ->
-                val uin = account.uin.trim()
-                if (uin.isBlank()) {
-                    null
-                } else {
-                    SavedQqAccount(
-                        uin = uin,
-                        nickName = account.nickName.trim(),
-                        avatarUrl = account.avatarUrl.trim(),
-                    )
-                }
-            }
-            .distinctBy { it.uin }
-        val array = JSONArray()
-        normalized.forEach { account ->
-            array.put(
-                org.json.JSONObject().apply {
-                    put("uin", account.uin)
-                    put("nickName", account.nickName)
-                    put("avatarUrl", account.avatarUrl)
-                },
-            )
-        }
-        preferences?.edit()?.putString(KEY_SAVED_ACCOUNTS, array.toString())?.apply()
+        NapCatLoginLocalStore.persistSavedAccounts(accounts)
     }
 
     private fun mergeSavedAccounts(
         localAccounts: List<SavedQqAccount>,
         remoteAccounts: List<SavedQqAccount>,
     ): List<SavedQqAccount> {
-        val merged = localAccounts.toMutableList()
-        remoteAccounts.forEach { mergedAccount ->
-            val existingIndex = merged.indexOfFirst { it.uin == mergedAccount.uin }
-            if (existingIndex >= 0) {
-                val existing = merged[existingIndex]
-                merged[existingIndex] = existing.copy(
-                    nickName = mergedAccount.nickName.ifBlank { existing.nickName },
-                    avatarUrl = mergedAccount.avatarUrl.ifBlank { existing.avatarUrl },
-                )
-            } else {
-                merged += mergedAccount
-            }
-        }
-        return merged.distinctBy { it.uin }
+        return NapCatLoginLocalStore.mergeSavedAccounts(localAccounts, remoteAccounts)
     }
 
     private fun upsertSavedAccount(
         accounts: List<SavedQqAccount>,
         account: SavedQqAccount,
     ): List<SavedQqAccount> {
-        val cleanedUin = account.uin.trim()
-        if (cleanedUin.isBlank()) return accounts
-        val updated = mutableListOf(
-            SavedQqAccount(
-                uin = cleanedUin,
-                nickName = account.nickName.trim(),
-                avatarUrl = account.avatarUrl.trim(),
-            ),
-        )
-        accounts.forEach { existing ->
-            if (existing.uin != cleanedUin) {
-                updated += existing
-            }
-        }
-        persistSavedAccounts(updated)
-        return updated
+        return NapCatLoginLocalStore.upsertSavedAccount(accounts, account)
     }
 
     private fun requireBridgeHealthUrl(): String? {
         val bridgeState = NapCatBridgeRepository.runtimeState.value
         val healthUrl = NapCatBridgeRepository.config.value.healthUrl
-        if (bridgeState.status != "Running") {
+        if (bridgeState.statusType != RuntimeStatus.RUNNING) {
             val reason = if (bridgeState.details.isBlank()) "Waiting for NapCat bridge" else bridgeState.details
             markBridgeUnavailable(reason)
             return null

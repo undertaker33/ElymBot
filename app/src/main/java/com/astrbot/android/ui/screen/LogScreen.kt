@@ -27,7 +27,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.viewmodel.compose.viewModel
+import com.astrbot.android.di.astrBotViewModel
 import com.astrbot.android.runtime.RuntimeLogRepository
 import com.astrbot.android.ui.MonochromeUi
 import com.astrbot.android.ui.viewmodel.ChatViewModel
@@ -35,8 +35,8 @@ import com.astrbot.android.ui.viewmodel.ConversationViewModel
 
 @Composable
 fun LogScreen(
-    conversationViewModel: ConversationViewModel = viewModel(),
-    chatViewModel: ChatViewModel = viewModel(),
+    conversationViewModel: ConversationViewModel = astrBotViewModel(),
+    chatViewModel: ChatViewModel = astrBotViewModel(),
     showContext: Boolean,
 ) {
     val logs by RuntimeLogRepository.logs.collectAsState()

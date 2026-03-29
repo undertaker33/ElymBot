@@ -1,27 +1,30 @@
 package com.astrbot.android.ui.viewmodel
 
 import androidx.lifecycle.ViewModel
-import com.astrbot.android.data.ConversationRepository
+import com.astrbot.android.di.ConversationViewModelDependencies
+import com.astrbot.android.di.DefaultConversationViewModelDependencies
 import com.astrbot.android.model.chat.ConversationMessage
 import com.astrbot.android.model.chat.ConversationSession
 import kotlinx.coroutines.flow.StateFlow
 
-class ConversationViewModel : ViewModel() {
-    val sessions: StateFlow<List<ConversationSession>> = ConversationRepository.sessions
+class ConversationViewModel(
+    private val dependencies: ConversationViewModelDependencies = DefaultConversationViewModelDependencies,
+) : ViewModel() {
+    val sessions: StateFlow<List<ConversationSession>> = dependencies.sessions
 
     fun contextPreview(sessionId: String): String {
-        return ConversationRepository.buildContextPreview(sessionId)
+        return dependencies.contextPreview(sessionId)
     }
 
-    fun session(sessionId: String = ConversationRepository.DEFAULT_SESSION_ID): ConversationSession {
-        return ConversationRepository.session(sessionId)
+    fun session(sessionId: String = dependencies.defaultSessionId): ConversationSession {
+        return dependencies.session(sessionId)
     }
 
     fun appendMessage(sessionId: String, role: String, content: String) {
-        ConversationRepository.appendMessage(sessionId, role, content)
+        dependencies.appendMessage(sessionId, role, content)
     }
 
     fun replaceMessages(sessionId: String, messages: List<ConversationMessage>) {
-        ConversationRepository.replaceMessages(sessionId, messages)
+        dependencies.replaceMessages(sessionId, messages)
     }
 }

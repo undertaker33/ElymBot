@@ -425,6 +425,7 @@ nohup "$PROOT_BIN" \
     LANG=en_US.UTF-8 \
     TZ="$ANDROID_TZ" \
     PATH=/system/bin:/system/xbin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+    ASTRBOT_APP_HOME="$APP_HOME" \
     PROGRESS_FILE="$PROGRESS_FILE" \
     PROGRESS_LABEL_FILE="$PROGRESS_LABEL_FILE" \
     PROGRESS_MODE_FILE="$PROGRESS_MODE_FILE" \

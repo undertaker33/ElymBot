@@ -157,7 +157,7 @@ object OneBotBridgeServer {
             return
         }
 
-        val event = parseMessageEvent(json) ?: return
+        val event = OneBotPayloadCodec.parseIncomingMessageEvent(json) ?: return
         val bot = resolveReplyBot(event) ?: return
         if (!bot.autoReplyEnabled) return
         val config = ConfigRepository.resolve(bot.configProfileId)
@@ -602,7 +602,12 @@ object OneBotBridgeServer {
             quoteSenderMessageEnabled = config?.quoteSenderMessageEnabled == true,
             mentionSenderEnabled = config?.mentionSenderEnabled == true,
         )
-        val messagePayload: Any = buildReplyPayload(text, attachments, decoration)
+        val messagePayload: Any = OneBotPayloadCodec.buildReplyPayload(
+            text = text,
+            attachments = attachments,
+            decoration = decoration,
+            mapAudioAttachment = ::materializeAudioAttachmentForOneBot,
+        )
         val params = JSONObject().apply {
             put("message", messagePayload)
             put("auto_escape", false)
@@ -628,77 +633,6 @@ object OneBotBridgeServer {
                 "QQ reply send failed: ${error.message ?: error.javaClass.simpleName}",
             )
         }
-    }
-
-    private fun buildReplyPayload(
-        text: String,
-        attachments: List<ConversationAttachment>,
-        decoration: com.astrbot.android.runtime.qq.QqReplyDecoration,
-    ): Any {
-        val finalText = decoration.textPrefix + text
-        if (
-            attachments.isEmpty() &&
-            decoration.quoteMessageId == null &&
-            decoration.mentionUserId == null
-        ) {
-            return finalText
-        }
-        val payload = JSONArray().apply {
-            decoration.quoteMessageId?.let { messageId ->
-                put(
-                    JSONObject().put("type", "reply").put(
-                        "data",
-                        JSONObject().put("id", messageId),
-                    ),
-                )
-            }
-            decoration.mentionUserId?.let { userId ->
-                put(
-                    JSONObject().put("type", "at").put(
-                        "data",
-                        JSONObject().put("qq", userId),
-                    ),
-                )
-            }
-            if (finalText.isNotBlank()) {
-                put(
-                    JSONObject().put("type", "text").put(
-                        "data",
-                        JSONObject().put("text", finalText),
-                    ),
-                )
-            }
-            attachments.forEach { attachment ->
-                when (attachment.type) {
-                    "audio" -> {
-            val fileValue = materializeAudioAttachmentForOneBot(attachment)
-                            ?: attachment.remoteUrl
-                        if (fileValue.isNotBlank()) {
-                            put(
-                                JSONObject().put("type", "record").put(
-                                    "data",
-                                    JSONObject().put("file", fileValue),
-                                ),
-                            )
-                        }
-                    }
-
-                    "image" -> {
-                        val fileValue = attachment.base64Data.takeIf { it.isNotBlank() }?.let { "base64://$it" }
-                            ?: attachment.remoteUrl
-                        if (fileValue.isNotBlank()) {
-                            put(
-                                JSONObject().put("type", "image").put(
-                                    "data",
-                                    JSONObject().put("file", fileValue),
-                                ),
-                            )
-                        }
-                    }
-                }
-            }
-        }
-        return if (payload.length() > 0) payload else finalText
     }
 
     private fun materializeAudioAttachmentForOneBot(attachment: ConversationAttachment): String? {
@@ -990,126 +924,12 @@ object OneBotBridgeServer {
         }
     }
 
-    private fun parseMessageEvent(json: JSONObject): IncomingMessageEvent? {
-        val messageType = when (json.optString("message_type")) {
-            "private" -> MessageType.FriendMessage
-            "group" -> MessageType.GroupMessage
-            else -> null
-        } ?: return null
-
-        val selfId = jsonValueAsString(json, "self_id")
-        val userId = jsonValueAsString(json, "user_id")
-        if (userId.isBlank()) return null
-
-        val parsedMessage = parseMessage(
-            rawMessage = json.opt("message"),
-            fallbackText = json.optString("raw_message"),
-            selfId = selfId,
-        )
-        val sender = json.optJSONObject("sender")
-        val senderName = sender
-            ?.optString("card")
-            .orEmpty()
-            .ifBlank { sender?.optString("nickname").orEmpty() }
-
-        return IncomingMessageEvent(
-            selfId = selfId,
-            userId = userId,
-            groupId = jsonValueAsString(json, "group_id"),
-            messageId = jsonValueAsString(json, "message_id"),
-            messageType = messageType,
-            text = parsedMessage.text,
-            promptContent = when (messageType) {
-                MessageType.GroupMessage -> "${senderName.ifBlank { userId }}: ${parsedMessage.text}"
-                else -> parsedMessage.text
-            },
-            mentionsSelf = parsedMessage.mentionsSelf,
-            mentionsAll = parsedMessage.mentionsAll,
-            attachments = parsedMessage.attachments,
-            senderName = senderName,
-        )
-    }
-
-    private fun parseMessage(
-        rawMessage: Any?,
-        fallbackText: String,
-        selfId: String,
-    ): ParsedMessage {
-        if (rawMessage is JSONArray) {
-            val builder = StringBuilder()
-            var mentionsSelf = false
-            var mentionsAll = false
-            val attachments = mutableListOf<ConversationAttachment>()
-            for (index in 0 until rawMessage.length()) {
-                val segment = rawMessage.optJSONObject(index) ?: continue
-                when (segment.optString("type")) {
-                    "text" -> builder.append(segment.optJSONObject("data")?.optString("text").orEmpty())
-                    "at" -> {
-                        val qq = segment.optJSONObject("data")?.optString("qq").orEmpty()
-                        if (qq.isNotBlank() && qq == selfId) {
-                            mentionsSelf = true
-                        }
-                        if (qq.equals("all", ignoreCase = true)) {
-                            mentionsAll = true
-                        }
-                    }
-                    "image" -> {
-                        val data = segment.optJSONObject("data")
-                        attachments += ConversationAttachment(
-                            id = "${System.currentTimeMillis()}-$index",
-                            type = "image",
-                            mimeType = "image/jpeg",
-                            fileName = data?.optString("file").orEmpty(),
-                            remoteUrl = data?.optString("url").orEmpty(),
-                        )
-                    }
-                    "record" -> {
-                        val data = segment.optJSONObject("data")
-                        attachments += ConversationAttachment(
-                            id = "${System.currentTimeMillis()}-$index",
-                            type = "audio",
-                            mimeType = "audio/mpeg",
-                            fileName = data?.optString("file").orEmpty(),
-                            remoteUrl = data?.optString("url").orEmpty(),
-                        )
-                    }
-                }
-            }
-            return ParsedMessage(
-                text = builder.toString().trim(),
-                mentionsSelf = mentionsSelf,
-                mentionsAll = mentionsAll,
-                attachments = attachments,
-            )
-        }
-
-        if (rawMessage is String) {
-            return ParsedMessage(
-                text = rawMessage.trim(),
-                mentionsSelf = false,
-                mentionsAll = false,
-                attachments = emptyList(),
-            )
-        }
-
-        return ParsedMessage(
-            text = fallbackText.trim(),
-            mentionsSelf = false,
-            mentionsAll = false,
-            attachments = emptyList(),
-        )
-    }
-
     private fun isBotCommand(text: String): Boolean {
         val normalized = text.trim().lowercase()
         return normalized == "/reset" ||
             normalized == "/stt" ||
             normalized == "/tts" ||
             normalized.startsWith("/persona")
-    }
-
-    private fun jsonValueAsString(json: JSONObject, key: String): String {
-        return json.opt(key)?.toString().orEmpty()
     }
 
     private fun markMessageId(messageId: String): Boolean {
@@ -1159,29 +979,5 @@ object OneBotBridgeServer {
                 close(code, reason, false)
             }
         }
-    }
-
-    private data class ParsedMessage(
-        val text: String,
-        val mentionsSelf: Boolean,
-        val mentionsAll: Boolean,
-        val attachments: List<ConversationAttachment>,
-    )
-
-    private data class IncomingMessageEvent(
-        val selfId: String,
-        val userId: String,
-        val groupId: String,
-        val messageId: String,
-        val messageType: MessageType,
-        val text: String,
-        val promptContent: String,
-        val mentionsSelf: Boolean,
-        val mentionsAll: Boolean,
-        val attachments: List<ConversationAttachment>,
-        val senderName: String,
-    ) {
-        val targetId: String
-            get() = if (messageType == MessageType.GroupMessage) groupId else userId
     }
 }

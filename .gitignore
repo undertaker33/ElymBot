@@ -3,6 +3,7 @@
 build/
 app/build/
 local.properties
+keystore.properties
 *.iml
 .cxx/
 .externalNativeBuild/

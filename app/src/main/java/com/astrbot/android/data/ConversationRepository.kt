@@ -1,7 +1,11 @@
-package com.astrbot.android.data
+﻿package com.astrbot.android.data
 
 import android.content.Context
 import com.astrbot.android.data.chat.applySystemSessionTitle
+import com.astrbot.android.data.chat.ConversationDaoPlaceholder
+import com.astrbot.android.data.chat.loadLegacyConversationSessions
+import com.astrbot.android.data.chat.mergeImportedConversationSessions
+import com.astrbot.android.data.chat.sortConversationSessions
 import com.astrbot.android.data.chat.toConversationEntity
 import com.astrbot.android.data.chat.toConversationSession
 import com.astrbot.android.data.db.AstrBotDatabase
@@ -20,12 +24,10 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import org.json.JSONArray
 import java.io.File
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
@@ -54,7 +56,7 @@ object ConversationRepository {
     private val persistenceMutex = Mutex()
 
     private var legacyStorageFile: File? = null
-    private var conversationDao: ConversationDao = ConversationDatabaseHolder.placeholder
+    private var conversationDao: ConversationDao = ConversationDaoPlaceholder.instance
 
     private val _sessions = MutableStateFlow(defaultSessions())
     val sessions: StateFlow<List<ConversationSession>> = _sessions.asStateFlow()
@@ -124,7 +126,7 @@ object ConversationRepository {
             titleCustomized = false,
             messages = emptyList(),
         )
-        _sessions.update { current -> sortSessions(listOf(created) + current) }
+        _sessions.update { current -> sortConversationSessions(listOf(created) + current) }
         persistSessions()
         RuntimeLogRepository.append("Conversation created: session=${created.id} bot=${created.botId}")
         return created
@@ -135,7 +137,7 @@ object ConversationRepository {
         _sessions.update { current ->
             val filtered = current.filterNot { it.id == sessionId }
             shouldPersist = filtered.size != current.size || current.size == 1
-            sortSessions(if (filtered.isEmpty()) defaultSessions() else filtered)
+            sortConversationSessions(if (filtered.isEmpty()) defaultSessions() else filtered)
         }
         if (shouldPersist) {
             persistSessions()
@@ -148,7 +150,7 @@ object ConversationRepository {
         _sessions.update { current ->
             val filtered = current.filterNot { it.botId == botId }
             shouldPersist = filtered.size != current.size
-            sortSessions(if (filtered.isEmpty()) defaultSessions() else filtered)
+            sortConversationSessions(if (filtered.isEmpty()) defaultSessions() else filtered)
         }
         if (shouldPersist) {
             persistSessions()
@@ -199,7 +201,7 @@ object ConversationRepository {
     fun toggleSessionPinned(sessionId: String) {
         var pinned: Boolean? = null
         _sessions.update { current ->
-            sortSessions(
+            sortConversationSessions(
                 current.map { item ->
                     if (item.id == sessionId) {
                         val next = !item.pinned
@@ -243,7 +245,7 @@ object ConversationRepository {
                 if (item.id == currentSession.id) item.copy(messages = item.messages + message) else item
             }
         }.also {
-            _sessions.value = sortSessions(_sessions.value)
+            _sessions.value = sortConversationSessions(_sessions.value)
         }
         persistSessions()
         RuntimeLogRepository.append(
@@ -300,7 +302,7 @@ object ConversationRepository {
                 if (item.id == currentSession.id) item.copy(messages = messages) else item
             }
         }.also {
-            _sessions.value = sortSessions(_sessions.value)
+            _sessions.value = sortConversationSessions(_sessions.value)
         }
         persistSessions()
         RuntimeLogRepository.append("Conversation replaced: session=$sessionId messages=${messages.size}")
@@ -386,7 +388,7 @@ object ConversationRepository {
             }
             .distinctBy { it.id }
             .ifEmpty { defaultSessions() }
-            .let(::sortSessions)
+            .let(::sortConversationSessions)
 
         _sessions.value = normalized
         if (initializationLoaded.get()) {
@@ -444,7 +446,7 @@ object ConversationRepository {
         val merged = currentByKey.values
             .toList()
             .ifEmpty { defaultSessions() }
-            .let(::sortSessions)
+            .let(::sortConversationSessions)
 
         _sessions.value = merged
         if (initializationLoaded.get()) {
@@ -474,7 +476,7 @@ object ConversationRepository {
             titleCustomized = false,
             messages = emptyList(),
         )
-        _sessions.update { current -> sortSessions(listOf(created) + current) }
+        _sessions.update { current -> sortConversationSessions(listOf(created) + current) }
         persistSessions()
         RuntimeLogRepository.append("Conversation created: session=$sessionId")
         return created
@@ -508,36 +510,30 @@ object ConversationRepository {
     private suspend fun importLegacySessionsIfNeeded(): Boolean {
         val file = legacyStorageFile ?: return false
         if (!file.exists()) return false
-        val legacySessions = loadLegacySessions(file)
+        val legacySessions = loadLegacyConversationSessions(
+            file = file,
+            defaultTitle = DEFAULT_SESSION_TITLE,
+            onFailure = { error ->
+                RuntimeLogRepository.append(
+                    "Conversation legacy migration failed: ${error.message ?: error.javaClass.simpleName}",
+                )
+            },
+        )
         if (legacySessions.isEmpty()) return false
         val existingSessions = conversationDao.listConversations().mapNotNull { entity ->
             runCatching { entity.toConversationSession() }.getOrNull()
         }
-        val mergedSessions = mergeSessions(existingSessions, legacySessions)
+        val mergedSessions = mergeImportedConversationSessions(
+            defaultSessionId = DEFAULT_SESSION_ID,
+            existingSessions = existingSessions,
+            legacySessions = legacySessions,
+            defaultSessionsProvider = ::defaultSessions,
+        )
         conversationDao.upsertAll(mergedSessions.map { it.toConversationEntity() })
         RuntimeLogRepository.append(
             "Conversation legacy JSON imported into database: legacy=${legacySessions.size} merged=${mergedSessions.size}",
         )
         return true
-    }
-
-    private fun loadLegacySessions(file: File): List<ConversationSession> {
-        return runCatching {
-            val array = JSONArray(file.readText(Charsets.UTF_8))
-            buildList {
-                for (index in 0 until array.length()) {
-                    add(
-                        array.optJSONObject(index)?.toConversationSession(
-                            defaultTitle = DEFAULT_SESSION_TITLE,
-                        ) ?: continue,
-                    )
-                }
-            }
-        }.onFailure { error ->
-            RuntimeLogRepository.append(
-                "Conversation legacy migration failed: ${error.message ?: error.javaClass.simpleName}",
-            )
-        }.getOrDefault(emptyList())
     }
 
     private fun defaultSessions(): List<ConversationSession> {
@@ -564,56 +560,6 @@ object ConversationRepository {
             ),
         )
     }
-
-    private fun mergeDefaultSession(loadedSessions: List<ConversationSession>): List<ConversationSession> {
-        val withoutDefault = loadedSessions.filterNot { it.id == DEFAULT_SESSION_ID }
-        return defaultSessions() + withoutDefault
-    }
-
-    private fun mergeSessions(
-        existingSessions: List<ConversationSession>,
-        legacySessions: List<ConversationSession>,
-    ): List<ConversationSession> {
-        val merged = LinkedHashMap<String, ConversationSession>()
-        mergeDefaultSession(existingSessions).forEach { session ->
-            merged[session.id] = session
-        }
-        legacySessions.forEach { session ->
-            val current = merged[session.id]
-            merged[session.id] = when {
-                current == null -> session
-                session.messages.size > current.messages.size -> session
-                session.messages.size == current.messages.size &&
-                    session.messages.maxOfOrNull { it.timestamp } ?: 0L >
-                    current.messages.maxOfOrNull { it.timestamp } ?: 0L -> session
-                else -> current
-            }
-        }
-        return mergeDefaultSession(
-            merged.values
-                .filterNot { it.id == DEFAULT_SESSION_ID }
-                .let(::sortSessions),
-        )
-    }
 }
 
-private fun sortSessions(sessions: List<ConversationSession>): List<ConversationSession> {
-    return sessions.sortedWith(
-        compareByDescending<ConversationSession> { it.pinned }
-            .thenByDescending { it.messages.maxOfOrNull { message -> message.timestamp } ?: 0L },
-    )
-}
-
-private object ConversationDatabaseHolder {
-    val placeholder = object : ConversationDao {
-        override fun observeConversations() = flowOf(emptyList<ConversationEntity>())
-        override suspend fun listConversations(): List<ConversationEntity> = emptyList()
-        override suspend fun upsert(entity: ConversationEntity) = Unit
-        override suspend fun upsertAll(entities: List<ConversationEntity>) = Unit
-        override suspend fun deleteById(sessionId: String) = Unit
-        override suspend fun clearAll() = Unit
-        override suspend fun deleteMissing(ids: List<String>) = Unit
-        override suspend fun count(): Int = 0
-    }
-}
 

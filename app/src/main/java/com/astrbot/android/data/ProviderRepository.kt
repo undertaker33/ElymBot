@@ -1,42 +1,60 @@
-﻿package com.astrbot.android.data
+package com.astrbot.android.data
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.astrbot.android.data.db.AstrBotDatabase
+import com.astrbot.android.data.db.ProviderDao
+import com.astrbot.android.data.db.ProviderEntity
+import com.astrbot.android.data.db.toEntity
+import com.astrbot.android.data.db.toProfile
 import com.astrbot.android.model.FeatureSupportState
 import com.astrbot.android.model.ProviderCapability
 import com.astrbot.android.model.ProviderProfile
 import com.astrbot.android.model.ProviderType
 import com.astrbot.android.model.defaultCapability
-import com.astrbot.android.model.inferNativeStreamingRuleSupport
 import com.astrbot.android.model.inferMultimodalRuleSupport
+import com.astrbot.android.model.inferNativeStreamingRuleSupport
 import com.astrbot.android.runtime.RuntimeLogRepository
+import java.util.UUID
+import java.util.concurrent.atomic.AtomicBoolean
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import org.json.JSONArray
-import org.json.JSONObject
-import java.util.UUID
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 
 object ProviderRepository {
     private const val PREFS_NAME = "provider_profiles"
     private const val KEY_PROVIDERS_JSON = "providers_json"
 
+    private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val initialized = AtomicBoolean(false)
+
     private var preferences: SharedPreferences? = null
+    private var providerDao: ProviderDao = ProviderDaoPlaceholder.instance
     private val _providers = MutableStateFlow(defaultProviders())
 
     val providers: StateFlow<List<ProviderProfile>> = _providers.asStateFlow()
 
     fun initialize(context: Context) {
-        if (preferences != null) return
+        if (!initialized.compareAndSet(false, true)) return
         preferences = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        loadSavedProviders()?.let { savedProviders ->
-            val normalizedProviders = savedProviders.map(::normalizeProvider)
-            _providers.value = normalizedProviders
-            if (normalizedProviders != savedProviders) {
-                persistProviders()
+        providerDao = AstrBotDatabase.get(context).providerDao()
+
+        runBlocking(Dispatchers.IO) {
+            seedStorageIfNeeded()
+        }
+        repositoryScope.launch {
+            providerDao.observeProviders().collect { entities ->
+                val loaded = entities.map { entity -> normalizeProvider(entity.toProfile()) }.ifEmpty { defaultProviders() }
+                _providers.value = loaded
+                RuntimeLogRepository.append("Provider catalog loaded: count=${loaded.size}")
             }
         }
-        RuntimeLogRepository.append("Provider catalog loaded: count=${_providers.value.size}")
     }
 
     fun save(
@@ -47,14 +65,14 @@ object ProviderRepository {
         providerType: ProviderType,
         apiKey: String,
         capabilities: Set<ProviderCapability>,
-        enabled: Boolean = true,
-        multimodalRuleSupport: FeatureSupportState = inferMultimodalRuleSupport(providerType, model),
-        multimodalProbeSupport: FeatureSupportState = FeatureSupportState.UNKNOWN,
-        nativeStreamingRuleSupport: FeatureSupportState = inferNativeStreamingRuleSupport(providerType, model),
-        nativeStreamingProbeSupport: FeatureSupportState = FeatureSupportState.UNKNOWN,
-        sttProbeSupport: FeatureSupportState = FeatureSupportState.UNKNOWN,
-        ttsProbeSupport: FeatureSupportState = FeatureSupportState.UNKNOWN,
-        ttsVoiceOptions: List<String> = emptyList(),
+        enabled: Boolean,
+        multimodalRuleSupport: FeatureSupportState,
+        multimodalProbeSupport: FeatureSupportState,
+        nativeStreamingRuleSupport: FeatureSupportState,
+        nativeStreamingProbeSupport: FeatureSupportState,
+        sttProbeSupport: FeatureSupportState,
+        ttsProbeSupport: FeatureSupportState,
+        ttsVoiceOptions: List<String>,
     ): ProviderProfile {
         val resolvedId = id?.takeIf { it.isNotBlank() } ?: UUID.randomUUID().toString()
         val profile = normalizeProvider(
@@ -77,12 +95,13 @@ object ProviderRepository {
             ),
         )
         val exists = _providers.value.any { it.id == resolvedId }
-        _providers.value = if (exists) {
+        val updated = if (exists) {
             _providers.value.map { item -> if (item.id == resolvedId) profile else item }
         } else {
             _providers.value + profile
         }
-        persistProviders()
+        _providers.value = updated
+        persistProviders(updated)
         RuntimeLogRepository.append(
             if (exists) {
                 "Provider updated: ${profile.name} (${profile.providerType.name}, key=${maskState(profile.apiKey)})"
@@ -94,22 +113,21 @@ object ProviderRepository {
     }
 
     fun toggleEnabled(id: String) {
-        _providers.value = _providers.value.map { item ->
-            if (item.id == id) {
-                val updated = item.copy(enabled = !item.enabled)
-                RuntimeLogRepository.append("Provider toggled: ${updated.name} enabled=${updated.enabled}")
-                updated
-            } else {
-                item
-            }
+        val updated = _providers.value.map { item ->
+            if (item.id == id) item.copy(enabled = !item.enabled) else item
         }
-        persistProviders()
+        _providers.value = updated
+        persistProviders(updated)
+        updated.firstOrNull { it.id == id }?.let { provider ->
+            RuntimeLogRepository.append("Provider toggled: ${provider.name} enabled=${provider.enabled}")
+        }
     }
 
     fun delete(id: String) {
         val removed = _providers.value.firstOrNull { it.id == id }
-        _providers.value = _providers.value.filterNot { it.id == id }
-        persistProviders()
+        val updated = _providers.value.filterNot { it.id == id }
+        _providers.value = updated
+        persistProviders(updated)
         if (removed != null) {
             RuntimeLogRepository.append("Provider deleted: ${removed.name}")
         }
@@ -130,7 +148,7 @@ object ProviderRepository {
             .distinctBy { it.id }
             .ifEmpty { defaultProviders() }
         _providers.value = normalized
-        persistProviders()
+        persistProviders(normalized)
         RuntimeLogRepository.append("Provider profiles restored: count=${normalized.size}")
     }
 
@@ -155,118 +173,48 @@ object ProviderRepository {
         probeSupport: FeatureSupportState,
         transform: (ProviderProfile, FeatureSupportState) -> ProviderProfile,
     ) {
-        var updatedName: String? = null
-        _providers.value = _providers.value.map { item ->
-            if (item.id == id) {
-                updatedName = item.name
-                transform(item, probeSupport)
+        val updated = _providers.value.map { item ->
+            if (item.id == id) transform(item, probeSupport) else item
+        }
+        _providers.value = updated
+        persistProviders(updated)
+        updated.firstOrNull { it.id == id }?.let { provider ->
+            RuntimeLogRepository.append("Provider probe support updated: ${provider.name} -> ${probeSupport.name}")
+        }
+    }
+
+    private fun persistProviders(profiles: List<ProviderProfile>) {
+        runBlocking(Dispatchers.IO) {
+            if (profiles.isEmpty()) {
+                providerDao.clearAll()
             } else {
-                item
-            }
-        }
-        persistProviders()
-        updatedName?.let { name ->
-            RuntimeLogRepository.append("Provider probe support updated: $name -> ${probeSupport.name}")
-        }
-    }
-
-    private fun loadSavedProviders(): List<ProviderProfile>? {
-        val raw = preferences?.getString(KEY_PROVIDERS_JSON, null)?.takeIf { it.isNotBlank() } ?: return null
-        return runCatching {
-            val array = JSONArray(raw)
-            buildList {
-                for (index in 0 until array.length()) {
-                    val item = array.optJSONObject(index) ?: continue
-                    val providerType = runCatching {
-                        ProviderType.valueOf(item.optString("providerType"))
-                    }.getOrDefault(ProviderType.OPENAI_COMPATIBLE)
-                    val model = item.optString("model")
-                    add(
-                        ProviderProfile(
-                            id = item.optString("id"),
-                            name = item.optString("name"),
-                            baseUrl = item.optString("baseUrl"),
-                            model = model,
-                            providerType = providerType,
-                            apiKey = item.optString("apiKey"),
-                            capabilities = parseCapabilities(item.optJSONArray("capabilities"), providerType),
-                            enabled = item.optBoolean("enabled", true),
-                            multimodalRuleSupport = parseFeatureSupportState(
-                                item.optString("multimodalRuleSupport"),
-                                inferMultimodalRuleSupport(providerType, model),
-                            ),
-                            multimodalProbeSupport = parseFeatureSupportState(
-                                item.optString("multimodalProbeSupport"),
-                                FeatureSupportState.UNKNOWN,
-                            ),
-                            nativeStreamingRuleSupport = parseFeatureSupportState(
-                                item.optString("nativeStreamingRuleSupport"),
-                                inferNativeStreamingRuleSupport(providerType, model),
-                            ),
-                            nativeStreamingProbeSupport = parseFeatureSupportState(
-                                item.optString("nativeStreamingProbeSupport"),
-                                FeatureSupportState.UNKNOWN,
-                            ),
-                            sttProbeSupport = parseFeatureSupportState(
-                                item.optString("sttProbeSupport"),
-                                FeatureSupportState.UNKNOWN,
-                            ),
-                            ttsProbeSupport = parseFeatureSupportState(
-                                item.optString("ttsProbeSupport"),
-                                FeatureSupportState.UNKNOWN,
-                            ),
-                            ttsVoiceOptions = buildList {
-                                val options = item.optJSONArray("ttsVoiceOptions") ?: JSONArray()
-                                for (voiceIndex in 0 until options.length()) {
-                                    options.optString(voiceIndex).trim().takeIf { it.isNotBlank() }?.let(::add)
-                                }
-                            },
-                        ),
-                    )
+                val entities = profiles.mapIndexed { index, profile ->
+                    profile.toEntity(sortIndex = index)
                 }
-            }
-        }.onFailure { error ->
-            RuntimeLogRepository.append("Provider catalog load failed: ${error.message ?: error.javaClass.simpleName}")
-        }.getOrNull()
-    }
-
-    private fun persistProviders() {
-        val json = JSONArray().apply {
-            _providers.value.forEach { provider ->
-                put(
-                    JSONObject().apply {
-                        put("id", provider.id)
-                        put("name", provider.name)
-                        put("baseUrl", provider.baseUrl)
-                        put("model", provider.model)
-                        put("providerType", provider.providerType.name)
-                        put("apiKey", provider.apiKey)
-                        put("enabled", provider.enabled)
-                        put("multimodalRuleSupport", provider.multimodalRuleSupport.name)
-                        put("multimodalProbeSupport", provider.multimodalProbeSupport.name)
-                        put("nativeStreamingRuleSupport", provider.nativeStreamingRuleSupport.name)
-                        put("nativeStreamingProbeSupport", provider.nativeStreamingProbeSupport.name)
-                        put("sttProbeSupport", provider.sttProbeSupport.name)
-                        put("ttsProbeSupport", provider.ttsProbeSupport.name)
-                        put(
-                            "ttsVoiceOptions",
-                            JSONArray().apply {
-                                provider.ttsVoiceOptions.forEach(::put)
-                            },
-                        )
-                        put(
-                            "capabilities",
-                            JSONArray().apply {
-                                provider.capabilities.forEach { capability ->
-                                    put(capability.name)
-                                }
-                            },
-                        )
-                    },
-                )
+                providerDao.upsertAll(entities)
+                providerDao.deleteMissing(entities.map { it.id })
             }
         }
-        preferences?.edit()?.putString(KEY_PROVIDERS_JSON, json.toString())?.apply()
+    }
+
+    private suspend fun seedStorageIfNeeded() {
+        if (providerDao.count() > 0) return
+        val imported = runCatching {
+            parseLegacyProviderProfiles(preferences?.getString(KEY_PROVIDERS_JSON, null))
+        }.onFailure { error ->
+            RuntimeLogRepository.append("Provider catalog legacy import failed: ${error.message ?: error.javaClass.simpleName}")
+        }.getOrDefault(emptyList())
+        val seeded = imported.map(::normalizeProvider).ifEmpty { defaultProviders() }
+        providerDao.upsertAll(
+            seeded.mapIndexed { index, profile -> profile.toEntity(sortIndex = index) },
+        )
+        RuntimeLogRepository.append(
+            if (imported.isNotEmpty()) {
+                "Provider catalog migrated from SharedPreferences: count=${seeded.size}"
+            } else {
+                "Provider catalog seeded with defaults: count=${seeded.size}"
+            },
+        )
     }
 
     private fun normalizeProvider(provider: ProviderProfile): ProviderProfile {
@@ -285,28 +233,6 @@ object ProviderRepository {
             nativeStreamingRuleSupport = inferNativeStreamingRuleSupport(provider.providerType, normalizedModel),
             ttsVoiceOptions = provider.ttsVoiceOptions.map(String::trim).filter(String::isNotBlank).distinct(),
         )
-    }
-
-    private fun parseCapabilities(
-        capabilityArray: JSONArray?,
-        providerType: ProviderType,
-    ): Set<ProviderCapability> {
-        val parsed = buildSet {
-            val source = capabilityArray ?: JSONArray()
-            for (index in 0 until source.length()) {
-                when (source.optString(index)) {
-                    "ASR" -> add(ProviderCapability.STT)
-                    else -> runCatching {
-                        ProviderCapability.valueOf(source.getString(index))
-                    }.getOrNull()?.let(::add)
-                }
-            }
-        }
-        return parsed.ifEmpty { setOf(providerType.defaultCapability()) }
-    }
-
-    private fun parseFeatureSupportState(raw: String, defaultValue: FeatureSupportState): FeatureSupportState {
-        return runCatching { FeatureSupportState.valueOf(raw) }.getOrDefault(defaultValue)
     }
 
     private fun maskState(apiKey: String): String {
@@ -335,4 +261,20 @@ object ProviderRepository {
             multimodalRuleSupport = FeatureSupportState.UNSUPPORTED,
         ),
     )
+}
+
+private object ProviderDaoPlaceholder {
+    val instance = object : ProviderDao {
+        override fun observeProviders() = flowOf(emptyList<ProviderEntity>())
+
+        override suspend fun listProviders(): List<ProviderEntity> = emptyList()
+
+        override suspend fun upsertAll(entities: List<ProviderEntity>) = Unit
+
+        override suspend fun deleteMissing(ids: List<String>) = Unit
+
+        override suspend fun clearAll() = Unit
+
+        override suspend fun count(): Int = 0
+    }
 }

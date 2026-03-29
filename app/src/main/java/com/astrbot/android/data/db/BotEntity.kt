@@ -11,28 +11,27 @@ data class BotEntity(
     val displayName: String,
     val tag: String,
     val accountHint: String,
+    val boundQqUinsJson: String,
     val triggerWordsCsv: String,
     val autoReplyEnabled: Boolean,
+    val persistConversationLocally: Boolean,
     val bridgeMode: String,
     val bridgeEndpoint: String,
     val defaultProviderId: String,
     val defaultPersonaId: String,
+    val configProfileId: String,
     val status: String,
     val updatedAt: Long,
 )
 
-fun BotEntity.toProfile(
-    configProfileId: String = "default",
-    boundQqUins: List<String> = emptyList(),
-    persistConversationLocally: Boolean = false,
-): BotProfile {
+fun BotEntity.toProfile(): BotProfile {
     return BotProfile(
         id = id,
         platformName = platformName,
         displayName = displayName,
         tag = tag,
         accountHint = accountHint,
-        boundQqUins = boundQqUins,
+        boundQqUins = boundQqUinsJson.parseJsonStringList(),
         triggerWords = triggerWordsCsv
             .split(",")
             .map { it.trim() }
@@ -55,12 +54,15 @@ fun BotProfile.toEntity(): BotEntity {
         displayName = displayName,
         tag = tag,
         accountHint = accountHint,
+        boundQqUinsJson = boundQqUins.toJsonArrayString(),
         triggerWordsCsv = triggerWords.joinToString(","),
         autoReplyEnabled = autoReplyEnabled,
+        persistConversationLocally = persistConversationLocally,
         bridgeMode = bridgeMode,
         bridgeEndpoint = bridgeEndpoint,
         defaultProviderId = defaultProviderId,
         defaultPersonaId = defaultPersonaId,
+        configProfileId = configProfileId,
         status = status,
         updatedAt = System.currentTimeMillis(),
     )

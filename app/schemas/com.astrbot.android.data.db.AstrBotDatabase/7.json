@@ -1,0 +1,766 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 7,
+    "identityHash": "e2f822f9fb572990c794da9a290f877c",
+    "entities": [
+      {
+        "tableName": "app_preferences",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`key` TEXT NOT NULL, `value` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`key`))",
+        "fields": [
+          {
+            "fieldPath": "key",
+            "columnName": "key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "value",
+            "columnName": "value",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "key"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "bots",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `platformName` TEXT NOT NULL, `displayName` TEXT NOT NULL, `tag` TEXT NOT NULL, `accountHint` TEXT NOT NULL, `boundQqUinsJson` TEXT NOT NULL, `triggerWordsCsv` TEXT NOT NULL, `autoReplyEnabled` INTEGER NOT NULL, `persistConversationLocally` INTEGER NOT NULL, `bridgeMode` TEXT NOT NULL, `bridgeEndpoint` TEXT NOT NULL, `defaultProviderId` TEXT NOT NULL, `defaultPersonaId` TEXT NOT NULL, `configProfileId` TEXT NOT NULL, `status` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "platformName",
+            "columnName": "platformName",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "displayName",
+            "columnName": "displayName",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "tag",
+            "columnName": "tag",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "accountHint",
+            "columnName": "accountHint",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "boundQqUinsJson",
+            "columnName": "boundQqUinsJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "triggerWordsCsv",
+            "columnName": "triggerWordsCsv",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "autoReplyEnabled",
+            "columnName": "autoReplyEnabled",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "persistConversationLocally",
+            "columnName": "persistConversationLocally",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "bridgeMode",
+            "columnName": "bridgeMode",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "bridgeEndpoint",
+            "columnName": "bridgeEndpoint",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "defaultProviderId",
+            "columnName": "defaultProviderId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "defaultPersonaId",
+            "columnName": "defaultPersonaId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "configProfileId",
+            "columnName": "configProfileId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "config_profiles",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `name` TEXT NOT NULL, `defaultChatProviderId` TEXT NOT NULL, `defaultVisionProviderId` TEXT NOT NULL, `defaultSttProviderId` TEXT NOT NULL, `defaultTtsProviderId` TEXT NOT NULL, `sttEnabled` INTEGER NOT NULL, `ttsEnabled` INTEGER NOT NULL, `alwaysTtsEnabled` INTEGER NOT NULL, `ttsReadBracketedContent` INTEGER NOT NULL, `textStreamingEnabled` INTEGER NOT NULL, `voiceStreamingEnabled` INTEGER NOT NULL, `streamingMessageIntervalMs` INTEGER NOT NULL, `realWorldTimeAwarenessEnabled` INTEGER NOT NULL, `imageCaptionTextEnabled` INTEGER NOT NULL, `webSearchEnabled` INTEGER NOT NULL, `proactiveEnabled` INTEGER NOT NULL, `ttsVoiceId` TEXT NOT NULL, `imageCaptionPrompt` TEXT NOT NULL, `adminUidsJson` TEXT NOT NULL, `sessionIsolationEnabled` INTEGER NOT NULL, `wakeWordsJson` TEXT NOT NULL, `wakeWordsAdminOnlyEnabled` INTEGER NOT NULL, `privateChatRequiresWakeWord` INTEGER NOT NULL, `replyTextPrefix` TEXT NOT NULL, `quoteSenderMessageEnabled` INTEGER NOT NULL, `mentionSenderEnabled` INTEGER NOT NULL, `replyOnAtOnlyEnabled` INTEGER NOT NULL, `whitelistEnabled` INTEGER NOT NULL, `whitelistEntriesJson` TEXT NOT NULL, `logOnWhitelistMiss` INTEGER NOT NULL, `adminGroupBypassWhitelistEnabled` INTEGER NOT NULL, `adminPrivateBypassWhitelistEnabled` INTEGER NOT NULL, `ignoreSelfMessageEnabled` INTEGER NOT NULL, `ignoreAtAllEventEnabled` INTEGER NOT NULL, `replyWhenPermissionDenied` INTEGER NOT NULL, `rateLimitWindowSeconds` INTEGER NOT NULL, `rateLimitMaxCount` INTEGER NOT NULL, `rateLimitStrategy` TEXT NOT NULL, `keywordDetectionEnabled` INTEGER NOT NULL, `keywordPatternsJson` TEXT NOT NULL, `sortIndex` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "defaultChatProviderId",
+            "columnName": "defaultChatProviderId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "defaultVisionProviderId",
+            "columnName": "defaultVisionProviderId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "defaultSttProviderId",
+            "columnName": "defaultSttProviderId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "defaultTtsProviderId",
+            "columnName": "defaultTtsProviderId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sttEnabled",
+            "columnName": "sttEnabled",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "ttsEnabled",
+            "columnName": "ttsEnabled",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "alwaysTtsEnabled",
+            "columnName": "alwaysTtsEnabled",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "ttsReadBracketedContent",
+            "columnName": "ttsReadBracketedContent",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "textStreamingEnabled",
+            "columnName": "textStreamingEnabled",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "voiceStreamingEnabled",
+            "columnName": "voiceStreamingEnabled",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "streamingMessageIntervalMs",
+            "columnName": "streamingMessageIntervalMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "realWorldTimeAwarenessEnabled",
+            "columnName": "realWorldTimeAwarenessEnabled",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "imageCaptionTextEnabled",
+            "columnName": "imageCaptionTextEnabled",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "webSearchEnabled",
+            "columnName": "webSearchEnabled",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "proactiveEnabled",
+            "columnName": "proactiveEnabled",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "ttsVoiceId",
+            "columnName": "ttsVoiceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "imageCaptionPrompt",
+            "columnName": "imageCaptionPrompt",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "adminUidsJson",
+            "columnName": "adminUidsJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sessionIsolationEnabled",
+            "columnName": "sessionIsolationEnabled",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "wakeWordsJson",
+            "columnName": "wakeWordsJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "wakeWordsAdminOnlyEnabled",
+            "columnName": "wakeWordsAdminOnlyEnabled",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "privateChatRequiresWakeWord",
+            "columnName": "privateChatRequiresWakeWord",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "replyTextPrefix",
+            "columnName": "replyTextPrefix",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "quoteSenderMessageEnabled",
+            "columnName": "quoteSenderMessageEnabled",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "mentionSenderEnabled",
+            "columnName": "mentionSenderEnabled",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "replyOnAtOnlyEnabled",
+            "columnName": "replyOnAtOnlyEnabled",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "whitelistEnabled",
+            "columnName": "whitelistEnabled",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "whitelistEntriesJson",
+            "columnName": "whitelistEntriesJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "logOnWhitelistMiss",
+            "columnName": "logOnWhitelistMiss",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "adminGroupBypassWhitelistEnabled",
+            "columnName": "adminGroupBypassWhitelistEnabled",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "adminPrivateBypassWhitelistEnabled",
+            "columnName": "adminPrivateBypassWhitelistEnabled",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "ignoreSelfMessageEnabled",
+            "columnName": "ignoreSelfMessageEnabled",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "ignoreAtAllEventEnabled",
+            "columnName": "ignoreAtAllEventEnabled",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "replyWhenPermissionDenied",
+            "columnName": "replyWhenPermissionDenied",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "rateLimitWindowSeconds",
+            "columnName": "rateLimitWindowSeconds",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "rateLimitMaxCount",
+            "columnName": "rateLimitMaxCount",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "rateLimitStrategy",
+            "columnName": "rateLimitStrategy",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "keywordDetectionEnabled",
+            "columnName": "keywordDetectionEnabled",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "keywordPatternsJson",
+            "columnName": "keywordPatternsJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sortIndex",
+            "columnName": "sortIndex",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "conversations",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `title` TEXT NOT NULL, `botId` TEXT NOT NULL, `personaId` TEXT NOT NULL, `providerId` TEXT NOT NULL, `platformId` TEXT NOT NULL, `messageType` TEXT NOT NULL, `originSessionId` TEXT NOT NULL, `maxContextMessages` INTEGER NOT NULL, `sessionSttEnabled` INTEGER NOT NULL, `sessionTtsEnabled` INTEGER NOT NULL, `pinned` INTEGER NOT NULL, `titleCustomized` INTEGER NOT NULL, `messagesJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "botId",
+            "columnName": "botId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "personaId",
+            "columnName": "personaId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "providerId",
+            "columnName": "providerId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "platformId",
+            "columnName": "platformId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "messageType",
+            "columnName": "messageType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "originSessionId",
+            "columnName": "originSessionId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "maxContextMessages",
+            "columnName": "maxContextMessages",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sessionSttEnabled",
+            "columnName": "sessionSttEnabled",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sessionTtsEnabled",
+            "columnName": "sessionTtsEnabled",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "pinned",
+            "columnName": "pinned",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "titleCustomized",
+            "columnName": "titleCustomized",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "messagesJson",
+            "columnName": "messagesJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "persona_profiles",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `name` TEXT NOT NULL, `tag` TEXT NOT NULL, `systemPrompt` TEXT NOT NULL, `enabledToolsJson` TEXT NOT NULL, `defaultProviderId` TEXT NOT NULL, `maxContextMessages` INTEGER NOT NULL, `enabled` INTEGER NOT NULL, `sortIndex` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "tag",
+            "columnName": "tag",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "systemPrompt",
+            "columnName": "systemPrompt",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "enabledToolsJson",
+            "columnName": "enabledToolsJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "defaultProviderId",
+            "columnName": "defaultProviderId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "maxContextMessages",
+            "columnName": "maxContextMessages",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "enabled",
+            "columnName": "enabled",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sortIndex",
+            "columnName": "sortIndex",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "provider_profiles",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `name` TEXT NOT NULL, `baseUrl` TEXT NOT NULL, `model` TEXT NOT NULL, `providerType` TEXT NOT NULL, `apiKey` TEXT NOT NULL, `capabilitiesJson` TEXT NOT NULL, `enabled` INTEGER NOT NULL, `multimodalRuleSupport` TEXT NOT NULL, `multimodalProbeSupport` TEXT NOT NULL, `nativeStreamingRuleSupport` TEXT NOT NULL, `nativeStreamingProbeSupport` TEXT NOT NULL, `sttProbeSupport` TEXT NOT NULL, `ttsProbeSupport` TEXT NOT NULL, `ttsVoiceOptionsJson` TEXT NOT NULL, `sortIndex` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "baseUrl",
+            "columnName": "baseUrl",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "model",
+            "columnName": "model",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "providerType",
+            "columnName": "providerType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "apiKey",
+            "columnName": "apiKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "capabilitiesJson",
+            "columnName": "capabilitiesJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "enabled",
+            "columnName": "enabled",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "multimodalRuleSupport",
+            "columnName": "multimodalRuleSupport",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "multimodalProbeSupport",
+            "columnName": "multimodalProbeSupport",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "nativeStreamingRuleSupport",
+            "columnName": "nativeStreamingRuleSupport",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "nativeStreamingProbeSupport",
+            "columnName": "nativeStreamingProbeSupport",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sttProbeSupport",
+            "columnName": "sttProbeSupport",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "ttsProbeSupport",
+            "columnName": "ttsProbeSupport",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "ttsVoiceOptionsJson",
+            "columnName": "ttsVoiceOptionsJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sortIndex",
+            "columnName": "sortIndex",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "saved_qq_accounts",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`uin` TEXT NOT NULL, `nickName` TEXT NOT NULL, `avatarUrl` TEXT NOT NULL, `sortIndex` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`uin`))",
+        "fields": [
+          {
+            "fieldPath": "uin",
+            "columnName": "uin",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "nickName",
+            "columnName": "nickName",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "avatarUrl",
+            "columnName": "avatarUrl",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sortIndex",
+            "columnName": "sortIndex",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "uin"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": []
+      }
+    ],
+    "views": [],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'e2f822f9fb572990c794da9a290f877c')"
+    ]
+  }
+}

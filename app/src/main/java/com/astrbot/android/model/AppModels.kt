@@ -144,8 +144,16 @@ data class NapCatBridgeConfig(
     val commandPreview: String = "Start NapCat runtime",
 )
 
+enum class RuntimeStatus(val label: String) {
+    STOPPED("Stopped"),
+    CHECKING("Checking"),
+    STARTING("Starting"),
+    RUNNING("Running"),
+    ERROR("Error"),
+}
+
 data class NapCatRuntimeState(
-    val status: String = "Stopped",
+    val statusType: RuntimeStatus = RuntimeStatus.STOPPED,
     val lastAction: String = "",
     val lastCheckAt: Long = 0L,
     val pidHint: String = "",
@@ -154,7 +162,14 @@ data class NapCatRuntimeState(
     val progressPercent: Int = 0,
     val progressIndeterminate: Boolean = false,
     val installerCached: Boolean = false,
-)
+) {
+    val status: String
+        get() = statusType.label
+
+    fun blocksAutoStart(): Boolean {
+        return statusType == RuntimeStatus.RUNNING || statusType == RuntimeStatus.STARTING
+    }
+}
 
 enum class RuntimeAssetId(val value: String) {
     TTS("tts"),

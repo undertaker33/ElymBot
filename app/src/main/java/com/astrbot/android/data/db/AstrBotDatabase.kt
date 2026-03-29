@@ -8,21 +8,36 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [BotEntity::class, ConversationEntity::class],
-    version = 5,
-    exportSchema = false,
+    entities = [
+        AppPreferenceEntity::class,
+        BotEntity::class,
+        ConfigProfileEntity::class,
+        ConversationEntity::class,
+        PersonaEntity::class,
+        ProviderEntity::class,
+        SavedQqAccountEntity::class,
+        TtsVoiceAssetEntity::class,
+    ],
+    version = 8,
+    exportSchema = true,
 )
 abstract class AstrBotDatabase : RoomDatabase() {
+    abstract fun appPreferenceDao(): AppPreferenceDao
     abstract fun botDao(): BotDao
+    abstract fun configProfileDao(): ConfigProfileDao
     abstract fun conversationDao(): ConversationDao
+    abstract fun personaDao(): PersonaDao
+    abstract fun providerDao(): ProviderDao
+    abstract fun savedQqAccountDao(): SavedQqAccountDao
+    abstract fun ttsVoiceAssetDao(): TtsVoiceAssetDao
 
     companion object {
         @Volatile
         private var instance: AstrBotDatabase? = null
 
         private val migration2To3 = object : Migration(2, 3) {
-            override fun migrate(database: SupportSQLiteDatabase) {
-                database.execSQL(
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
                     """
                     CREATE TABLE IF NOT EXISTS conversations (
                         id TEXT NOT NULL PRIMARY KEY,
@@ -44,19 +59,15 @@ abstract class AstrBotDatabase : RoomDatabase() {
         }
 
         private val migration3To4 = object : Migration(3, 4) {
-            override fun migrate(database: SupportSQLiteDatabase) {
-                database.execSQL(
-                    "ALTER TABLE conversations ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0",
-                )
-                database.execSQL(
-                    "ALTER TABLE conversations ADD COLUMN titleCustomized INTEGER NOT NULL DEFAULT 0",
-                )
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE conversations ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE conversations ADD COLUMN titleCustomized INTEGER NOT NULL DEFAULT 0")
             }
         }
 
         private val migration4To5 = object : Migration(4, 5) {
-            override fun migrate(database: SupportSQLiteDatabase) {
-                database.execSQL(
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
                     """
                     CREATE TABLE IF NOT EXISTS conversations_new (
                         id TEXT NOT NULL PRIMARY KEY,
@@ -77,7 +88,7 @@ abstract class AstrBotDatabase : RoomDatabase() {
                     )
                     """.trimIndent(),
                 )
-                database.execSQL(
+                db.execSQL(
                     """
                     INSERT INTO conversations_new (
                         id, title, botId, personaId, providerId,
@@ -122,10 +133,162 @@ abstract class AstrBotDatabase : RoomDatabase() {
                     FROM conversations
                     """.trimIndent(),
                 )
-                database.execSQL("DROP TABLE conversations")
-                database.execSQL("ALTER TABLE conversations_new RENAME TO conversations")
+                db.execSQL("DROP TABLE conversations")
+                db.execSQL("ALTER TABLE conversations_new RENAME TO conversations")
             }
         }
+
+        private val migration5To6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS app_preferences (
+                        `key` TEXT NOT NULL PRIMARY KEY,
+                        value TEXT NOT NULL,
+                        updatedAt INTEGER NOT NULL
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS provider_profiles (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        name TEXT NOT NULL,
+                        baseUrl TEXT NOT NULL,
+                        model TEXT NOT NULL,
+                        providerType TEXT NOT NULL,
+                        apiKey TEXT NOT NULL,
+                        capabilitiesJson TEXT NOT NULL,
+                        enabled INTEGER NOT NULL,
+                        multimodalRuleSupport TEXT NOT NULL,
+                        multimodalProbeSupport TEXT NOT NULL,
+                        nativeStreamingRuleSupport TEXT NOT NULL,
+                        nativeStreamingProbeSupport TEXT NOT NULL,
+                        sttProbeSupport TEXT NOT NULL,
+                        ttsProbeSupport TEXT NOT NULL,
+                        ttsVoiceOptionsJson TEXT NOT NULL,
+                        sortIndex INTEGER NOT NULL,
+                        updatedAt INTEGER NOT NULL
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS persona_profiles (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        name TEXT NOT NULL,
+                        tag TEXT NOT NULL,
+                        systemPrompt TEXT NOT NULL,
+                        enabledToolsJson TEXT NOT NULL,
+                        defaultProviderId TEXT NOT NULL,
+                        maxContextMessages INTEGER NOT NULL,
+                        enabled INTEGER NOT NULL,
+                        sortIndex INTEGER NOT NULL,
+                        updatedAt INTEGER NOT NULL
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS config_profiles (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        name TEXT NOT NULL,
+                        defaultChatProviderId TEXT NOT NULL,
+                        defaultVisionProviderId TEXT NOT NULL,
+                        defaultSttProviderId TEXT NOT NULL,
+                        defaultTtsProviderId TEXT NOT NULL,
+                        sttEnabled INTEGER NOT NULL,
+                        ttsEnabled INTEGER NOT NULL,
+                        alwaysTtsEnabled INTEGER NOT NULL,
+                        ttsReadBracketedContent INTEGER NOT NULL,
+                        textStreamingEnabled INTEGER NOT NULL,
+                        voiceStreamingEnabled INTEGER NOT NULL,
+                        streamingMessageIntervalMs INTEGER NOT NULL,
+                        realWorldTimeAwarenessEnabled INTEGER NOT NULL,
+                        imageCaptionTextEnabled INTEGER NOT NULL,
+                        webSearchEnabled INTEGER NOT NULL,
+                        proactiveEnabled INTEGER NOT NULL,
+                        ttsVoiceId TEXT NOT NULL,
+                        imageCaptionPrompt TEXT NOT NULL,
+                        adminUidsJson TEXT NOT NULL,
+                        sessionIsolationEnabled INTEGER NOT NULL,
+                        wakeWordsJson TEXT NOT NULL,
+                        wakeWordsAdminOnlyEnabled INTEGER NOT NULL,
+                        privateChatRequiresWakeWord INTEGER NOT NULL,
+                        replyTextPrefix TEXT NOT NULL,
+                        quoteSenderMessageEnabled INTEGER NOT NULL,
+                        mentionSenderEnabled INTEGER NOT NULL,
+                        replyOnAtOnlyEnabled INTEGER NOT NULL,
+                        whitelistEnabled INTEGER NOT NULL,
+                        whitelistEntriesJson TEXT NOT NULL,
+                        logOnWhitelistMiss INTEGER NOT NULL,
+                        adminGroupBypassWhitelistEnabled INTEGER NOT NULL,
+                        adminPrivateBypassWhitelistEnabled INTEGER NOT NULL,
+                        ignoreSelfMessageEnabled INTEGER NOT NULL,
+                        ignoreAtAllEventEnabled INTEGER NOT NULL,
+                        replyWhenPermissionDenied INTEGER NOT NULL,
+                        rateLimitWindowSeconds INTEGER NOT NULL,
+                        rateLimitMaxCount INTEGER NOT NULL,
+                        rateLimitStrategy TEXT NOT NULL,
+                        keywordDetectionEnabled INTEGER NOT NULL,
+                        keywordPatternsJson TEXT NOT NULL,
+                        sortIndex INTEGER NOT NULL,
+                        updatedAt INTEGER NOT NULL
+                    )
+                    """.trimIndent(),
+                )
+            }
+        }
+
+        private val migration6To7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE bots ADD COLUMN boundQqUinsJson TEXT NOT NULL DEFAULT '[]'")
+                db.execSQL("ALTER TABLE bots ADD COLUMN persistConversationLocally INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE bots ADD COLUMN configProfileId TEXT NOT NULL DEFAULT 'default'")
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS saved_qq_accounts (
+                        uin TEXT NOT NULL PRIMARY KEY,
+                        nickName TEXT NOT NULL,
+                        avatarUrl TEXT NOT NULL,
+                        sortIndex INTEGER NOT NULL,
+                        updatedAt INTEGER NOT NULL
+                    )
+                    """.trimIndent(),
+                )
+            }
+        }
+
+        private val migration7To8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS tts_voice_assets (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        name TEXT NOT NULL,
+                        source TEXT NOT NULL,
+                        localPath TEXT NOT NULL,
+                        remoteUrl TEXT NOT NULL,
+                        durationMs INTEGER NOT NULL,
+                        sampleRateHz INTEGER NOT NULL,
+                        clipsJson TEXT NOT NULL,
+                        providerBindingsJson TEXT NOT NULL,
+                        createdAt INTEGER NOT NULL,
+                        updatedAt INTEGER NOT NULL
+                    )
+                    """.trimIndent(),
+                )
+            }
+        }
+
+        internal val allMigrations: Array<Migration> = arrayOf(
+            migration2To3,
+            migration3To4,
+            migration4To5,
+            migration5To6,
+            migration6To7,
+            migration7To8,
+        )
 
         fun get(context: Context): AstrBotDatabase {
             return instance ?: synchronized(this) {
@@ -134,8 +297,7 @@ abstract class AstrBotDatabase : RoomDatabase() {
                     AstrBotDatabase::class.java,
                     "astrbot-native.db",
                 )
-                    .addMigrations(migration2To3, migration3To4)
-                    .addMigrations(migration4To5)
+                    .addMigrations(*allMigrations)
                     .build()
                     .also { instance = it }
             }

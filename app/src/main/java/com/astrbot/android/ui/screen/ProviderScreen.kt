@@ -64,13 +64,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.viewmodel.compose.viewModel
+import com.astrbot.android.di.astrBotViewModel
 import com.astrbot.android.R
-import com.astrbot.android.data.ChatCompletionService
-import com.astrbot.android.data.ConfigRepository
-import com.astrbot.android.data.RuntimeAssetRepository
-import com.astrbot.android.data.SherpaOnnxBridge
-import com.astrbot.android.data.TtsVoiceAssetRepository
 import com.astrbot.android.data.TtsVoiceCatalog
 import com.astrbot.android.model.FeatureSupportState
 import com.astrbot.android.model.ProviderCapability
@@ -93,15 +88,13 @@ import com.astrbot.android.ui.MonochromeUi
 import com.astrbot.android.ui.monochromeOutlinedTextFieldColors
 import com.astrbot.android.ui.monochromeSwitchColors
 import com.astrbot.android.ui.viewmodel.ProviderViewModel
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.Base64
 
 @Composable
 fun ProviderScreen(
-    providerViewModel: ProviderViewModel = viewModel(),
+    providerViewModel: ProviderViewModel = astrBotViewModel(),
     onBack: (() -> Unit)? = null,
     onOpenOnDeviceTtsAssets: (() -> Unit)? = null,
 ) {
@@ -299,13 +292,7 @@ internal fun ProviderCatalogContent(
                 scope.launch {
                     isFetchingModels = true
                     fetchedModels = runCatching {
-                        withContext(Dispatchers.IO) {
-                            ChatCompletionService.fetchModels(
-                                baseUrl = current.baseUrl,
-                                apiKey = current.apiKey,
-                                providerType = current.providerType,
-                            )
-                        }
+                        providerViewModel.fetchModels(current)
                     }.getOrElse {
                         Toast.makeText(context, it.message ?: it.javaClass.simpleName, Toast.LENGTH_LONG).show()
                         emptyList()
@@ -316,11 +303,9 @@ internal fun ProviderCatalogContent(
             onCheckMultimodal = { current, onResult ->
                 scope.launch {
                     isCheckingMultimodal = true
-                    val ruleResult = ChatCompletionService.detectMultimodalRule(current)
+                    val ruleResult = providerViewModel.detectMultimodalRule(current)
                     val probeResult = runCatching {
-                        withContext(Dispatchers.IO) {
-                            ChatCompletionService.probeMultimodalSupport(current)
-                        }
+                        providerViewModel.probeMultimodalSupport(current)
                     }.getOrElse {
                         Toast.makeText(context, it.message ?: it.javaClass.simpleName, Toast.LENGTH_LONG).show()
                         FeatureSupportState.UNKNOWN
@@ -332,11 +317,9 @@ internal fun ProviderCatalogContent(
             onCheckNativeStreaming = { current, onResult ->
                 scope.launch {
                     isCheckingNativeStreaming = true
-                    val ruleResult = ChatCompletionService.detectNativeStreamingRule(current)
+                    val ruleResult = providerViewModel.detectNativeStreamingRule(current)
                     val probeResult = runCatching {
-                        withContext(Dispatchers.IO) {
-                            ChatCompletionService.probeNativeStreamingSupport(current)
-                        }
+                        providerViewModel.probeNativeStreamingSupport(current)
                     }.getOrElse {
                         Toast.makeText(context, it.message ?: it.javaClass.simpleName, Toast.LENGTH_LONG).show()
                         FeatureSupportState.UNKNOWN
@@ -349,12 +332,10 @@ internal fun ProviderCatalogContent(
                 scope.launch {
                     isCheckingStt = true
                     val probeResult = runCatching {
-                        withContext(Dispatchers.IO) {
-                            ChatCompletionService.probeSttSupport(current)
-                        }
+                        providerViewModel.probeSttSupport(current)
                     }.getOrElse {
                         Toast.makeText(context, it.message ?: it.javaClass.simpleName, Toast.LENGTH_LONG).show()
-                        ChatCompletionService.SttProbeResult(
+                        ProviderViewModel.SttProbeResult(
                             state = FeatureSupportState.UNKNOWN,
                             transcript = "",
                         )
@@ -367,9 +348,7 @@ internal fun ProviderCatalogContent(
                 scope.launch {
                     isCheckingTts = true
                     val probeResult = runCatching {
-                        withContext(Dispatchers.IO) {
-                            ChatCompletionService.probeTtsSupport(current)
-                        }
+                        providerViewModel.probeTtsSupport(current)
                     }.getOrElse {
                         Toast.makeText(context, it.message ?: it.javaClass.simpleName, Toast.LENGTH_LONG).show()
                         FeatureSupportState.UNKNOWN
@@ -399,6 +378,7 @@ internal fun ProviderCatalogContent(
                 Toast.makeText(context, context.getString(R.string.common_saved), Toast.LENGTH_SHORT).show()
                 editingProvider = null
             },
+            providerViewModel = providerViewModel,
             onOpenOnDeviceTtsAssets = onOpenOnDeviceTtsAssets,
         )
     }
@@ -585,12 +565,13 @@ private fun ProviderEditorDialog(
     onCheckStt: (ProviderProfile, (FeatureSupportState, String) -> Unit) -> Unit,
     onCheckTts: (ProviderProfile, (FeatureSupportState) -> Unit) -> Unit,
     onSave: (ProviderProfile) -> Unit,
+    providerViewModel: ProviderViewModel,
     onOpenOnDeviceTtsAssets: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val configProfiles by ConfigRepository.profiles.collectAsState()
-    val selectedConfigId by ConfigRepository.selectedProfileId.collectAsState()
+    val configProfiles by providerViewModel.configProfiles.collectAsState()
+    val selectedConfigId by providerViewModel.selectedConfigProfileId.collectAsState()
     var showDeleteConfirm by remember(initialProvider.id) { mutableStateOf(false) }
     var name by remember(initialProvider.id) { mutableStateOf(initialProvider.name) }
     var baseUrl by remember(initialProvider.id) { mutableStateOf(initialProvider.baseUrl) }
@@ -647,7 +628,7 @@ private fun ProviderEditorDialog(
     }
     val ttsAssetState = remember(providerType) {
         if (providerType == ProviderType.SHERPA_ONNX_TTS) {
-            RuntimeAssetRepository.ttsAssetState(context)
+            providerViewModel.ttsAssetState(context)
         } else {
             null
         }
@@ -700,7 +681,7 @@ private fun ProviderEditorDialog(
         )
     }
     val cloudVoiceOptions = remember(currentProviderProjection, selectedConfig?.id) {
-        TtsVoiceAssetRepository.listVoiceChoicesFor(currentProviderProjection)
+        providerViewModel.listVoiceChoicesFor(currentProviderProjection)
     }
     val allTtsVoiceOptions = remember(currentProviderProjection, cloudVoiceOptions) {
         buildList<Pair<String, String>> {
@@ -746,8 +727,8 @@ private fun ProviderEditorDialog(
     }
     val localSttModelReady = isLocalSttProvider &&
         model in localModelOptions.map { it.first } &&
-        SherpaOnnxBridge.isFrameworkReady() &&
-        SherpaOnnxBridge.isSttReady()
+        providerViewModel.isSherpaFrameworkReady() &&
+        providerViewModel.isSherpaSttReady()
     val localTtsModelMissing = isLocalTtsProvider && model !in localModelOptions.map { it.first }
     val displayedVoiceCloneRuleSupport = remember(providerType, model) {
         inferVoiceCloningRuleSupport(providerType, model)
@@ -1251,7 +1232,7 @@ private fun ProviderEditorDialog(
                                             selectedId = editorTtsVoiceId,
                                             onSelect = { selection ->
                                                 val config = selectedConfig ?: return@SelectionField
-                                                ConfigRepository.save(
+                                                providerViewModel.saveConfig(
                                                     config.copy(
                                                         defaultTtsProviderId = initialProvider.id,
                                                         ttsVoiceId = selection,
@@ -1292,14 +1273,12 @@ private fun ProviderEditorDialog(
                                         scope.launch {
                                             isPreviewingVoice = true
                                             val result = runCatching {
-                                                withContext(Dispatchers.IO) {
-                                                    ChatCompletionService.synthesizeSpeech(
-                                                        provider = previewProvider,
-                                                        text = "你好世界",
-                                                        voiceId = selectedVoiceId,
-                                                        readBracketedContent = true,
-                                                    )
-                                                }
+                                                providerViewModel.synthesizeSpeech(
+                                                    provider = previewProvider,
+                                                    text = "你好世界",
+                                                    voiceId = selectedVoiceId,
+                                                    readBracketedContent = true,
+                                                )
                                             }
                                             result.onSuccess { attachment ->
                                                 runCatching { playPreviewAttachment(context, attachment) }
@@ -1350,7 +1329,7 @@ private fun ProviderEditorDialog(
                                             selectedId = projectedVoiceId,
                                             onSelect = { selection ->
                                                 val config = selectedConfig ?: return@SelectionField
-                                                ConfigRepository.save(
+                                                providerViewModel.saveConfig(
                                                     config.copy(
                                                         defaultTtsProviderId = initialProvider.id,
                                                         ttsVoiceId = selection,

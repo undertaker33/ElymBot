@@ -58,6 +58,7 @@ object ContainerRuntimeInstaller {
     }
 
     private fun installInternal(context: Context) {
+        RuntimeSecretRepository.initialize(context)
         val runtimeDir = File(context.filesDir, "runtime")
         val binDir = File(runtimeDir, "bin")
         val scriptDir = File(runtimeDir, "scripts")

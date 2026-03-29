@@ -1,5 +1,12 @@
 package com.astrbot.android.data
 
+import com.astrbot.android.data.tts.PreparedTtsRequest
+import com.astrbot.android.data.tts.TtsPromptFormatter
+import com.astrbot.android.data.http.AstrBotHttpClient
+import com.astrbot.android.data.http.HttpMethod
+import com.astrbot.android.data.http.HttpRequestSpec
+import com.astrbot.android.data.http.MultipartPartSpec
+import com.astrbot.android.data.http.OkHttpAstrBotHttpClient
 import android.content.Context
 import com.astrbot.android.model.ConfigProfile
 import com.astrbot.android.model.chat.ConversationAttachment
@@ -19,8 +26,6 @@ import java.io.File
 import java.io.BufferedReader
 import java.io.ByteArrayOutputStream
 import java.io.IOException
-import java.io.InputStreamReader
-import java.net.HttpURLConnection
 import java.net.URI
 import java.net.URLEncoder
 import java.net.URL
@@ -29,6 +34,7 @@ import java.nio.ByteOrder
 import java.nio.charset.StandardCharsets
 import java.util.Base64
 import java.util.Locale
+import kotlinx.coroutines.runBlocking
 
 object ChatCompletionService {
     data class SttProbeResult(
@@ -88,9 +94,11 @@ object ChatCompletionService {
     @Volatile
     private var probeSttAudioBase64: String? = null
 
-    internal fun extractOpenAiStyleStreamingContentForTests(line: String): String {
-        return extractOpenAiStyleStreamingContent(line)
-    }
+    @Volatile
+    private var httpClient: AstrBotHttpClient = OkHttpAstrBotHttpClient()
+
+    internal fun extractOpenAiStyleStreamingContentForTests(line: String): String =
+        TtsPromptFormatter.extractOpenAiStyleStreamingContent(line)
 
     internal fun resolveImageHandlingPlanForTests(
         provider: ProviderProfile,
@@ -107,6 +115,12 @@ object ChatCompletionService {
             config = config,
             availableProviders = availableProviders,
         )
+    }
+
+    internal fun sanitizeUrlForLogsForTests(url: String): String = sanitizeUrlForLogs(url)
+
+    internal fun setHttpClientOverrideForTests(client: AstrBotHttpClient?) {
+        httpClient = client ?: OkHttpAstrBotHttpClient()
     }
 
     fun initialize(context: Context) {
@@ -575,10 +589,13 @@ object ChatCompletionService {
 
     private fun fetchOpenAiStyleModels(baseUrl: String, apiKey: String): List<String> {
         require(apiKey.isNotBlank()) { "API key cannot be empty." }
-        val connection = openConnection(baseUrl.trimEnd('/') + "/models", "GET").apply {
-            setRequestProperty("Authorization", "Bearer $apiKey")
-        }
-        return readModelList(connection) { body -> JSONObject(body).optJSONArray("data") ?: JSONArray() }
+        return readModelList(
+            HttpRequestSpec(
+                method = HttpMethod.GET,
+                url = baseUrl.trimEnd('/') + "/models",
+                headers = authorizationHeaders(apiKey),
+            ),
+        ) { body -> JSONObject(body).optJSONArray("data") ?: JSONArray() }
     }
 
     private fun transcribeWithOpenAiStyle(
@@ -587,32 +604,24 @@ object ChatCompletionService {
     ): String {
         require(provider.apiKey.isNotBlank()) { "Provider API key is empty." }
         val audioBytes = resolveAttachmentBytes(attachment)
-        val boundary = "AstrBotBoundary${System.currentTimeMillis()}"
-        val connection = openMultipartConnection(provider.baseUrl.trimEnd('/') + "/audio/transcriptions", boundary).apply {
-            setRequestProperty("Authorization", "Bearer ${provider.apiKey}")
-        }
-        return try {
-            connection.outputStream.use { output ->
-                writeMultipartText(output, boundary, "model", provider.model)
-                writeMultipartFile(
-                    output = output,
-                    boundary = boundary,
-                    fieldName = "file",
+        return executeMultipartRequest(
+            requestSpec = HttpRequestSpec(
+                method = HttpMethod.POST,
+                url = provider.baseUrl.trimEnd('/') + "/audio/transcriptions",
+                headers = authorizationHeaders(provider.apiKey),
+            ),
+            parts = listOf(
+                MultipartPartSpec.Text("model", provider.model),
+                MultipartPartSpec.File(
+                    name = "file",
                     fileName = attachment.fileName.ifBlank { "audio-input.mp3" },
-                    mimeType = attachment.mimeType.ifBlank { "audio/mpeg" },
+                    contentType = attachment.mimeType.ifBlank { "audio/mpeg" },
                     bytes = audioBytes,
-                )
-                finishMultipart(output, boundary)
-            }
-            val responseCode = connection.responseCode
-            val body = readBody(connection, responseCode)
-            if (responseCode !in 200..299) {
-                throw IllegalStateException("HTTP $responseCode: $body")
-            }
+                ),
+            ),
+        ) { body ->
             JSONObject(body).optString("text").takeIf { it.isNotBlank() }
                 ?: throw IllegalStateException("STT response is empty.")
-        } finally {
-            connection.disconnect()
         }
     }
 
@@ -669,17 +678,17 @@ object ChatCompletionService {
             )
         }
         val endpoint = provider.baseUrl.trimEnd('/') + "/services/aigc/multimodal-generation/generation"
-        val connection = openConnection(endpoint, "POST").apply {
-            setRequestProperty("Authorization", "Bearer ${provider.apiKey}")
-        }
-        return try {
-            executeJsonRequest(connection, payload) { body ->
-                extractDashScopeMessageText(body)
-                    .takeIf { it.isNotBlank() }
-                    ?: throw IllegalStateException("STT response is empty.")
-            }
-        } finally {
-            connection.disconnect()
+        return executeJsonRequest(
+            HttpRequestSpec(
+                method = HttpMethod.POST,
+                url = endpoint,
+                headers = authorizationHeaders(provider.apiKey),
+            ),
+            payload,
+        ) { body ->
+            extractDashScopeMessageText(body)
+                .takeIf { it.isNotBlank() }
+                ?: throw IllegalStateException("STT response is empty.")
         }
     }
 
@@ -704,28 +713,19 @@ object ChatCompletionService {
                 .takeIf { supportsInstructions }
                 ?.let { put("instructions", it) }
         }
-        val connection = openConnection(provider.baseUrl.trimEnd('/') + "/audio/speech", "POST").apply {
-            setRequestProperty("Authorization", "Bearer ${provider.apiKey}")
-            setRequestProperty("Accept", DEFAULT_TTS_MIME_TYPE)
+        val bytes = executeBinaryRequest(
+            HttpRequestSpec(
+                method = HttpMethod.POST,
+                url = provider.baseUrl.trimEnd('/') + "/audio/speech",
+                headers = authorizationHeaders(provider.apiKey, accept = DEFAULT_TTS_MIME_TYPE),
+                body = payload.toString(),
+                contentType = "application/json",
+            ),
+        )
+        if (bytes.isEmpty()) {
+            throw IllegalStateException("TTS response is empty.")
         }
-        return try {
-            connection.doOutput = true
-            connection.outputStream.use { output ->
-                output.write(payload.toString().toByteArray(StandardCharsets.UTF_8))
-            }
-            val responseCode = connection.responseCode
-            if (responseCode !in 200..299) {
-                val body = readBody(connection, responseCode)
-                throw IllegalStateException("HTTP $responseCode: $body")
-            }
-            val bytes = connection.inputStream.use { it.readBytes() }
-            if (bytes.isEmpty()) {
-                throw IllegalStateException("TTS response is empty.")
-            }
-            createAudioAttachment(bytes = bytes, mimeType = DEFAULT_TTS_MIME_TYPE, fileExtension = "mp3")
-        } finally {
-            connection.disconnect()
-        }
+        return createAudioAttachment(bytes = bytes, mimeType = DEFAULT_TTS_MIME_TYPE, fileExtension = "mp3")
     }
 
     private fun synthesizeWithBailianTts(
@@ -771,25 +771,32 @@ object ChatCompletionService {
             )
         }
         val endpoint = provider.baseUrl.trimEnd('/') + "/services/aigc/multimodal-generation/generation"
-        val connection = openConnection(endpoint, "POST").apply {
-            setRequestProperty("Authorization", "Bearer ${provider.apiKey}")
-            if (useStreaming) {
-                setRequestProperty("X-DashScope-SSE", "enable")
-                setRequestProperty("Accept", "text/event-stream")
-            } else {
-                setRequestProperty("Accept", "application/json")
+        val headers = authorizationHeaders(
+            provider.apiKey,
+            accept = if (useStreaming) "text/event-stream" else "application/json",
+            extra = if (useStreaming) mapOf("X-DashScope-SSE" to "enable") else emptyMap(),
+        )
+        return if (useStreaming) {
+            synthesizeWithDashScopeSse(
+                HttpRequestSpec(
+                    method = HttpMethod.POST,
+                    url = endpoint,
+                    headers = headers,
+                    body = payload.toString(),
+                    contentType = "application/json",
+                ),
+            )
+        } else {
+            executeJsonRequest(
+                HttpRequestSpec(
+                    method = HttpMethod.POST,
+                    url = endpoint,
+                    headers = headers,
+                ),
+                payload,
+            ) { body ->
+                parseDashScopeTtsAttachment(body)
             }
-        }
-        return try {
-            if (useStreaming) {
-                synthesizeWithDashScopeSse(connection, payload)
-            } else {
-                executeJsonRequest(connection, payload) { body ->
-                    parseDashScopeTtsAttachment(body)
-                }
-            }
-        } finally {
-            connection.disconnect()
         }
     }
 
@@ -840,63 +847,66 @@ object ChatCompletionService {
             )
         }
         val endpoint = buildMiniMaxTtsEndpoint(provider.baseUrl)
-        val connection = openConnection(endpoint, "POST").apply {
-            setRequestProperty("Authorization", "Bearer ${provider.apiKey}")
-        }
-        return try {
-            executeJsonRequest(connection, payload) { body ->
-                val json = JSONObject(body)
-                val statusCode = json.optJSONObject("base_resp")?.optInt("status_code", 0) ?: 0
-                if (statusCode != 0) {
-                    val statusMessage = json.optJSONObject("base_resp")?.optString("status_msg").orEmpty()
-                    throw IllegalStateException("MiniMax TTS failed: ${statusMessage.ifBlank { "status=$statusCode" }}")
-                }
-                val hexAudio = json.optJSONObject("data")?.optString("audio").orEmpty()
-                if (hexAudio.isBlank()) {
-                    throw IllegalStateException("MiniMax TTS response is empty.")
-                }
-                createAudioAttachment(
-                    bytes = hexToBytes(hexAudio),
-                    mimeType = DEFAULT_TTS_MIME_TYPE,
-                    fileExtension = "mp3",
-                )
+        return executeJsonRequest(
+            HttpRequestSpec(
+                method = HttpMethod.POST,
+                url = endpoint,
+                headers = authorizationHeaders(provider.apiKey),
+            ),
+            payload,
+        ) { body ->
+            val json = JSONObject(body)
+            val statusCode = json.optJSONObject("base_resp")?.optInt("status_code", 0) ?: 0
+            if (statusCode != 0) {
+                val statusMessage = json.optJSONObject("base_resp")?.optString("status_msg").orEmpty()
+                throw IllegalStateException("MiniMax TTS failed: ${statusMessage.ifBlank { "status=$statusCode" }}")
             }
-        } finally {
-            connection.disconnect()
+            val hexAudio = json.optJSONObject("data")?.optString("audio").orEmpty()
+            if (hexAudio.isBlank()) {
+                throw IllegalStateException("MiniMax TTS response is empty.")
+            }
+            createAudioAttachment(
+                bytes = hexToBytes(hexAudio),
+                mimeType = DEFAULT_TTS_MIME_TYPE,
+                fileExtension = "mp3",
+            )
         }
     }
 
     private fun fetchOllamaModels(baseUrl: String): List<String> {
-        val connection = openConnection(baseUrl.trimEnd('/') + "/api/tags", "GET")
-        return readModelList(connection) { body -> JSONObject(body).optJSONArray("models") ?: JSONArray() }
+        return readModelList(
+            HttpRequestSpec(
+                method = HttpMethod.GET,
+                url = baseUrl.trimEnd('/') + "/api/tags",
+            ),
+        ) { body -> JSONObject(body).optJSONArray("models") ?: JSONArray() }
     }
 
     private fun fetchGeminiModels(baseUrl: String, apiKey: String): List<String> {
         require(apiKey.isNotBlank()) { "API key cannot be empty." }
-        val endpoint = baseUrl.trimEnd('/') + "/models?key=" + URLEncoder.encode(apiKey, StandardCharsets.UTF_8.name())
-        val connection = openConnection(endpoint, "GET")
-        return readModelList(connection) { body -> JSONObject(body).optJSONArray("models") ?: JSONArray() }
+        val endpoint = buildGeminiEndpoint(baseUrl, "models", apiKey)
+        return readModelList(
+            HttpRequestSpec(
+                method = HttpMethod.GET,
+                url = endpoint,
+            ),
+        ) { body -> JSONObject(body).optJSONArray("models") ?: JSONArray() }
             .map { it.removePrefix("models/") }
     }
 
-    private fun readModelList(connection: HttpURLConnection, arrayProvider: (String) -> JSONArray): List<String> {
-        return try {
-            val responseCode = connection.responseCode
-            val body = readBody(connection, responseCode)
-            if (responseCode !in 200..299) {
-                throw IllegalStateException("HTTP $responseCode: $body")
-            }
-            val array = arrayProvider(body)
-            buildList {
-                for (index in 0 until array.length()) {
-                    val item = array.optJSONObject(index) ?: continue
-                    val id = item.optString("id").ifBlank { item.optString("name") }
-                    if (id.isNotBlank()) add(id)
-                }
-            }.distinct().sorted()
-        } finally {
-            connection.disconnect()
+    private fun readModelList(requestSpec: HttpRequestSpec, arrayProvider: (String) -> JSONArray): List<String> {
+        val response = httpClient.execute(requestSpec)
+        if (response.code !in 200..299) {
+            throw IllegalStateException("HTTP ${response.code}: ${response.body}")
         }
+        val array = arrayProvider(response.body)
+        return buildList {
+            for (index in 0 until array.length()) {
+                val item = array.optJSONObject(index) ?: continue
+                val id = item.optString("id").ifBlank { item.optString("name") }
+                if (id.isNotBlank()) add(id)
+            }
+        }.distinct().sorted()
     }
 
     private fun probeOpenAiStyleMultimodal(provider: ProviderProfile): FeatureSupportState {
@@ -924,7 +934,7 @@ object ChatCompletionService {
         return executeProbeRequest(
             endpoint = provider.baseUrl.trimEnd('/') + "/chat/completions",
             payload = payload,
-            configure = { connection -> connection.setRequestProperty("Authorization", "Bearer ${provider.apiKey}") },
+            headers = authorizationHeaders(provider.apiKey),
             parser = { body ->
                 val content = JSONObject(body)
                     .optJSONArray("choices")
@@ -952,10 +962,14 @@ object ChatCompletionService {
             )
             put("max_tokens", 16)
         }
-        val connection = openConnection(provider.baseUrl.trimEnd('/') + "/chat/completions", "POST").apply {
-            setRequestProperty("Authorization", "Bearer ${provider.apiKey}")
-        }
-        return executeStreamingProbeRequest(connection, payload) { line ->
+        return executeStreamingProbeRequest(
+            HttpRequestSpec(
+                method = HttpMethod.POST,
+                url = provider.baseUrl.trimEnd('/') + "/chat/completions",
+                headers = authorizationHeaders(provider.apiKey),
+            ),
+            payload,
+        ) { line ->
             JSONObject(line)
                 .optJSONArray("choices")
                 ?.optJSONObject(0)
@@ -978,8 +992,13 @@ object ChatCompletionService {
                 ),
             )
         }
-        val connection = openConnection(provider.baseUrl.trimEnd('/') + "/api/chat", "POST")
-        return executeStreamingProbeRequest(connection, payload) { line ->
+        return executeStreamingProbeRequest(
+            HttpRequestSpec(
+                method = HttpMethod.POST,
+                url = provider.baseUrl.trimEnd('/') + "/api/chat",
+            ),
+            payload,
+        ) { line ->
             JSONObject(line)
                 .optJSONObject("message")
                 ?.optString("content")
@@ -990,8 +1009,7 @@ object ChatCompletionService {
     private fun probeGeminiNativeStreaming(provider: ProviderProfile): FeatureSupportState {
         require(provider.apiKey.isNotBlank()) { "API key cannot be empty." }
         val modelName = if (provider.model.startsWith("models/")) provider.model else "models/${provider.model}"
-        val endpoint = provider.baseUrl.trimEnd('/') + "/$modelName:streamGenerateContent?alt=sse&key=" +
-            URLEncoder.encode(provider.apiKey, StandardCharsets.UTF_8.name())
+        val endpoint = buildGeminiEndpoint(provider.baseUrl, "$modelName:streamGenerateContent", provider.apiKey, "alt=sse")
         val payload = JSONObject().apply {
             put(
                 "contents",
@@ -1007,8 +1025,13 @@ object ChatCompletionService {
                 JSONObject().put("maxOutputTokens", 16),
             )
         }
-        val connection = openConnection(endpoint, "POST")
-        return executeStreamingProbeRequest(connection, payload) { line ->
+        return executeStreamingProbeRequest(
+            HttpRequestSpec(
+                method = HttpMethod.POST,
+                url = endpoint,
+            ),
+            payload,
+        ) { line ->
             JSONObject(line)
                 .optJSONArray("candidates")
                 ?.optJSONObject(0)
@@ -1038,7 +1061,7 @@ object ChatCompletionService {
         return executeProbeRequest(
             endpoint = provider.baseUrl.trimEnd('/') + "/api/chat",
             payload = payload,
-            configure = {},
+            headers = emptyMap(),
             parser = { body ->
                 val content = JSONObject(body).optJSONObject("message")?.optString("content").orEmpty()
                 evaluateProbeDescription(content)
@@ -1050,8 +1073,7 @@ object ChatCompletionService {
         require(provider.apiKey.isNotBlank()) { "API key cannot be empty." }
         val probeImageBase64 = requireProbeImageBase64()
         val modelName = if (provider.model.startsWith("models/")) provider.model else "models/${provider.model}"
-        val endpoint = provider.baseUrl.trimEnd('/') + "/$modelName:generateContent?key=" +
-            URLEncoder.encode(provider.apiKey, StandardCharsets.UTF_8.name())
+        val endpoint = buildGeminiEndpoint(provider.baseUrl, "$modelName:generateContent", provider.apiKey)
         val payload = JSONObject().apply {
             put(
                 "contents",
@@ -1073,7 +1095,7 @@ object ChatCompletionService {
         return executeProbeRequest(
             endpoint = endpoint,
             payload = payload,
-            configure = {},
+            headers = emptyMap(),
             parser = { body ->
                 val text = JSONObject(body)
                     .optJSONArray("candidates")
@@ -1115,8 +1137,8 @@ object ChatCompletionService {
         return executeOpenAiStyleChatWithRetry(
             endpoint = provider.baseUrl.trimEnd('/') + "/chat/completions",
             apiKey = provider.apiKey,
-        ) { connection ->
-            executeJsonRequest(connection, payload) { body ->
+        ) { requestSpec ->
+            executeJsonRequest(requestSpec, payload) { body ->
                 JSONObject(body)
                     .optJSONArray("choices")
                     ?.optJSONObject(0)
@@ -1153,8 +1175,13 @@ object ChatCompletionService {
                 },
             )
         }
-        val connection = openConnection(provider.baseUrl.trimEnd('/') + "/api/chat", "POST")
-        return executeJsonRequest(connection, payload) { body ->
+        return executeJsonRequest(
+            HttpRequestSpec(
+                method = HttpMethod.POST,
+                url = provider.baseUrl.trimEnd('/') + "/api/chat",
+            ),
+            payload,
+        ) { body ->
             JSONObject(body).optJSONObject("message")?.optString("content")?.takeIf { it.isNotBlank() }
                 ?: throw IllegalStateException("Model response is empty.")
         }
@@ -1167,8 +1194,7 @@ object ChatCompletionService {
     ): String {
         require(provider.apiKey.isNotBlank()) { "Provider API key is empty." }
         val modelName = if (provider.model.startsWith("models/")) provider.model else "models/${provider.model}"
-        val endpoint = provider.baseUrl.trimEnd('/') + "/$modelName:generateContent?key=" +
-            URLEncoder.encode(provider.apiKey, StandardCharsets.UTF_8.name())
+        val endpoint = buildGeminiEndpoint(provider.baseUrl, "$modelName:generateContent", provider.apiKey)
         val payload = JSONObject().apply {
             if (!systemPrompt.isNullOrBlank()) {
                 put(
@@ -1189,8 +1215,13 @@ object ChatCompletionService {
                 },
             )
         }
-        val connection = openConnection(endpoint, "POST")
-        return executeJsonRequest(connection, payload) { body ->
+        return executeJsonRequest(
+            HttpRequestSpec(
+                method = HttpMethod.POST,
+                url = endpoint,
+            ),
+            payload,
+        ) { body ->
             JSONObject(body)
                 .optJSONArray("candidates")
                 ?.optJSONObject(0)
@@ -1228,8 +1259,8 @@ object ChatCompletionService {
         return executeOpenAiStyleChatWithRetry(
             endpoint = provider.baseUrl.trimEnd('/') + "/chat/completions",
             apiKey = provider.apiKey,
-        ) { connection ->
-            executeStreamingRequest(connection, payload, onDelta, ::extractOpenAiStyleStreamingContent)
+        ) { requestSpec ->
+            executeStreamingRequest(requestSpec, payload, onDelta, ::extractOpenAiStyleStreamingContent)
         }
     }
 
@@ -1259,8 +1290,14 @@ object ChatCompletionService {
                 },
             )
         }
-        val connection = openConnection(provider.baseUrl.trimEnd('/') + "/api/chat", "POST")
-        return executeStreamingRequest(connection, payload, onDelta) { line ->
+        return executeStreamingRequest(
+            HttpRequestSpec(
+                method = HttpMethod.POST,
+                url = provider.baseUrl.trimEnd('/') + "/api/chat",
+            ),
+            payload,
+            onDelta,
+        ) { line ->
             JSONObject(line)
                 .optJSONObject("message")
                 ?.optString("content")
@@ -1276,8 +1313,7 @@ object ChatCompletionService {
     ): String {
         require(provider.apiKey.isNotBlank()) { "Provider API key is empty." }
         val modelName = if (provider.model.startsWith("models/")) provider.model else "models/${provider.model}"
-        val endpoint = provider.baseUrl.trimEnd('/') + "/$modelName:streamGenerateContent?alt=sse&key=" +
-            URLEncoder.encode(provider.apiKey, StandardCharsets.UTF_8.name())
+        val endpoint = buildGeminiEndpoint(provider.baseUrl, "$modelName:streamGenerateContent", provider.apiKey, "alt=sse")
         val payload = JSONObject().apply {
             if (!systemPrompt.isNullOrBlank()) {
                 put(
@@ -1298,8 +1334,14 @@ object ChatCompletionService {
                 },
             )
         }
-        val connection = openConnection(endpoint, "POST")
-        return executeStreamingRequest(connection, payload, onDelta) { line ->
+        return executeStreamingRequest(
+            HttpRequestSpec(
+                method = HttpMethod.POST,
+                url = endpoint,
+            ),
+            payload,
+            onDelta,
+        ) { line ->
             JSONObject(line)
                 .optJSONArray("candidates")
                 ?.optJSONObject(0)
@@ -1333,10 +1375,14 @@ object ChatCompletionService {
                 ),
             )
         }
-        val connection = openConnection(provider.baseUrl.trimEnd('/') + "/chat/completions", "POST").apply {
-            setRequestProperty("Authorization", "Bearer ${provider.apiKey}")
-        }
-        return executeJsonRequest(connection, payload) { body ->
+        return executeJsonRequest(
+            HttpRequestSpec(
+                method = HttpMethod.POST,
+                url = provider.baseUrl.trimEnd('/') + "/chat/completions",
+                headers = authorizationHeaders(provider.apiKey),
+            ),
+            payload,
+        ) { body ->
             JSONObject(body)
                 .optJSONArray("choices")
                 ?.optJSONObject(0)
@@ -1363,8 +1409,13 @@ object ChatCompletionService {
                 ),
             )
         }
-        val connection = openConnection(provider.baseUrl.trimEnd('/') + "/api/chat", "POST")
-        return executeJsonRequest(connection, payload) { body ->
+        return executeJsonRequest(
+            HttpRequestSpec(
+                method = HttpMethod.POST,
+                url = provider.baseUrl.trimEnd('/') + "/api/chat",
+            ),
+            payload,
+        ) { body ->
             JSONObject(body).optJSONObject("message")?.optString("content")
         }
     }
@@ -1376,8 +1427,7 @@ object ChatCompletionService {
     ): String? {
         require(provider.apiKey.isNotBlank()) { "Provider API key is empty." }
         val modelName = if (provider.model.startsWith("models/")) provider.model else "models/${provider.model}"
-        val endpoint = provider.baseUrl.trimEnd('/') + "/$modelName:generateContent?key=" +
-            URLEncoder.encode(provider.apiKey, StandardCharsets.UTF_8.name())
+        val endpoint = buildGeminiEndpoint(provider.baseUrl, "$modelName:generateContent", provider.apiKey)
         val payload = JSONObject().apply {
             put(
                 "contents",
@@ -1398,8 +1448,13 @@ object ChatCompletionService {
                 ),
             )
         }
-        val connection = openConnection(endpoint, "POST")
-        return executeJsonRequest(connection, payload) { body ->
+        return executeJsonRequest(
+            HttpRequestSpec(
+                method = HttpMethod.POST,
+                url = endpoint,
+            ),
+            payload,
+        ) { body ->
             JSONObject(body)
                 .optJSONArray("candidates")
                 ?.optJSONObject(0)
@@ -1413,12 +1468,20 @@ object ChatCompletionService {
     private fun executeProbeRequest(
         endpoint: String,
         payload: JSONObject,
-        configure: (HttpURLConnection) -> Unit,
+        headers: Map<String, String>,
         parser: (String) -> FeatureSupportState,
     ): FeatureSupportState {
-        val connection = openConnection(endpoint, "POST")
-        configure(connection)
-        return runCatching { executeJsonRequest(connection, payload, parser) }
+        return runCatching {
+            executeJsonRequest(
+                HttpRequestSpec(
+                    method = HttpMethod.POST,
+                    url = endpoint,
+                    headers = headers,
+                ),
+                payload,
+                parser,
+            )
+        }
             .getOrElse { error ->
                 RuntimeLogRepository.append("Multimodal probe error: ${error.message ?: error.javaClass.simpleName}")
                 FeatureSupportState.UNKNOWN
@@ -1501,48 +1564,66 @@ object ChatCompletionService {
         }
     }
 
-    private fun <T> executeJsonRequest(connection: HttpURLConnection, payload: JSONObject, parser: (String) -> T): T {
-        return try {
-            RuntimeLogRepository.append("HTTP json request start: url=${connection.url}")
-            connection.doOutput = true
-            val payloadBytes = payload.toString().toByteArray(StandardCharsets.UTF_8)
-            connection.setFixedLengthStreamingMode(payloadBytes.size)
-            connection.outputStream.use { output ->
-                output.write(payloadBytes)
-            }
-            RuntimeLogRepository.append("HTTP json request body sent: bytes=${payloadBytes.size}")
-            val responseCode = connection.responseCode
-            RuntimeLogRepository.append("HTTP json response code: code=$responseCode")
-            val body = readBody(connection, responseCode)
-            if (responseCode !in 200..299) {
-                throw IllegalStateException("HTTP $responseCode: $body")
-            }
-            parser(body)
-        } catch (error: Throwable) {
-            RuntimeLogRepository.append(
-                "HTTP json request failed: url=${connection.url} reason=${error.message ?: error.javaClass.simpleName}",
-            )
-            throw error
-        } finally {
-            connection.disconnect()
+    private fun authorizationHeaders(
+        apiKey: String,
+        accept: String? = null,
+        extra: Map<String, String> = emptyMap(),
+    ): Map<String, String> {
+        return buildMap {
+            put("Authorization", "Bearer $apiKey")
+            accept?.takeIf { it.isNotBlank() }?.let { put("Accept", it) }
+            putAll(extra)
         }
+    }
+
+    private fun <T> executeJsonRequest(requestSpec: HttpRequestSpec, payload: JSONObject, parser: (String) -> T): T {
+        val payloadBytes = payload.toString().toByteArray(StandardCharsets.UTF_8)
+        RuntimeLogRepository.append("HTTP json request body sent: bytes=${payloadBytes.size}")
+        val response = httpClient.execute(
+            requestSpec.copy(
+                body = payload.toString(),
+                contentType = "application/json",
+            ),
+        )
+        if (response.code !in 200..299) {
+            throw IllegalStateException("HTTP ${response.code}: ${response.body}")
+        }
+        return parser(response.body)
+    }
+
+    private fun <T> executeMultipartRequest(
+        requestSpec: HttpRequestSpec,
+        parts: List<MultipartPartSpec>,
+        parser: (String) -> T,
+    ): T {
+        val response = httpClient.executeMultipart(requestSpec, parts)
+        if (response.code !in 200..299) {
+            throw IllegalStateException("HTTP ${response.code}: ${response.body}")
+        }
+        return parser(response.body)
+    }
+
+    private fun executeBinaryRequest(requestSpec: HttpRequestSpec): ByteArray {
+        return httpClient.executeBytes(requestSpec)
     }
 
     private inline fun <T> executeOpenAiStyleChatWithRetry(
         endpoint: String,
         apiKey: String,
-        request: (HttpURLConnection) -> T,
+        request: (HttpRequestSpec) -> T,
     ): T {
         var lastError: Throwable? = null
         repeat(2) { attempt ->
-            val connection = openConnection(endpoint, "POST").apply {
-                setRequestProperty("Authorization", "Bearer $apiKey")
-            }
+            val requestSpec = HttpRequestSpec(
+                method = HttpMethod.POST,
+                url = endpoint,
+                headers = authorizationHeaders(apiKey),
+            )
             try {
                 if (attempt > 0) {
-                    RuntimeLogRepository.append("HTTP chat retry: endpoint=$endpoint attempt=${attempt + 1}")
+                    RuntimeLogRepository.append("HTTP chat retry: endpoint=${sanitizeUrlForLogs(endpoint)} attempt=${attempt + 1}")
                 }
-                return request(connection)
+                return request(requestSpec)
             } catch (error: Throwable) {
                 lastError = error
                 if (!shouldRetryChatRequest(error) || attempt > 0) {
@@ -1551,8 +1632,6 @@ object ChatCompletionService {
                 RuntimeLogRepository.append(
                     "HTTP chat retry scheduled: reason=${error.message ?: error.javaClass.simpleName}",
                 )
-            } finally {
-                runCatching { connection.disconnect() }
             }
         }
         throw lastError ?: IllegalStateException("OpenAI-style chat request failed.")
@@ -1565,38 +1644,6 @@ object ChatCompletionService {
             "unexpected end of stream" in message ||
             "stream was reset" in message ||
             "software caused connection abort" in message
-    }
-
-    private fun openConnection(endpoint: String, method: String): HttpURLConnection {
-        RuntimeLogRepository.append("HTTP request: method=$method endpoint=$endpoint")
-        return (URL(endpoint).openConnection() as HttpURLConnection).apply {
-            requestMethod = method
-            connectTimeout = 30_000
-            readTimeout = 60_000
-            doInput = true
-            useCaches = false
-            instanceFollowRedirects = true
-            setRequestProperty("Connection", "close")
-            setRequestProperty("Accept", "application/json")
-            setRequestProperty("Content-Type", "application/json")
-        }
-    }
-
-    private fun openMultipartConnection(endpoint: String, boundary: String): HttpURLConnection {
-        RuntimeLogRepository.append("HTTP multipart request: endpoint=$endpoint")
-        return (URL(endpoint).openConnection() as HttpURLConnection).apply {
-            requestMethod = "POST"
-            connectTimeout = 30_000
-            readTimeout = 120_000
-            doOutput = true
-            setRequestProperty("Content-Type", "multipart/form-data; boundary=$boundary")
-        }
-    }
-
-    private fun readBody(connection: HttpURLConnection, responseCode: Int): String {
-        val stream = if (responseCode in 200..299) connection.inputStream else connection.errorStream
-        if (stream == null) return ""
-        return BufferedReader(InputStreamReader(stream, StandardCharsets.UTF_8)).use { reader -> reader.readText() }
     }
 
     private fun buildOpenAiContent(message: ConversationMessage): Any {
@@ -1678,32 +1725,51 @@ object ChatCompletionService {
 
     private fun downloadBytes(url: String): ByteArray {
         val resolvedUrl = normalizeBinaryDownloadUrl(url)
-        RuntimeLogRepository.append("HTTP binary download start: url=$resolvedUrl")
-        val connection = (URL(resolvedUrl).openConnection() as HttpURLConnection).apply {
-            requestMethod = "GET"
-            connectTimeout = 30_000
-            readTimeout = 60_000
-            doInput = true
-            useCaches = false
-            instanceFollowRedirects = true
-            setRequestProperty("Connection", "close")
-        }
-        return try {
-            val responseCode = connection.responseCode
-            if (responseCode !in 200..299) {
-                val body = readBody(connection, responseCode)
-                throw IllegalStateException(
-                    "HTTP $responseCode while downloading binary content.${body.takeIf { it.isNotBlank() }?.let { " $it" } ?: ""}",
-                )
-            }
-            connection.inputStream.use { it.readBytes() }
-        } finally {
-            connection.disconnect()
-        }
+        return executeBinaryRequest(
+            HttpRequestSpec(
+                method = HttpMethod.GET,
+                url = resolvedUrl,
+            ),
+        )
     }
 
     private fun normalizeBinaryDownloadUrl(url: String): String {
         return url
+    }
+
+    private fun sanitizeUrlForLogs(url: String): String {
+        val queryStart = url.indexOf('?')
+        if (queryStart < 0) return url
+        val base = url.substring(0, queryStart)
+        val query = url.substring(queryStart + 1)
+        val sanitizedQuery = query.split("&")
+            .filter { it.isNotBlank() }
+            .joinToString("&") { pair ->
+                val separator = pair.indexOf('=')
+                if (separator <= 0) return@joinToString pair
+                val key = pair.substring(0, separator)
+                val value = pair.substring(separator + 1)
+                if (key.equals("key", ignoreCase = true) || key.equals("api_key", ignoreCase = true)) {
+                    "$key=***"
+                } else {
+                    "$key=$value"
+                }
+        }
+        return "$base?$sanitizedQuery"
+    }
+
+    private fun buildGeminiEndpoint(
+        baseUrl: String,
+        path: String,
+        apiKey: String,
+        extraQuery: String = "",
+    ): String {
+        // Gemini REST currently requires the API key in the query string instead of an Authorization header.
+        val normalizedQuery = buildList {
+            if (extraQuery.isNotBlank()) add(extraQuery)
+            add("key=${URLEncoder.encode(apiKey, StandardCharsets.UTF_8.name())}")
+        }.joinToString("&")
+        return baseUrl.trimEnd('/') + "/$path?$normalizedQuery"
     }
 
     private fun buildBailianSttAudioInput(attachment: ConversationAttachment): String {
@@ -1807,29 +1873,17 @@ object ChatCompletionService {
         )
     }
 
-    private fun synthesizeWithDashScopeSse(
-        connection: HttpURLConnection,
-        payload: JSONObject,
-    ): ConversationAttachment {
-        connection.doOutput = true
-        connection.outputStream.use { output ->
-            output.write(payload.toString().toByteArray(StandardCharsets.UTF_8))
-        }
-        val responseCode = connection.responseCode
-        if (responseCode !in 200..299) {
-            val body = readBody(connection, responseCode)
-            throw IllegalStateException("HTTP $responseCode: $body")
-        }
-
+    private fun synthesizeWithDashScopeSse(requestSpec: HttpRequestSpec): ConversationAttachment {
         val audioBytes = ByteArrayOutputStream()
         var finalAudioUrl = ""
-        connection.inputStream.bufferedReader(StandardCharsets.UTF_8).useLines { lines ->
-            lines.forEach { line ->
+
+        runBlocking {
+            httpClient.executeStream(requestSpec) { line ->
                 val payloadLine = line.removePrefix("data:").trim()
                 if (!line.startsWith("data:") || payloadLine.isBlank() || payloadLine == "[DONE]") {
-                    return@forEach
+                    return@executeStream
                 }
-                val json = runCatching { JSONObject(payloadLine) }.getOrNull() ?: return@forEach
+                val json = runCatching { JSONObject(payloadLine) }.getOrNull() ?: return@executeStream
                 val chunk = extractDashScopeAudioData(json)
                 if (chunk.isNotBlank()) {
                     audioBytes.write(decodeDashScopeAudioData(chunk))
@@ -1983,42 +2037,6 @@ object ChatCompletionService {
         }
     }
 
-    private fun writeMultipartText(
-        output: java.io.OutputStream,
-        boundary: String,
-        fieldName: String,
-        value: String,
-    ) {
-        output.write("--$boundary\r\n".toByteArray(StandardCharsets.UTF_8))
-        output.write("Content-Disposition: form-data; name=\"$fieldName\"\r\n\r\n".toByteArray(StandardCharsets.UTF_8))
-        output.write(value.toByteArray(StandardCharsets.UTF_8))
-        output.write("\r\n".toByteArray(StandardCharsets.UTF_8))
-    }
-
-    private fun writeMultipartFile(
-        output: java.io.OutputStream,
-        boundary: String,
-        fieldName: String,
-        fileName: String,
-        mimeType: String,
-        bytes: ByteArray,
-    ) {
-        output.write("--$boundary\r\n".toByteArray(StandardCharsets.UTF_8))
-        output.write(
-            "Content-Disposition: form-data; name=\"$fieldName\"; filename=\"$fileName\"\r\n".toByteArray(StandardCharsets.UTF_8),
-        )
-        output.write("Content-Type: $mimeType\r\n\r\n".toByteArray(StandardCharsets.UTF_8))
-        output.write(bytes)
-        output.write("\r\n".toByteArray(StandardCharsets.UTF_8))
-    }
-
-    private fun finishMultipart(
-        output: java.io.OutputStream,
-        boundary: String,
-    ) {
-        output.write("--$boundary--\r\n".toByteArray(StandardCharsets.UTF_8))
-    }
-
     private fun ProviderProfile.hasMultimodalSupport(): Boolean {
         return multimodalProbeSupport == FeatureSupportState.SUPPORTED ||
             multimodalRuleSupport == FeatureSupportState.SUPPORTED ||
@@ -2026,26 +2044,21 @@ object ChatCompletionService {
     }
 
     private fun executeStreamingProbeRequest(
-        connection: HttpURLConnection,
+        requestSpec: HttpRequestSpec,
         payload: JSONObject,
         chunkParser: (String) -> String,
     ): FeatureSupportState {
         return try {
-            connection.doOutput = true
-            connection.outputStream.use { output ->
-                output.write(payload.toString().toByteArray(StandardCharsets.UTF_8))
-            }
-            val responseCode = connection.responseCode
-            if (responseCode !in 200..299) {
-                val body = readBody(connection, responseCode)
-                throw IllegalStateException("HTTP $responseCode: $body")
-            }
-
             val chunks = mutableListOf<String>()
-            connection.inputStream.bufferedReader(StandardCharsets.UTF_8).useLines { lines ->
-                lines.forEach { rawLine ->
+            runBlocking {
+                httpClient.executeStream(
+                    requestSpec.copy(
+                        body = payload.toString(),
+                        contentType = "application/json",
+                    ),
+                ) { rawLine ->
                     val line = rawLine.removePrefix("data:").trim()
-                    if (line.isBlank() || line == "[DONE]") return@forEach
+                    if (line.isBlank() || line == "[DONE]") return@executeStream
                     val chunk = runCatching { chunkParser(line) }.getOrDefault("")
                     if (chunk.isNotBlank()) {
                         chunks += chunk
@@ -2062,8 +2075,6 @@ object ChatCompletionService {
         } catch (error: Exception) {
             RuntimeLogRepository.append("Native streaming probe error: ${error.message ?: error.javaClass.simpleName}")
             FeatureSupportState.UNKNOWN
-        } finally {
-            connection.disconnect()
         }
     }
 
@@ -2071,6 +2082,9 @@ object ChatCompletionService {
         text: String,
         readBracketedContent: Boolean,
     ): PreparedTtsRequest {
+        return TtsPromptFormatter.prepareRequest(text, readBracketedContent)
+    }
+        /*
         val matches = collectBracketMatches(text)
         if (matches.isEmpty()) {
             return PreparedTtsRequest(spokenText = text.trim())
@@ -2167,6 +2181,8 @@ object ChatCompletionService {
         return !char.isWhitespace() && char !in setOf('，', ',', '。', '！', '？', '!', '?', '：', ':', '；', ';')
     }
 
+        */
+
     private fun supportsOpenAiSpeechInstructions(model: String): Boolean {
         return model.trim().lowercase(Locale.US).contains("gpt-4o-mini-tts")
     }
@@ -2208,6 +2224,9 @@ object ChatCompletionService {
     }
 
     private fun extractOpenAiStyleStreamingContent(line: String): String {
+        return TtsPromptFormatter.extractOpenAiStyleStreamingContent(line)
+    }
+        /*
         val delta = JSONObject(line)
             .optJSONArray("choices")
             ?.optJSONObject(0)
@@ -2295,65 +2314,45 @@ object ChatCompletionService {
         return "请不要直接朗读括号中的提示词，而是将它们作为语气、情绪和演绎提示：$stylePrompt"
     }
 
-    private data class PreparedTtsRequest(
-        val spokenText: String,
-        val stylePrompt: String = "",
-        val styleHints: TtsStyleHints = TtsStyleHints(),
-    )
-
     private data class BracketMatch(
         val start: Int,
         val endExclusive: Int,
         val inner: String,
     )
 
+        */
+
     private suspend fun executeStreamingRequest(
-        connection: HttpURLConnection,
+        requestSpec: HttpRequestSpec,
         payload: JSONObject,
         onDelta: suspend (String) -> Unit,
         chunkParser: (String) -> String,
     ): String {
         return try {
-            RuntimeLogRepository.append("HTTP streaming request start: url=${connection.url}")
-            connection.doOutput = true
             val payloadBytes = payload.toString().toByteArray(StandardCharsets.UTF_8)
-            connection.setFixedLengthStreamingMode(payloadBytes.size)
-            connection.outputStream.use { output ->
-                output.write(payloadBytes)
-            }
             RuntimeLogRepository.append("HTTP streaming request body sent: bytes=${payloadBytes.size}")
-            val responseCode = connection.responseCode
-            RuntimeLogRepository.append("HTTP streaming response code: code=$responseCode")
-            if (responseCode !in 200..299) {
-                val body = readBody(connection, responseCode)
-                throw IllegalStateException("HTTP $responseCode: $body")
-            }
-
             val chunks = mutableListOf<String>()
-            connection.inputStream.bufferedReader(StandardCharsets.UTF_8).use { reader ->
-                while (true) {
-                    val rawLine = reader.readLine() ?: break
+            httpClient.executeStream(
+                requestSpec.copy(
+                    body = payload.toString(),
+                    contentType = "application/json",
+                ),
+            ) { rawLine ->
                     val line = rawLine.removePrefix("data:").trim()
                     if (line.isBlank() || line == "[DONE]") {
-                        continue
+                        return@executeStream
                     }
                     val chunk = runCatching { chunkParser(line) }.getOrDefault("")
                     if (chunk.isNotBlank()) {
                         chunks += chunk
                         onDelta(chunk)
                     }
-                }
             }
             chunks.joinToString("").trim().ifBlank {
                 throw IllegalStateException("Model response is empty.")
             }
         } catch (error: Throwable) {
-            RuntimeLogRepository.append(
-                "HTTP streaming request failed: url=${connection.url} reason=${error.message ?: error.javaClass.simpleName}",
-            )
             throw error
-        } finally {
-            connection.disconnect()
         }
     }
 
