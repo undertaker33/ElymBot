@@ -2,22 +2,41 @@ package com.astrbot.android.data
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.astrbot.android.data.db.AppPreferenceDao
+import com.astrbot.android.data.db.AppPreferenceEntity
+import com.astrbot.android.data.db.AstrBotDatabase
+import com.astrbot.android.data.db.ConfigProfileDao
+import com.astrbot.android.data.db.ConfigProfileEntity
+import com.astrbot.android.data.db.toEntity
+import com.astrbot.android.data.db.toProfile
 import com.astrbot.android.model.ConfigProfile
 import com.astrbot.android.runtime.RuntimeLogRepository
+import java.util.UUID
+import java.util.concurrent.atomic.AtomicBoolean
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import org.json.JSONArray
-import org.json.JSONObject
-import java.util.UUID
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 
 object ConfigRepository {
     private const val PREFS_NAME = "config_profiles"
     private const val KEY_PROFILES_JSON = "profiles_json"
     private const val KEY_SELECTED_ID = "selected_id"
+    private const val PREF_SELECTED_PROFILE_ID = "selected_config_profile_id"
     const val DEFAULT_CONFIG_ID = "default"
 
+    private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val initialized = AtomicBoolean(false)
+
     private var preferences: SharedPreferences? = null
+    private var configProfileDao: ConfigProfileDao = ConfigProfileDaoPlaceholder.instance
+    private var appPreferenceDao: AppPreferenceDao = ConfigAppPreferenceDaoPlaceholder.instance
 
     private val _profiles = MutableStateFlow(defaultProfiles())
     private val _selectedProfileId = MutableStateFlow(DEFAULT_CONFIG_ID)
@@ -26,21 +45,34 @@ object ConfigRepository {
     val selectedProfileId: StateFlow<String> = _selectedProfileId.asStateFlow()
 
     fun initialize(context: Context) {
-        if (preferences != null) return
+        if (!initialized.compareAndSet(false, true)) return
         preferences = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        loadSavedProfiles()?.takeIf { it.isNotEmpty() }?.let { saved ->
-            _profiles.value = saved.map(::normalizeProfile)
+        val database = AstrBotDatabase.get(context)
+        configProfileDao = database.configProfileDao()
+        appPreferenceDao = database.appPreferenceDao()
+
+        runBlocking(Dispatchers.IO) {
+            seedStorageIfNeeded()
         }
-        val storedSelectedId = preferences?.getString(KEY_SELECTED_ID, DEFAULT_CONFIG_ID).orEmpty()
-        _selectedProfileId.value = resolveExistingId(storedSelectedId)
-        persist()
-        RuntimeLogRepository.append("Config profiles loaded: count=${_profiles.value.size}")
+        repositoryScope.launch {
+            combine(
+                configProfileDao.observeProfiles(),
+                appPreferenceDao.observeValue(PREF_SELECTED_PROFILE_ID),
+            ) { entities, selectedId ->
+                entities to selectedId
+            }.collect { (entities, selectedId) ->
+                val loaded = entities.map { entity -> normalizeProfile(entity.toProfile()) }.ifEmpty { defaultProfiles() }
+                _profiles.value = loaded
+                _selectedProfileId.value = resolveExistingId(selectedId)
+                RuntimeLogRepository.append("Config profiles loaded: count=${loaded.size}")
+            }
+        }
     }
 
     fun select(profileId: String) {
         val resolvedId = resolveExistingId(profileId)
         _selectedProfileId.value = resolvedId
-        preferences?.edit()?.putString(KEY_SELECTED_ID, resolvedId)?.apply()
+        persistSelectedProfileId(resolvedId)
         RuntimeLogRepository.append("Config profile selected: $resolvedId")
     }
 
@@ -51,15 +83,15 @@ object ConfigRepository {
             ),
         )
         val exists = _profiles.value.any { it.id == normalized.id }
-        _profiles.value = if (exists) {
+        val updatedProfiles = if (exists) {
             _profiles.value.map { if (it.id == normalized.id) normalized else it }
         } else {
             _profiles.value + normalized
         }
-        if (_selectedProfileId.value.isBlank()) {
-            _selectedProfileId.value = normalized.id
-        }
-        persist()
+        val updatedSelected = if (_selectedProfileId.value.isBlank()) normalized.id else _selectedProfileId.value
+        _profiles.value = updatedProfiles
+        _selectedProfileId.value = resolveExistingId(updatedSelected)
+        persistState(updatedProfiles, _selectedProfileId.value)
         RuntimeLogRepository.append(
             if (exists) "Config profile updated: ${normalized.name}" else "Config profile created: ${normalized.name}",
         )
@@ -78,14 +110,17 @@ object ConfigRepository {
         if (_profiles.value.size == 1) {
             return DEFAULT_CONFIG_ID
         }
-        _profiles.value = _profiles.value.filterNot { it.id == profileId }
-        val fallbackId = resolveExistingId(_selectedProfileId.value)
-        if (_selectedProfileId.value == profileId) {
-            _selectedProfileId.value = fallbackId
+        val updatedProfiles = _profiles.value.filterNot { it.id == profileId }
+        val updatedSelected = if (_selectedProfileId.value == profileId) {
+            updatedProfiles.firstOrNull()?.id ?: DEFAULT_CONFIG_ID
+        } else {
+            resolveExistingId(_selectedProfileId.value)
         }
-        persist()
+        _profiles.value = updatedProfiles
+        _selectedProfileId.value = updatedSelected
+        persistState(updatedProfiles, updatedSelected)
         RuntimeLogRepository.append("Config profile deleted: $profileId")
-        return fallbackId
+        return updatedSelected
     }
 
     fun resolve(profileId: String): ConfigProfile {
@@ -121,128 +156,90 @@ object ConfigRepository {
             .map(::normalizeProfile)
             .distinctBy { it.id }
             .ifEmpty { defaultProfiles() }
+        val resolvedSelected = restored.firstOrNull { it.id == selectedProfileId }?.id ?: restored.first().id
         _profiles.value = restored
-        _selectedProfileId.value = restored.firstOrNull { it.id == selectedProfileId }?.id ?: restored.first().id
-        persist()
-        RuntimeLogRepository.append("Config profiles restored: count=${restored.size} selected=${_selectedProfileId.value}")
+        _selectedProfileId.value = resolvedSelected
+        persistState(restored, resolvedSelected)
+        RuntimeLogRepository.append("Config profiles restored: count=${restored.size} selected=$resolvedSelected")
     }
 
-    private fun loadSavedProfiles(): List<ConfigProfile>? {
-        val raw = preferences?.getString(KEY_PROFILES_JSON, null)?.takeIf { it.isNotBlank() } ?: return null
-        return runCatching {
-            val array = JSONArray(raw)
-            buildList {
-                for (index in 0 until array.length()) {
-                    val item = array.optJSONObject(index) ?: continue
-                    add(
-                        ConfigProfile(
-                            id = item.optString("id"),
-                            name = item.optString("name"),
-                            defaultChatProviderId = item.optString("defaultChatProviderId"),
-                            defaultVisionProviderId = item.optString("defaultVisionProviderId"),
-                            defaultSttProviderId = item.optString("defaultSttProviderId"),
-                            defaultTtsProviderId = item.optString("defaultTtsProviderId"),
-                            sttEnabled = item.optBoolean("sttEnabled", false),
-                            ttsEnabled = item.optBoolean("ttsEnabled", false),
-                            alwaysTtsEnabled = item.optBoolean("alwaysTtsEnabled", false),
-                            ttsReadBracketedContent = item.optBoolean("ttsReadBracketedContent", true),
-                            textStreamingEnabled = item.optBoolean("textStreamingEnabled", false),
-                            voiceStreamingEnabled = item.optBoolean("voiceStreamingEnabled", false),
-                            streamingMessageIntervalMs = item.optInt("streamingMessageIntervalMs", 120),
-                            realWorldTimeAwarenessEnabled = item.optBoolean("realWorldTimeAwarenessEnabled", false),
-                            imageCaptionTextEnabled = item.optBoolean("imageCaptionTextEnabled", false),
-                            webSearchEnabled = item.optBoolean("webSearchEnabled", false),
-                            proactiveEnabled = item.optBoolean("proactiveEnabled", false),
-                            ttsVoiceId = item.optString("ttsVoiceId"),
-                            imageCaptionPrompt = item.optString(
-                                "imageCaptionPrompt",
-                                defaultProfiles().first().imageCaptionPrompt,
-                            ),
-                            adminUids = item.optStringList("adminUids"),
-                            sessionIsolationEnabled = item.optBoolean("sessionIsolationEnabled", false),
-                            wakeWords = item.optStringList("wakeWords"),
-                            wakeWordsAdminOnlyEnabled = item.optBoolean("wakeWordsAdminOnlyEnabled", false),
-                            privateChatRequiresWakeWord = item.optBoolean("privateChatRequiresWakeWord", false),
-                            replyTextPrefix = item.optString("replyTextPrefix"),
-                            quoteSenderMessageEnabled = item.optBoolean("quoteSenderMessageEnabled", false),
-                            mentionSenderEnabled = item.optBoolean("mentionSenderEnabled", false),
-                            replyOnAtOnlyEnabled = item.optBoolean("replyOnAtOnlyEnabled", true),
-                            whitelistEnabled = item.optBoolean("whitelistEnabled", false),
-                            whitelistEntries = item.optStringList("whitelistEntries"),
-                            logOnWhitelistMiss = item.optBoolean("logOnWhitelistMiss", false),
-                            adminGroupBypassWhitelistEnabled = item.optBoolean("adminGroupBypassWhitelistEnabled", true),
-                            adminPrivateBypassWhitelistEnabled = item.optBoolean("adminPrivateBypassWhitelistEnabled", true),
-                            ignoreSelfMessageEnabled = item.optBoolean("ignoreSelfMessageEnabled", true),
-                            ignoreAtAllEventEnabled = item.optBoolean("ignoreAtAllEventEnabled", true),
-                            replyWhenPermissionDenied = item.optBoolean("replyWhenPermissionDenied", false),
-                            rateLimitWindowSeconds = item.optInt("rateLimitWindowSeconds", 0),
-                            rateLimitMaxCount = item.optInt("rateLimitMaxCount", 0),
-                            rateLimitStrategy = item.optString("rateLimitStrategy", "drop"),
-                            keywordDetectionEnabled = item.optBoolean("keywordDetectionEnabled", false),
-                            keywordPatterns = item.optStringList("keywordPatterns"),
-                        ),
-                    )
+    private fun persistState(
+        profiles: List<ConfigProfile>,
+        selectedId: String,
+    ) {
+        runBlocking(Dispatchers.IO) {
+            if (profiles.isEmpty()) {
+                configProfileDao.clearAll()
+            } else {
+                val entities = profiles.mapIndexed { index, profile ->
+                    profile.toEntity(sortIndex = index)
                 }
+                configProfileDao.upsertAll(entities)
+                configProfileDao.deleteMissing(entities.map { it.id })
             }
-        }.onFailure { error ->
-            RuntimeLogRepository.append("Config profiles load failed: ${error.message ?: error.javaClass.simpleName}")
-        }.getOrNull()
+            appPreferenceDao.upsert(
+                AppPreferenceEntity(
+                    key = PREF_SELECTED_PROFILE_ID,
+                    value = selectedId,
+                    updatedAt = System.currentTimeMillis(),
+                ),
+            )
+        }
     }
 
-    private fun persist() {
-        val json = JSONArray().apply {
-            _profiles.value.forEach { profile ->
-                put(
-                    JSONObject().apply {
-                        put("id", profile.id)
-                        put("name", profile.name)
-                        put("defaultChatProviderId", profile.defaultChatProviderId)
-                        put("defaultVisionProviderId", profile.defaultVisionProviderId)
-                        put("defaultSttProviderId", profile.defaultSttProviderId)
-                        put("defaultTtsProviderId", profile.defaultTtsProviderId)
-                        put("sttEnabled", profile.sttEnabled)
-                        put("ttsEnabled", profile.ttsEnabled)
-                        put("alwaysTtsEnabled", profile.alwaysTtsEnabled)
-                        put("ttsReadBracketedContent", profile.ttsReadBracketedContent)
-                        put("textStreamingEnabled", profile.textStreamingEnabled)
-                        put("voiceStreamingEnabled", profile.voiceStreamingEnabled)
-                        put("streamingMessageIntervalMs", profile.streamingMessageIntervalMs)
-                        put("realWorldTimeAwarenessEnabled", profile.realWorldTimeAwarenessEnabled)
-                        put("imageCaptionTextEnabled", profile.imageCaptionTextEnabled)
-                        put("webSearchEnabled", profile.webSearchEnabled)
-                        put("proactiveEnabled", profile.proactiveEnabled)
-                        put("ttsVoiceId", profile.ttsVoiceId)
-                        put("imageCaptionPrompt", profile.imageCaptionPrompt)
-                        put("adminUids", JSONArray(profile.adminUids))
-                        put("sessionIsolationEnabled", profile.sessionIsolationEnabled)
-                        put("wakeWords", JSONArray(profile.wakeWords))
-                        put("wakeWordsAdminOnlyEnabled", profile.wakeWordsAdminOnlyEnabled)
-                        put("privateChatRequiresWakeWord", profile.privateChatRequiresWakeWord)
-                        put("replyTextPrefix", profile.replyTextPrefix)
-                        put("quoteSenderMessageEnabled", profile.quoteSenderMessageEnabled)
-                        put("mentionSenderEnabled", profile.mentionSenderEnabled)
-                        put("replyOnAtOnlyEnabled", profile.replyOnAtOnlyEnabled)
-                        put("whitelistEnabled", profile.whitelistEnabled)
-                        put("whitelistEntries", JSONArray(profile.whitelistEntries))
-                        put("logOnWhitelistMiss", profile.logOnWhitelistMiss)
-                        put("adminGroupBypassWhitelistEnabled", profile.adminGroupBypassWhitelistEnabled)
-                        put("adminPrivateBypassWhitelistEnabled", profile.adminPrivateBypassWhitelistEnabled)
-                        put("ignoreSelfMessageEnabled", profile.ignoreSelfMessageEnabled)
-                        put("ignoreAtAllEventEnabled", profile.ignoreAtAllEventEnabled)
-                        put("replyWhenPermissionDenied", profile.replyWhenPermissionDenied)
-                        put("rateLimitWindowSeconds", profile.rateLimitWindowSeconds)
-                        put("rateLimitMaxCount", profile.rateLimitMaxCount)
-                        put("rateLimitStrategy", profile.rateLimitStrategy)
-                        put("keywordDetectionEnabled", profile.keywordDetectionEnabled)
-                        put("keywordPatterns", JSONArray(profile.keywordPatterns))
-                    },
-                )
-            }
+    private fun persistSelectedProfileId(selectedId: String) {
+        runBlocking(Dispatchers.IO) {
+            appPreferenceDao.upsert(
+                AppPreferenceEntity(
+                    key = PREF_SELECTED_PROFILE_ID,
+                    value = selectedId,
+                    updatedAt = System.currentTimeMillis(),
+                ),
+            )
         }
-        preferences?.edit()
-            ?.putString(KEY_PROFILES_JSON, json.toString())
-            ?.putString(KEY_SELECTED_ID, resolveExistingId(_selectedProfileId.value))
-            ?.apply()
+    }
+
+    private suspend fun seedStorageIfNeeded() {
+        val imported = runCatching {
+            parseLegacyConfigProfiles(
+                rawProfilesJson = preferences?.getString(KEY_PROFILES_JSON, null),
+                rawSelectedId = preferences?.getString(KEY_SELECTED_ID, DEFAULT_CONFIG_ID),
+            )
+        }.onFailure { error ->
+            RuntimeLogRepository.append("Config profiles legacy import failed: ${error.message ?: error.javaClass.simpleName}")
+        }.getOrElse {
+            LegacyConfigImport(emptyList(), DEFAULT_CONFIG_ID)
+        }
+
+        if (configProfileDao.count() == 0) {
+            val seededProfiles = imported.profiles.map(::normalizeProfile).ifEmpty { defaultProfiles() }
+            configProfileDao.upsertAll(
+                seededProfiles.mapIndexed { index, profile -> profile.toEntity(sortIndex = index) },
+            )
+            RuntimeLogRepository.append(
+                if (imported.profiles.isNotEmpty()) {
+                    "Config profiles migrated from SharedPreferences: count=${seededProfiles.size}"
+                } else {
+                    "Config profiles seeded with defaults: count=${seededProfiles.size}"
+                },
+            )
+        }
+
+        if (appPreferenceDao.getValue(PREF_SELECTED_PROFILE_ID).isNullOrBlank()) {
+            val availableIds = configProfileDao.listProfiles().map(ConfigProfileEntity::id)
+            val resolvedSelected = when {
+                imported.selectedProfileId != null && availableIds.contains(imported.selectedProfileId) -> imported.selectedProfileId
+                availableIds.isNotEmpty() -> availableIds.first()
+                else -> DEFAULT_CONFIG_ID
+            }
+            appPreferenceDao.upsert(
+                AppPreferenceEntity(
+                    key = PREF_SELECTED_PROFILE_ID,
+                    value = resolvedSelected,
+                    updatedAt = System.currentTimeMillis(),
+                ),
+            )
+        }
     }
 
     private fun normalizeProfile(profile: ConfigProfile): ConfigProfile {
@@ -271,20 +268,37 @@ object ConfigRepository {
         )
     }
 
-    private fun JSONObject.optStringList(key: String): List<String> {
-        val array = optJSONArray(key) ?: return emptyList()
-        return buildList {
-            for (index in 0 until array.length()) {
-                add(array.opt(index)?.toString().orEmpty())
-            }
-        }
-    }
-
     private fun List<String>.normalizeStringList(): List<String> {
         return asSequence()
             .map { it.trim() }
             .filter { it.isNotBlank() }
             .distinct()
             .toList()
+    }
+}
+
+private object ConfigProfileDaoPlaceholder {
+    val instance = object : ConfigProfileDao {
+        override fun observeProfiles() = flowOf(emptyList<ConfigProfileEntity>())
+
+        override suspend fun listProfiles(): List<ConfigProfileEntity> = emptyList()
+
+        override suspend fun upsertAll(entities: List<ConfigProfileEntity>) = Unit
+
+        override suspend fun deleteMissing(ids: List<String>) = Unit
+
+        override suspend fun clearAll() = Unit
+
+        override suspend fun count(): Int = 0
+    }
+}
+
+private object ConfigAppPreferenceDaoPlaceholder {
+    val instance = object : AppPreferenceDao {
+        override fun observeValue(key: String) = flowOf<String?>(null)
+
+        override suspend fun getValue(key: String): String? = null
+
+        override suspend fun upsert(entity: AppPreferenceEntity) = Unit
     }
 }

@@ -45,10 +45,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.viewmodel.compose.viewModel
+import com.astrbot.android.di.astrBotViewModel
 import com.astrbot.android.R
 import com.astrbot.android.model.ConfigProfile
 import com.astrbot.android.model.ProviderCapability
@@ -63,7 +64,7 @@ fun ConfigScreen(
     selectedConfigIds: Set<String>,
     onSelectedConfigIdsChange: (Set<String>) -> Unit,
     onOpenProfile: (String) -> Unit,
-    configViewModel: ConfigViewModel = viewModel(),
+    configViewModel: ConfigViewModel = astrBotViewModel(),
 ) {
     val configProfiles by configViewModel.configProfiles.collectAsState()
     val selectedConfigId by configViewModel.selectedConfigProfileId.collectAsState()
@@ -107,7 +108,8 @@ fun ConfigScreen(
                     onValueChange = { searchQuery = it },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(54.dp),
+                        .height(54.dp)
+                        .testTag("config-search-field"),
                     leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
                     placeholder = { Text(stringResource(R.string.config_search_placeholder)) },
                     shape = RoundedCornerShape(28.dp),
@@ -149,7 +151,8 @@ fun ConfigScreen(
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .navigationBarsPadding()
-                    .padding(start = 20.dp, end = 20.dp, bottom = FloatingBottomNavFabBottomPadding),
+                    .padding(start = 20.dp, end = 20.dp, bottom = FloatingBottomNavFabBottomPadding)
+                    .testTag("config-delete-fab"),
                 containerColor = MonochromeUi.fabBackground,
                 contentColor = MonochromeUi.fabContent,
                 elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 6.dp),
@@ -165,7 +168,8 @@ fun ConfigScreen(
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .navigationBarsPadding()
-                    .padding(start = 20.dp, end = 20.dp, bottom = FloatingBottomNavFabBottomPadding),
+                    .padding(start = 20.dp, end = 20.dp, bottom = FloatingBottomNavFabBottomPadding)
+                    .testTag("config-add-fab"),
                 containerColor = MonochromeUi.fabBackground,
                 contentColor = MonochromeUi.fabContent,
                 elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 6.dp),

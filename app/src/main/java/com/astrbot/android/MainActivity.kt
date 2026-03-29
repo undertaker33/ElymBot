@@ -29,16 +29,17 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.lifecycleScope
 import com.astrbot.android.data.AppPreferencesRepository
 import com.astrbot.android.data.AppSettings
-import com.astrbot.android.data.NapCatBridgeRepository
 import com.astrbot.android.data.ThemeMode
-import com.astrbot.android.runtime.ContainerBridgeController
-import com.astrbot.android.runtime.RuntimeLogRepository
+import com.astrbot.android.di.MainActivityDependencies
+import com.astrbot.android.model.NapCatRuntimeState
 import com.astrbot.android.ui.AstrBotApp
 import com.astrbot.android.ui.MonochromeUi
 import com.astrbot.android.ui.theme.AstrBotTheme
 import kotlinx.coroutines.launch
 
 class MainActivity : AppCompatActivity() {
+    private val appDependencies: MainActivityDependencies
+        get() = (application as AstrBotApplication).appContainer.mainActivityDependencies
 
     companion object {
         private val LightTransitionColor = Color(0xFFF7F7F7)
@@ -171,13 +172,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun maybeAutoStartBridge() {
-        val bridgeConfig = NapCatBridgeRepository.config.value
-        val runtimeState = NapCatBridgeRepository.runtimeState.value
-        if (!bridgeConfig.autoStart) return
-        if (runtimeState.status == "Running" || runtimeState.status == "Starting") return
+        if (!shouldAutoStartBridgeForTests(appDependencies.autoStartEnabled, appDependencies.runtimeState)) return
 
-        RuntimeLogRepository.append("Bridge auto-start triggered from app launch")
-        ContainerBridgeController.start(applicationContext)
+        appDependencies.log("Bridge auto-start triggered from app launch")
+        appDependencies.startBridge(applicationContext)
     }
 
     private fun resolveIsDark(
@@ -190,4 +188,11 @@ class MainActivity : AppCompatActivity() {
             ThemeMode.SYSTEM -> systemIsDark
         }
     }
+}
+
+internal fun shouldAutoStartBridgeForTests(
+    autoStartEnabled: Boolean,
+    runtimeState: NapCatRuntimeState,
+): Boolean {
+    return autoStartEnabled && !runtimeState.blocksAutoStart()
 }

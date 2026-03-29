@@ -52,7 +52,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.viewmodel.compose.viewModel
+import com.astrbot.android.di.astrBotViewModel
 import com.astrbot.android.R
 import com.astrbot.android.data.ChatCompletionService
 import com.astrbot.android.data.TtsVoiceCatalog
@@ -75,7 +75,7 @@ import kotlinx.coroutines.withContext
 fun ConfigDetailScreen(
     profileId: String,
     onBack: () -> Unit,
-    configViewModel: ConfigViewModel = viewModel(),
+    configViewModel: ConfigViewModel = astrBotViewModel(),
 ) {
     val profiles by configViewModel.configProfiles.collectAsState()
     val providers by configViewModel.providers.collectAsState()

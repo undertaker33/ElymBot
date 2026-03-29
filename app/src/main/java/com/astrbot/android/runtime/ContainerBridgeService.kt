@@ -8,6 +8,7 @@ import android.content.Intent
 import android.os.Build
 import android.os.IBinder
 import com.astrbot.android.data.NapCatBridgeRepository
+import com.astrbot.android.model.RuntimeStatus
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -280,63 +281,23 @@ class ContainerBridgeService : Service() {
     }
 
     private fun syncProgressFromRuntimeFiles(): RuntimeProgressSnapshot {
-        val progressDir = File(filesDir, "runtime/run")
-        val percent = progressDir.resolve("napcat_progress").readIntOrDefault(0)
-        val rawLabel = progressDir.resolve("napcat_progress_label").readSafeText()
-        val indeterminate = progressDir.resolve("napcat_progress_mode").readSafeText() == "1"
-        val installerCached = progressDir.resolve("napcat_installer_cached").readSafeText() == "1"
-        val label = localizeProgressLabel(rawLabel)
+        val snapshot = ContainerBridgeRuntimeSupport.loadProgressSnapshot(filesDir)
 
-        NapCatBridgeRepository.markInstallerCached(installerCached)
-        if (label.isNotBlank() || percent > 0) {
+        NapCatBridgeRepository.markInstallerCached(snapshot.installerCached)
+        if (snapshot.label.isNotBlank() || snapshot.percent > 0) {
             NapCatBridgeRepository.updateProgress(
-                label = label,
-                percent = percent,
-                indeterminate = indeterminate,
-                installerCached = installerCached,
+                label = snapshot.label,
+                percent = snapshot.percent,
+                indeterminate = snapshot.indeterminate,
+                installerCached = snapshot.installerCached,
             )
         }
 
-        return RuntimeProgressSnapshot(
-            label = label,
-            percent = percent,
-            indeterminate = indeterminate,
-            installerCached = installerCached,
-        )
+        return snapshot
     }
 
     private fun buildProgressNotificationText(): String {
-        val runtimeState = NapCatBridgeRepository.runtimeState.value
-        return when (runtimeState.status) {
-            "Running" -> "NapCat running"
-            "Error" -> "NapCat start failed"
-            "Stopped" -> "NapCat stopped"
-            else -> {
-                if (runtimeState.progressLabel.isNotBlank()) {
-                    "NapCat starting: ${runtimeState.progressLabel}"
-                } else {
-                    "NapCat warming up"
-                }
-            }
-        }
-    }
-
-    private fun localizeProgressLabel(rawLabel: String): String {
-        return when (rawLabel) {
-            "preparing-start" -> "Preparing start"
-            "prepare-container" -> "Preparing container"
-            "install-base" -> "Installing base packages from network"
-            "base-ready" -> "Base packages ready"
-            "backup-config" -> "Backing up existing NapCat config"
-            "download-installer" -> "Downloading upstream installer"
-            "installer-downloaded" -> "Installer script downloaded"
-            "installer-cached" -> "Existing install detected"
-            "run-installer" -> "Installing NapCat from network"
-            "restore-config" -> "Restoring NapCat config"
-            "write-config" -> "Writing NapCat config"
-            "start-napcat" -> "Starting NapCat"
-            else -> rawLabel
-        }
+        return ContainerBridgeRuntimeSupport.buildProgressNotificationText(NapCatBridgeRepository.runtimeState.value)
     }
 
     private fun buildPendingHealthDetails(
@@ -344,26 +305,15 @@ class ContainerBridgeService : Service() {
         health: HealthCheckResult,
         startedAt: Long,
     ): String {
-        val stage = snapshot.label.ifBlank { "Starting NapCat" }
-        val percentSuffix = if (snapshot.percent in 1..99) " (${snapshot.percent}%)" else ""
-        return "NapCat process is running. Current stage: $stage$percentSuffix. Waiting for HTTP endpoint: ${health.message}. Elapsed ${formatElapsed(System.currentTimeMillis() - startedAt)}."
+        return ContainerBridgeRuntimeSupport.buildPendingHealthDetails(
+            snapshot = snapshot,
+            health = health,
+            startedAtMs = startedAt,
+        )
     }
 
     private fun runtimeActivityTimestamp(): Long {
-        val progressDir = File(filesDir, "runtime/run")
-        val activityFiles = mutableListOf(File(filesDir, "runtime/logs/napcat.log"))
-        progressDir.listFiles()?.let { activityFiles.addAll(it) }
-        return activityFiles
-            .filter { it.exists() }
-            .maxOfOrNull { it.lastModified() }
-            ?: 0L
-    }
-
-    private fun formatElapsed(elapsedMs: Long): String {
-        val totalSeconds = (elapsedMs / 1000L).coerceAtLeast(0L)
-        val minutes = totalSeconds / 60L
-        val seconds = totalSeconds % 60L
-        return if (minutes > 0L) "$minutes min $seconds s" else "$seconds s"
+        return ContainerBridgeRuntimeSupport.runtimeActivityTimestamp(filesDir)
     }
 
     private fun appendContainerLogTail(prefix: String, maxLines: Int = 60) {
@@ -422,14 +372,6 @@ class ContainerBridgeService : Service() {
     private fun File.readIntOrDefault(defaultValue: Int): Int {
         return readSafeText().toIntOrNull() ?: defaultValue
     }
-
-    private data class RuntimeProgressSnapshot(
-        val label: String = "",
-        val percent: Int = 0,
-        val indeterminate: Boolean = false,
-        val installerCached: Boolean = false,
-    )
-
     companion object {
         const val ACTION_START_BRIDGE = "com.astrbot.android.action.START_BRIDGE"
         const val ACTION_STOP_BRIDGE = "com.astrbot.android.action.STOP_BRIDGE"

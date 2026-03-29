@@ -1,11 +1,8 @@
 package com.astrbot.android.ui.viewmodel
 
 import androidx.lifecycle.ViewModel
-import com.astrbot.android.data.BotRepository
-import com.astrbot.android.data.ConfigRepository
-import com.astrbot.android.data.NapCatLoginRepository
-import com.astrbot.android.data.PersonaRepository
-import com.astrbot.android.data.ProviderRepository
+import com.astrbot.android.di.BotViewModelDependencies
+import com.astrbot.android.di.DefaultBotViewModelDependencies
 import com.astrbot.android.model.BotProfile
 import com.astrbot.android.model.ConfigProfile
 import com.astrbot.android.model.NapCatLoginState
@@ -13,36 +10,38 @@ import com.astrbot.android.model.PersonaProfile
 import com.astrbot.android.model.ProviderProfile
 import kotlinx.coroutines.flow.StateFlow
 
-class BotViewModel : ViewModel() {
-    val botProfile: StateFlow<BotProfile> = BotRepository.botProfile
-    val botProfiles: StateFlow<List<BotProfile>> = BotRepository.botProfiles
-    val selectedBotId: StateFlow<String> = BotRepository.selectedBotId
-    val providers: StateFlow<List<ProviderProfile>> = ProviderRepository.providers
-    val personas: StateFlow<List<PersonaProfile>> = PersonaRepository.personas
-    val configProfiles: StateFlow<List<ConfigProfile>> = ConfigRepository.profiles
-    val loginState: StateFlow<NapCatLoginState> = NapCatLoginRepository.loginState
+class BotViewModel(
+    private val dependencies: BotViewModelDependencies = DefaultBotViewModelDependencies,
+) : ViewModel() {
+    val botProfile: StateFlow<BotProfile> = dependencies.botProfile
+    val botProfiles: StateFlow<List<BotProfile>> = dependencies.botProfiles
+    val selectedBotId: StateFlow<String> = dependencies.selectedBotId
+    val providers: StateFlow<List<ProviderProfile>> = dependencies.providers
+    val personas: StateFlow<List<PersonaProfile>> = dependencies.personas
+    val configProfiles: StateFlow<List<ConfigProfile>> = dependencies.configProfiles
+    val loginState: StateFlow<NapCatLoginState> = dependencies.loginState
 
     fun select(botId: String) {
-        BotRepository.select(botId)
+        dependencies.select(botId)
     }
 
     fun save(profile: BotProfile) {
-        BotRepository.save(profile)
+        dependencies.save(profile)
     }
 
     fun saveWithConfigModel(profile: BotProfile, defaultChatProviderId: String) {
-        val resolvedConfig = ConfigRepository.resolve(profile.configProfileId)
-        ConfigRepository.save(
+        val resolvedConfig = dependencies.resolveConfig(profile.configProfileId)
+        dependencies.saveConfig(
             resolvedConfig.copy(defaultChatProviderId = defaultChatProviderId),
         )
-        BotRepository.save(profile.copy(defaultProviderId = defaultChatProviderId))
+        dependencies.save(profile.copy(defaultProviderId = defaultChatProviderId))
     }
 
     fun create() {
-        BotRepository.create()
+        dependencies.create()
     }
 
     fun deleteSelected() {
-        BotRepository.delete(botProfile.value.id)
+        dependencies.delete(botProfile.value.id)
     }
 }

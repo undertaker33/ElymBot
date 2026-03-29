@@ -10,11 +10,20 @@ interface BotDao {
     @Query("SELECT * FROM bots ORDER BY updatedAt DESC")
     fun observeBots(): Flow<List<BotEntity>>
 
+    @Query("SELECT * FROM bots ORDER BY updatedAt DESC")
+    suspend fun listBots(): List<BotEntity>
+
     @Upsert
     suspend fun upsert(entity: BotEntity)
 
+    @Upsert
+    suspend fun upsertAll(entities: List<BotEntity>)
+
     @Query("DELETE FROM bots WHERE id = :botId")
     suspend fun deleteById(botId: String)
+
+    @Query("DELETE FROM bots WHERE id NOT IN (:ids)")
+    suspend fun deleteMissing(ids: List<String>)
 
     @Query("SELECT COUNT(*) FROM bots")
     suspend fun count(): Int

@@ -2,6 +2,8 @@ package com.astrbot.android.data
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.astrbot.android.data.db.AppPreferenceDao
+import com.astrbot.android.data.db.AppPreferenceEntity
 import com.astrbot.android.data.db.AstrBotDatabase
 import com.astrbot.android.data.db.BotDao
 import com.astrbot.android.data.db.BotEntity
@@ -9,21 +11,25 @@ import com.astrbot.android.data.db.toEntity
 import com.astrbot.android.data.db.toProfile
 import com.astrbot.android.model.BotProfile
 import com.astrbot.android.runtime.RuntimeLogRepository
+import java.util.UUID
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
-import java.util.UUID
-import java.util.concurrent.atomic.AtomicBoolean
 
 object BotRepository {
     private const val BOT_BINDINGS_PREFS_NAME = "bot_bindings"
     private const val KEY_BOT_BINDINGS_JSON = "bot_bindings_json"
+    private const val PREF_SELECTED_BOT_ID = "selected_bot_id"
+    private const val PREF_LEGACY_BOT_BINDINGS_MIGRATED = "legacy_bot_bindings_migrated"
 
     private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val initialized = AtomicBoolean(false)
@@ -42,8 +48,8 @@ object BotRepository {
     private val _botProfile = MutableStateFlow(defaultBot)
 
     private var botDao: BotDao = AstrBotDatabaseHolder.placeholder
+    private var appPreferenceDao: AppPreferenceDao = BotAppPreferenceDaoPlaceholder.instance
     private var bindingsPreferences: SharedPreferences? = null
-    private var botBindings: Map<String, BotBindingState> = emptyMap()
 
     val botProfile: StateFlow<BotProfile> = _botProfile.asStateFlow()
     val botProfiles: StateFlow<List<BotProfile>> = _botProfiles.asStateFlow()
@@ -52,35 +58,28 @@ object BotRepository {
     fun initialize(context: Context) {
         if (!initialized.compareAndSet(false, true)) return
 
-        botDao = AstrBotDatabase.get(context).botDao()
+        val database = AstrBotDatabase.get(context)
+        botDao = database.botDao()
+        appPreferenceDao = database.appPreferenceDao()
         bindingsPreferences = context.applicationContext.getSharedPreferences(BOT_BINDINGS_PREFS_NAME, Context.MODE_PRIVATE)
-        botBindings = loadBotBindings()
-        repositoryScope.launch {
-            if (botDao.count() == 0) {
-                botDao.upsert(defaultBot.toEntity())
-            }
-            botDao.observeBots().collect { entities ->
-                val profiles = entities.map { entity ->
-                    val binding = botBindings[entity.id]
-                    entity.toProfile(
-                        configProfileId = ConfigRepository.resolveExistingId(binding?.configProfileId ?: ConfigRepository.DEFAULT_CONFIG_ID),
-                        boundQqUins = binding?.boundQqUins.orEmpty(),
-                        persistConversationLocally = binding?.persistConversationLocally ?: false,
-                    )
-                }
-                if (profiles.isEmpty()) {
-                    _botProfiles.value = listOf(defaultBot)
-                    _selectedBotId.value = defaultBot.id
-                    _botProfile.value = defaultBot
-                    return@collect
-                }
 
-                _botProfiles.value = profiles
-                val currentSelected = profiles.firstOrNull { it.id == _selectedBotId.value } ?: profiles.first()
-                _selectedBotId.value = currentSelected.id
-                _botProfile.value = currentSelected
-                RuntimeLogRepository.append("Bot database synced: count=${profiles.size} selected=${currentSelected.id}")
-            }
+        runBlocking(Dispatchers.IO) {
+            seedStorageIfNeeded()
+            migrateLegacyBindingsIfNeeded()
+        }
+        repositoryScope.launch {
+            combine(
+                botDao.observeBots(),
+                appPreferenceDao.observeValue(PREF_SELECTED_BOT_ID),
+            ) { entities, selectedId -> entities to selectedId }
+                .collect { (entities, selectedId) ->
+                    val profiles = entities.map { entity -> normalizeProfile(entity.toProfile()) }.ifEmpty { listOf(defaultBot) }
+                    _botProfiles.value = profiles
+                    val currentSelected = profiles.firstOrNull { it.id == selectedId } ?: profiles.first()
+                    _selectedBotId.value = currentSelected.id
+                    _botProfile.value = currentSelected
+                    RuntimeLogRepository.append("Bot database synced: count=${profiles.size} selected=${currentSelected.id}")
+                }
         }
     }
 
@@ -88,21 +87,17 @@ object BotRepository {
         val selected = _botProfiles.value.firstOrNull { it.id == botId } ?: return
         _selectedBotId.value = selected.id
         _botProfile.value = selected
+        persistSelectedBotId(selected.id)
         RuntimeLogRepository.append("Bot selected: ${selected.displayName} (${selected.id})")
     }
 
     fun save(profile: BotProfile) {
         repositoryScope.launch {
             val normalized = normalizeProfile(profile)
-            persistBinding(
-                normalized.id,
-                BotBindingState(
-                    configProfileId = normalized.configProfileId,
-                    boundQqUins = normalized.boundQqUins,
-                    persistConversationLocally = normalized.persistConversationLocally,
-                ),
-            )
-            botDao.upsert(normalized.toEntity())
+            val updated = _botProfiles.value.map { if (it.id == normalized.id) normalized else it }
+                .let { current -> if (current.any { it.id == normalized.id }) current else current + normalized }
+            _botProfiles.value = updated
+            persistProfiles(updated, normalized.id)
             ConversationRepository.syncPersistenceForBot(normalized.id, normalized.persistConversationLocally)
             RuntimeLogRepository.append(
                 "Bot saved: ${normalized.displayName}, provider=${normalized.defaultProviderId.ifBlank { "none" }}, persona=${normalized.defaultPersonaId.ifBlank { "none" }}, config=${normalized.configProfileId}, qqBindings=${normalized.boundQqUins.size}, persist=${normalized.persistConversationLocally}",
@@ -120,15 +115,9 @@ object BotRepository {
                 .let { ConfigRepository.resolve(it).defaultChatProviderId },
         )
         repositoryScope.launch {
-            persistBinding(
-                created.id,
-                BotBindingState(
-                    configProfileId = created.configProfileId,
-                    boundQqUins = created.boundQqUins,
-                    persistConversationLocally = created.persistConversationLocally,
-                ),
-            )
-            botDao.upsert(created.toEntity())
+            val updated = _botProfiles.value + created
+            _botProfiles.value = updated
+            persistProfiles(updated, created.id)
             RuntimeLogRepository.append("Bot created: ${created.displayName} (${created.id})")
             select(created.id)
         }
@@ -152,28 +141,11 @@ object BotRepository {
             .map(::normalizeProfile)
             .distinctBy { it.id }
             .ifEmpty { listOf(defaultBot) }
-
-        botBindings = normalized.associate { profile ->
-            profile.id to BotBindingState(
-                configProfileId = profile.configProfileId,
-                boundQqUins = profile.boundQqUins,
-                persistConversationLocally = profile.persistConversationLocally,
-            )
-        }
-        persistBindings()
-
-        val currentIds = _botProfiles.value.map { it.id }.toSet()
-        normalized.forEach { profile ->
-            botDao.upsert(profile.toEntity())
-        }
-        currentIds
-            .filterNot { currentId -> normalized.any { it.id == currentId } }
-            .forEach { botId -> botDao.deleteById(botId) }
-
         val resolvedSelected = normalized.firstOrNull { it.id == selectedBotId }?.id ?: normalized.first().id
         _botProfiles.value = normalized
         _selectedBotId.value = resolvedSelected
         _botProfile.value = normalized.first { it.id == resolvedSelected }
+        persistProfiles(normalized, resolvedSelected)
         RuntimeLogRepository.append("Bot profiles restored: count=${normalized.size} selected=$resolvedSelected")
     }
 
@@ -185,8 +157,12 @@ object BotRepository {
 
         val removed = _botProfiles.value.firstOrNull { it.id == botId } ?: return
         repositoryScope.launch {
-            removeBinding(botId)
-            botDao.deleteById(botId)
+            val updated = _botProfiles.value.filterNot { it.id == botId }
+            val selectedId = if (_selectedBotId.value == botId) updated.first().id else _selectedBotId.value
+            _botProfiles.value = updated
+            _selectedBotId.value = selectedId
+            _botProfile.value = updated.first { it.id == selectedId }
+            persistProfiles(updated, selectedId)
             ConversationRepository.deleteSessionsForBot(botId)
             RuntimeLogRepository.append("Bot deleted: ${removed.displayName} (${removed.id})")
         }
@@ -194,16 +170,7 @@ object BotRepository {
 
     fun replaceConfigBinding(deletedConfigId: String, fallbackConfigId: String) {
         val resolvedFallbackId = ConfigRepository.resolveExistingId(fallbackConfigId)
-        val nextBindings = botBindings.mapValues { (_, current) ->
-            if (current.configProfileId == deletedConfigId) {
-                current.copy(configProfileId = resolvedFallbackId)
-            } else {
-                current
-            }
-        }
-        botBindings = nextBindings
-        persistBindings()
-        _botProfiles.value = _botProfiles.value.map { profile ->
+        val updated = _botProfiles.value.map { profile ->
             if (profile.configProfileId == deletedConfigId) {
                 profile.copy(
                     configProfileId = resolvedFallbackId,
@@ -213,7 +180,11 @@ object BotRepository {
                 profile
             }
         }
-        _botProfile.value = _botProfiles.value.firstOrNull { it.id == _selectedBotId.value } ?: _botProfiles.value.firstOrNull() ?: defaultBot
+        _botProfiles.value = updated
+        _botProfile.value = updated.firstOrNull { it.id == _selectedBotId.value } ?: updated.firstOrNull() ?: defaultBot
+        repositoryScope.launch {
+            persistProfiles(updated, _selectedBotId.value)
+        }
         RuntimeLogRepository.append("Bot config bindings reassigned: removed=$deletedConfigId fallback=$resolvedFallbackId")
     }
 
@@ -237,95 +208,119 @@ object BotRepository {
         return _botProfiles.value.firstOrNull { it.id == botId }?.persistConversationLocally == true
     }
 
-    private fun loadBotBindings(): Map<String, BotBindingState> {
-        val raw = bindingsPreferences?.getString(KEY_BOT_BINDINGS_JSON, null)?.takeIf { it.isNotBlank() } ?: return emptyMap()
-        return runCatching {
-            val objectJson = org.json.JSONObject(raw)
-            mutableMapOf<String, BotBindingState>().apply {
-                objectJson.keys().forEach { key ->
-                    val rawValue = objectJson.opt(key)
-                    this[key] = when (rawValue) {
-                        is org.json.JSONObject -> {
-                            val qqArray = rawValue.optJSONArray("boundQqUins")
-                            val boundQqUins = buildList {
-                                if (qqArray != null) {
-                                    for (index in 0 until qqArray.length()) {
-                                        qqArray.optString(index)?.trim()?.takeIf { it.isNotBlank() }?.let(::add)
-                                    }
-                                }
-                            }
-                            BotBindingState(
-                                configProfileId = rawValue.optString("configProfileId").ifBlank { ConfigRepository.DEFAULT_CONFIG_ID },
-                                boundQqUins = boundQqUins,
-                                persistConversationLocally = rawValue.optBoolean("persistConversationLocally", false),
-                            )
-                        }
-
-                        else -> {
-                            BotBindingState(
-                                configProfileId = objectJson.optString(key).ifBlank { ConfigRepository.DEFAULT_CONFIG_ID },
-                            )
-                        }
-                    }
-                }
-            }
-        }.getOrDefault(emptyMap())
+    private suspend fun persistProfiles(
+        profiles: List<BotProfile>,
+        selectedId: String,
+    ) {
+        if (profiles.isEmpty()) {
+            return
+        }
+        val entities = profiles.map { profile -> normalizeProfile(profile).toEntity() }
+        botDao.upsertAll(entities)
+        botDao.deleteMissing(entities.map { it.id })
+        appPreferenceDao.upsert(
+            AppPreferenceEntity(
+                key = PREF_SELECTED_BOT_ID,
+                value = selectedId,
+                updatedAt = System.currentTimeMillis(),
+            ),
+        )
     }
 
-    private fun persistBinding(botId: String, bindingState: BotBindingState) {
-        botBindings = botBindings + (botId to bindingState)
-        persistBindings()
-    }
-
-    private fun removeBinding(botId: String) {
-        botBindings = botBindings - botId
-        persistBindings()
-    }
-
-    private fun persistBindings() {
-        val json = org.json.JSONObject()
-        botBindings.forEach { (botId, bindingState) ->
-            json.put(
-                botId,
-                org.json.JSONObject().apply {
-                    put("configProfileId", bindingState.configProfileId)
-                    put("persistConversationLocally", bindingState.persistConversationLocally)
-                    put(
-                        "boundQqUins",
-                        org.json.JSONArray().apply {
-                            bindingState.boundQqUins.forEach(::put)
-                        },
-                    )
-                },
+    private suspend fun seedStorageIfNeeded() {
+        if (botDao.count() == 0) {
+            botDao.upsert(defaultBot.toEntity())
+            appPreferenceDao.upsert(
+                AppPreferenceEntity(
+                    key = PREF_SELECTED_BOT_ID,
+                    value = defaultBot.id,
+                    updatedAt = System.currentTimeMillis(),
+                ),
+            )
+        } else if (appPreferenceDao.getValue(PREF_SELECTED_BOT_ID).isNullOrBlank()) {
+            val firstBotId = botDao.listBots().firstOrNull()?.id ?: defaultBot.id
+            appPreferenceDao.upsert(
+                AppPreferenceEntity(
+                    key = PREF_SELECTED_BOT_ID,
+                    value = firstBotId,
+                    updatedAt = System.currentTimeMillis(),
+                ),
             )
         }
-        bindingsPreferences?.edit()?.putString(KEY_BOT_BINDINGS_JSON, json.toString())?.apply()
+    }
+
+    private suspend fun migrateLegacyBindingsIfNeeded() {
+        if (appPreferenceDao.getValue(PREF_LEGACY_BOT_BINDINGS_MIGRATED) == "true") return
+        val legacyRaw = bindingsPreferences?.getString(KEY_BOT_BINDINGS_JSON, null)
+        val imported = runCatching { parseLegacyBotBindings(legacyRaw) }.getOrDefault(emptyMap())
+        if (imported.isNotEmpty()) {
+            val currentProfiles = botDao.listBots().map { entity -> normalizeProfile(entity.toProfile()) }.ifEmpty { listOf(defaultBot) }
+            val updated = currentProfiles.map { current ->
+                imported[current.id]?.let { binding ->
+                    normalizeProfile(
+                        current.copy(
+                            configProfileId = ConfigRepository.resolveExistingId(binding.configProfileId),
+                            boundQqUins = binding.boundQqUins,
+                            persistConversationLocally = binding.persistConversationLocally,
+                        ),
+                    )
+                } ?: current
+            }
+            _botProfiles.value = updated
+            persistProfiles(updated, _selectedBotId.value)
+            RuntimeLogRepository.append("Bot bindings migrated from SharedPreferences: count=${imported.size}")
+        }
+        appPreferenceDao.upsert(
+            AppPreferenceEntity(
+                key = PREF_LEGACY_BOT_BINDINGS_MIGRATED,
+                value = "true",
+                updatedAt = System.currentTimeMillis(),
+            ),
+        )
+    }
+
+    private fun persistSelectedBotId(botId: String) {
+        repositoryScope.launch {
+            appPreferenceDao.upsert(
+                AppPreferenceEntity(
+                    key = PREF_SELECTED_BOT_ID,
+                    value = botId,
+                    updatedAt = System.currentTimeMillis(),
+                ),
+            )
+        }
     }
 
     private fun normalizeProfile(profile: BotProfile): BotProfile {
         val resolvedConfigId = ConfigRepository.resolveExistingId(profile.configProfileId)
         val configDefaultProviderId = ConfigRepository.resolve(resolvedConfigId).defaultChatProviderId
+        val normalizedBoundQqUins = profile.boundQqUins.map { it.trim() }.filter { it.isNotBlank() }.distinct()
         return profile.copy(
-            accountHint = profile.boundQqUins.joinToString(", ").ifBlank { "QQ account not linked" },
+            accountHint = normalizedBoundQqUins.joinToString(", ").ifBlank { "QQ account not linked" },
             configProfileId = resolvedConfigId,
-            boundQqUins = profile.boundQqUins.map { it.trim() }.filter { it.isNotBlank() }.distinct(),
+            boundQqUins = normalizedBoundQqUins,
             defaultProviderId = configDefaultProviderId,
             triggerWords = profile.triggerWords.map(String::trim).filter(String::isNotBlank).distinct(),
         )
     }
 }
 
-private data class BotBindingState(
-    val configProfileId: String = ConfigRepository.DEFAULT_CONFIG_ID,
-    val boundQqUins: List<String> = emptyList(),
-    val persistConversationLocally: Boolean = false,
-)
-
 private object AstrBotDatabaseHolder {
     val placeholder = object : BotDao {
         override fun observeBots() = flowOf(emptyList<BotEntity>())
+        override suspend fun listBots(): List<BotEntity> = emptyList()
         override suspend fun upsert(entity: BotEntity) = Unit
+        override suspend fun upsertAll(entities: List<BotEntity>) = Unit
         override suspend fun deleteById(botId: String) = Unit
+        override suspend fun deleteMissing(ids: List<String>) = Unit
         override suspend fun count(): Int = 0
+    }
+}
+
+private object BotAppPreferenceDaoPlaceholder {
+    val instance = object : AppPreferenceDao {
+        override fun observeValue(key: String) = flowOf<String?>(null)
+        override suspend fun getValue(key: String): String? = null
+        override suspend fun upsert(entity: AppPreferenceEntity) = Unit
     }
 }

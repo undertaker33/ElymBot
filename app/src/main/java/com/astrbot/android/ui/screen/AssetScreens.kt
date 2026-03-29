@@ -78,7 +78,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.res.stringResource
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.os.LocaleListCompat
-import androidx.lifecycle.viewmodel.compose.viewModel
+import com.astrbot.android.di.astrBotViewModel
 import com.astrbot.android.R
 import com.astrbot.android.data.AppLanguage
 import com.astrbot.android.data.AppPreferencesRepository
@@ -116,7 +116,7 @@ import androidx.compose.foundation.layout.imePadding
 fun AssetManagementScreen(
     onBack: () -> Unit,
     onOpenAsset: (String) -> Unit,
-    assetViewModel: RuntimeAssetViewModel = viewModel(),
+    assetViewModel: RuntimeAssetViewModel = astrBotViewModel(),
 ) {
     val assetState by assetViewModel.state.collectAsState()
     val assetItems = assetState.assets
@@ -175,7 +175,7 @@ fun AssetManagementScreen(
 fun AssetDetailScreen(
     assetId: String,
     onBack: () -> Unit,
-    assetViewModel: RuntimeAssetViewModel = viewModel(),
+    assetViewModel: RuntimeAssetViewModel = astrBotViewModel(),
 ) {
     val assetState by assetViewModel.state.collectAsState()
     val context = LocalContext.current

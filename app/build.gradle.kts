@@ -4,6 +4,8 @@ plugins {
     id("com.google.devtools.ksp")
 }
 
+import java.util.Properties
+
 fun sanitizeBranchName(name: String): String {
     return name
         .ifBlank { "detached-head" }
@@ -31,7 +33,33 @@ fun currentGitBranchName(): String {
     return if (branch.isBlank()) "detached-head" else branch
 }
 
+val keystoreProperties = Properties().apply {
+    val file = rootProject.file("keystore.properties")
+    if (file.exists()) {
+        file.inputStream().use(::load)
+    }
+}
+
+fun Project.readSigningValue(name: String): String? {
+    val localFileValue = keystoreProperties.getProperty(name)?.trim()?.takeIf { it.isNotEmpty() }
+    if (localFileValue != null) return localFileValue
+    val gradleValue = findProperty(name)?.toString()?.trim()?.takeIf { it.isNotEmpty() }
+    if (gradleValue != null) return gradleValue
+    return System.getenv(name)?.trim()?.takeIf { it.isNotEmpty() }
+}
+
 val branchApkDirName = sanitizeBranchName(currentGitBranchName())
+
+val releaseStoreFile = rootProject.readSigningValue("RELEASE_STORE_FILE")
+val releaseStorePassword = rootProject.readSigningValue("RELEASE_STORE_PASSWORD")
+val releaseKeyAlias = rootProject.readSigningValue("RELEASE_KEY_ALIAS")
+val releaseKeyPassword = rootProject.readSigningValue("RELEASE_KEY_PASSWORD")
+val hasReleaseSigning = listOf(
+    releaseStoreFile,
+    releaseStorePassword,
+    releaseKeyAlias,
+    releaseKeyPassword,
+).all { !it.isNullOrBlank() }
 
 val filteredAssetsDir = layout.buildDirectory.dir("generated/filtered-assets/main")
 val excludedRuntimeAssets = listOf(
@@ -63,12 +91,23 @@ android {
     namespace = "com.astrbot.android"
     compileSdk = 34
 
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = rootProject.file(requireNotNull(releaseStoreFile))
+                storePassword = requireNotNull(releaseStorePassword)
+                keyAlias = requireNotNull(releaseKeyAlias)
+                keyPassword = requireNotNull(releaseKeyPassword)
+            }
+        }
+    }
+
     defaultConfig {
         applicationId = "com.astrbot.android"
         minSdk = 29
         targetSdk = 34
-        versionCode = 14
-        versionName = "0.3.4"
+        versionCode = 15
+        versionName = "0.3.5"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -78,7 +117,10 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            if (hasReleaseSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
@@ -117,6 +159,9 @@ android {
             jniLibs.srcDirs("src/main/jniLibs")
             assets.setSrcDirs(listOf(filteredAssetsDir))
         }
+        getByName("androidTest") {
+            assets.srcDir("$projectDir/schemas")
+        }
     }
 
     androidResources {
@@ -124,8 +169,17 @@ android {
     }
 }
 
-tasks.matching { it.name == "mergeDebugAssets" || it.name == "mergeReleaseAssets" }.configureEach {
+tasks.matching {
+    it.name == "mergeDebugAssets" ||
+        it.name == "mergeReleaseAssets" ||
+        it.name.contains("Lint", ignoreCase = true)
+}.configureEach {
     dependsOn(prepareFilteredAssets)
+}
+
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
+    arg("room.incremental", "true")
 }
 
 listOf("debug", "release").forEach { variantName ->
@@ -147,6 +201,7 @@ afterEvaluate {
 
 dependencies {
     val composeBom = platform("androidx.compose:compose-bom:2024.09.00")
+    val okHttpVersion = "4.12.0"
     val roomVersion = "2.6.1"
 
     implementation("androidx.core:core-ktx:1.13.1")
@@ -166,6 +221,7 @@ dependencies {
     implementation("com.github.luben:zstd-jni:1.5.6-3")
     implementation("com.google.zxing:core:3.5.3")
     implementation("org.nanohttpd:nanohttpd-websocket:2.3.1")
+    implementation("com.squareup.okhttp3:okhttp:$okHttpVersion")
     implementation(files("libs/sherpa-onnx-1.12.31-static-jni-only.aar"))
 
     implementation(composeBom)
@@ -182,8 +238,11 @@ dependencies {
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
+    testImplementation("com.squareup.okhttp3:mockwebserver:$okHttpVersion")
     testImplementation("org.json:json:20240303")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
+    androidTestImplementation("androidx.room:room-testing:$roomVersion")
 }

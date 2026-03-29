@@ -9,8 +9,6 @@ export HOME=/root
 export NAPCAT_DISABLE_PIPE=1
 export NAPCAT_DISABLE_MULTI_PROCESS=1
 export NAPCAT_WEBUI_PREFERRED_PORT=6099
-export NAPCAT_WEBUI_JWT_SECRET_KEY=astrbot_android_jwt
-export NAPCAT_WEBUI_SECRET_KEY=astrbot_android_webui
 
 NAPCAT_HOME="/root/napcat"
 NAPCAT_CONFIG_DIR="$NAPCAT_HOME/config"
@@ -23,6 +21,7 @@ ASTRBOT_APT_STATE_DIR="/var/lib/apt"
 ASTRBOT_APT_CACHE_DIR="/var/cache/apt"
 DPKG_ADMINDIR="/var/lib/dpkg"
 TARGET_PROXY=""
+RUNTIME_SECRET_FILE="${ASTRBOT_APP_HOME:-}/runtime/config/runtime-secrets.env"
 
 cd /root 2>/dev/null || cd / 2>/dev/null || true
 
@@ -42,6 +41,44 @@ write_progress() {
   fi
 }
 
+log_config_snapshot() {
+  local label="$1"
+  local file="$2"
+
+  if [ ! -f "$file" ]; then
+    echo "${label}: missing (${file})"
+    return 0
+  fi
+
+  local snapshot=""
+  snapshot="$(tr '\n' ' ' < "$file" | sed 's/[[:space:]]\+/ /g' | cut -c1-600)"
+  snapshot="$(printf '%s' "$snapshot" | sed -E 's/("token"[[:space:]]*:[[:space:]]*")[^"]+(")/\1<redacted>\2/g; s/("secret[^"]*"[[:space:]]*:[[:space:]]*")[^"]+(")/\1<redacted>\2/g; s/("jwt[^"]*"[[:space:]]*:[[:space:]]*")[^"]+(")/\1<redacted>\2/g')"
+  echo "${label}: ${snapshot}"
+}
+
+load_runtime_secrets() {
+  if [ -z "${ASTRBOT_APP_HOME:-}" ]; then
+    echo "runtime secret source missing: ASTRBOT_APP_HOME is empty" >&2
+    exit 6
+  fi
+  if [ ! -f "$RUNTIME_SECRET_FILE" ]; then
+    echo "runtime secret file missing: $RUNTIME_SECRET_FILE" >&2
+    exit 6
+  fi
+
+  # shellcheck disable=SC1090
+  . "$RUNTIME_SECRET_FILE"
+
+  if [ -z "${NAPCAT_WEBUI_SECRET_KEY:-}" ] || [ -z "${NAPCAT_WEBUI_JWT_SECRET_KEY:-}" ]; then
+    echo "runtime secret file is incomplete: $RUNTIME_SECRET_FILE" >&2
+    exit 6
+  fi
+
+  export NAPCAT_WEBUI_SECRET_KEY
+  export NAPCAT_WEBUI_JWT_SECRET_KEY
+  echo "runtime secrets loaded: source=$RUNTIME_SECRET_FILE webui_len=${#NAPCAT_WEBUI_SECRET_KEY} jwt_len=${#NAPCAT_WEBUI_JWT_SECRET_KEY}"
+}
+
 mark_installer_cached() {
   local cached="$1"
 
@@ -59,7 +96,7 @@ network_test() {
   TARGET_PROXY=""
   echo "testing github proxy connectivity"
   for proxy in "https://ghfast.top" "https://gh.wuliya.xin" "https://gh-proxy.com" "https://github.moeyy.xyz"; do
-    status="$(curl -k -L --connect-timeout "$timeout" --max-time $((timeout * 2)) -o /dev/null -s -w "%{http_code}" "${proxy}/${check_url}" || true)"
+    status="$(curl -L --connect-timeout "$timeout" --max-time $((timeout * 2)) -o /dev/null -s -w "%{http_code}" "${proxy}/${check_url}" || true)"
     if [ "$status" = "200" ]; then
       TARGET_PROXY="$proxy"
       echo "selected github proxy: $proxy"
@@ -67,7 +104,7 @@ network_test() {
     fi
   done
 
-  status="$(curl -k --connect-timeout "$timeout" --max-time $((timeout * 2)) -o /dev/null -s -w "%{http_code}" "$check_url" || true)"
+  status="$(curl --connect-timeout "$timeout" --max-time $((timeout * 2)) -o /dev/null -s -w "%{http_code}" "$check_url" || true)"
   if [ "$status" = "200" ]; then
     echo "using direct github connectivity"
   else
@@ -93,7 +130,7 @@ download_napcat_installer() {
   fi
 
   echo "downloading napcat installer from ${download_url}"
-  curl -k -fsSL --connect-timeout 20 --max-time 240 --retry 2 --retry-delay 2 "$download_url" -o "$target_file"
+  curl -fsSL --connect-timeout 20 --max-time 240 --retry 2 --retry-delay 2 "$download_url" -o "$target_file"
   chmod +x "$target_file"
   mark_installer_cached 1
   write_progress 55 "installer-downloaded" 0
@@ -196,6 +233,8 @@ backup_napcat_config() {
   if [ -d "$NAPCAT_CONFIG_DIR" ]; then
     write_progress 38 "backup-config" 0
     echo "backing up napcat config"
+    log_config_snapshot "existing webui.json before backup" "$NAPCAT_CONFIG_DIR/webui.json"
+    log_config_snapshot "existing onebot11.json before backup" "$NAPCAT_CONFIG_DIR/onebot11.json"
     rm -rf "$NAPCAT_CONFIG_BACKUP"
     mkdir -p "$NAPCAT_CONFIG_BACKUP"
     cp -R "$NAPCAT_CONFIG_DIR"/. "$NAPCAT_CONFIG_BACKUP"/ 2>/dev/null || true
@@ -208,6 +247,8 @@ restore_napcat_config() {
     echo "restoring napcat config"
     mkdir -p "$NAPCAT_CONFIG_DIR"
     cp -R "$NAPCAT_CONFIG_BACKUP"/. "$NAPCAT_CONFIG_DIR"/ 2>/dev/null || true
+    log_config_snapshot "restored webui.json" "$NAPCAT_CONFIG_DIR/webui.json"
+    log_config_snapshot "restored onebot11.json" "$NAPCAT_CONFIG_DIR/onebot11.json"
     rm -rf "$NAPCAT_CONFIG_BACKUP"
   fi
 }
@@ -311,16 +352,19 @@ ensure_napcat_installed() {
 write_runtime_config() {
   write_progress 90 "write-config" 0
   mkdir -p "$NAPCAT_CONFIG_DIR"
-  cat > "$NAPCAT_CONFIG_DIR/webui.json" <<'EOF'
+  echo "writing runtime config: preferred_port=${NAPCAT_WEBUI_PREFERRED_PORT} secret_source=$RUNTIME_SECRET_FILE secret_key_len=${#NAPCAT_WEBUI_SECRET_KEY} jwt_key_len=${#NAPCAT_WEBUI_JWT_SECRET_KEY}"
+  cat > "$NAPCAT_CONFIG_DIR/webui.json" <<EOF
 {
   "host": "127.0.0.1",
   "port": 6099,
-  "token": "astrbot_android_webui",
+  "token": "${NAPCAT_WEBUI_SECRET_KEY}",
   "disableWebUI": false
 }
 EOF
+  log_config_snapshot "final webui.json after write" "$NAPCAT_CONFIG_DIR/webui.json"
 
   if [ ! -f "$NAPCAT_CONFIG_DIR/onebot11.json" ] || ! grep -q 'ws://127.0.0.1:6199/ws' "$NAPCAT_CONFIG_DIR/onebot11.json"; then
+    echo "writing onebot11.json for AstrBot bridge"
     cat > "$NAPCAT_CONFIG_DIR/onebot11.json" <<'EOF'
 {
   "network": {
@@ -346,10 +390,14 @@ EOF
   "parseMultMsg": false
 }
 EOF
+  else
+    echo "preserving existing onebot11.json"
   fi
+  log_config_snapshot "final onebot11.json after write" "$NAPCAT_CONFIG_DIR/onebot11.json"
 }
 
 write_progress 10 "prepare-container" 0
+load_runtime_secrets
 prepare_writable_paths
 ensure_sudo_shim
 ensure_base_packages

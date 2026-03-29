@@ -5,35 +5,55 @@ import android.content.SharedPreferences
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.provider.OpenableColumns
+import com.astrbot.android.data.db.AstrBotDatabase
+import com.astrbot.android.data.db.TtsVoiceAssetDao
+import com.astrbot.android.data.db.TtsVoiceAssetEntity
+import com.astrbot.android.data.db.toEntity
+import com.astrbot.android.data.db.toModel
 import com.astrbot.android.model.ClonedVoiceBinding
 import com.astrbot.android.model.ProviderProfile
 import com.astrbot.android.model.ProviderType
-import com.astrbot.android.model.TtsVoiceReferenceClip
 import com.astrbot.android.model.TtsVoiceReferenceAsset
+import com.astrbot.android.model.TtsVoiceReferenceClip
 import com.astrbot.android.runtime.RuntimeLogRepository
+import java.io.File
+import java.io.FileOutputStream
 import java.util.UUID
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import org.json.JSONArray
-import org.json.JSONObject
-import java.io.File
-import java.io.FileOutputStream
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 
 object TtsVoiceAssetRepository {
     private const val PREFS_NAME = "tts_voice_assets"
     private const val KEY_ASSETS_JSON = "assets_json"
 
-    private var preferences: SharedPreferences? = null
+    private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var legacyPreferences: SharedPreferences? = null
+    private var assetDao: TtsVoiceAssetDao = TtsVoiceAssetDaoPlaceholder.instance
     private val _assets = MutableStateFlow<List<TtsVoiceReferenceAsset>>(emptyList())
 
     val assets: StateFlow<List<TtsVoiceReferenceAsset>> = _assets.asStateFlow()
 
     fun initialize(context: Context) {
-        if (preferences != null) return
-        preferences = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        _assets.value = loadAssets().orEmpty()
-        RuntimeLogRepository.append("TTS voice assets loaded: count=${_assets.value.size}")
+        val database = AstrBotDatabase.get(context)
+        assetDao = database.ttsVoiceAssetDao()
+        legacyPreferences = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        runBlocking(Dispatchers.IO) {
+            seedStorageIfNeeded()
+        }
+        repositoryScope.launch {
+            assetDao.observeAssets().collect { entities ->
+                val loaded = entities.map(TtsVoiceAssetEntity::toModel)
+                _assets.value = loaded
+                RuntimeLogRepository.append("TTS voice assets loaded: count=${loaded.size}")
+            }
+        }
     }
 
     fun listVoiceChoicesFor(provider: ProviderProfile?): List<Pair<String, String>> {
@@ -107,12 +127,13 @@ object TtsVoiceAssetRepository {
             name = resolvedName,
             source = "imported",
             localPath = primaryClip?.localPath.orEmpty(),
+            remoteUrl = current?.remoteUrl.orEmpty(),
             durationMs = primaryClip?.durationMs ?: 0L,
             sampleRateHz = primaryClip?.sampleRateHz ?: 0,
         ).copy(clips = allClips)
-        _assets.value = _assets.value.filterNot { it.id == asset.id } + asset
-        _assets.value = _assets.value.sortedByDescending { it.createdAt }
-        persist()
+        val updated = _assets.value.filterNot { it.id == asset.id } + asset
+        _assets.value = updated.sortedByDescending { it.createdAt }
+        persist(_assets.value)
         RuntimeLogRepository.append(
             "Reference audio clip imported: name=${asset.name} clips=${asset.clips.size} durationMs=${clip.durationMs}",
         )
@@ -142,7 +163,7 @@ object TtsVoiceAssetRepository {
             .filterNot { it.id == resolvedId }
             .plus(updated)
             .sortedByDescending { it.createdAt }
-        persist()
+        persist(_assets.value)
         return updated
     }
 
@@ -178,27 +199,23 @@ object TtsVoiceAssetRepository {
                 )
             }
         }
-        persist()
+        persist(_assets.value)
     }
 
     fun renameBinding(assetId: String, bindingId: String, displayName: String) {
         _assets.value = _assets.value.map { asset ->
-            if (asset.id != assetId) {
-                asset
-            } else {
-                asset.copy(
-                    providerBindings = asset.providerBindings.map { binding ->
-                        if (binding.id == bindingId) binding.copy(displayName = displayName.trim().ifBlank { binding.voiceId }) else binding
-                    },
-                )
-            }
+            if (asset.id != assetId) asset else asset.copy(
+                providerBindings = asset.providerBindings.map { binding ->
+                    if (binding.id == bindingId) binding.copy(displayName = displayName.trim().ifBlank { binding.voiceId }) else binding
+                },
+            )
         }
-        persist()
+        persist(_assets.value)
     }
 
     fun deleteReferenceAsset(assetId: String) {
         _assets.value = _assets.value.filterNot { it.id == assetId }
-        persist()
+        persist(_assets.value)
     }
 
     fun clearReferenceAudio(assetId: String) {
@@ -222,7 +239,7 @@ object TtsVoiceAssetRepository {
                 )
             }
         }
-        persist()
+        persist(_assets.value)
     }
 
     fun deleteReferenceClip(assetId: String, clipId: String) {
@@ -248,18 +265,16 @@ object TtsVoiceAssetRepository {
                 )
             }
         }
-        persist()
+        persist(_assets.value)
     }
 
     fun deleteBinding(assetId: String, bindingId: String) {
         _assets.value = _assets.value.map { asset ->
-            if (asset.id != assetId) {
-                asset
-            } else {
-                asset.copy(providerBindings = asset.providerBindings.filterNot { it.id == bindingId })
-            }
+            if (asset.id != assetId) asset else asset.copy(
+                providerBindings = asset.providerBindings.filterNot { it.id == bindingId },
+            )
         }
-        persist()
+        persist(_assets.value)
     }
 
     fun snapshotAssets(): List<TtsVoiceReferenceAsset> {
@@ -292,139 +307,33 @@ object TtsVoiceAssetRepository {
             .distinctBy { it.id }
             .sortedByDescending { it.createdAt }
         _assets.value = restored
-        persist()
+        persist(restored)
         RuntimeLogRepository.append("TTS voice assets restored: count=${restored.size}")
     }
 
-    private fun loadAssets(): List<TtsVoiceReferenceAsset>? {
-        val raw = preferences?.getString(KEY_ASSETS_JSON, null)?.takeIf { it.isNotBlank() } ?: return null
-        return runCatching {
-            val array = JSONArray(raw)
-            buildList {
-                for (index in 0 until array.length()) {
-                    val item = array.optJSONObject(index) ?: continue
-                    add(
-                        TtsVoiceReferenceAsset(
-                            id = item.optString("id"),
-                            name = item.optString("name"),
-                            source = item.optString("source"),
-                            localPath = item.optString("localPath"),
-                            remoteUrl = item.optString("remoteUrl"),
-                            durationMs = item.optLong("durationMs"),
-                            sampleRateHz = item.optInt("sampleRateHz"),
-                            createdAt = item.optLong("createdAt"),
-                            clips = buildList {
-                                val clipsArray = item.optJSONArray("clips")
-                                if (clipsArray != null && clipsArray.length() > 0) {
-                                    for (clipIndex in 0 until clipsArray.length()) {
-                                        val clip = clipsArray.optJSONObject(clipIndex) ?: continue
-                                        add(
-                                            TtsVoiceReferenceClip(
-                                                id = clip.optString("id"),
-                                                localPath = clip.optString("localPath"),
-                                                durationMs = clip.optLong("durationMs"),
-                                                sampleRateHz = clip.optInt("sampleRateHz"),
-                                                createdAt = clip.optLong("createdAt"),
-                                            ),
-                                        )
-                                    }
-                                } else if (item.optString("localPath").isNotBlank()) {
-                                    add(
-                                        TtsVoiceReferenceClip(
-                                            id = "${item.optString("id")}-legacy",
-                                            localPath = item.optString("localPath"),
-                                            durationMs = item.optLong("durationMs"),
-                                            sampleRateHz = item.optInt("sampleRateHz"),
-                                            createdAt = item.optLong("createdAt"),
-                                        ),
-                                    )
-                                }
-                            },
-                            providerBindings = buildList {
-                                val bindings = item.optJSONArray("providerBindings") ?: JSONArray()
-                                for (bindingIndex in 0 until bindings.length()) {
-                                    val binding = bindings.optJSONObject(bindingIndex) ?: continue
-                                    val providerType = runCatching {
-                                        ProviderType.valueOf(binding.optString("providerType"))
-                                    }.getOrDefault(ProviderType.OPENAI_TTS)
-                                    add(
-                                        ClonedVoiceBinding(
-                                            id = binding.optString("id"),
-                                            providerId = binding.optString("providerId"),
-                                            providerType = providerType,
-                                            model = binding.optString("model"),
-                                            voiceId = binding.optString("voiceId"),
-                                            displayName = binding.optString("displayName"),
-                                            createdAt = binding.optLong("createdAt"),
-                                            lastVerifiedAt = binding.optLong("lastVerifiedAt"),
-                                            status = binding.optString("status").ifBlank { "ready" },
-                                        ),
-                                    )
-                                }
-                            },
-                        ),
-                    )
-                }
-            }
-        }.onFailure { error ->
-            RuntimeLogRepository.append("TTS voice assets load failed: ${error.message ?: error.javaClass.simpleName}")
-        }.getOrNull()
-    }
-
-    private fun persist() {
-        val json = JSONArray().apply {
-            _assets.value.forEach { asset ->
-                put(
-                    JSONObject().apply {
-                        put("id", asset.id)
-                        put("name", asset.name)
-                        put("source", asset.source)
-                        put("localPath", asset.localPath)
-                        put("remoteUrl", asset.remoteUrl)
-                        put("durationMs", asset.durationMs)
-                        put("sampleRateHz", asset.sampleRateHz)
-                        put("createdAt", asset.createdAt)
-                        put(
-                            "clips",
-                            JSONArray().apply {
-                                asset.clips.forEach { clip ->
-                                    put(
-                                        JSONObject().apply {
-                                            put("id", clip.id)
-                                            put("localPath", clip.localPath)
-                                            put("durationMs", clip.durationMs)
-                                            put("sampleRateHz", clip.sampleRateHz)
-                                            put("createdAt", clip.createdAt)
-                                        },
-                                    )
-                                }
-                            },
-                        )
-                        put(
-                            "providerBindings",
-                            JSONArray().apply {
-                                asset.providerBindings.forEach { binding ->
-                                    put(
-                                        JSONObject().apply {
-                                            put("id", binding.id)
-                                            put("providerId", binding.providerId)
-                                            put("providerType", binding.providerType.name)
-                                            put("model", binding.model)
-                                            put("voiceId", binding.voiceId)
-                                            put("displayName", binding.displayName)
-                                            put("createdAt", binding.createdAt)
-                                            put("lastVerifiedAt", binding.lastVerifiedAt)
-                                            put("status", binding.status)
-                                        },
-                                    )
-                                }
-                            },
-                        )
-                    },
-                )
+    private fun persist(assets: List<TtsVoiceReferenceAsset>) {
+        runBlocking(Dispatchers.IO) {
+            if (assets.isEmpty()) {
+                assetDao.clearAll()
+            } else {
+                val entities = assets.map { asset -> asset.toEntity() }
+                assetDao.upsertAll(entities)
+                assetDao.deleteMissing(entities.map { it.id })
             }
         }
-        preferences?.edit()?.putString(KEY_ASSETS_JSON, json.toString())?.apply()
+    }
+
+    private suspend fun seedStorageIfNeeded() {
+        if (assetDao.count() > 0) return
+        val imported = runCatching {
+            parseLegacyTtsVoiceAssets(legacyPreferences?.getString(KEY_ASSETS_JSON, null))
+        }.onFailure { error ->
+            RuntimeLogRepository.append("TTS voice assets legacy import failed: ${error.message ?: error.javaClass.simpleName}")
+        }.getOrDefault(emptyList())
+        if (imported.isNotEmpty()) {
+            assetDao.upsertAll(imported.map { asset -> asset.toEntity() })
+            RuntimeLogRepository.append("TTS voice assets migrated from SharedPreferences: count=${imported.size}")
+        }
     }
 
     private fun queryDisplayName(context: Context, uri: Uri): String {
@@ -472,10 +381,7 @@ object TtsVoiceAssetRepository {
                 ?.toIntOrNull()
                 ?.coerceAtLeast(0)
                 ?: 0
-            ReferenceAudioMetadata(
-                durationMs = durationMs,
-                sampleRateHz = sampleRateHz,
-            )
+            ReferenceAudioMetadata(durationMs = durationMs, sampleRateHz = sampleRateHz)
         } finally {
             runCatching { retriever.release() }
         }
@@ -490,4 +396,15 @@ object TtsVoiceAssetRepository {
         val durationMs: Long,
         val sampleRateHz: Int,
     )
+}
+
+private object TtsVoiceAssetDaoPlaceholder {
+    val instance = object : TtsVoiceAssetDao {
+        override fun observeAssets() = flowOf(emptyList<TtsVoiceAssetEntity>())
+        override suspend fun listAssets(): List<TtsVoiceAssetEntity> = emptyList()
+        override suspend fun upsertAll(entities: List<TtsVoiceAssetEntity>) = Unit
+        override suspend fun deleteMissing(ids: List<String>) = Unit
+        override suspend fun clearAll() = Unit
+        override suspend fun count(): Int = 0
+    }
 }

@@ -40,7 +40,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.viewmodel.compose.viewModel
+import com.astrbot.android.di.astrBotViewModel
 import com.astrbot.android.R
 import com.astrbot.android.model.NapCatBridgeConfig
 import com.astrbot.android.runtime.ContainerBridgeController
@@ -51,7 +51,7 @@ import com.astrbot.android.ui.viewmodel.BridgeViewModel
 
 @Composable
 fun SettingsScreen(
-    bridgeViewModel: BridgeViewModel = viewModel(),
+    bridgeViewModel: BridgeViewModel = astrBotViewModel(),
     onBack: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
