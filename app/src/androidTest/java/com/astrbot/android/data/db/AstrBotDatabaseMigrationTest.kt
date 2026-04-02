@@ -1,6 +1,7 @@
 package com.astrbot.android.data.db
 
 import android.content.Context
+import android.database.sqlite.SQLiteDatabase
 import androidx.room.testing.MigrationTestHelper
 import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
 import androidx.test.core.app.ApplicationProvider
@@ -22,6 +23,22 @@ class AstrBotDatabaseMigrationTest {
 
     private val context: Context
         get() = ApplicationProvider.getApplicationContext()
+
+    private fun Context.openDatabaseForVerification(databaseName: String): SQLiteDatabase {
+        return openOrCreateDatabase(databaseName, Context.MODE_PRIVATE, null).apply {
+            // Foreign key enforcement is configured per SQLite connection. These migration
+            // assertions reopen the database, so the verification connection must enable it.
+            setForeignKeyConstraintsEnabled(true)
+            rawQuery("PRAGMA foreign_keys", null).use { cursor ->
+                cursor.moveToFirst()
+                org.junit.Assert.assertEquals(
+                    "Expected foreign key enforcement to be enabled for verification",
+                    1,
+                    cursor.getInt(0),
+                )
+            }
+        }
+    }
 
     @Test
     @Throws(IOException::class)
@@ -50,7 +67,7 @@ class AstrBotDatabaseMigrationTest {
 
         helper.runMigrationsAndValidate(databaseName, 8, true, *AstrBotDatabase.allMigrations)
 
-        val database = context.openOrCreateDatabase(databaseName, Context.MODE_PRIVATE, null)
+        val database = context.openDatabaseForVerification(databaseName)
         database.rawQuery("SELECT COUNT(*) FROM bots", null).use { cursor ->
             cursor.moveToFirst()
             org.junit.Assert.assertEquals(1, cursor.getInt(0))
@@ -112,7 +129,7 @@ class AstrBotDatabaseMigrationTest {
 
         helper.runMigrationsAndValidate(databaseName, 8, true, *AstrBotDatabase.allMigrations)
 
-        val database = context.openOrCreateDatabase(databaseName, Context.MODE_PRIVATE, null)
+        val database = context.openDatabaseForVerification(databaseName)
         database.rawQuery(
             "SELECT value FROM app_preferences WHERE `key` = 'selected_config_profile_id'",
             null,
@@ -156,7 +173,7 @@ class AstrBotDatabaseMigrationTest {
 
         helper.runMigrationsAndValidate(databaseName, 9, true, *AstrBotDatabase.allMigrations)
 
-        val database = context.openOrCreateDatabase(databaseName, Context.MODE_PRIVATE, null)
+        val database = context.openDatabaseForVerification(databaseName)
         database.rawQuery(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='conversation_messages'",
             null,
@@ -194,7 +211,7 @@ class AstrBotDatabaseMigrationTest {
 
         helper.runMigrationsAndValidate(databaseName, 10, true, *AstrBotDatabase.allMigrations)
 
-        val database = context.openOrCreateDatabase(databaseName, Context.MODE_PRIVATE, null)
+        val database = context.openDatabaseForVerification(databaseName)
         listOf(
             "plugin_install_records",
             "plugin_manifest_snapshots",

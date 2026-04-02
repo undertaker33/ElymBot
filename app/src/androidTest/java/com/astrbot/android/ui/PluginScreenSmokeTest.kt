@@ -3,11 +3,12 @@ package com.astrbot.android.ui
 import androidx.activity.ComponentActivity
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.assertTextContains
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollToNode
 import com.astrbot.android.R
 import com.astrbot.android.di.PluginViewModelDependencies
 import com.astrbot.android.model.plugin.PluginCompatibilityState
@@ -67,6 +68,8 @@ class PluginScreenSmokeTest {
         composeRule.onNodeWithTag(PluginUiSpec.pluginCardTag("weather-toolkit")).performClick()
         composeRule.onNodeWithTag(PluginUiSpec.DetailPanelTag).assertIsDisplayed()
 
+        composeRule.onNodeWithTag(PluginUiSpec.DetailPanelTag)
+            .performScrollToNode(hasTestTag(PluginUiSpec.DetailRemoveDataPolicyTag))
         composeRule.onNodeWithTag(PluginUiSpec.DetailRemoveDataPolicyTag).performClick()
         composeRule.waitForIdle()
 
@@ -74,12 +77,13 @@ class PluginScreenSmokeTest {
             check(dependencies.records.value.single().uninstallPolicy == PluginUninstallPolicy.REMOVE_DATA)
         }
 
-        composeRule.onNodeWithTag(PluginUiSpec.DetailActionMessageTag)
-            .assertIsDisplayed()
-            .assertTextContains(
-                composeRule.activity.getString(R.string.plugin_action_feedback_uninstall_policy_remove_data),
-            )
+        composeRule.onNodeWithText(
+            composeRule.activity.getString(R.string.plugin_action_feedback_uninstall_policy_remove_data),
+            useUnmergedTree = true,
+        ).assertIsDisplayed()
 
+        composeRule.onNodeWithTag(PluginUiSpec.DetailPanelTag)
+            .performScrollToNode(hasTestTag(PluginUiSpec.DetailDisableActionTag))
         composeRule.onNodeWithTag(PluginUiSpec.DetailDisableActionTag).performClick()
         composeRule.waitForIdle()
 
@@ -87,11 +91,10 @@ class PluginScreenSmokeTest {
             check(!dependencies.records.value.single().enabled)
         }
 
-        composeRule.onNodeWithTag(PluginUiSpec.DetailActionMessageTag)
-            .assertIsDisplayed()
-            .assertTextContains(
-                composeRule.activity.getString(R.string.plugin_action_feedback_disabled),
-            )
+        composeRule.onNodeWithText(
+            composeRule.activity.getString(R.string.plugin_action_feedback_disabled),
+            useUnmergedTree = true,
+        ).assertIsDisplayed()
     }
 }
 
