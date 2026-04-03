@@ -2,18 +2,128 @@ package com.astrbot.android.runtime.plugin
 
 import com.astrbot.android.data.PluginInstallStore
 import com.astrbot.android.data.plugin.PluginStoragePaths
+import com.astrbot.android.model.plugin.PluginInstallIntent
 import com.astrbot.android.model.plugin.PluginInstallRecord
 import com.astrbot.android.model.plugin.PluginSource
+import com.astrbot.android.model.plugin.PluginSourceType
+import com.astrbot.android.model.plugin.PluginUpdateAvailability
 import java.io.File
+import java.net.HttpURLConnection
+import java.net.URL
+import java.util.UUID
 import java.util.zip.ZipInputStream
+
+fun interface RemotePluginPackageDownloader {
+    suspend fun download(packageUrl: String, destinationFile: File)
+}
+
+class UrlConnectionRemotePluginPackageDownloader : RemotePluginPackageDownloader {
+    override suspend fun download(packageUrl: String, destinationFile: File) {
+        val connection = (URL(packageUrl).openConnection() as HttpURLConnection).apply {
+            requestMethod = "GET"
+            connectTimeout = 15_000
+            readTimeout = 30_000
+            doInput = true
+        }
+        destinationFile.parentFile?.mkdirs()
+        connection.inputStream.use { input ->
+            destinationFile.outputStream().use { output ->
+                input.copyTo(output)
+            }
+        }
+    }
+}
 
 class PluginInstaller(
     private val validator: PluginPackageValidator,
     private val storagePaths: PluginStoragePaths,
     private val installStore: PluginInstallStore,
+    private val remotePackageDownloader: RemotePluginPackageDownloader = UrlConnectionRemotePluginPackageDownloader(),
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
     fun installFromLocalPackage(packageFile: File): PluginInstallRecord {
+        return installPackage(
+            packageFile = packageFile,
+            sourceType = PluginSourceType.LOCAL_FILE,
+            sourceLocation = packageFile.absolutePath,
+            installedPackageUrl = "",
+            catalogSourceId = null,
+            lastCatalogCheckAtEpochMillis = null,
+        )
+    }
+
+    suspend fun install(intent: PluginInstallIntent.DirectPackageUrl): PluginInstallRecord {
+        return installFromRemotePackage(
+            sourceType = PluginSourceType.DIRECT_LINK,
+            packageUrl = intent.url,
+            catalogSourceId = null,
+            lastCatalogCheckAtEpochMillis = null,
+        )
+    }
+
+    suspend fun install(intent: PluginInstallIntent.CatalogVersion): PluginInstallRecord {
+        return installFromRemotePackage(
+            sourceType = PluginSourceType.REPOSITORY,
+            packageUrl = intent.packageUrl,
+            catalogSourceId = intent.catalogSourceId,
+            lastCatalogCheckAtEpochMillis = clock(),
+        )
+    }
+
+    suspend fun upgrade(availability: PluginUpdateAvailability): PluginInstallRecord {
+        check(availability.updateAvailable) {
+            "Plugin ${availability.pluginId} does not have an available update."
+        }
+        check(availability.canUpgrade) {
+            availability.incompatibilityReason.ifBlank {
+                "Plugin ${availability.pluginId} cannot be upgraded."
+            }
+        }
+        val sourceId = availability.catalogSourceId?.takeIf { it.isNotBlank() }
+            ?: error("Repository upgrades require a catalog source id.")
+        return install(
+            PluginInstallIntent.catalogVersion(
+                pluginId = availability.pluginId,
+                version = availability.latestVersion,
+                packageUrl = availability.packageUrl,
+                catalogSourceId = sourceId,
+            ),
+        )
+    }
+
+    private suspend fun installFromRemotePackage(
+        sourceType: PluginSourceType,
+        packageUrl: String,
+        catalogSourceId: String?,
+        lastCatalogCheckAtEpochMillis: Long? = null,
+    ): PluginInstallRecord {
+        storagePaths.ensureBaseDirectories()
+        val tempFile = File(storagePaths.rootDir, "tmp/${UUID.randomUUID()}.zip")
+        try {
+            remotePackageDownloader.download(packageUrl, tempFile)
+            return installPackage(
+                packageFile = tempFile,
+                sourceType = sourceType,
+                sourceLocation = packageUrl,
+                installedPackageUrl = packageUrl,
+                catalogSourceId = catalogSourceId,
+                lastCatalogCheckAtEpochMillis = lastCatalogCheckAtEpochMillis,
+            )
+        } finally {
+            if (tempFile.exists()) {
+                tempFile.delete()
+            }
+        }
+    }
+
+    private fun installPackage(
+        packageFile: File,
+        sourceType: PluginSourceType,
+        sourceLocation: String,
+        installedPackageUrl: String,
+        catalogSourceId: String?,
+        lastCatalogCheckAtEpochMillis: Long?,
+    ): PluginInstallRecord {
         val validation = validator.validate(packageFile)
         check(validation.compatibilityState.isCompatible()) {
             "Plugin package is incompatible with the current host."
@@ -30,7 +140,9 @@ class PluginInstaller(
 
         storagePaths.ensureBaseDirectories()
         val now = clock()
-        val storedPackage = storagePaths.packageFile(buildStoredPackageName(validation.manifest.pluginId, validation.manifest.version))
+        val storedPackage = storagePaths.packageFile(
+            buildStoredPackageName(validation.manifest.pluginId, validation.manifest.version),
+        )
         storedPackage.parentFile?.mkdirs()
         val extractedDir = storagePaths.extractedDir(validation.manifest.pluginId)
         val stagingExtractedDir = File(
@@ -54,24 +166,28 @@ class PluginInstaller(
             throw error
         }
 
+        val manifestSnapshot = validation.manifest.copy(sourceType = sourceType)
         val record = PluginInstallRecord.restoreFromPersistedState(
-            manifestSnapshot = validation.manifest,
+            manifestSnapshot = manifestSnapshot,
             source = PluginSource(
-                sourceType = validation.manifest.sourceType,
-                location = packageFile.absolutePath,
+                sourceType = sourceType,
+                location = sourceLocation,
                 importedAt = now,
             ),
             permissionSnapshot = validation.manifest.permissions,
             compatibilityState = validation.compatibilityState,
             uninstallPolicy = existing?.uninstallPolicy ?: PluginInstallRecord.installFromManifest(
-                manifestSnapshot = validation.manifest,
+                manifestSnapshot = manifestSnapshot,
                 source = PluginSource(
-                    sourceType = validation.manifest.sourceType,
-                    location = packageFile.absolutePath,
+                    sourceType = sourceType,
+                    location = sourceLocation,
                     importedAt = now,
                 ),
             ).uninstallPolicy,
             enabled = existing?.enabled ?: false,
+            catalogSourceId = catalogSourceId,
+            installedPackageUrl = installedPackageUrl,
+            lastCatalogCheckAtEpochMillis = lastCatalogCheckAtEpochMillis ?: existing?.lastCatalogCheckAtEpochMillis,
             installedAt = existing?.installedAt ?: now,
             lastUpdatedAt = now,
             localPackagePath = storedPackage.absolutePath,

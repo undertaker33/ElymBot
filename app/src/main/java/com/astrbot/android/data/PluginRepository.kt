@@ -2,14 +2,35 @@ package com.astrbot.android.data
 
 import android.content.Context
 import com.astrbot.android.data.db.AstrBotDatabase
+import com.astrbot.android.data.db.PluginCatalogDao
+import com.astrbot.android.data.db.PluginCatalogEntryEntity
+import com.astrbot.android.data.db.PluginCatalogSourceEntity
+import com.astrbot.android.data.db.PluginCatalogVersionEntity
+import com.astrbot.android.data.db.toEntryRecord
 import com.astrbot.android.data.db.PluginInstallAggregate
 import com.astrbot.android.data.db.PluginInstallAggregateDao
+import com.astrbot.android.data.db.toModel
+import com.astrbot.android.data.db.toSyncState
 import com.astrbot.android.data.db.toInstallRecord
 import com.astrbot.android.data.db.toWriteModel
+import com.astrbot.android.data.plugin.catalog.PluginCatalogSyncStore
+import com.astrbot.android.model.plugin.PluginCatalogEntryRecord
+import com.astrbot.android.model.plugin.PluginCatalogSyncState
+import com.astrbot.android.model.plugin.PluginCatalogEntry
+import com.astrbot.android.model.plugin.PluginCatalogVersion
+import com.astrbot.android.model.plugin.PluginCompatibilityState
 import com.astrbot.android.model.plugin.PluginCompatibilityStatus
 import com.astrbot.android.model.plugin.PluginFailureState
 import com.astrbot.android.model.plugin.PluginInstallRecord
+import com.astrbot.android.model.plugin.PluginPermissionDeclaration
+import com.astrbot.android.model.plugin.PluginRepositorySource
+import com.astrbot.android.model.plugin.PluginPermissionDiff
+import com.astrbot.android.model.plugin.PluginPermissionUpgrade
+import com.astrbot.android.model.plugin.PluginSourceBadge
+import com.astrbot.android.model.plugin.PluginSourceType
+import com.astrbot.android.model.plugin.PluginUpdateAvailability
 import com.astrbot.android.model.plugin.PluginUninstallPolicy
+import com.astrbot.android.runtime.plugin.compareVersions
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -40,24 +61,34 @@ data class PluginUninstallResult(
     val removedData: Boolean,
 )
 
-object PluginRepository : PluginInstallStore {
+object PluginRepository : PluginInstallStore, PluginCatalogSyncStore {
     private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val initialized = AtomicBoolean(false)
 
+    private var appContext: Context? = null
     private var pluginDao: PluginInstallAggregateDao? = null
+    private var pluginCatalogDao: PluginCatalogDao? = null
     private var timeProvider: () -> Long = System::currentTimeMillis
     private var pluginDataRemover: PluginDataRemover = NoOpPluginDataRemover
     private val _records = MutableStateFlow<List<PluginInstallRecord>>(emptyList())
+    private val _repositorySources = MutableStateFlow<List<PluginRepositorySource>>(emptyList())
+    private val _catalogEntries = MutableStateFlow<List<PluginCatalogEntryRecord>>(emptyList())
 
     val records: StateFlow<List<PluginInstallRecord>> = _records.asStateFlow()
+    val repositorySources: StateFlow<List<PluginRepositorySource>> = _repositorySources.asStateFlow()
+    val catalogEntries: StateFlow<List<PluginCatalogEntryRecord>> = _catalogEntries.asStateFlow()
 
     fun initialize(context: Context) {
         if (!initialized.compareAndSet(false, true)) return
-        val dao = AstrBotDatabase.get(context).pluginInstallAggregateDao()
+        appContext = context.applicationContext
+        val database = AstrBotDatabase.get(context)
+        val dao = database.pluginInstallAggregateDao()
+        pluginCatalogDao = database.pluginCatalogDao()
         pluginDao = dao
         _records.value = runBlocking(Dispatchers.IO) {
             dao.listPluginInstallAggregates().map(PluginInstallAggregate::toInstallRecord)
         }
+        refreshCatalogState()
         repositoryScope.launch {
             dao.observePluginInstallAggregates().collect { aggregates ->
                 _records.value = aggregates.map(PluginInstallAggregate::toInstallRecord)
@@ -95,6 +126,116 @@ object PluginRepository : PluginInstallStore {
             requireDao().delete(pluginId)
         }
         _records.value = _records.value.filterNot { record -> record.pluginId == pluginId }
+    }
+
+    override fun replaceRepositoryCatalog(source: PluginRepositorySource) {
+        requireInitialized()
+        val writeModel = source.toWriteModel()
+        runBlocking(Dispatchers.IO) {
+            requireCatalogDao().replaceCatalog(
+                source = writeModel.source,
+                entries = writeModel.entries,
+                versions = writeModel.versions,
+            )
+        }
+        refreshCatalogState()
+    }
+
+    override fun upsertRepositorySource(source: PluginRepositorySource) {
+        requireInitialized()
+        val sourceEntity = PluginCatalogSourceEntity(
+            sourceId = source.sourceId,
+            title = source.title,
+            catalogUrl = source.catalogUrl,
+            updatedAt = source.updatedAt,
+            lastSyncAtEpochMillis = source.lastSyncAtEpochMillis,
+            lastSyncStatus = source.lastSyncStatus.name,
+            lastSyncErrorSummary = source.lastSyncErrorSummary,
+        )
+        runBlocking(Dispatchers.IO) {
+            requireCatalogDao().upsertSources(listOf(sourceEntity))
+        }
+        refreshCatalogState()
+    }
+
+    override fun listRepositorySources(): List<PluginRepositorySource> {
+        requireInitialized()
+        return runBlocking(Dispatchers.IO) {
+            buildList {
+                requireCatalogDao().listSources().forEach { entity ->
+                    add(assembleRepositorySource(entity))
+                }
+            }
+        }
+    }
+
+    override fun getRepositorySource(sourceId: String): PluginRepositorySource? {
+        requireInitialized()
+        return runBlocking(Dispatchers.IO) {
+            val sourceEntity = requireCatalogDao().getSource(sourceId) ?: return@runBlocking null
+            assembleRepositorySource(sourceEntity)
+        }
+    }
+
+    override fun getRepositorySourceSyncState(sourceId: String): PluginCatalogSyncState? {
+        requireInitialized()
+        return runBlocking(Dispatchers.IO) {
+            requireCatalogDao().getSource(sourceId)?.toSyncState()
+        }
+    }
+
+    override fun listAllCatalogEntries(): List<PluginCatalogEntryRecord> {
+        requireInitialized()
+        return runBlocking(Dispatchers.IO) {
+            buildList {
+                requireCatalogDao().listSources().forEach { sourceEntity ->
+                    val source = assembleRepositorySource(sourceEntity)
+                    source.plugins.forEach { entry ->
+                        add(source.toEntryRecord(entry))
+                    }
+                }
+            }
+        }
+    }
+
+    fun listCatalogEntries(sourceId: String): List<PluginCatalogEntry> {
+        requireInitialized()
+        return runBlocking(Dispatchers.IO) {
+            buildList {
+                requireCatalogDao().listEntries(sourceId).forEach { entity ->
+                    add(assembleCatalogEntry(entity))
+                }
+            }
+        }
+    }
+
+    fun getCatalogEntry(sourceId: String, pluginId: String): PluginCatalogEntry? {
+        requireInitialized()
+        return runBlocking(Dispatchers.IO) {
+            val entryEntity = requireCatalogDao().getEntry(sourceId, pluginId) ?: return@runBlocking null
+            assembleCatalogEntry(entryEntity)
+        }
+    }
+
+    override fun listCatalogVersions(sourceId: String, pluginId: String): List<PluginCatalogVersion> {
+        requireInitialized()
+        return runBlocking(Dispatchers.IO) {
+            requireCatalogDao().listVersions(sourceId, pluginId).map(PluginCatalogVersionEntity::toModel)
+        }
+    }
+
+    fun getUpdateAvailability(
+        pluginId: String,
+        hostVersion: String,
+        supportedProtocolVersion: Int,
+    ): PluginUpdateAvailability? {
+        requireInitialized()
+        val record = findByPluginId(pluginId) ?: return null
+        return computeUpdateAvailability(
+            record = record,
+            hostVersion = hostVersion,
+            supportedProtocolVersion = supportedProtocolVersion,
+        )
     }
 
     fun setEnabled(pluginId: String, enabled: Boolean): PluginInstallRecord {
@@ -179,6 +320,10 @@ object PluginRepository : PluginInstallStore {
         }
     }
 
+    fun requireAppContext(): Context {
+        return appContext ?: error("PluginRepository.initialize(context) must be called before use.")
+    }
+
     private fun requireRecord(pluginId: String): PluginInstallRecord {
         return findByPluginId(pluginId)
             ?: error("Plugin install record not found for pluginId=$pluginId")
@@ -199,6 +344,9 @@ object PluginRepository : PluginInstallStore {
             uninstallPolicy = uninstallPolicy,
             enabled = enabled,
             failureState = failureState,
+            catalogSourceId = current.catalogSourceId,
+            installedPackageUrl = current.installedPackageUrl,
+            lastCatalogCheckAtEpochMillis = current.lastCatalogCheckAtEpochMillis,
             installedAt = current.installedAt,
             lastUpdatedAt = lastUpdatedAt,
             localPackagePath = current.localPackagePath,
@@ -208,6 +356,149 @@ object PluginRepository : PluginInstallStore {
         return updated
     }
 
+    private fun computeUpdateAvailability(
+        record: PluginInstallRecord,
+        hostVersion: String,
+        supportedProtocolVersion: Int,
+    ): PluginUpdateAvailability? {
+        val sourceId = record.catalogSourceId?.takeIf { it.isNotBlank() } ?: return null
+        if (record.source.sourceType == PluginSourceType.DIRECT_LINK) {
+            return null
+        }
+        val versions = listCatalogVersions(sourceId = sourceId, pluginId = record.pluginId)
+        val candidate = versions
+            .filter { version -> compareVersions(version.version, record.installedVersion) > 0 }
+            .sortedWith { left, right -> compareVersions(right.version, left.version) }
+            .firstOrNull()
+            ?: return null
+        val compatibilityState = PluginCompatibilityState.fromChecks(
+            protocolSupported = candidate.protocolVersion == supportedProtocolVersion,
+            minHostVersionSatisfied = compareVersions(hostVersion, candidate.minHostVersion) >= 0,
+            maxHostVersionSatisfied = candidate.maxHostVersion.isBlank() ||
+                compareVersions(hostVersion, candidate.maxHostVersion) <= 0,
+            notes = buildCompatibilityNotes(
+                hostVersion = hostVersion,
+                supportedProtocolVersion = supportedProtocolVersion,
+                version = candidate,
+            ),
+        )
+        val source = getRepositorySource(sourceId)
+        return PluginUpdateAvailability(
+            pluginId = record.pluginId,
+            installedVersion = record.installedVersion,
+            latestVersion = candidate.version,
+            updateAvailable = true,
+            canUpgrade = compatibilityState.status != PluginCompatibilityStatus.INCOMPATIBLE,
+            publishedAt = candidate.publishedAt,
+            changelogSummary = summarizeChangelog(candidate.changelog),
+            permissionDiff = calculatePermissionDiff(
+                current = record.permissionSnapshot,
+                target = candidate.permissions,
+            ),
+            compatibilityState = compatibilityState,
+            incompatibilityReason = compatibilityState.notes.takeIf {
+                compatibilityState.status == PluginCompatibilityStatus.INCOMPATIBLE
+            }.orEmpty(),
+            catalogSourceId = sourceId,
+            packageUrl = candidate.packageUrl,
+            sourceBadge = source?.let {
+                PluginSourceBadge(
+                    sourceType = PluginSourceType.REPOSITORY,
+                    label = it.title,
+                    highlighted = true,
+                )
+            },
+        )
+    }
+
+    private fun calculatePermissionDiff(
+        current: List<PluginPermissionDeclaration>,
+        target: List<PluginPermissionDeclaration>,
+    ): PluginPermissionDiff {
+        val currentById = current.associateBy { it.permissionId }
+        val targetById = target.associateBy { it.permissionId }
+        val added = target.filter { permission -> permission.permissionId !in currentById }
+        val removed = current.filter { permission -> permission.permissionId !in targetById }
+        val changed = buildList {
+            target.forEach { permission ->
+                val existing = currentById[permission.permissionId] ?: return@forEach
+                if (existing != permission && existing.riskLevel == permission.riskLevel) {
+                    add(permission)
+                }
+            }
+        }
+        val riskUpgraded = buildList {
+            target.forEach { permission ->
+                val existing = currentById[permission.permissionId] ?: return@forEach
+                if (permission.riskLevel.ordinal > existing.riskLevel.ordinal) {
+                    add(
+                        PluginPermissionUpgrade(
+                            from = existing,
+                            to = permission,
+                        ),
+                    )
+                }
+            }
+        }
+        return PluginPermissionDiff(
+            added = added,
+            removed = removed,
+            changed = changed,
+            riskUpgraded = riskUpgraded,
+        )
+    }
+
+    private fun summarizeChangelog(changelog: String): String {
+        return changelog
+            .lineSequence()
+            .map { line -> line.trim() }
+            .firstOrNull { line -> line.isNotBlank() }
+            .orEmpty()
+    }
+
+    private fun buildCompatibilityNotes(
+        hostVersion: String,
+        supportedProtocolVersion: Int,
+        version: PluginCatalogVersion,
+    ): String {
+        val notes = mutableListOf<String>()
+        if (version.protocolVersion != supportedProtocolVersion) {
+            notes += "Protocol version ${version.protocolVersion} is not supported."
+        }
+        if (compareVersions(hostVersion, version.minHostVersion) < 0) {
+            notes += "Host version $hostVersion is below required minimum ${version.minHostVersion}."
+        }
+        if (version.maxHostVersion.isNotBlank() && compareVersions(hostVersion, version.maxHostVersion) > 0) {
+            notes += "Host version $hostVersion exceeds supported maximum ${version.maxHostVersion}."
+        }
+        return notes.joinToString(separator = " ")
+    }
+
+    private suspend fun assembleRepositorySource(entity: PluginCatalogSourceEntity): PluginRepositorySource {
+        val entries = buildList {
+            requireCatalogDao().listEntries(entity.sourceId).forEach { entry ->
+                add(assembleCatalogEntry(entry))
+            }
+        }
+        return entity.toModel(entries = entries)
+    }
+
+    private suspend fun assembleCatalogEntry(entity: PluginCatalogEntryEntity): PluginCatalogEntry {
+        return entity.toModel(
+            versions = requireCatalogDao()
+                .listVersions(entity.sourceId, entity.pluginId)
+                .map(PluginCatalogVersionEntity::toModel),
+        )
+    }
+
+    private fun refreshCatalogState() {
+        _repositorySources.value = listRepositorySources()
+        _catalogEntries.value = listAllCatalogEntries()
+    }
+
     private fun requireDao(): PluginInstallAggregateDao = pluginDao
+        ?: error("PluginRepository.initialize(context) must be called before use.")
+
+    private fun requireCatalogDao(): PluginCatalogDao = pluginCatalogDao
         ?: error("PluginRepository.initialize(context) must be called before use.")
 }

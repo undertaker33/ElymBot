@@ -1,0 +1,28 @@
+package com.astrbot.android.runtime.plugin.samples
+
+import java.io.File
+
+internal object SampleAssetPaths {
+    private val rootDir: File by lazy {
+        File(findRepoRoot(), "artifacts/plugins/meme-manager-sample")
+    }
+
+    val catalogFixture: File by lazy {
+        File(rootDir, "catalog/meme-manager.sample.catalog.json")
+    }
+
+    fun packageZip(version: String): File {
+        return File(rootDir, "packages/meme-manager-$version.zip")
+    }
+}
+
+private fun findRepoRoot(): File {
+    var dir = File(System.getProperty("user.dir") ?: ".")
+    repeat(10) {
+        if (File(dir, "settings.gradle.kts").exists() || File(dir, "settings.gradle").exists()) {
+            return dir
+        }
+        dir = dir.parentFile ?: return dir
+    }
+    return dir
+}

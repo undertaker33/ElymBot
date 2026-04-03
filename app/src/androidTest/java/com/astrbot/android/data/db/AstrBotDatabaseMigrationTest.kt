@@ -361,4 +361,133 @@ class AstrBotDatabaseMigrationTest {
         }
         database.close()
     }
+
+    @Test
+    @Throws(IOException::class)
+    fun migrate11To12_addsCatalogTrackingColumnsAndCatalogTables() {
+        val databaseName = "migration-test-11-12"
+        helper.createDatabase(databaseName, 11).apply {
+            execSQL(
+                """
+                INSERT INTO plugin_install_records (
+                    pluginId, sourceType, sourceLocation, sourceImportedAt,
+                    protocolSupported, minHostVersionSatisfied, maxHostVersionSatisfied, compatibilityNotes,
+                    uninstallPolicy, consecutiveFailureCount, lastFailureAtEpochMillis,
+                    lastErrorSummary, suspendedUntilEpochMillis, enabled, installedAt,
+                    lastUpdatedAt, localPackagePath, extractedDir
+                ) VALUES (
+                    'plugin.demo', 'LOCAL_FILE', '/plugins/demo.zip', 100,
+                    1, 1, 1, '',
+                    'KEEP_DATA', 0, NULL,
+                    '', NULL, 1, 100,
+                    100, '/plugins/packages/demo.zip', '/plugins/extracted/plugin.demo'
+                )
+                """.trimIndent(),
+            )
+            execSQL(
+                """
+                INSERT INTO plugin_manifest_snapshots (
+                    pluginId, version, protocolVersion, author, title, description,
+                    minHostVersion, maxHostVersion, sourceType, entrySummary, riskLevel
+                ) VALUES (
+                    'plugin.demo', '1.0.0', 1, 'AstrBot', 'Demo', 'Demo plugin',
+                    '0.3.0', '', 'LOCAL_FILE', 'Entry summary', 'LOW'
+                )
+                """.trimIndent(),
+            )
+            close()
+        }
+
+        helper.runMigrationsAndValidate(databaseName, 12, true, *AstrBotDatabase.allMigrations)
+
+        val database = context.openDatabaseForVerification(databaseName)
+        database.rawQuery(
+            """
+            SELECT catalogSourceId, installedPackageUrl, lastCatalogCheckAtEpochMillis
+            FROM plugin_install_records
+            WHERE pluginId = 'plugin.demo'
+            """.trimIndent(),
+            null,
+        ).use { cursor ->
+            org.junit.Assert.assertTrue(cursor.moveToFirst())
+            org.junit.Assert.assertTrue(cursor.isNull(0))
+            org.junit.Assert.assertEquals("", cursor.getString(1))
+            org.junit.Assert.assertTrue(cursor.isNull(2))
+        }
+
+        listOf(
+            "plugin_catalog_sources",
+            "plugin_catalog_entries",
+            "plugin_catalog_versions",
+        ).forEach { tableName ->
+            database.rawQuery(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='$tableName'",
+                null,
+            ).use { cursor ->
+                org.junit.Assert.assertTrue("Expected $tableName to exist", cursor.moveToFirst())
+            }
+        }
+        database.close()
+    }
+
+    @Test
+    @Throws(IOException::class)
+    fun migrate12To13_addsCatalogSyncColumnsWithSafeDefaults() {
+        val databaseName = "migration-test-12-13"
+        helper.createDatabase(databaseName, 12).apply {
+            execSQL(
+                """
+                INSERT INTO plugin_catalog_sources (
+                    sourceId, title, catalogUrl, updatedAt
+                ) VALUES (
+                    'official', 'Official Repository',
+                    'https://repo.example.com/catalogs/stable/index.json', 1800
+                )
+                """.trimIndent(),
+            )
+            close()
+        }
+
+        helper.runMigrationsAndValidate(databaseName, 13, true, *AstrBotDatabase.allMigrations)
+
+        val database = context.openDatabaseForVerification(databaseName)
+        database.rawQuery(
+            """
+            SELECT lastSyncAtEpochMillis, lastSyncStatus, lastSyncErrorSummary
+            FROM plugin_catalog_sources
+            WHERE sourceId = 'official'
+            """.trimIndent(),
+            null,
+        ).use { cursor ->
+            org.junit.Assert.assertTrue(cursor.moveToFirst())
+            org.junit.Assert.assertTrue(cursor.isNull(0))
+            org.junit.Assert.assertEquals("NEVER_SYNCED", cursor.getString(1))
+            org.junit.Assert.assertEquals("", cursor.getString(2))
+        }
+
+        database.execSQL(
+            """
+            UPDATE plugin_catalog_sources
+            SET lastSyncAtEpochMillis = 4567,
+                lastSyncStatus = 'FAILED',
+                lastSyncErrorSummary = 'timeout while fetching catalog'
+            WHERE sourceId = 'official'
+            """.trimIndent(),
+        )
+
+        database.rawQuery(
+            """
+            SELECT lastSyncAtEpochMillis, lastSyncStatus, lastSyncErrorSummary
+            FROM plugin_catalog_sources
+            WHERE sourceId = 'official'
+            """.trimIndent(),
+            null,
+        ).use { cursor ->
+            org.junit.Assert.assertTrue(cursor.moveToFirst())
+            org.junit.Assert.assertEquals(4567L, cursor.getLong(0))
+            org.junit.Assert.assertEquals("FAILED", cursor.getString(1))
+            org.junit.Assert.assertEquals("timeout while fetching catalog", cursor.getString(2))
+        }
+        database.close()
+    }
 }

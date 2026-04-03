@@ -9,6 +9,8 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 import com.astrbot.android.data.db.core.migration8To9
 import com.astrbot.android.data.db.core.migration9To10
 import com.astrbot.android.data.db.core.migration10To11
+import com.astrbot.android.data.db.core.migration11To12
+import com.astrbot.android.data.db.core.migration12To13
 
 @Database(
     entities = [
@@ -32,6 +34,9 @@ import com.astrbot.android.data.db.core.migration10To11
         ProviderCapabilityEntity::class,
         ProviderTtsVoiceOptionEntity::class,
         PluginInstallRecordEntity::class,
+        PluginCatalogSourceEntity::class,
+        PluginCatalogEntryEntity::class,
+        PluginCatalogVersionEntity::class,
         PluginManifestSnapshotEntity::class,
         PluginManifestPermissionEntity::class,
         PluginPermissionSnapshotEntity::class,
@@ -40,7 +45,7 @@ import com.astrbot.android.data.db.core.migration10To11
         TtsVoiceClipEntity::class,
         TtsVoiceProviderBindingEntity::class,
     ],
-    version = 11,
+    version = 13,
     exportSchema = true,
 )
 abstract class AstrBotDatabase : RoomDatabase() {
@@ -51,6 +56,7 @@ abstract class AstrBotDatabase : RoomDatabase() {
     abstract fun personaAggregateDao(): PersonaAggregateDao
     abstract fun providerAggregateDao(): ProviderAggregateDao
     abstract fun pluginInstallAggregateDao(): PluginInstallAggregateDao
+    abstract fun pluginCatalogDao(): PluginCatalogDao
     abstract fun savedQqAccountDao(): SavedQqAccountDao
     abstract fun ttsVoiceAssetAggregateDao(): TtsVoiceAssetAggregateDao
 
@@ -314,6 +320,8 @@ abstract class AstrBotDatabase : RoomDatabase() {
             migration8To9,
             migration9To10,
             migration10To11,
+            migration11To12,
+            migration12To13,
         )
 
         fun get(context: Context): AstrBotDatabase {

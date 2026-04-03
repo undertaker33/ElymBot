@@ -3,6 +3,8 @@ package com.astrbot.android.model.plugin
 enum class PluginSourceType {
     LOCAL_FILE,
     MANUAL_IMPORT,
+    REPOSITORY,
+    DIRECT_LINK,
 }
 
 enum class PluginRiskLevel {
@@ -48,6 +50,164 @@ data class PluginSource(
     val sourceType: PluginSourceType = PluginSourceType.LOCAL_FILE,
     val location: String = "",
     val importedAt: Long = 0L,
+)
+
+data class PluginRepositorySource(
+    val sourceId: String,
+    val title: String,
+    val catalogUrl: String,
+    val updatedAt: Long,
+    val lastSyncAtEpochMillis: Long? = null,
+    val lastSyncStatus: PluginCatalogSyncStatus = PluginCatalogSyncStatus.NEVER_SYNCED,
+    val lastSyncErrorSummary: String = "",
+    val plugins: List<PluginCatalogEntry> = emptyList(),
+)
+
+enum class PluginCatalogSyncStatus {
+    NEVER_SYNCED,
+    SUCCESS,
+    EMPTY,
+    FAILED,
+}
+
+data class PluginCatalogSyncState(
+    val sourceId: String,
+    val lastSyncAtEpochMillis: Long? = null,
+    val lastSyncStatus: PluginCatalogSyncStatus = PluginCatalogSyncStatus.NEVER_SYNCED,
+    val lastSyncErrorSummary: String = "",
+)
+
+data class PluginCatalogEntryRecord(
+    val sourceId: String,
+    val sourceTitle: String,
+    val catalogUrl: String,
+    val entry: PluginCatalogEntry,
+)
+
+data class PluginCatalogEntry(
+    val pluginId: String,
+    val title: String,
+    val author: String,
+    val description: String,
+    val entrySummary: String,
+    val scenarios: List<String> = emptyList(),
+    val versions: List<PluginCatalogVersion> = emptyList(),
+)
+
+data class PluginCatalogVersion(
+    val version: String,
+    val packageUrl: String,
+    val publishedAt: Long,
+    val protocolVersion: Int,
+    val minHostVersion: String,
+    val maxHostVersion: String = "",
+    val permissions: List<PluginPermissionDeclaration> = emptyList(),
+    val changelog: String = "",
+) {
+    fun resolvePackageUrl(catalogUrl: String): String {
+        return if (isAbsoluteUrl(packageUrl) || catalogUrl.isBlank()) {
+            packageUrl
+        } else {
+            java.net.URI(catalogUrl).resolve(packageUrl).toString()
+        }
+    }
+
+    private fun isAbsoluteUrl(value: String): Boolean {
+        return runCatching { java.net.URI(value).isAbsolute }.getOrDefault(false)
+    }
+}
+
+sealed interface PluginInstallIntent {
+    data class CatalogVersion(
+        val pluginId: String,
+        val version: String,
+        val packageUrl: String,
+        val catalogSourceId: String,
+    ) : PluginInstallIntent
+
+    data class RepositoryUrl(
+        val url: String,
+    ) : PluginInstallIntent
+
+    data class DirectPackageUrl(
+        val url: String,
+    ) : PluginInstallIntent
+
+    companion object {
+        fun catalogVersion(
+            pluginId: String,
+            version: String,
+            packageUrl: String,
+            catalogSourceId: String,
+        ): CatalogVersion {
+            require(pluginId.isNotBlank()) { "Plugin id must not be blank." }
+            require(version.isNotBlank()) { "Plugin version must not be blank." }
+            require(catalogSourceId.isNotBlank()) { "Catalog source id must not be blank." }
+            return CatalogVersion(
+                pluginId = pluginId.trim(),
+                version = version.trim(),
+                packageUrl = normalizeRemotePluginUrl(packageUrl),
+                catalogSourceId = catalogSourceId.trim(),
+            )
+        }
+
+        fun repositoryUrl(url: String): RepositoryUrl {
+            return RepositoryUrl(url = normalizeRemotePluginUrl(url))
+        }
+
+        fun directPackageUrl(url: String): DirectPackageUrl {
+            return DirectPackageUrl(url = normalizeRemotePluginUrl(url))
+        }
+    }
+}
+
+sealed interface PluginInstallIntentResult {
+    data class Installed(
+        val record: PluginInstallRecord,
+    ) : PluginInstallIntentResult
+
+    data class RepositorySynced(
+        val syncState: PluginCatalogSyncState,
+    ) : PluginInstallIntentResult
+
+    data object Ignored : PluginInstallIntentResult
+}
+
+data class PluginPermissionDiff(
+    val added: List<PluginPermissionDeclaration> = emptyList(),
+    val removed: List<PluginPermissionDeclaration> = emptyList(),
+    val changed: List<PluginPermissionDeclaration> = emptyList(),
+    val riskUpgraded: List<PluginPermissionUpgrade> = emptyList(),
+) {
+    val requiresSecondaryConfirmation: Boolean
+        get() = added.isNotEmpty() || riskUpgraded.isNotEmpty()
+}
+
+data class PluginPermissionUpgrade(
+    val from: PluginPermissionDeclaration,
+    val to: PluginPermissionDeclaration,
+)
+
+data class PluginSourceBadge(
+    val sourceType: PluginSourceType,
+    val label: String,
+    val highlighted: Boolean = false,
+)
+
+data class PluginUpdateAvailability(
+    val pluginId: String,
+    val installedVersion: String,
+    val latestVersion: String,
+    val updateAvailable: Boolean,
+    val canUpgrade: Boolean = updateAvailable,
+    val publishedAt: Long? = null,
+    val changelogSummary: String = "",
+    val permissionDiff: PluginPermissionDiff = PluginPermissionDiff(),
+    val compatibilityState: PluginCompatibilityState = PluginCompatibilityState.unknown(),
+    val incompatibilityReason: String = "",
+    val catalogSourceId: String? = null,
+    val packageUrl: String = "",
+    val sourceBadge: PluginSourceBadge? = null,
 )
 
 data class PluginManifest(
@@ -185,6 +345,9 @@ class PluginInstallRecord private constructor(
     val uninstallPolicy: PluginUninstallPolicy = PluginUninstallPolicy.default(),
     val enabled: Boolean = false,
     val failureState: PluginFailureState = PluginFailureState.none(),
+    val catalogSourceId: String? = null,
+    val installedPackageUrl: String = "",
+    val lastCatalogCheckAtEpochMillis: Long? = null,
     val installedAt: Long = 0L,
     val lastUpdatedAt: Long = 0L,
     val localPackagePath: String = "",
@@ -210,6 +373,9 @@ class PluginInstallRecord private constructor(
             uninstallPolicy == other.uninstallPolicy &&
             enabled == other.enabled &&
             failureState == other.failureState &&
+            catalogSourceId == other.catalogSourceId &&
+            installedPackageUrl == other.installedPackageUrl &&
+            lastCatalogCheckAtEpochMillis == other.lastCatalogCheckAtEpochMillis &&
             installedAt == other.installedAt &&
             lastUpdatedAt == other.lastUpdatedAt &&
             localPackagePath == other.localPackagePath &&
@@ -224,6 +390,9 @@ class PluginInstallRecord private constructor(
         result = 31 * result + uninstallPolicy.hashCode()
         result = 31 * result + enabled.hashCode()
         result = 31 * result + failureState.hashCode()
+        result = 31 * result + (catalogSourceId?.hashCode() ?: 0)
+        result = 31 * result + installedPackageUrl.hashCode()
+        result = 31 * result + (lastCatalogCheckAtEpochMillis?.hashCode() ?: 0)
         result = 31 * result + installedAt.hashCode()
         result = 31 * result + lastUpdatedAt.hashCode()
         result = 31 * result + localPackagePath.hashCode()
@@ -240,6 +409,9 @@ class PluginInstallRecord private constructor(
             "uninstallPolicy=$uninstallPolicy, " +
             "enabled=$enabled, " +
             "failureState=$failureState, " +
+            "catalogSourceId=$catalogSourceId, " +
+            "installedPackageUrl=$installedPackageUrl, " +
+            "lastCatalogCheckAtEpochMillis=$lastCatalogCheckAtEpochMillis, " +
             "installedAt=$installedAt, " +
             "lastUpdatedAt=$lastUpdatedAt, " +
             "localPackagePath=$localPackagePath, " +
@@ -260,6 +432,9 @@ class PluginInstallRecord private constructor(
                 uninstallPolicy = PluginUninstallPolicy.default(),
                 enabled = false,
                 failureState = PluginFailureState.none(),
+                catalogSourceId = null,
+                installedPackageUrl = "",
+                lastCatalogCheckAtEpochMillis = null,
                 installedAt = 0L,
                 lastUpdatedAt = 0L,
                 localPackagePath = "",
@@ -275,6 +450,9 @@ class PluginInstallRecord private constructor(
             uninstallPolicy: PluginUninstallPolicy = PluginUninstallPolicy.default(),
             enabled: Boolean = false,
             failureState: PluginFailureState = PluginFailureState.none(),
+            catalogSourceId: String? = null,
+            installedPackageUrl: String = "",
+            lastCatalogCheckAtEpochMillis: Long? = null,
             installedAt: Long = 0L,
             lastUpdatedAt: Long = 0L,
             localPackagePath: String = "",
@@ -291,6 +469,9 @@ class PluginInstallRecord private constructor(
                 uninstallPolicy = uninstallPolicy,
                 enabled = enabled,
                 failureState = failureState,
+                catalogSourceId = catalogSourceId,
+                installedPackageUrl = installedPackageUrl,
+                lastCatalogCheckAtEpochMillis = lastCatalogCheckAtEpochMillis,
                 installedAt = installedAt,
                 lastUpdatedAt = lastUpdatedAt,
                 localPackagePath = localPackagePath,
@@ -302,4 +483,17 @@ class PluginInstallRecord private constructor(
 
 fun PluginRiskLevel.isBlocking(): Boolean {
     return this == PluginRiskLevel.HIGH || this == PluginRiskLevel.CRITICAL
+}
+
+private fun normalizeRemotePluginUrl(rawValue: String): String {
+    val trimmed = rawValue.trim()
+    require(trimmed.isNotBlank()) { "Remote URL must not be blank." }
+    val uri = runCatching { java.net.URI(trimmed) }
+        .getOrElse { throw IllegalArgumentException("Invalid remote URL: $trimmed", it) }
+    require(uri.isAbsolute) { "Remote URL must be absolute." }
+    val scheme = uri.scheme?.lowercase().orEmpty()
+    require(scheme == "http" || scheme == "https") {
+        "Remote URL must use http or https."
+    }
+    return uri.toString()
 }

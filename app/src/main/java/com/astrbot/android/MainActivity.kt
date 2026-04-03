@@ -1,5 +1,6 @@
 package com.astrbot.android
 
+import android.content.Intent
 import android.graphics.Color as AndroidColor
 import android.os.Bundle
 import androidx.activity.compose.setContent
@@ -32,9 +33,13 @@ import com.astrbot.android.data.AppSettings
 import com.astrbot.android.data.ThemeMode
 import com.astrbot.android.di.MainActivityDependencies
 import com.astrbot.android.model.NapCatRuntimeState
+import com.astrbot.android.model.plugin.PluginInstallIntent
 import com.astrbot.android.ui.AstrBotApp
 import com.astrbot.android.ui.MonochromeUi
 import com.astrbot.android.ui.theme.AstrBotTheme
+import java.net.URI
+import java.net.URLDecoder
+import java.nio.charset.StandardCharsets
 import kotlinx.coroutines.launch
 
 class MainActivity : AppCompatActivity() {
@@ -162,6 +167,10 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
+
+        if (savedInstanceState == null) {
+            handlePluginDeepLink(intent?.dataString)
+        }
     }
 
     override fun onStart() {
@@ -171,11 +180,30 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handlePluginDeepLink(intent.dataString)
+    }
+
     private fun maybeAutoStartBridge() {
         if (!shouldAutoStartBridgeForTests(appDependencies.autoStartEnabled, appDependencies.runtimeState)) return
 
         appDependencies.log("Bridge auto-start triggered from app launch")
         appDependencies.startBridge(applicationContext)
+    }
+
+    private fun handlePluginDeepLink(rawDeepLink: String?) {
+        val installIntent = parsePluginInstallIntentFromDeepLink(rawDeepLink) ?: return
+        lifecycleScope.launch {
+            runCatching {
+                appDependencies.handlePluginInstallIntent(installIntent)
+            }.onFailure { error ->
+                appDependencies.log(
+                    "Plugin deep link failed: ${error.message ?: error.javaClass.simpleName}",
+                )
+            }
+        }
     }
 
     private fun resolveIsDark(
@@ -195,4 +223,33 @@ internal fun shouldAutoStartBridgeForTests(
     runtimeState: NapCatRuntimeState,
 ): Boolean {
     return autoStartEnabled && !runtimeState.blocksAutoStart()
+}
+
+internal fun parsePluginInstallIntentFromDeepLink(rawDeepLink: String?): PluginInstallIntent? {
+    if (rawDeepLink.isNullOrBlank()) return null
+    val uri = runCatching { URI(rawDeepLink) }.getOrNull() ?: return null
+    if (uri.scheme?.lowercase() != "astrbot") return null
+    if (uri.host?.lowercase() != "plugin") return null
+    val url = decodeQueryParameter(uri.rawQuery, "url") ?: return null
+    return when (uri.path?.trim('/')) {
+        "repository" -> runCatching { PluginInstallIntent.repositoryUrl(url) }.getOrNull()
+        "install" -> runCatching { PluginInstallIntent.directPackageUrl(url) }.getOrNull()
+        else -> null
+    }
+}
+
+private fun decodeQueryParameter(rawQuery: String?, key: String): String? {
+    if (rawQuery.isNullOrBlank()) return null
+    return rawQuery.split("&")
+        .asSequence()
+        .mapNotNull { part ->
+            val separator = part.indexOf('=')
+            if (separator <= 0) return@mapNotNull null
+            val name = part.substring(0, separator)
+            val value = part.substring(separator + 1)
+            name to value
+        }
+        .firstOrNull { (name, _) -> name == key }
+        ?.second
+        ?.let { value -> URLDecoder.decode(value, StandardCharsets.UTF_8.name()) }
 }

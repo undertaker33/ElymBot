@@ -1,5 +1,8 @@
 package com.astrbot.android.ui.screen
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -21,10 +24,12 @@ import androidx.compose.material.icons.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -42,27 +47,36 @@ import com.astrbot.android.R
 import com.astrbot.android.di.astrBotViewModel
 import com.astrbot.android.model.plugin.PluginCompatibilityStatus
 import com.astrbot.android.model.plugin.PluginInstallRecord
-import com.astrbot.android.model.plugin.PluginRiskLevel
 import com.astrbot.android.model.plugin.PluginSourceType
 import com.astrbot.android.model.plugin.PluginUninstallPolicy
 import com.astrbot.android.ui.MonochromeUi
 import com.astrbot.android.ui.screen.plugin.PluginBadgePalette
 import com.astrbot.android.ui.screen.plugin.PluginUiSpec
 import com.astrbot.android.ui.viewmodel.PluginActionFeedback
+import com.astrbot.android.ui.viewmodel.PluginCatalogEntryCardUiState
 import com.astrbot.android.ui.viewmodel.PluginDetailActionState
+import com.astrbot.android.ui.viewmodel.PluginDetailMetadataState
 import com.astrbot.android.ui.viewmodel.PluginFailureUiState
+import com.astrbot.android.ui.viewmodel.PluginRepositorySourceCardUiState
 import com.astrbot.android.ui.viewmodel.PluginSchemaUiState
 import com.astrbot.android.ui.viewmodel.PluginScreenUiState
 import com.astrbot.android.ui.viewmodel.PluginSettingDraftValue
 import com.astrbot.android.ui.viewmodel.PluginSummaryMetrics
 import com.astrbot.android.ui.viewmodel.PluginViewModel
 import com.astrbot.android.ui.screen.plugin.schema.PluginSchemaRenderer
+import java.text.DateFormat
+import java.util.Date
+import java.util.Locale
 
 @Composable
 fun PluginScreen(
     pluginViewModel: PluginViewModel = astrBotViewModel(),
 ) {
     val uiState by pluginViewModel.uiState.collectAsState()
+    val localPackagePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        pluginViewModel.submitLocalPackageUri(uri.toString())
+    }
 
     Box(
         modifier = Modifier
@@ -81,6 +95,7 @@ fun PluginScreen(
                     onBack = pluginViewModel::showList,
                     onEnable = pluginViewModel::enableSelectedPlugin,
                     onDisable = pluginViewModel::disableSelectedPlugin,
+                    onRequestUpgrade = pluginViewModel::requestUpgradeForSelectedPlugin,
                     onSelectPolicy = pluginViewModel::updateSelectedUninstallPolicy,
                     onUninstall = pluginViewModel::uninstallSelectedPlugin,
                     onSchemaCardActionClick = pluginViewModel::onSchemaCardActionClick,
@@ -90,8 +105,28 @@ fun PluginScreen(
                 PluginListWorkspace(
                     uiState = uiState,
                     onSelectPlugin = pluginViewModel::selectPlugin,
+                    onRepositoryUrlDraftChange = pluginViewModel::updateRepositoryUrlDraft,
+                    onDirectPackageUrlDraftChange = pluginViewModel::updateDirectPackageUrlDraft,
+                    onSubmitRepositoryUrl = pluginViewModel::submitRepositoryUrl,
+                    onSubmitDirectPackageUrl = pluginViewModel::submitDirectPackageUrl,
+                    onImportLocalPackage = {
+                        localPackagePicker.launch(
+                            arrayOf(
+                                "application/zip",
+                                "application/octet-stream",
+                                "application/x-zip-compressed",
+                            ),
+                        )
+                    },
                 )
             }
+        }
+        uiState.upgradeDialogState?.let { dialogState ->
+            PluginUpgradeDialog(
+                state = dialogState,
+                onConfirm = pluginViewModel::confirmUpgrade,
+                onDismiss = pluginViewModel::dismissUpgradeDialog,
+            )
         }
     }
 }
@@ -100,12 +135,12 @@ fun PluginScreen(
 private fun PluginListWorkspace(
     uiState: PluginScreenUiState,
     onSelectPlugin: (String) -> Unit,
+    onRepositoryUrlDraftChange: (String) -> Unit,
+    onDirectPackageUrlDraftChange: (String) -> Unit,
+    onSubmitRepositoryUrl: () -> Unit,
+    onSubmitDirectPackageUrl: () -> Unit,
+    onImportLocalPackage: () -> Unit,
 ) {
-    if (uiState.records.isEmpty()) {
-        PluginEmptyState()
-        return
-    }
-
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -118,20 +153,82 @@ private fun PluginListWorkspace(
         verticalArrangement = Arrangement.spacedBy(PluginUiSpec.SectionSpacing),
     ) {
         item {
+            PluginInstallEntrySection(
+                repositoryUrlDraft = uiState.repositoryUrlDraft,
+                directPackageUrlDraft = uiState.directPackageUrlDraft,
+                isActionRunning = uiState.isInstallActionRunning,
+                onRepositoryUrlDraftChange = onRepositoryUrlDraftChange,
+                onDirectPackageUrlDraftChange = onDirectPackageUrlDraftChange,
+                onSubmitRepositoryUrl = onSubmitRepositoryUrl,
+                onSubmitDirectPackageUrl = onSubmitDirectPackageUrl,
+                onImportLocalPackage = onImportLocalPackage,
+            )
+        }
+        item {
             uiState.detailActionState.lastActionMessage?.let { message ->
                 PluginActionFeedbackCard(message = message)
+            }
+        }
+        if (uiState.records.isEmpty()) {
+            item {
+                PluginEmptyState()
             }
         }
         item {
             PluginSummaryCard(metrics = uiState.summaryMetrics)
         }
-        items(uiState.records, key = { it.pluginId }) { record ->
-            PluginRecordCard(
-                record = record,
-                failureState = uiState.failureStatesByPluginId[record.pluginId],
-                selected = uiState.selectedPluginId == record.pluginId,
-                onClick = { onSelectPlugin(record.pluginId) },
+        item {
+            PluginSectionHeader(
+                title = stringResource(R.string.plugin_workspace_installed_title),
+                subtitle = stringResource(R.string.plugin_workspace_installed_subtitle),
+                modifier = Modifier.testTag(PluginUiSpec.InstalledSectionTag),
             )
+        }
+        if (uiState.records.isEmpty()) {
+            item {
+                PluginSectionEmptyState(message = stringResource(R.string.plugin_empty_message))
+            }
+        } else {
+            items(uiState.records, key = { it.pluginId }) { record ->
+                PluginRecordCard(
+                    record = record,
+                    failureState = uiState.failureStatesByPluginId[record.pluginId],
+                    selected = uiState.selectedPluginId == record.pluginId,
+                    onClick = { onSelectPlugin(record.pluginId) },
+                )
+            }
+        }
+        item {
+            PluginSectionHeader(
+                title = stringResource(R.string.plugin_workspace_repositories_title),
+                subtitle = stringResource(R.string.plugin_workspace_repositories_subtitle),
+                modifier = Modifier.testTag(PluginUiSpec.RepositorySectionTag),
+            )
+        }
+        if (uiState.repositorySources.isEmpty()) {
+            item {
+                PluginSectionEmptyState(message = stringResource(R.string.plugin_workspace_repositories_empty))
+            }
+        } else {
+            items(uiState.repositorySources, key = { it.sourceId }) { source ->
+                PluginRepositorySourceCard(source = source)
+            }
+        }
+        item {
+            PluginSectionHeader(
+                title = stringResource(R.string.plugin_workspace_discoverable_title),
+                subtitle = stringResource(R.string.plugin_workspace_discoverable_subtitle),
+                modifier = Modifier.testTag(PluginUiSpec.DiscoverableSectionTag),
+            )
+        }
+        if (uiState.catalogEntries.isEmpty()) {
+            item {
+                PluginSectionEmptyState(message = stringResource(R.string.plugin_workspace_discoverable_empty))
+            }
+        } else {
+            items(uiState.catalogEntries, key = { "${it.sourceId}:${it.pluginId}" }) { entry ->
+                PluginCatalogEntryCard(entry = entry)
+            }
         }
     }
 }
@@ -142,6 +239,7 @@ private fun PluginDetailWorkspace(
     onBack: () -> Unit,
     onEnable: () -> Unit,
     onDisable: () -> Unit,
+    onRequestUpgrade: () -> Unit,
     onSelectPolicy: (PluginUninstallPolicy) -> Unit,
     onUninstall: () -> Unit,
     onSchemaCardActionClick: (actionId: String, payload: Map<String, String>) -> Unit,
@@ -192,6 +290,7 @@ private fun PluginDetailWorkspace(
         item {
             PluginKeyValueSection(
                 title = stringResource(R.string.plugin_detail_meta_title),
+                modifier = Modifier.testTag(PluginUiSpec.DetailMetadataTag),
                 items = listOf(
                     stringResource(R.string.plugin_field_author) to record.manifestSnapshot.author,
                     stringResource(R.string.plugin_field_protocol) to record.manifestSnapshot.protocolVersion.toString(),
@@ -203,13 +302,20 @@ private fun PluginDetailWorkspace(
                 ),
             )
         }
+        item {
+            PluginSourceDetailSection(
+                metadata = uiState.detailMetadataState,
+            )
+        }
         item { PluginCompatibilitySection(record) }
         item { PluginPermissionsSection(record) }
         item {
             PluginActionSection(
+                metadata = uiState.detailMetadataState,
                 actionState = actionState,
                 onEnable = onEnable,
                 onDisable = onDisable,
+                onRequestUpgrade = onRequestUpgrade,
                 onSelectPolicy = onSelectPolicy,
                 onUninstall = onUninstall,
             )
@@ -257,9 +363,81 @@ private fun PluginSummaryCard(metrics: PluginSummaryMetrics) {
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(PluginUiSpec.CardSpacing),
             ) {
-                PluginMetricCard(Modifier.weight(1f), stringResource(R.string.plugin_metric_installed), metrics.totalInstalled.toString())
-                PluginMetricCard(Modifier.weight(1f), stringResource(R.string.plugin_metric_attention), metrics.highRisk.toString())
-                PluginMetricCard(Modifier.weight(1f), stringResource(R.string.plugin_metric_incompatible), metrics.incompatible.toString())
+                PluginMetricCard(Modifier.weight(1f), stringResource(R.string.plugin_metric_installed), metrics.installedCount.toString())
+                PluginMetricCard(Modifier.weight(1f), stringResource(R.string.plugin_metric_repositories), metrics.repositorySourceCount.toString())
+                PluginMetricCard(Modifier.weight(1f), stringResource(R.string.plugin_metric_discoverable), metrics.discoverableCount.toString())
+                PluginMetricCard(Modifier.weight(1f), stringResource(R.string.plugin_metric_incompatible), metrics.incompatibleCount.toString())
+            }
+        }
+    }
+}
+
+@Composable
+private fun PluginInstallEntrySection(
+    repositoryUrlDraft: String,
+    directPackageUrlDraft: String,
+    isActionRunning: Boolean,
+    onRepositoryUrlDraftChange: (String) -> Unit,
+    onDirectPackageUrlDraftChange: (String) -> Unit,
+    onSubmitRepositoryUrl: () -> Unit,
+    onSubmitDirectPackageUrl: () -> Unit,
+    onImportLocalPackage: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = PluginUiSpec.SummaryShape,
+        color = MonochromeUi.cardBackground,
+        tonalElevation = 2.dp,
+        border = PluginUiSpec.CardBorder,
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Text(
+                text = stringResource(R.string.plugin_install_entry_title),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MonochromeUi.textPrimary,
+            )
+            Text(
+                text = stringResource(R.string.plugin_install_entry_subtitle),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MonochromeUi.textSecondary,
+            )
+            OutlinedButton(
+                onClick = onImportLocalPackage,
+                enabled = !isActionRunning,
+            ) {
+                Text(stringResource(R.string.plugin_local_package_action))
+            }
+            OutlinedTextField(
+                value = repositoryUrlDraft,
+                onValueChange = onRepositoryUrlDraftChange,
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text(stringResource(R.string.plugin_repository_url_label)) },
+                placeholder = { Text(stringResource(R.string.plugin_repository_url_placeholder)) },
+                singleLine = true,
+            )
+            OutlinedButton(
+                onClick = onSubmitRepositoryUrl,
+                enabled = !isActionRunning && repositoryUrlDraft.isNotBlank(),
+            ) {
+                Text(stringResource(R.string.plugin_repository_url_action))
+            }
+            OutlinedTextField(
+                value = directPackageUrlDraft,
+                onValueChange = onDirectPackageUrlDraftChange,
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text(stringResource(R.string.plugin_direct_package_url_label)) },
+                placeholder = { Text(stringResource(R.string.plugin_direct_package_url_placeholder)) },
+                singleLine = true,
+            )
+            OutlinedButton(
+                onClick = onSubmitDirectPackageUrl,
+                enabled = !isActionRunning && directPackageUrlDraft.isNotBlank(),
+            ) {
+                Text(stringResource(R.string.plugin_direct_package_url_action))
             }
         }
     }
@@ -293,6 +471,7 @@ private fun PluginRecordCard(
     selected: Boolean,
     onClick: () -> Unit,
 ) {
+    val presentation = buildPluginRecordPresentation(record)
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -334,8 +513,17 @@ private fun PluginRecordCard(
                     color = MonochromeUi.textSecondary,
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    PluginBadge(riskLabel(record.manifestSnapshot.riskLevel), PluginUiSpec.riskBadgePalette(record.manifestSnapshot.riskLevel))
-                    PluginBadge(compatibilityLabel(record.compatibilityState.status), PluginUiSpec.compatibilityBadgePalette(record.compatibilityState.status))
+                    presentation.badges.forEach { badge ->
+                        val palette = if (badge == compatibilityLabel(record.compatibilityState.status)) {
+                            PluginUiSpec.compatibilityBadgePalette(record.compatibilityState.status)
+                        } else {
+                            PluginBadgePalette(
+                                containerColor = MonochromeUi.cardAltBackground,
+                                contentColor = MonochromeUi.textPrimary,
+                            )
+                        }
+                        PluginBadge(badge, palette)
+                    }
                 }
                 failureState?.let {
                     PluginFailureSummaryInline(
@@ -350,6 +538,7 @@ private fun PluginRecordCard(
 
 @Composable
 private fun PluginDetailHero(record: PluginInstallRecord) {
+    val presentation = buildPluginRecordPresentation(record)
     Surface(
         shape = PluginUiSpec.SummaryShape,
         color = MonochromeUi.cardBackground,
@@ -372,8 +561,17 @@ private fun PluginDetailHero(record: PluginInstallRecord) {
                 color = MonochromeUi.textSecondary,
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                PluginBadge(riskLabel(record.manifestSnapshot.riskLevel), PluginUiSpec.riskBadgePalette(record.manifestSnapshot.riskLevel))
-                PluginBadge(compatibilityLabel(record.compatibilityState.status), PluginUiSpec.compatibilityBadgePalette(record.compatibilityState.status))
+                presentation.badges.forEach { badge ->
+                    val palette = if (badge == compatibilityLabel(record.compatibilityState.status)) {
+                        PluginUiSpec.compatibilityBadgePalette(record.compatibilityState.status)
+                    } else {
+                        PluginBadgePalette(
+                            containerColor = MonochromeUi.cardAltBackground,
+                            contentColor = MonochromeUi.textPrimary,
+                        )
+                    }
+                    PluginBadge(badge, palette)
+                }
             }
             Text(
                 text = record.manifestSnapshot.entrySummary,
@@ -465,8 +663,10 @@ private fun PluginDetailSection(title: String, body: String) {
 private fun PluginKeyValueSection(
     title: String,
     items: List<Pair<String, String>>,
+    modifier: Modifier = Modifier,
 ) {
     Surface(
+        modifier = modifier,
         shape = PluginUiSpec.SectionShape,
         color = MonochromeUi.cardBackground,
         border = PluginUiSpec.CardBorder,
@@ -500,7 +700,53 @@ private fun PluginCompatibilitySection(record: PluginInstallRecord) {
 }
 
 @Composable
+private fun PluginSourceDetailSection(
+    metadata: PluginDetailMetadataState,
+) {
+    val items = buildList {
+        metadata.sourceBadge?.label?.takeIf { it.isNotBlank() }?.let { label ->
+            add(stringResource(R.string.plugin_field_source_label) to label)
+        }
+        add(
+            stringResource(R.string.plugin_field_repository_name_or_host) to metadata.repositoryNameOrHost.ifBlank {
+                stringResource(R.string.plugin_value_not_available)
+            },
+        )
+        metadata.repositoryHost.takeIf { it.isNotBlank() }?.let { host ->
+            add(stringResource(R.string.plugin_field_repository_host) to host)
+        }
+        add(
+            stringResource(R.string.plugin_field_last_sync) to (
+                metadata.lastSyncAtEpochMillis?.let(::formatPluginTimestamp)
+                    ?: stringResource(R.string.plugin_value_not_synced)
+                ),
+        )
+        add(
+            stringResource(R.string.plugin_field_last_updated) to (
+                metadata.lastUpdatedAtEpochMillis?.let(::formatPluginTimestamp)
+                    ?: stringResource(R.string.plugin_value_not_available)
+                ),
+        )
+        add(
+            stringResource(R.string.plugin_field_version_history) to metadata.versionHistorySummary.ifBlank {
+                stringResource(R.string.plugin_value_not_available)
+            },
+        )
+        add(
+            stringResource(R.string.plugin_field_changelog_summary) to metadata.changelogSummary.ifBlank {
+                stringResource(R.string.plugin_value_no_changelog)
+            },
+        )
+    }
+    PluginKeyValueSection(
+        title = stringResource(R.string.plugin_detail_source_title),
+        items = items,
+    )
+}
+
+@Composable
 private fun PluginPermissionsSection(record: PluginInstallRecord) {
+    val permissions = buildPluginPermissionPresentation(record)
     Surface(
         shape = PluginUiSpec.SectionShape,
         color = MonochromeUi.cardBackground,
@@ -516,7 +762,7 @@ private fun PluginPermissionsSection(record: PluginInstallRecord) {
                 fontWeight = FontWeight.SemiBold,
                 color = MonochromeUi.textPrimary,
             )
-            record.permissionSnapshot.forEach { permission ->
+            permissions.forEach { permission ->
                 Surface(
                     shape = PluginUiSpec.SectionShape,
                     color = MonochromeUi.cardAltBackground,
@@ -536,11 +782,10 @@ private fun PluginPermissionsSection(record: PluginInstallRecord) {
                                 fontWeight = FontWeight.Medium,
                                 color = MonochromeUi.textPrimary,
                             )
-                            PluginBadge(riskLabel(permission.riskLevel), PluginUiSpec.riskBadgePalette(permission.riskLevel))
                         }
                         Text(permission.description, style = MaterialTheme.typography.bodySmall, color = MonochromeUi.textSecondary)
                         Text(
-                            text = if (permission.required) stringResource(R.string.plugin_permission_required) else stringResource(R.string.plugin_permission_optional),
+                            text = permission.requirementLabel,
                             style = MaterialTheme.typography.labelMedium,
                             color = MonochromeUi.textSecondary,
                         )
@@ -553,9 +798,11 @@ private fun PluginPermissionsSection(record: PluginInstallRecord) {
 
 @Composable
 private fun PluginActionSection(
+    metadata: PluginDetailMetadataState,
     actionState: PluginDetailActionState,
     onEnable: () -> Unit,
     onDisable: () -> Unit,
+    onRequestUpgrade: () -> Unit,
     onSelectPolicy: (PluginUninstallPolicy) -> Unit,
     onUninstall: () -> Unit,
 ) {
@@ -579,6 +826,20 @@ private fun PluginActionSection(
                 Surface(
                     shape = PluginUiSpec.SectionShape,
                     color = incompatiblePalette.containerColor,
+                ) {
+                    Text(
+                        text = blockedReason.asText(),
+                        modifier = Modifier.padding(14.dp),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = incompatiblePalette.contentColor,
+                    )
+                }
+            }
+            actionState.updateBlockedReason?.let { blockedReason ->
+                Surface(
+                    shape = PluginUiSpec.SectionShape,
+                    color = incompatiblePalette.containerColor,
+                    modifier = Modifier.testTag(PluginUiSpec.DetailUpgradeBlockedReasonTag),
                 ) {
                     Text(
                         text = blockedReason.asText(),
@@ -622,7 +883,133 @@ private fun PluginActionSection(
             actionState.lastActionMessage?.let { message ->
                 PluginActionFeedbackCard(message = message)
             }
+            metadata.updateHint?.let { updateHint ->
+                Surface(
+                    modifier = Modifier.testTag(PluginUiSpec.DetailUpdateHintTag),
+                    shape = PluginUiSpec.SectionShape,
+                    color = MonochromeUi.cardAltBackground,
+                ) {
+                    Column(
+                        modifier = Modifier.padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Text(
+                            text = stringResource(
+                                R.string.plugin_update_available_summary,
+                                actionState.updateAvailability?.installedVersion ?: "",
+                                updateHint.latestVersion,
+                            ),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MonochromeUi.textPrimary,
+                        )
+                        updateHint.changelogSummary.takeIf { it.isNotBlank() }?.let { summary ->
+                            Text(
+                                text = summary,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MonochromeUi.textSecondary,
+                            )
+                        }
+                        updateHint.blockedReason.takeIf { it.isNotBlank() }?.let { reason ->
+                            Text(
+                                text = reason,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = incompatiblePalette.contentColor,
+                            )
+                        }
+                    }
+                }
+            }
+            metadata.permissionDiffHint?.let { diff ->
+                Surface(
+                    modifier = Modifier.testTag(PluginUiSpec.DetailPermissionDiffTag),
+                    shape = PluginUiSpec.SectionShape,
+                    color = MonochromeUi.cardAltBackground,
+                ) {
+                    Column(
+                        modifier = Modifier.padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        diff.addedPermissions.takeIf { it.isNotEmpty() }?.let { added ->
+                            Text(
+                                text = stringResource(
+                                    R.string.plugin_permission_diff_added,
+                                    added.joinToString(),
+                                ),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MonochromeUi.textSecondary,
+                            )
+                        }
+                        diff.removedPermissions.takeIf { it.isNotEmpty() }?.let { removed ->
+                            Text(
+                                text = stringResource(
+                                    R.string.plugin_permission_diff_removed,
+                                    removed.joinToString(),
+                                ),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MonochromeUi.textSecondary,
+                            )
+                        }
+                        diff.changedPermissions.takeIf { it.isNotEmpty() }?.let { changed ->
+                            Text(
+                                text = stringResource(
+                                    R.string.plugin_permission_diff_changed,
+                                    changed.joinToString(),
+                                ),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MonochromeUi.textSecondary,
+                            )
+                        }
+                        diff.upgradedPermissions.takeIf { it.isNotEmpty() }?.let { upgraded ->
+                            Text(
+                                text = stringResource(
+                                    R.string.plugin_permission_diff_upgraded,
+                                    upgraded.joinToString(),
+                                ),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MonochromeUi.textSecondary,
+                            )
+                        }
+                    }
+                }
+            }
+            actionState.updateAvailability?.let { update ->
+                Surface(
+                    shape = PluginUiSpec.SectionShape,
+                    color = MonochromeUi.cardAltBackground,
+                ) {
+                    Column(
+                        modifier = Modifier.padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Text(
+                            text = stringResource(
+                                R.string.plugin_update_available_summary,
+                                update.installedVersion,
+                                update.latestVersion,
+                            ),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MonochromeUi.textPrimary,
+                        )
+                        update.changelogSummary.takeIf { it.isNotBlank() }?.let { summary ->
+                            Text(
+                                text = summary,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MonochromeUi.textSecondary,
+                            )
+                        }
+                    }
+                }
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                actionState.updateAvailability?.let {
+                    OutlinedButton(
+                        onClick = onRequestUpgrade,
+                        enabled = actionState.isUpgradeActionEnabled,
+                        modifier = Modifier.testTag(PluginUiSpec.DetailUpgradeActionTag),
+                    ) {
+                        Text(stringResource(R.string.plugin_action_upgrade))
+                    }
+                }
                 OutlinedButton(
                     onClick = onEnable,
                     enabled = actionState.isEnableActionEnabled,
@@ -717,44 +1104,247 @@ private fun PluginBadge(
 
 @Composable
 private fun PluginEmptyState() {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(PluginUiSpec.ScreenHorizontalPadding),
-        contentAlignment = Alignment.Center,
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = PluginUiSpec.EmptyStateShape,
+        color = PluginUiSpec.EmptyStateContainerColor,
+        border = PluginUiSpec.CardBorder,
     ) {
-        Surface(
-            shape = PluginUiSpec.EmptyStateShape,
-            color = PluginUiSpec.EmptyStateContainerColor,
-            border = PluginUiSpec.CardBorder,
+        Column(
+            modifier = Modifier.padding(horizontal = 28.dp, vertical = 32.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Column(
-                modifier = Modifier.padding(horizontal = 28.dp, vertical = 32.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
+            Box(
+                modifier = Modifier
+                    .size(54.dp)
+                    .background(PluginUiSpec.EmptyStateAccentColor, CircleShape),
+                contentAlignment = Alignment.Center,
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(54.dp)
-                        .background(PluginUiSpec.EmptyStateAccentColor, CircleShape),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(Icons.Outlined.Add, contentDescription = null, tint = MonochromeUi.textPrimary)
-                }
-                Text(
-                    text = stringResource(R.string.plugin_empty_title),
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MonochromeUi.textPrimary,
-                )
-                Text(
-                    text = stringResource(R.string.plugin_empty_message),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = PluginUiSpec.EmptyStateBodyColor,
-                )
+                Icon(Icons.Outlined.Add, contentDescription = null, tint = MonochromeUi.textPrimary)
             }
+            Text(
+                text = stringResource(R.string.plugin_empty_title),
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.SemiBold,
+                color = MonochromeUi.textPrimary,
+            )
+            Text(
+                text = stringResource(R.string.plugin_empty_message),
+                style = MaterialTheme.typography.bodyMedium,
+                color = PluginUiSpec.EmptyStateBodyColor,
+            )
         }
     }
+}
+
+@Composable
+private fun PluginSectionHeader(
+    title: String,
+    subtitle: String,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = MonochromeUi.textPrimary,
+        )
+        Text(
+            text = subtitle,
+            style = MaterialTheme.typography.bodySmall,
+            color = MonochromeUi.textSecondary,
+        )
+    }
+}
+
+@Composable
+private fun PluginSectionEmptyState(message: String) {
+    Surface(
+        shape = PluginUiSpec.SectionShape,
+        color = MonochromeUi.cardBackground,
+        border = PluginUiSpec.CardBorder,
+    ) {
+        Text(
+            text = message,
+            modifier = Modifier.padding(horizontal = 18.dp, vertical = 16.dp),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MonochromeUi.textSecondary,
+        )
+    }
+}
+
+@Composable
+private fun PluginRepositorySourceCard(source: PluginRepositorySourceCardUiState) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag(PluginUiSpec.repositoryCardTag(source.sourceId)),
+        shape = PluginUiSpec.SectionShape,
+        color = MonochromeUi.cardBackground,
+        border = PluginUiSpec.CardBorder,
+    ) {
+        Column(
+            modifier = Modifier.padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text = source.title,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = MonochromeUi.textPrimary,
+            )
+            Text(
+                text = source.catalogUrl,
+                style = MaterialTheme.typography.bodySmall,
+                color = MonochromeUi.textSecondary,
+            )
+            Text(
+                text = stringResource(R.string.plugin_repository_card_summary, source.pluginCount),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MonochromeUi.textPrimary,
+            )
+            Text(
+                text = stringResource(
+                    R.string.plugin_repository_card_last_sync,
+                    source.lastSyncAtEpochMillis?.let(::formatPluginTimestamp)
+                        ?: stringResource(R.string.plugin_value_not_synced),
+                ),
+                style = MaterialTheme.typography.bodySmall,
+                color = MonochromeUi.textSecondary,
+            )
+        }
+    }
+}
+
+@Composable
+private fun PluginCatalogEntryCard(entry: PluginCatalogEntryCardUiState) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag(PluginUiSpec.discoverableCardTag(entry.pluginId)),
+        shape = PluginUiSpec.SectionShape,
+        color = MonochromeUi.cardBackground,
+        border = PluginUiSpec.CardBorder,
+    ) {
+        Column(
+            modifier = Modifier.padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text = entry.title,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = MonochromeUi.textPrimary,
+            )
+            Text(
+                text = entry.summary,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MonochromeUi.textSecondary,
+            )
+            Text(
+                text = stringResource(
+                    R.string.plugin_discoverable_card_summary,
+                    entry.latestVersion.ifBlank { stringResource(R.string.plugin_value_not_available) },
+                    entry.sourceName,
+                ),
+                style = MaterialTheme.typography.bodySmall,
+                color = MonochromeUi.textSecondary,
+            )
+        }
+    }
+}
+
+@Composable
+private fun PluginUpgradeDialog(
+    state: com.astrbot.android.ui.viewmodel.PluginUpgradeDialogState,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val permissionDiff = state.availability.permissionDiff
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = if (state.isSecondaryConfirmationStep) {
+                    stringResource(R.string.plugin_upgrade_confirm_secondary_title)
+                } else {
+                    stringResource(R.string.plugin_upgrade_confirm_title)
+                },
+            )
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = stringResource(
+                        R.string.plugin_update_available_summary,
+                        state.availability.installedVersion,
+                        state.availability.latestVersion,
+                    ),
+                )
+                state.availability.publishedAt?.let { publishedAt ->
+                    Text(
+                        text = stringResource(R.string.plugin_upgrade_published_at, publishedAt.toString()),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                state.availability.changelogSummary.takeIf { it.isNotBlank() }?.let { summary ->
+                    Text(summary, style = MaterialTheme.typography.bodySmall)
+                }
+                if (permissionDiff.added.isNotEmpty()) {
+                    Text(
+                        text = stringResource(
+                            R.string.plugin_upgrade_added_permissions,
+                            permissionDiff.added.joinToString { permission -> permission.title },
+                        ),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                if (permissionDiff.riskUpgraded.isNotEmpty()) {
+                    Text(
+                        text = stringResource(
+                            R.string.plugin_upgrade_upgraded_permissions,
+                            permissionDiff.riskUpgraded.joinToString { upgrade -> upgrade.to.title },
+                        ),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                state.message?.let { message ->
+                    Text(
+                        text = message.asText(),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MonochromeUi.textSecondary,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = onConfirm,
+                enabled = !state.isInstalling,
+            ) {
+                Text(
+                    text = if (state.requiresSecondaryConfirmation && !state.isSecondaryConfirmationStep) {
+                        stringResource(R.string.plugin_upgrade_continue)
+                    } else {
+                        stringResource(R.string.plugin_action_upgrade)
+                    },
+                )
+            }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = onDismiss,
+                enabled = !state.isInstalling,
+            ) {
+                Text(stringResource(R.string.common_cancel))
+            }
+        },
+    )
 }
 
 @Composable
@@ -762,6 +1352,8 @@ private fun sourceTypeLabel(sourceType: PluginSourceType): String {
     return when (sourceType) {
         PluginSourceType.LOCAL_FILE -> stringResource(R.string.plugin_source_local_file)
         PluginSourceType.MANUAL_IMPORT -> stringResource(R.string.plugin_source_manual_import)
+        PluginSourceType.REPOSITORY -> stringResource(R.string.plugin_source_repository)
+        PluginSourceType.DIRECT_LINK -> stringResource(R.string.plugin_source_direct_link)
     }
 }
 
@@ -775,22 +1367,17 @@ private fun compatibilityLabel(status: PluginCompatibilityStatus): String {
 }
 
 @Composable
-private fun riskLabel(level: PluginRiskLevel): String {
-    return when (level) {
-        PluginRiskLevel.LOW -> stringResource(R.string.plugin_risk_low)
-        PluginRiskLevel.MEDIUM -> stringResource(R.string.plugin_risk_medium)
-        PluginRiskLevel.HIGH -> stringResource(R.string.plugin_risk_high)
-        PluginRiskLevel.CRITICAL -> stringResource(R.string.plugin_risk_critical)
-    }
-}
-
-@Composable
 private fun installStatusLabel(record: PluginInstallRecord): String {
     return if (record.enabled) {
         stringResource(R.string.common_enabled)
     } else {
         stringResource(R.string.plugin_status_installed)
     }
+}
+
+private fun formatPluginTimestamp(epochMillis: Long): String {
+    val formatter = DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT, Locale.getDefault())
+    return formatter.format(Date(epochMillis))
 }
 
 internal fun shouldRenderSchemaWorkspace(schemaUiState: PluginSchemaUiState): Boolean {

@@ -42,8 +42,26 @@ class AstrBotDatabaseSchemaContractTest {
     }
 
     @Test
-    fun latestMigration_targetsVersion11() {
-        assertTrue(AstrBotDatabase.allMigrations.maxOf { it.endVersion } == 11)
+    fun migrations_include11To12Step() {
+        assertTrue(
+            AstrBotDatabase.allMigrations.any { migration ->
+                migration.startVersion == 11 && migration.endVersion == 12
+            },
+        )
+    }
+
+    @Test
+    fun migrations_include12To13Step() {
+        assertTrue(
+            AstrBotDatabase.allMigrations.any { migration ->
+                migration.startVersion == 12 && migration.endVersion == 13
+            },
+        )
+    }
+
+    @Test
+    fun latestMigration_targetsVersion13() {
+        assertTrue(AstrBotDatabase.allMigrations.maxOf { it.endVersion } == 13)
     }
 
     @Test
@@ -111,6 +129,57 @@ class AstrBotDatabaseSchemaContractTest {
     }
 
     @Test
+    fun version12Schema_containsPluginCatalogTrackingColumns() {
+        val schemaFile = listOf(
+            File("schemas/com.astrbot.android.data.db.AstrBotDatabase/12.json"),
+            File("app/schemas/com.astrbot.android.data.db.AstrBotDatabase/12.json"),
+        ).firstOrNull { it.exists() } ?: error("Room schema file for v12 was not found")
+        val schema = schemaFile.readText()
+
+        listOf(
+            "catalogSourceId",
+            "installedPackageUrl",
+            "lastCatalogCheckAtEpochMillis",
+        ).forEach { columnName ->
+            assertTrue("Expected $columnName to exist in v12 schema", columnName in schema)
+        }
+    }
+
+    @Test
+    fun version12Schema_containsPluginCatalogTables() {
+        val schemaFile = listOf(
+            File("schemas/com.astrbot.android.data.db.AstrBotDatabase/12.json"),
+            File("app/schemas/com.astrbot.android.data.db.AstrBotDatabase/12.json"),
+        ).firstOrNull { it.exists() } ?: error("Room schema file for v12 was not found")
+        val schema = schemaFile.readText()
+
+        listOf(
+            "plugin_catalog_sources",
+            "plugin_catalog_entries",
+            "plugin_catalog_versions",
+        ).forEach { tableName ->
+            assertTrue("Expected $tableName to exist in v12 schema", tableName in schema)
+        }
+    }
+
+    @Test
+    fun version13Schema_containsPluginCatalogSyncColumns() {
+        val schemaFile = listOf(
+            File("schemas/com.astrbot.android.data.db.AstrBotDatabase/13.json"),
+            File("app/schemas/com.astrbot.android.data.db.AstrBotDatabase/13.json"),
+        ).firstOrNull { it.exists() } ?: error("Room schema file for v13 was not found")
+        val schema = schemaFile.readText()
+
+        listOf(
+            "lastSyncAtEpochMillis",
+            "lastSyncStatus",
+            "lastSyncErrorSummary",
+        ).forEach { columnName ->
+            assertTrue("Expected $columnName to exist in v13 schema", columnName in schema)
+        }
+    }
+
+    @Test
     fun pluginAggregate_mapper_fallsBackToManifestPermissions_whenPermissionSnapshotsAreMissing() {
         val aggregate = PluginInstallAggregate(
             record = PluginInstallRecordEntity(
@@ -127,6 +196,9 @@ class AstrBotDatabaseSchemaContractTest {
                 lastFailureAtEpochMillis = null,
                 lastErrorSummary = "",
                 suspendedUntilEpochMillis = null,
+                catalogSourceId = null,
+                installedPackageUrl = "",
+                lastCatalogCheckAtEpochMillis = null,
                 enabled = true,
                 installedAt = 100L,
                 lastUpdatedAt = 200L,
@@ -227,6 +299,9 @@ class AstrBotDatabaseSchemaContractTest {
                 lastErrorSummary = "network timeout",
                 suspendedUntilEpochMillis = 555L,
             ),
+            catalogSourceId = "official",
+            installedPackageUrl = "https://repo.example.com/packages/demo-1.2.0.zip",
+            lastCatalogCheckAtEpochMillis = 333L,
             enabled = true,
             installedAt = 100L,
             lastUpdatedAt = 200L,

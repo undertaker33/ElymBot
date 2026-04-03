@@ -1,5 +1,6 @@
 package com.astrbot.android.di
 
+import android.net.Uri
 import com.astrbot.android.data.BotRepository
 import com.astrbot.android.data.ChatCompletionService
 import com.astrbot.android.data.ConfigRepository
@@ -13,6 +14,7 @@ import com.astrbot.android.data.ProviderRepository
 import com.astrbot.android.data.RuntimeAssetRepository
 import com.astrbot.android.data.SherpaOnnxBridge
 import com.astrbot.android.data.TtsVoiceAssetRepository
+import com.astrbot.android.data.plugin.PluginStoragePaths
 import com.astrbot.android.model.BotProfile
 import com.astrbot.android.model.ConfigProfile
 import com.astrbot.android.model.NapCatBridgeConfig
@@ -25,12 +27,27 @@ import com.astrbot.android.model.TtsVoiceReferenceAsset
 import com.astrbot.android.model.chat.ConversationAttachment
 import com.astrbot.android.model.chat.ConversationMessage
 import com.astrbot.android.model.chat.ConversationSession
+import com.astrbot.android.model.plugin.PluginInstallIntent
 import com.astrbot.android.model.plugin.PluginInstallRecord
+import com.astrbot.android.model.plugin.PluginInstallIntentResult
+import com.astrbot.android.model.plugin.PluginCatalogEntryRecord
+import com.astrbot.android.model.plugin.PluginRepositorySource
+import com.astrbot.android.model.plugin.PluginUpdateAvailability
 import com.astrbot.android.model.plugin.PluginUninstallPolicy
 import com.astrbot.android.runtime.ContainerBridgeController
 import com.astrbot.android.runtime.ConversationSessionLockManager
 import com.astrbot.android.runtime.RuntimeLogRepository
+import com.astrbot.android.runtime.plugin.PluginInstaller
+import com.astrbot.android.runtime.plugin.PluginPackageValidator
+import com.astrbot.android.runtime.plugin.UrlConnectionRemotePluginPackageDownloader
+import com.astrbot.android.runtime.plugin.catalog.PluginCatalogSynchronizer
+import com.astrbot.android.runtime.plugin.catalog.PluginInstallIntentHandler
+import com.astrbot.android.runtime.plugin.catalog.PluginRepositorySubscriptionManager
+import com.astrbot.android.runtime.plugin.catalog.UrlConnectionPluginCatalogFetcher
+import java.io.File
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.withContext
 
 interface BridgeViewModelDependencies {
     val config: StateFlow<NapCatBridgeConfig>
@@ -400,6 +417,16 @@ object DefaultPersonaViewModelDependencies : PersonaViewModelDependencies {
 
 interface PluginViewModelDependencies {
     val records: StateFlow<List<PluginInstallRecord>>
+    val repositorySources: StateFlow<List<PluginRepositorySource>>
+    val catalogEntries: StateFlow<List<PluginCatalogEntryRecord>>
+
+    suspend fun handleInstallIntent(intent: PluginInstallIntent): PluginInstallIntentResult
+
+    suspend fun installFromLocalPackageUri(uri: String): PluginInstallIntentResult
+
+    fun getUpdateAvailability(pluginId: String): PluginUpdateAvailability?
+
+    suspend fun upgradePlugin(update: PluginUpdateAvailability): PluginInstallRecord
 
     fun setPluginEnabled(pluginId: String, enabled: Boolean): PluginInstallRecord
 
@@ -410,6 +437,55 @@ interface PluginViewModelDependencies {
 
 object DefaultPluginViewModelDependencies : PluginViewModelDependencies {
     override val records: StateFlow<List<PluginInstallRecord>> = PluginRepository.records
+    override val repositorySources: StateFlow<List<PluginRepositorySource>> = PluginRepository.repositorySources
+    override val catalogEntries: StateFlow<List<PluginCatalogEntryRecord>> = PluginRepository.catalogEntries
+
+    override suspend fun handleInstallIntent(intent: PluginInstallIntent): PluginInstallIntentResult {
+        return withContext(Dispatchers.IO) {
+            defaultPluginInstallIntentHandler().handle(intent)
+        }
+    }
+
+    override suspend fun installFromLocalPackageUri(uri: String): PluginInstallIntentResult {
+        val appContext = PluginRepository.requireAppContext()
+        return withContext(Dispatchers.IO) {
+            val contentUri = Uri.parse(uri)
+            val importDir = File(appContext.cacheDir, "plugin-import").apply { mkdirs() }
+            val tempFile = File.createTempFile("plugin-import-", ".zip", importDir)
+            try {
+                appContext.contentResolver.openInputStream(contentUri)?.use { input ->
+                    tempFile.outputStream().use { output ->
+                        input.copyTo(output)
+                    }
+                } ?: error("Unable to open selected file.")
+
+                val record = defaultPluginInstaller().installFromLocalPackage(tempFile)
+                PluginInstallIntentResult.Installed(record = record)
+            } finally {
+                if (tempFile.exists()) {
+                    tempFile.delete()
+                }
+            }
+        }
+    }
+
+    override fun getUpdateAvailability(pluginId: String): PluginUpdateAvailability? {
+        val appContext = PluginRepository.requireAppContext()
+        val hostVersion = runCatching {
+            appContext.packageManager.getPackageInfo(appContext.packageName, 0).versionName
+        }.getOrNull().orEmpty().ifBlank { "0.0.0" }
+        return PluginRepository.getUpdateAvailability(
+            pluginId = pluginId,
+            hostVersion = hostVersion,
+            supportedProtocolVersion = 1,
+        )
+    }
+
+    override suspend fun upgradePlugin(update: PluginUpdateAvailability): PluginInstallRecord {
+        return withContext(Dispatchers.IO) {
+            defaultPluginInstaller().upgrade(update)
+        }
+    }
 
     override fun setPluginEnabled(pluginId: String, enabled: Boolean): PluginInstallRecord {
         return PluginRepository.setEnabled(pluginId, enabled)
@@ -775,6 +851,8 @@ interface MainActivityDependencies {
     val autoStartEnabled: Boolean
     val runtimeState: NapCatRuntimeState
 
+    suspend fun handlePluginInstallIntent(intent: PluginInstallIntent)
+
     fun log(message: String)
 
     fun startBridge(context: android.content.Context)
@@ -786,6 +864,12 @@ object DefaultMainActivityDependencies : MainActivityDependencies {
     override val runtimeState: NapCatRuntimeState
         get() = NapCatBridgeRepository.runtimeState.value
 
+    override suspend fun handlePluginInstallIntent(intent: PluginInstallIntent) {
+        withContext(Dispatchers.IO) {
+            defaultPluginInstallIntentHandler().handle(intent)
+        }
+    }
+
     override fun log(message: String) {
         RuntimeLogRepository.append(message)
     }
@@ -793,4 +877,35 @@ object DefaultMainActivityDependencies : MainActivityDependencies {
     override fun startBridge(context: android.content.Context) {
         ContainerBridgeController.start(context)
     }
+}
+
+private fun defaultPluginInstallIntentHandler(): PluginInstallIntentHandler {
+    val synchronizer = PluginCatalogSynchronizer(
+        store = PluginRepository,
+        fetcher = UrlConnectionPluginCatalogFetcher(),
+    )
+    val repositorySubscriptionManager = PluginRepositorySubscriptionManager(
+        store = PluginRepository,
+        synchronizer = synchronizer,
+    )
+    return PluginInstallIntentHandler(
+        installer = defaultPluginInstaller(),
+        repositorySubscriptionManager = repositorySubscriptionManager,
+    )
+}
+
+private fun defaultPluginInstaller(): PluginInstaller {
+    val appContext = PluginRepository.requireAppContext()
+    val hostVersion = runCatching {
+        appContext.packageManager.getPackageInfo(appContext.packageName, 0).versionName
+    }.getOrNull().orEmpty().ifBlank { "0.0.0" }
+    return PluginInstaller(
+        validator = PluginPackageValidator(
+            hostVersion = hostVersion,
+            supportedProtocolVersion = 1,
+        ),
+        storagePaths = PluginStoragePaths.fromFilesDir(appContext.filesDir),
+        installStore = PluginRepository,
+        remotePackageDownloader = UrlConnectionRemotePluginPackageDownloader(),
+    )
 }
