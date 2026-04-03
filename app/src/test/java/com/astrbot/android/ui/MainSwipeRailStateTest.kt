@@ -1,19 +1,22 @@
 package com.astrbot.android.ui
 
+import java.lang.reflect.Method
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MainSwipeRailStateTest {
 
     @Test
-    fun `main swipe pages follow the agreed seven page order`() {
+    fun `main swipe pages follow the agreed eight page order`() {
         assertEquals(
             listOf(
                 MainSwipePage.BOTS,
                 MainSwipePage.MODELS,
                 MainSwipePage.PERSONAS,
-                MainSwipePage.PLUGINS,
+                enumValueOf<MainSwipePage>("PLUGINS_LOCAL"),
+                enumValueOf<MainSwipePage>("PLUGINS_MARKET"),
                 MainSwipePage.CHAT,
                 MainSwipePage.CONFIG,
                 MainSwipePage.ME,
@@ -50,9 +53,9 @@ class MainSwipeRailStateTest {
     @Test
     fun `settle keeps page when threshold is not crossed`() {
         assertEquals(
-            MainSwipePage.PLUGINS,
+            enumValueOf<MainSwipePage>("PLUGINS_LOCAL"),
             settleMainSwipePage(
-                current = MainSwipePage.PLUGINS,
+                current = enumValueOf("PLUGINS_LOCAL"),
                 deltaFraction = -0.18f,
                 velocity = 0f,
             ),
@@ -62,9 +65,9 @@ class MainSwipeRailStateTest {
     @Test
     fun `settle advances to adjacent page when drag crosses threshold`() {
         assertEquals(
-            MainSwipePage.CHAT,
+            enumValueOf<MainSwipePage>("PLUGINS_MARKET"),
             settleMainSwipePage(
-                current = MainSwipePage.PLUGINS,
+                current = enumValueOf("PLUGINS_LOCAL"),
                 deltaFraction = -0.38f,
                 velocity = 0f,
             ),
@@ -72,15 +75,66 @@ class MainSwipeRailStateTest {
     }
 
     @Test
+    fun `plugin workspace tab maps plugins route to local and market rail pages`() {
+        val pluginWorkspaceTabClass = Class.forName("com.astrbot.android.ui.screen.PluginWorkspaceTab")
+        val localTab = java.lang.Enum.valueOf(pluginWorkspaceTabClass.asSubclass(Enum::class.java), "LOCAL")
+        val marketTab = java.lang.Enum.valueOf(pluginWorkspaceTabClass.asSubclass(Enum::class.java), "MARKET")
+        val currentMainSwipePage = mainSwipeRailStateMethod(
+            "currentMainSwipePage",
+            String::class.java,
+            Class.forName("com.astrbot.android.ui.screen.BotWorkspaceTab"),
+            pluginWorkspaceTabClass,
+        )
+
+        assertEquals(
+            enumValueOf<MainSwipePage>("PLUGINS_LOCAL"),
+            currentMainSwipePage.invoke(null, AppDestination.Plugins.route, botWorkspaceTab("BOTS"), localTab),
+        )
+        assertEquals(
+            enumValueOf<MainSwipePage>("PLUGINS_MARKET"),
+            currentMainSwipePage.invoke(null, AppDestination.Plugins.route, botWorkspaceTab("BOTS"), marketTab),
+        )
+    }
+
+    @Test
+    fun `plugin workspace pages map back to plugin workspace tabs`() {
+        val pluginWorkspaceTabClass = Class.forName("com.astrbot.android.ui.screen.PluginWorkspaceTab")
+        val pluginWorkspaceTabForMainSwipePage = mainSwipeRailStateMethod(
+            "pluginWorkspaceTabForMainSwipePage",
+            MainSwipePage::class.java,
+        )
+
+        val localResult = pluginWorkspaceTabForMainSwipePage.invoke(null, enumValueOf<MainSwipePage>("PLUGINS_LOCAL"))
+        val marketResult = pluginWorkspaceTabForMainSwipePage.invoke(null, enumValueOf<MainSwipePage>("PLUGINS_MARKET"))
+
+        assertNotNull(localResult)
+        assertNotNull(marketResult)
+        assertEquals("LOCAL", (localResult as Enum<*>).name)
+        assertEquals("MARKET", (marketResult as Enum<*>).name)
+        assertEquals(pluginWorkspaceTabClass, localResult.javaClass)
+        assertEquals(pluginWorkspaceTabClass, marketResult.javaClass)
+    }
+
+    @Test
     fun `chat page is reachable but does not allow horizontal page switching`() {
         assertEquals(false, mainSwipeEnabledForPage(MainSwipePage.CHAT))
-        assertEquals(true, mainSwipeEnabledForPage(MainSwipePage.PLUGINS))
+        assertEquals(true, mainSwipeEnabledForPage(enumValueOf("PLUGINS_LOCAL")))
+        assertEquals(true, mainSwipeEnabledForPage(enumValueOf("PLUGINS_MARKET")))
         assertEquals(true, mainSwipeEnabledForPage(MainSwipePage.CONFIG))
     }
 
     @Test
     fun `chat drawer container is rendered only while chat page is current`() {
-        assertEquals(false, shouldRenderChatDrawer(renderedPage = MainSwipePage.CHAT, currentPage = MainSwipePage.PLUGINS))
+        assertEquals(false, shouldRenderChatDrawer(renderedPage = MainSwipePage.CHAT, currentPage = MainSwipePage.PLUGINS_LOCAL))
         assertEquals(true, shouldRenderChatDrawer(renderedPage = MainSwipePage.CHAT, currentPage = MainSwipePage.CHAT))
+    }
+
+    private fun botWorkspaceTab(name: String): Any {
+        val botWorkspaceTabClass = Class.forName("com.astrbot.android.ui.screen.BotWorkspaceTab")
+        return java.lang.Enum.valueOf(botWorkspaceTabClass.asSubclass(Enum::class.java), name)
+    }
+
+    private fun mainSwipeRailStateMethod(name: String, vararg parameterTypes: Class<*>): Method {
+        return Class.forName("com.astrbot.android.ui.MainSwipeRailStateKt").getDeclaredMethod(name, *parameterTypes)
     }
 }

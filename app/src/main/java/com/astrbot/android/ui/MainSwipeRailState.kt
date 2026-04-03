@@ -12,7 +12,8 @@ internal enum class MainSwipePage(
     BOTS(AppDestination.Bots.route),
     MODELS(AppDestination.Models.route),
     PERSONAS("personas-inline"),
-    PLUGINS(AppDestination.Plugins.route),
+    PLUGINS_LOCAL(AppDestination.Plugins.route),
+    PLUGINS_MARKET("plugins-market-inline"),
     CHAT(AppDestination.Chat.route),
     CONFIG(AppDestination.Config.route),
     ME(AppDestination.Me.route),
@@ -44,7 +45,7 @@ internal data class MainSwipeRailPreviewState(
 internal fun mainSwipePageForBottomNavRoute(route: String?): MainSwipePage? {
     return when (route) {
         AppDestination.Bots.route -> MainSwipePage.BOTS
-        AppDestination.Plugins.route -> MainSwipePage.PLUGINS
+        AppDestination.Plugins.route -> MainSwipePage.PLUGINS_LOCAL
         AppDestination.Chat.route -> MainSwipePage.CHAT
         AppDestination.Config.route -> MainSwipePage.CONFIG
         AppDestination.Me.route -> MainSwipePage.ME
@@ -55,10 +56,11 @@ internal fun mainSwipePageForBottomNavRoute(route: String?): MainSwipePage? {
 internal fun currentMainSwipePage(
     activeMainRoute: String?,
     botWorkspaceTab: com.astrbot.android.ui.screen.BotWorkspaceTab,
+    pluginWorkspaceTab: com.astrbot.android.ui.screen.PluginWorkspaceTab,
 ): MainSwipePage {
     return when (activeMainRoute) {
         AppDestination.Bots.route -> mainSwipePageForBotWorkspaceTab(botWorkspaceTab)
-        AppDestination.Plugins.route -> MainSwipePage.PLUGINS
+        AppDestination.Plugins.route -> mainSwipePageForPluginWorkspaceTab(pluginWorkspaceTab)
         AppDestination.Chat.route -> MainSwipePage.CHAT
         AppDestination.Config.route -> MainSwipePage.CONFIG
         AppDestination.Me.route -> MainSwipePage.ME
@@ -107,11 +109,26 @@ internal fun mainSwipePageForBotWorkspaceTab(tab: com.astrbot.android.ui.screen.
     }
 }
 
+internal fun mainSwipePageForPluginWorkspaceTab(tab: com.astrbot.android.ui.screen.PluginWorkspaceTab): MainSwipePage {
+    return when (tab) {
+        com.astrbot.android.ui.screen.PluginWorkspaceTab.LOCAL -> MainSwipePage.PLUGINS_LOCAL
+        com.astrbot.android.ui.screen.PluginWorkspaceTab.MARKET -> MainSwipePage.PLUGINS_MARKET
+    }
+}
+
 internal fun botWorkspaceTabForMainSwipePage(page: MainSwipePage): com.astrbot.android.ui.screen.BotWorkspaceTab? {
     return when (page) {
         MainSwipePage.BOTS -> com.astrbot.android.ui.screen.BotWorkspaceTab.BOTS
         MainSwipePage.MODELS -> com.astrbot.android.ui.screen.BotWorkspaceTab.MODELS
         MainSwipePage.PERSONAS -> com.astrbot.android.ui.screen.BotWorkspaceTab.PERSONAS
+        else -> null
+    }
+}
+
+internal fun pluginWorkspaceTabForMainSwipePage(page: MainSwipePage): com.astrbot.android.ui.screen.PluginWorkspaceTab? {
+    return when (page) {
+        MainSwipePage.PLUGINS_LOCAL -> com.astrbot.android.ui.screen.PluginWorkspaceTab.LOCAL
+        MainSwipePage.PLUGINS_MARKET -> com.astrbot.android.ui.screen.PluginWorkspaceTab.MARKET
         else -> null
     }
 }

@@ -15,9 +15,9 @@ class FloatingBottomNavBarTest {
     }
 
     @Test
-    fun `bottom navigation routes map to seven page rail anchors`() {
+    fun `bottom navigation routes map to eight page rail anchors`() {
         assertEquals(MainSwipePage.BOTS, mainSwipePageForBottomNavRoute(AppDestination.Bots.route))
-        assertEquals(MainSwipePage.PLUGINS, mainSwipePageForBottomNavRoute(AppDestination.Plugins.route))
+        assertEquals(MainSwipePage.PLUGINS_LOCAL, mainSwipePageForBottomNavRoute(AppDestination.Plugins.route))
         assertEquals(MainSwipePage.CHAT, mainSwipePageForBottomNavRoute(AppDestination.Chat.route))
         assertEquals(MainSwipePage.CONFIG, mainSwipePageForBottomNavRoute(AppDestination.Config.route))
         assertEquals(MainSwipePage.ME, mainSwipePageForBottomNavRoute(AppDestination.Me.route))
