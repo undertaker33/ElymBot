@@ -1,6 +1,6 @@
 package com.astrbot.android.ui.screen
 
-internal enum class PluginWorkspaceTab {
+enum class PluginWorkspaceTab {
     LOCAL,
     MARKET,
 }

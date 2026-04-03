@@ -146,7 +146,7 @@
     <string name="plugin_installed_library_empty_message">当前筛选条件下没有已安装插件。</string>
     <string name="plugin_installed_library_identity_subtitle">%1$s | %2$s</string>
     <string name="plugin_installed_library_search_label">搜索已安装插件</string>
-    <string name="plugin_installed_library_search_placeholder">搜索占位</string>
+    <string name="plugin_installed_library_search_placeholder">搜索插件</string>
     <string name="plugin_installed_library_filter_all">全部</string>
     <string name="plugin_installed_library_filter_enabled">已启用</string>
     <string name="plugin_installed_library_filter_updates">更新</string>

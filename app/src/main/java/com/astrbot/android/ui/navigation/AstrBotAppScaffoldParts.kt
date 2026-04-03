@@ -486,8 +486,18 @@ private fun MainTopLevelRail(
                         onWorkspaceTabChange = onBotWorkspaceTabChange,
                     )
                 },
-                MainSwipePage.PLUGINS_LOCAL to { PluginScreen(onOpenPluginDetail = onOpenPluginDetail) },
-                MainSwipePage.PLUGINS_MARKET to { PluginScreen(onOpenPluginDetail = onOpenPluginDetail) },
+                MainSwipePage.PLUGINS_LOCAL to {
+                    PluginScreen(
+                        workspaceTab = PluginWorkspaceTab.LOCAL,
+                        onOpenPluginDetail = onOpenPluginDetail,
+                    )
+                },
+                MainSwipePage.PLUGINS_MARKET to {
+                    PluginScreen(
+                        workspaceTab = PluginWorkspaceTab.MARKET,
+                        onOpenPluginDetail = onOpenPluginDetail,
+                    )
+                },
                 MainSwipePage.CHAT to {
                     ChatScreen(
                         chatViewModel = chatViewModel,

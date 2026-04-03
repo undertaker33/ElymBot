@@ -149,7 +149,7 @@
     <string name="plugin_installed_library_empty_message">No installed plugins match this filter.</string>
     <string name="plugin_installed_library_identity_subtitle">%1$s | %2$s</string>
     <string name="plugin_installed_library_search_label">Search installed plugins</string>
-    <string name="plugin_installed_library_search_placeholder">Search placeholder</string>
+    <string name="plugin_installed_library_search_placeholder">Search plugins</string>
     <string name="plugin_installed_library_filter_all">All</string>
     <string name="plugin_installed_library_filter_enabled">Enabled</string>
     <string name="plugin_installed_library_filter_updates">Updates</string>
