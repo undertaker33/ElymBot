@@ -1,5 +1,6 @@
 package com.astrbot.android.ui.screen
 
+import java.lang.reflect.Method
 import com.astrbot.android.model.plugin.PluginCompatibilityState
 import com.astrbot.android.model.plugin.PluginFailureState
 import com.astrbot.android.model.plugin.PluginInstallRecord
@@ -23,6 +24,60 @@ import org.junit.Assert.assertFalse
 import org.junit.Test
 
 class PluginScreenPresentationTest {
+
+    @Test
+    fun `local workspace presentation filters cards by search and local status`() {
+        val enabled = installedPluginRecord("enabled", enabled = true)
+        val disabled = installedPluginRecord("disabled", enabled = false)
+        val update = installedPluginRecord("update", enabled = true).copyWithManifest(
+            title = "Weather Toolkit",
+            description = "Forecast cards and weather commands",
+            author = "Alice",
+        )
+
+        val uiState = PluginScreenUiState(
+            records = listOf(enabled, disabled, update),
+            updateAvailabilitiesByPluginId = mapOf(
+                "update" to PluginUpdateAvailability(
+                    pluginId = "update",
+                    installedVersion = "1.0.0",
+                    latestVersion = "1.1.0",
+                    updateAvailable = true,
+                    canUpgrade = true,
+                    changelogSummary = "Adds more weather cards.",
+                    catalogSourceId = "repo-1",
+                    packageUrl = "https://repo.example.com/packages/update-1.1.0.zip",
+                ),
+            ),
+        )
+
+        val localFilterClass = Class.forName("com.astrbot.android.ui.screen.PluginLocalFilter")
+        val updatesFilter = java.lang.Enum.valueOf(localFilterClass.asSubclass(Enum::class.java), "UPDATES")
+        val presentationMethod = pluginPresentationMethod(
+            "buildPluginLocalWorkspacePresentation",
+            PluginScreenUiState::class.java,
+            String::class.java,
+            localFilterClass,
+        )
+
+        val presentation = presentationMethod.invoke(null, uiState, "alice", updatesFilter)
+        val filters = propertyValue<List<*>>(presentation, "filters")
+        val cards = propertyValue<List<*>>(presentation, "cards")
+
+        assertEquals(listOf("ENABLED", "DISABLED", "UPDATES"), filters.map { propertyValue<Enum<*>>(it, "filter").name })
+        assertEquals(listOf("update"), cards.map { propertyValue<String>(it, "pluginId") })
+        assertEquals("Weather Toolkit", propertyValue<String>(cards.single(), "title"))
+        assertEquals("Alice", propertyValue<String>(cards.single(), "author"))
+    }
+
+    @Test
+    fun `market placeholder presentation exposes title and body`() {
+        val placeholderMethod = pluginPresentationMethod("buildPluginMarketPlaceholderPresentation")
+        val placeholder = placeholderMethod.invoke(null)
+
+        assertFalse(propertyValue<String>(placeholder, "title").isBlank())
+        assertFalse(propertyValue<String>(placeholder, "body").isBlank())
+    }
 
     @Test
     fun `homepage section builder keeps hero quick install health overview installed discover repositories order`() {
@@ -450,6 +505,44 @@ class PluginScreenPresentationTest {
             failureState = failureState,
             enabled = enabled,
             lastUpdatedAt = 1L,
+        )
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun <T> propertyValue(target: Any?, propertyName: String): T {
+        val getter = target!!.javaClass.getMethod("get${propertyName.replaceFirstChar(Char::titlecase)}")
+        return getter.invoke(target) as T
+    }
+
+    private fun pluginPresentationMethod(name: String, vararg parameterTypes: Class<*>): Method {
+        return Class.forName("com.astrbot.android.ui.screen.PluginScreenPresentationKt")
+            .getDeclaredMethod(name, *parameterTypes)
+    }
+
+    private fun PluginInstallRecord.copyWithManifest(
+        title: String = manifestSnapshot.title,
+        description: String = manifestSnapshot.description,
+        author: String = manifestSnapshot.author,
+    ): PluginInstallRecord {
+        return PluginInstallRecord.restoreFromPersistedState(
+            manifestSnapshot = manifestSnapshot.copy(
+                title = title,
+                description = description,
+                author = author,
+            ),
+            source = source,
+            compatibilityState = compatibilityState,
+            permissionSnapshot = permissionSnapshot,
+            failureState = failureState,
+            uninstallPolicy = uninstallPolicy,
+            catalogSourceId = catalogSourceId,
+            installedPackageUrl = installedPackageUrl,
+            lastCatalogCheckAtEpochMillis = lastCatalogCheckAtEpochMillis,
+            enabled = enabled,
+            installedAt = installedAt,
+            lastUpdatedAt = lastUpdatedAt,
+            localPackagePath = localPackagePath,
+            extractedDir = extractedDir,
         )
     }
 }

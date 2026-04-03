@@ -37,6 +37,7 @@ import com.astrbot.android.model.plugin.TextInputSettingField
 import com.astrbot.android.model.plugin.ToggleSettingField
 import com.astrbot.android.runtime.plugin.PluginRuntimePlugin
 import com.astrbot.android.runtime.plugin.PluginRuntimeRegistry
+import java.lang.reflect.Method
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -210,6 +211,27 @@ class PluginViewModelTest {
         assertEquals("Manual import", manualBadge.label)
         assertEquals("Repository", repositoryBadge.label)
         assertEquals("Direct link", directBadge.label)
+    }
+
+    @Test
+    fun local_workspace_controls_update_search_query_and_selected_filter() = runTest(dispatcher) {
+        val deps = FakePluginDependencies(
+            listOf(
+                pluginRecord(pluginId = "plugin-1"),
+                pluginRecord(pluginId = "plugin-2"),
+            ),
+        )
+        val viewModel = PluginViewModel(deps)
+        advanceUntilIdle()
+
+        val localFilterClass = Class.forName("com.astrbot.android.ui.screen.PluginLocalFilter")
+        val updatesFilter = java.lang.Enum.valueOf(localFilterClass.asSubclass(Enum::class.java), "UPDATES")
+        pluginViewModelMethod("updateLocalSearchQuery", String::class.java).invoke(viewModel, "alice")
+        pluginViewModelMethod("updateSelectedLocalFilter", localFilterClass).invoke(viewModel, updatesFilter)
+        advanceUntilIdle()
+
+        assertEquals("alice", propertyValue<String>(viewModel.uiState.value, "localSearchQuery"))
+        assertEquals("UPDATES", propertyValue<Enum<*>>(viewModel.uiState.value, "selectedLocalFilter").name)
     }
 
     @Test
@@ -1232,6 +1254,10 @@ class PluginViewModelTest {
         )
     }
 
+    private fun pluginViewModelMethod(name: String, vararg parameterTypes: Class<*>): Method {
+        return PluginViewModel::class.java.getMethod(name, *parameterTypes)
+    }
+
 }
 
 private fun assertResourceFeedback(
@@ -1245,6 +1271,12 @@ private fun assertResourceFeedback(
     if (expectedArg != null) {
         assertTrue(feedback.formatArgs.contains(expectedArg))
     }
+}
+
+@Suppress("UNCHECKED_CAST")
+private fun <T> propertyValue(target: Any?, propertyName: String): T {
+    val getter = target!!.javaClass.getMethod("get${propertyName.replaceFirstChar(Char::titlecase)}")
+    return getter.invoke(target) as T
 }
 
 private fun PluginInstallRecord.withOverrides(

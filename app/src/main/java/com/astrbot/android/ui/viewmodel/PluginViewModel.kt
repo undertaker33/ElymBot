@@ -40,6 +40,7 @@ import com.astrbot.android.model.plugin.ToggleSettingField
 import com.astrbot.android.runtime.plugin.PluginRuntimePlugin
 import com.astrbot.android.runtime.plugin.PluginRuntimeRegistry
 import com.astrbot.android.runtime.plugin.compareVersions
+import com.astrbot.android.ui.screen.PluginLocalFilter
 import java.text.DateFormat
 import java.util.Date
 import java.util.Locale
@@ -114,6 +115,8 @@ data class PluginScreenUiState(
     val catalogEntries: List<PluginCatalogEntryCardUiState> = emptyList(),
     val updateAvailabilitiesByPluginId: Map<String, PluginUpdateAvailability> = emptyMap(),
     val failureStatesByPluginId: Map<String, PluginFailureUiState> = emptyMap(),
+    val localSearchQuery: String = "",
+    val selectedLocalFilter: PluginLocalFilter = PluginLocalFilter.ENABLED,
     val repositoryUrlDraft: String = "",
     val directPackageUrlDraft: String = "",
     val isInstallActionRunning: Boolean = false,
@@ -199,6 +202,8 @@ class PluginViewModel(
     private val directPackageUrlDraft = MutableStateFlow("")
     private val installActionRunning = MutableStateFlow(false)
     private val upgradeDialogState = MutableStateFlow<PluginUpgradeDialogState?>(null)
+    private val localSearchQuery = MutableStateFlow("")
+    private val selectedLocalFilter = MutableStateFlow(PluginLocalFilter.ENABLED)
 
     val uiState: StateFlow<PluginScreenUiState> = combine(
         combine(
@@ -248,6 +253,10 @@ class PluginViewModel(
         )
     }.combine(upgradeDialogState) { state, upgradeDialog ->
         state.copy(upgradeDialogState = upgradeDialog)
+    }.combine(localSearchQuery) { state, searchQuery ->
+        state.copy(localSearchQuery = searchQuery)
+    }.combine(selectedLocalFilter) { state, filter ->
+        state.copy(selectedLocalFilter = filter)
     }.combine(repositoryUrlDraft) { state, repositoryDraft ->
         state.copy(repositoryUrlDraft = repositoryDraft)
     }.combine(directPackageUrlDraft) { state, directDraft ->
@@ -291,6 +300,14 @@ class PluginViewModel(
 
     fun updateRepositoryUrlDraft(value: String) {
         repositoryUrlDraft.value = value
+    }
+
+    fun updateLocalSearchQuery(value: String) {
+        localSearchQuery.value = value
+    }
+
+    fun updateSelectedLocalFilter(filter: PluginLocalFilter) {
+        selectedLocalFilter.value = filter
     }
 
     fun updateDirectPackageUrlDraft(value: String) {
