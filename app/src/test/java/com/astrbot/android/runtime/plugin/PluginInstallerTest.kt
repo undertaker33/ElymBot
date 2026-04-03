@@ -11,8 +11,10 @@ import com.astrbot.android.data.db.PluginPermissionSnapshotEntity
 import com.astrbot.android.data.db.toInstallRecord
 import com.astrbot.android.data.plugin.PluginStoragePaths
 import com.astrbot.android.model.plugin.PluginInstallRecord
+import com.astrbot.android.model.plugin.PluginInstallIntent
 import com.astrbot.android.model.plugin.PluginSource
 import com.astrbot.android.model.plugin.PluginSourceType
+import com.astrbot.android.model.plugin.PluginUpdateAvailability
 import java.io.File
 import java.nio.file.Files
 import java.util.concurrent.atomic.AtomicBoolean
@@ -30,6 +32,87 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PluginInstallerTest {
+    @Test
+    fun installer_downloads_remote_package_and_marks_direct_link_source() = runBlocking {
+        val tempDir = Files.createTempDirectory("plugin-installer-direct-link").toFile()
+        try {
+            resetPluginRepositoryForTest(dao = InMemoryPluginInstallAggregateDao(), initialized = true)
+            val remotePackage = createPluginPackage(
+                directory = tempDir,
+                fileName = "remote-source.zip",
+                manifest = validManifest(version = "1.2.0"),
+            )
+            val downloadRequests = mutableListOf<Pair<String, File>>()
+            val installer = PluginInstaller(
+                validator = PluginPackageValidator(hostVersion = "0.3.6", supportedProtocolVersion = 1),
+                storagePaths = PluginStoragePaths.fromFilesDir(tempDir),
+                installStore = PluginRepository,
+                remotePackageDownloader = RemotePluginPackageDownloader { packageUrl, destinationFile ->
+                    downloadRequests += packageUrl to destinationFile
+                    remotePackage.copyTo(destinationFile, overwrite = true)
+                },
+                clock = { 300L },
+            )
+
+            val installed = installer.install(
+                PluginInstallIntent.directPackageUrl(" https://plugins.example.com/packages/demo-1.2.0.zip "),
+            )
+
+            assertEquals(listOf("https://plugins.example.com/packages/demo-1.2.0.zip"), downloadRequests.map { it.first })
+            assertEquals(PluginSourceType.DIRECT_LINK, installed.source.sourceType)
+            assertEquals(PluginSourceType.DIRECT_LINK, installed.manifestSnapshot.sourceType)
+            assertEquals("https://plugins.example.com/packages/demo-1.2.0.zip", installed.source.location)
+            assertEquals("https://plugins.example.com/packages/demo-1.2.0.zip", installed.installedPackageUrl)
+            assertEquals(null, installed.catalogSourceId)
+            assertEquals(300L, installed.lastUpdatedAt)
+            assertTrue(File(installed.localPackagePath).exists())
+        } finally {
+            resetPluginRepositoryForTest()
+            tempDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun installer_downloads_catalog_package_and_writes_repository_origin() = runBlocking {
+        val tempDir = Files.createTempDirectory("plugin-installer-repository").toFile()
+        try {
+            resetPluginRepositoryForTest(dao = InMemoryPluginInstallAggregateDao(), initialized = true)
+            val remotePackage = createPluginPackage(
+                directory = tempDir,
+                fileName = "catalog-package.zip",
+                manifest = validManifest(version = "1.3.0"),
+            )
+            val installer = PluginInstaller(
+                validator = PluginPackageValidator(hostVersion = "0.3.6", supportedProtocolVersion = 1),
+                storagePaths = PluginStoragePaths.fromFilesDir(tempDir),
+                installStore = PluginRepository,
+                remotePackageDownloader = RemotePluginPackageDownloader { _, destinationFile ->
+                    remotePackage.copyTo(destinationFile, overwrite = true)
+                },
+                clock = { 400L },
+            )
+
+            val installed = installer.install(
+                PluginInstallIntent.catalogVersion(
+                    pluginId = "com.example.demo",
+                    version = "1.3.0",
+                    packageUrl = "https://repo.example.com/packages/demo-1.3.0.zip",
+                    catalogSourceId = "official",
+                ),
+            )
+
+            assertEquals(PluginSourceType.REPOSITORY, installed.source.sourceType)
+            assertEquals(PluginSourceType.REPOSITORY, installed.manifestSnapshot.sourceType)
+            assertEquals("https://repo.example.com/packages/demo-1.3.0.zip", installed.source.location)
+            assertEquals("https://repo.example.com/packages/demo-1.3.0.zip", installed.installedPackageUrl)
+            assertEquals("official", installed.catalogSourceId)
+            assertEquals(400L, installed.lastUpdatedAt)
+        } finally {
+            resetPluginRepositoryForTest()
+            tempDir.deleteRecursively()
+        }
+    }
+
     @Test
     fun installer_rejects_same_plugin_id_when_version_is_not_an_upgrade() {
         val tempDir = Files.createTempDirectory("plugin-installer-duplicate").toFile()
@@ -200,6 +283,130 @@ class PluginInstallerTest {
             assertTrue(failure is IllegalStateException)
             assertTrue(failure?.message?.contains("unsafe") == true)
             assertEquals(null, PluginRepository.findByPluginId("com.example.demo"))
+        } finally {
+            resetPluginRepositoryForTest()
+            tempDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun installer_blocks_upgrade_when_target_version_is_incompatible() = runBlocking {
+        val tempDir = Files.createTempDirectory("plugin-installer-blocked-upgrade").toFile()
+        try {
+            val repositoryDao = InMemoryPluginInstallAggregateDao()
+            resetPluginRepositoryForTest(dao = repositoryDao, initialized = true)
+            PluginRepository.upsert(
+                existingRecord(
+                    tempDir = tempDir,
+                    version = "1.0.0",
+                    localPackagePath = File(tempDir, "existing-1.0.0.zip").absolutePath,
+                    extractedDir = File(tempDir, "existing").absolutePath,
+                ),
+            )
+            val remotePackage = createPluginPackage(
+                directory = tempDir,
+                fileName = "upgrade.zip",
+                manifest = validManifest(version = "1.2.0").apply {
+                    put("minHostVersion", "9.0.0")
+                },
+            )
+            val installer = PluginInstaller(
+                validator = PluginPackageValidator(hostVersion = "0.3.6", supportedProtocolVersion = 1),
+                storagePaths = PluginStoragePaths.fromFilesDir(tempDir),
+                installStore = PluginRepository,
+                remotePackageDownloader = RemotePluginPackageDownloader { _, destinationFile ->
+                    remotePackage.copyTo(destinationFile, overwrite = true)
+                },
+            )
+
+            val failure = runCatching {
+                installer.upgrade(
+                    PluginUpdateAvailability(
+                        pluginId = "com.example.demo",
+                        installedVersion = "1.0.0",
+                        latestVersion = "1.2.0",
+                        updateAvailable = true,
+                        canUpgrade = false,
+                        incompatibilityReason = "Host version 0.3.6 is below required minimum 9.0.0.",
+                        catalogSourceId = "official",
+                        packageUrl = "https://repo.example.com/packages/demo-1.2.0.zip",
+                    ),
+                )
+            }.exceptionOrNull()
+
+            assertTrue(failure is IllegalStateException)
+            assertTrue(failure?.message?.contains("below required minimum 9.0.0") == true)
+            assertEquals("1.0.0", PluginRepository.findByPluginId("com.example.demo")?.installedVersion)
+        } finally {
+            resetPluginRepositoryForTest()
+            tempDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun installer_upgrade_refreshes_snapshots_and_catalog_tracking_fields() = runBlocking {
+        val tempDir = Files.createTempDirectory("plugin-installer-upgrade-refresh").toFile()
+        try {
+            val repositoryDao = InMemoryPluginInstallAggregateDao()
+            resetPluginRepositoryForTest(dao = repositoryDao, initialized = true)
+            PluginRepository.upsert(
+                existingRecord(
+                    tempDir = tempDir,
+                    version = "1.0.0",
+                    enabled = true,
+                    installedAt = 100L,
+                    lastUpdatedAt = 100L,
+                    localPackagePath = File(tempDir, "existing-1.0.0.zip").absolutePath,
+                    extractedDir = File(tempDir, "existing").absolutePath,
+                ),
+            )
+            val remotePackage = createPluginPackage(
+                directory = tempDir,
+                fileName = "upgrade.zip",
+                manifest = validManifest(version = "1.2.0").apply {
+                    put(
+                        "permissions",
+                        JSONArray().put(
+                            JSONObject()
+                                .put("permissionId", "net.admin")
+                                .put("title", "Admin network access")
+                                .put("description", "Allows privileged outgoing requests")
+                                .put("riskLevel", "HIGH")
+                                .put("required", true),
+                        ),
+                    )
+                },
+            )
+            val installer = PluginInstaller(
+                validator = PluginPackageValidator(hostVersion = "0.3.6", supportedProtocolVersion = 1),
+                storagePaths = PluginStoragePaths.fromFilesDir(tempDir),
+                installStore = PluginRepository,
+                remotePackageDownloader = RemotePluginPackageDownloader { _, destinationFile ->
+                    remotePackage.copyTo(destinationFile, overwrite = true)
+                },
+                clock = { 500L },
+            )
+
+            val upgraded = installer.upgrade(
+                PluginUpdateAvailability(
+                    pluginId = "com.example.demo",
+                    installedVersion = "1.0.0",
+                    latestVersion = "1.2.0",
+                    updateAvailable = true,
+                    canUpgrade = true,
+                    catalogSourceId = "official",
+                    packageUrl = "https://repo.example.com/packages/demo-1.2.0.zip",
+                ),
+            )
+
+            assertEquals("1.2.0", upgraded.installedVersion)
+            assertEquals("official", upgraded.catalogSourceId)
+            assertEquals("https://repo.example.com/packages/demo-1.2.0.zip", upgraded.installedPackageUrl)
+            assertEquals(500L, upgraded.lastCatalogCheckAtEpochMillis)
+            assertEquals("net.admin", upgraded.permissionSnapshot.single().permissionId)
+            assertEquals(PluginSourceType.REPOSITORY, upgraded.source.sourceType)
+            assertEquals(100L, upgraded.installedAt)
+            assertEquals(500L, upgraded.lastUpdatedAt)
         } finally {
             resetPluginRepositoryForTest()
             tempDir.deleteRecursively()

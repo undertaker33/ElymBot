@@ -14,17 +14,22 @@ import com.astrbot.android.model.plugin.NoOp
 import com.astrbot.android.model.plugin.PluginBotSummary
 import com.astrbot.android.model.plugin.PluginCardAction
 import com.astrbot.android.model.plugin.PluginCardSchema
+import com.astrbot.android.model.plugin.PluginCatalogEntryRecord
+import com.astrbot.android.model.plugin.PluginCatalogVersion
 import com.astrbot.android.model.plugin.PluginCompatibilityStatus
 import com.astrbot.android.model.plugin.PluginConfigSummary
 import com.astrbot.android.model.plugin.PluginExecutionContext
 import com.astrbot.android.model.plugin.PluginExecutionResult
 import com.astrbot.android.model.plugin.PluginFailureState
 import com.astrbot.android.model.plugin.PluginHostAction
+import com.astrbot.android.model.plugin.PluginInstallIntent
 import com.astrbot.android.model.plugin.PluginInstallRecord
+import com.astrbot.android.model.plugin.PluginInstallIntentResult
 import com.astrbot.android.model.plugin.PluginMessageSummary
 import com.astrbot.android.model.plugin.PluginPermissionGrant
 import com.astrbot.android.model.plugin.PluginSettingsField
 import com.astrbot.android.model.plugin.PluginSettingsSchema
+import com.astrbot.android.model.plugin.PluginUpdateAvailability
 import com.astrbot.android.model.plugin.PluginTriggerMetadata
 import com.astrbot.android.model.plugin.PluginTriggerSource
 import com.astrbot.android.model.plugin.PluginUninstallPolicy
@@ -32,9 +37,9 @@ import com.astrbot.android.model.plugin.SelectSettingField
 import com.astrbot.android.model.plugin.SettingsUiRequest
 import com.astrbot.android.model.plugin.TextInputSettingField
 import com.astrbot.android.model.plugin.ToggleSettingField
-import com.astrbot.android.model.plugin.isBlocking
 import com.astrbot.android.runtime.plugin.PluginRuntimePlugin
 import com.astrbot.android.runtime.plugin.PluginRuntimeRegistry
+import com.astrbot.android.runtime.plugin.compareVersions
 import java.text.DateFormat
 import java.util.Date
 import java.util.Locale
@@ -47,31 +52,111 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 data class PluginSummaryMetrics(
-    val totalInstalled: Int = 0,
-    val highRisk: Int = 0,
-    val incompatible: Int = 0,
+    val installedCount: Int = 0,
+    val repositorySourceCount: Int = 0,
+    val discoverableCount: Int = 0,
+    val incompatibleCount: Int = 0,
+)
+
+data class PluginRepositorySourceCardUiState(
+    val sourceId: String,
+    val title: String,
+    val catalogUrl: String,
+    val pluginCount: Int,
+    val lastSyncAtEpochMillis: Long? = null,
+    val lastSyncStatusText: String = "",
+)
+
+data class PluginCatalogEntryCardUiState(
+    val sourceId: String,
+    val pluginId: String,
+    val title: String,
+    val author: String,
+    val summary: String,
+    val latestVersion: String = "",
+    val sourceName: String = "",
+)
+
+data class PluginSourceBadgeUiState(
+    val sourceType: com.astrbot.android.model.plugin.PluginSourceType,
+    val label: String,
+)
+
+data class PluginUpdateHintUiState(
+    val latestVersion: String,
+    val changelogSummary: String = "",
+    val blockedReason: String = "",
+)
+
+data class PluginPermissionDiffHintUiState(
+    val addedPermissions: List<String> = emptyList(),
+    val removedPermissions: List<String> = emptyList(),
+    val changedPermissions: List<String> = emptyList(),
+    val upgradedPermissions: List<String> = emptyList(),
+)
+
+data class PluginDetailMetadataState(
+    val sourceBadge: PluginSourceBadgeUiState? = null,
+    val repositoryNameOrHost: String = "",
+    val repositoryHost: String = "",
+    val lastSyncAtEpochMillis: Long? = null,
+    val lastUpdatedAtEpochMillis: Long? = null,
+    val versionHistorySummary: String = "",
+    val changelogSummary: String = "",
+    val updateHint: PluginUpdateHintUiState? = null,
+    val permissionDiffHint: PluginPermissionDiffHintUiState? = null,
+)
+
+private data class PluginWorkspaceSnapshot(
+    val records: List<PluginInstallRecord>,
+    val repositorySources: List<com.astrbot.android.model.plugin.PluginRepositorySource>,
+    val catalogEntries: List<PluginCatalogEntryRecord>,
+    val selectedId: String?,
+    val isShowingDetail: Boolean,
 )
 
 data class PluginScreenUiState(
     val records: List<PluginInstallRecord> = emptyList(),
+    val repositorySources: List<PluginRepositorySourceCardUiState> = emptyList(),
+    val catalogEntries: List<PluginCatalogEntryCardUiState> = emptyList(),
+    val updateAvailabilitiesByPluginId: Map<String, PluginUpdateAvailability> = emptyMap(),
     val failureStatesByPluginId: Map<String, PluginFailureUiState> = emptyMap(),
     val summaryMetrics: PluginSummaryMetrics = PluginSummaryMetrics(),
+    val repositoryUrlDraft: String = "",
+    val directPackageUrlDraft: String = "",
+    val isInstallActionRunning: Boolean = false,
     val selectedPluginId: String? = null,
     val selectedPlugin: PluginInstallRecord? = null,
     val isShowingDetail: Boolean = false,
+    val detailMetadataState: PluginDetailMetadataState = PluginDetailMetadataState(),
     val detailActionState: PluginDetailActionState = PluginDetailActionState(),
+    val upgradeDialogState: PluginUpgradeDialogState? = null,
     val schemaUiState: PluginSchemaUiState = PluginSchemaUiState.None,
 )
 
 data class PluginDetailActionState(
     val compatibilityNotes: String = "",
     val enableBlockedReason: PluginActionFeedback? = null,
+    val updateBlockedReason: PluginActionFeedback? = null,
     val isEnableActionEnabled: Boolean = false,
     val isDisableActionEnabled: Boolean = false,
+    val updateAvailability: PluginUpdateAvailability? = null,
+    val isUpgradeActionEnabled: Boolean = false,
     val uninstallPolicy: PluginUninstallPolicy = PluginUninstallPolicy.default(),
     val lastActionMessage: PluginActionFeedback? = null,
     val failureState: PluginFailureUiState? = null,
 )
+
+data class PluginUpgradeDialogState(
+    val availability: PluginUpdateAvailability,
+    val isVisible: Boolean = true,
+    val isSecondaryConfirmationStep: Boolean = false,
+    val isInstalling: Boolean = false,
+    val message: PluginActionFeedback? = null,
+) {
+    val requiresSecondaryConfirmation: Boolean
+        get() = availability.permissionDiff.requiresSecondaryConfirmation
+}
 
 data class PluginFailureUiState(
     val consecutiveFailureCount: Int,
@@ -118,26 +203,70 @@ class PluginViewModel(
     private val showingDetail = MutableStateFlow(false)
     private val lastActionMessage = MutableStateFlow<PluginActionFeedback?>(null)
     private val schemaUiState = MutableStateFlow<PluginSchemaUiState>(PluginSchemaUiState.None)
+    private val repositoryUrlDraft = MutableStateFlow("")
+    private val directPackageUrlDraft = MutableStateFlow("")
+    private val installActionRunning = MutableStateFlow(false)
+    private val upgradeDialogState = MutableStateFlow<PluginUpgradeDialogState?>(null)
 
     val uiState: StateFlow<PluginScreenUiState> = combine(
-        dependencies.records,
-        selectedPluginId,
-        showingDetail,
+        combine(
+            dependencies.records,
+            dependencies.repositorySources,
+            dependencies.catalogEntries,
+            selectedPluginId,
+            showingDetail,
+        ) { records, repositorySources, catalogEntries, selectedId, isShowingDetail ->
+            PluginWorkspaceSnapshot(
+                records = records,
+                repositorySources = repositorySources,
+                catalogEntries = catalogEntries,
+                selectedId = selectedId,
+                isShowingDetail = isShowingDetail,
+            )
+        },
         lastActionMessage,
         schemaUiState,
-    ) { records, selectedId, isShowingDetail, actionMessage, schemaState ->
-        val selectedPlugin = records.firstOrNull { it.pluginId == selectedId }
-        val failureStates = buildFailureStates(records)
+    ) { snapshot, actionMessage, schemaState ->
+        val selectedPlugin = snapshot.records.firstOrNull { it.pluginId == snapshot.selectedId }
+        val updateAvailabilities = snapshot.records.mapNotNull { record ->
+            dependencies.getUpdateAvailability(record.pluginId)?.let { record.pluginId to it }
+        }.toMap()
+        val failureStates = buildFailureStates(snapshot.records)
         PluginScreenUiState(
-            records = records,
+            records = snapshot.records,
+            repositorySources = snapshot.repositorySources.map(::toRepositorySourceCardUiState),
+            catalogEntries = snapshot.catalogEntries.map(::toCatalogEntryCardUiState),
+            updateAvailabilitiesByPluginId = updateAvailabilities,
             failureStatesByPluginId = failureStates,
-            summaryMetrics = buildSummaryMetrics(records),
+            summaryMetrics = buildSummaryMetrics(
+                records = snapshot.records,
+                repositorySources = snapshot.repositorySources,
+                catalogEntries = snapshot.catalogEntries,
+            ),
             selectedPluginId = selectedPlugin?.pluginId,
             selectedPlugin = selectedPlugin,
-            isShowingDetail = isShowingDetail && selectedPlugin != null,
-            detailActionState = buildDetailActionState(selectedPlugin, actionMessage),
+            isShowingDetail = snapshot.isShowingDetail && selectedPlugin != null,
+            detailMetadataState = buildDetailMetadataState(
+                record = selectedPlugin,
+                repositorySources = snapshot.repositorySources,
+                catalogEntries = snapshot.catalogEntries,
+                updateAvailability = selectedPlugin?.let { updateAvailabilities[it.pluginId] },
+            ),
+            detailActionState = buildDetailActionState(
+                record = selectedPlugin,
+                actionMessage = actionMessage,
+                updateAvailability = selectedPlugin?.let { updateAvailabilities[it.pluginId] },
+            ),
             schemaUiState = schemaState,
         )
+    }.combine(upgradeDialogState) { state, upgradeDialog ->
+        state.copy(upgradeDialogState = upgradeDialog)
+    }.combine(repositoryUrlDraft) { state, repositoryDraft ->
+        state.copy(repositoryUrlDraft = repositoryDraft)
+    }.combine(directPackageUrlDraft) { state, directDraft ->
+        state.copy(directPackageUrlDraft = directDraft)
+    }.combine(installActionRunning) { state, isInstallRunning ->
+        state.copy(isInstallActionRunning = isInstallRunning)
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.Eagerly,
@@ -173,8 +302,102 @@ class PluginViewModel(
         executePluginEntry(pluginId = selected)
     }
 
+    fun updateRepositoryUrlDraft(value: String) {
+        repositoryUrlDraft.value = value
+    }
+
+    fun updateDirectPackageUrlDraft(value: String) {
+        directPackageUrlDraft.value = value
+    }
+
+    fun submitRepositoryUrl() {
+        submitInstallIntent(
+            buildIntent = { PluginInstallIntent.repositoryUrl(repositoryUrlDraft.value) },
+            onSuccess = {
+                repositoryUrlDraft.value = ""
+            },
+        )
+    }
+
+    fun submitDirectPackageUrl() {
+        submitInstallIntent(
+            buildIntent = { PluginInstallIntent.directPackageUrl(directPackageUrlDraft.value) },
+            onSuccess = {
+                directPackageUrlDraft.value = ""
+            },
+        )
+    }
+
+    fun submitLocalPackageUri(uri: String) {
+        if (installActionRunning.value) return
+        viewModelScope.launch {
+            installActionRunning.value = true
+            runCatching {
+                dependencies.installFromLocalPackageUri(uri)
+            }.onSuccess { result ->
+                lastActionMessage.value = result.toFeedback()
+            }.onFailure { error ->
+                lastActionMessage.value = PluginActionFeedback.Text(
+                    error.message ?: "Plugin local import failed.",
+                )
+            }
+            installActionRunning.value = false
+        }
+    }
+
     fun showList() {
         showingDetail.value = false
+    }
+
+    fun requestUpgradeForSelectedPlugin() {
+        val selected = uiState.value.selectedPlugin ?: return
+        val availability = uiState.value.updateAvailabilitiesByPluginId[selected.pluginId]
+        if (availability == null || !availability.updateAvailable) {
+            lastActionMessage.value = PluginActionFeedback.Text("No update is available for this plugin.")
+            return
+        }
+        if (!availability.canUpgrade) {
+            lastActionMessage.value = PluginActionFeedback.Text(
+                availability.incompatibilityReason.ifBlank {
+                    "This update cannot be installed on the current host."
+                },
+            )
+            return
+        }
+        upgradeDialogState.value = PluginUpgradeDialogState(availability = availability)
+    }
+
+    fun dismissUpgradeDialog() {
+        upgradeDialogState.value = null
+    }
+
+    fun confirmUpgrade() {
+        val dialog = upgradeDialogState.value ?: return
+        if (dialog.isInstalling) return
+        if (dialog.requiresSecondaryConfirmation && !dialog.isSecondaryConfirmationStep) {
+            upgradeDialogState.value = dialog.copy(
+                isSecondaryConfirmationStep = true,
+            )
+            return
+        }
+        viewModelScope.launch {
+            upgradeDialogState.value = dialog.copy(isInstalling = true)
+            runCatching {
+                dependencies.upgradePlugin(dialog.availability)
+            }.onSuccess { record ->
+                lastActionMessage.value = PluginActionFeedback.Text(
+                    "Updated ${record.manifestSnapshot.title} to ${record.installedVersion}.",
+                )
+                upgradeDialogState.value = null
+            }.onFailure { error ->
+                upgradeDialogState.value = dialog.copy(
+                    isInstalling = false,
+                    message = PluginActionFeedback.Text(
+                        error.message ?: "Plugin upgrade failed.",
+                    ),
+                )
+            }
+        }
     }
 
     fun enableSelectedPlugin() {
@@ -252,22 +475,98 @@ class PluginViewModel(
         return records.first().pluginId
     }
 
-    private fun buildSummaryMetrics(records: List<PluginInstallRecord>): PluginSummaryMetrics {
+    private fun submitInstallIntent(
+        buildIntent: () -> PluginInstallIntent,
+        onSuccess: () -> Unit,
+    ) {
+        val intent = runCatching(buildIntent)
+            .onFailure { error ->
+                lastActionMessage.value = PluginActionFeedback.Text(
+                    error.message ?: "Invalid plugin install URL.",
+                )
+            }
+            .getOrNull() ?: return
+        if (installActionRunning.value) return
+        viewModelScope.launch {
+            installActionRunning.value = true
+            runCatching {
+                dependencies.handleInstallIntent(intent)
+            }.onSuccess { result ->
+                onSuccess()
+                lastActionMessage.value = result.toFeedback()
+            }.onFailure { error ->
+                lastActionMessage.value = PluginActionFeedback.Text(
+                    error.message ?: "Plugin install action failed.",
+                )
+            }
+            installActionRunning.value = false
+        }
+    }
+
+    private fun buildSummaryMetrics(
+        records: List<PluginInstallRecord>,
+        repositorySources: List<com.astrbot.android.model.plugin.PluginRepositorySource>,
+        catalogEntries: List<PluginCatalogEntryRecord>,
+    ): PluginSummaryMetrics {
         return PluginSummaryMetrics(
-            totalInstalled = records.size,
-            highRisk = records.count { record ->
-                record.manifestSnapshot.riskLevel.isBlocking() ||
-                    record.permissionSnapshot.any { permission -> permission.riskLevel.isBlocking() }
-            },
-            incompatible = records.count { record ->
+            installedCount = records.size,
+            repositorySourceCount = repositorySources.size,
+            discoverableCount = catalogEntries.size,
+            incompatibleCount = records.count { record ->
                 record.compatibilityState.status == PluginCompatibilityStatus.INCOMPATIBLE
             },
+        )
+    }
+
+    private fun buildDetailMetadataState(
+        record: PluginInstallRecord?,
+        repositorySources: List<com.astrbot.android.model.plugin.PluginRepositorySource>,
+        catalogEntries: List<PluginCatalogEntryRecord>,
+        updateAvailability: PluginUpdateAvailability?,
+    ): PluginDetailMetadataState {
+        if (record == null) return PluginDetailMetadataState()
+        val catalogEntry = record.catalogSourceId?.let { sourceId ->
+            catalogEntries.firstOrNull { entry ->
+                entry.sourceId == sourceId && entry.entry.pluginId == record.pluginId
+            }
+        }
+        val repositorySource = record.catalogSourceId?.let { sourceId ->
+            repositorySources.firstOrNull { source -> source.sourceId == sourceId }
+        }
+        val repositoryUrl = repositorySource?.catalogUrl
+            ?: record.installedPackageUrl.takeIf { it.isNotBlank() }
+            ?: record.source.location
+        val repositoryHost = repositoryUrl.toUriHost()
+        val repositoryNameOrHost = repositorySource?.title
+            ?.takeIf { it.isNotBlank() }
+            ?: repositoryHost
+        val permissionDiffHint = updateAvailability
+            ?.takeIf { it.updateAvailable }
+            ?.permissionDiff
+            ?.let(::toPermissionDiffHintUiState)
+            ?.takeIf { hint ->
+                hint.addedPermissions.isNotEmpty() ||
+                    hint.removedPermissions.isNotEmpty() ||
+                    hint.changedPermissions.isNotEmpty() ||
+                    hint.upgradedPermissions.isNotEmpty()
+            }
+        return PluginDetailMetadataState(
+            sourceBadge = buildSourceBadge(record),
+            repositoryNameOrHost = repositoryNameOrHost,
+            repositoryHost = repositoryHost,
+            lastSyncAtEpochMillis = repositorySource?.lastSyncAtEpochMillis,
+            lastUpdatedAtEpochMillis = record.lastUpdatedAt.takeIf { it > 0L },
+            versionHistorySummary = summarizeVersionHistory(catalogEntry?.entry?.versions.orEmpty()),
+            changelogSummary = resolveChangelogSummary(record, catalogEntry, updateAvailability),
+            updateHint = updateAvailability?.takeIf { it.updateAvailable }?.let(::toUpdateHintUiState),
+            permissionDiffHint = permissionDiffHint,
         )
     }
 
     private fun buildDetailActionState(
         record: PluginInstallRecord?,
         actionMessage: PluginActionFeedback?,
+        updateAvailability: PluginUpdateAvailability?,
     ): PluginDetailActionState {
         if (record == null) {
             return PluginDetailActionState(lastActionMessage = actionMessage)
@@ -277,12 +576,23 @@ class PluginViewModel(
         return PluginDetailActionState(
             compatibilityNotes = record.compatibilityState.notes,
             enableBlockedReason = enableBlockedReason,
+            updateBlockedReason = updateAvailability
+                ?.takeIf { it.updateAvailable && !it.canUpgrade }
+                ?.incompatibilityReason
+                ?.takeIf { it.isNotBlank() }
+                ?.let(PluginActionFeedback::Text),
             isEnableActionEnabled = !record.enabled && enableBlockedReason == null,
             isDisableActionEnabled = record.enabled,
+            updateAvailability = updateAvailability,
+            isUpgradeActionEnabled = updateAvailability?.updateAvailable == true && updateAvailability.canUpgrade,
             uninstallPolicy = record.uninstallPolicy,
             lastActionMessage = actionMessage,
             failureState = failureState,
         )
+    }
+
+    internal fun buildSourceBadgeForTest(record: PluginInstallRecord): PluginSourceBadgeUiState {
+        return buildSourceBadge(record)
     }
 
     private fun executePluginEntry(pluginId: String) {
@@ -523,6 +833,110 @@ class PluginViewModel(
         return when (this) {
             PluginUninstallPolicy.KEEP_DATA -> R.string.plugin_action_feedback_uninstall_policy_keep_data
             PluginUninstallPolicy.REMOVE_DATA -> R.string.plugin_action_feedback_uninstall_policy_remove_data
+        }
+    }
+
+    private fun toRepositorySourceCardUiState(
+        source: com.astrbot.android.model.plugin.PluginRepositorySource,
+    ): PluginRepositorySourceCardUiState {
+        return PluginRepositorySourceCardUiState(
+            sourceId = source.sourceId,
+            title = source.title,
+            catalogUrl = source.catalogUrl,
+            pluginCount = source.plugins.size,
+            lastSyncAtEpochMillis = source.lastSyncAtEpochMillis,
+            lastSyncStatusText = source.lastSyncStatus.name,
+        )
+    }
+
+    private fun toCatalogEntryCardUiState(record: PluginCatalogEntryRecord): PluginCatalogEntryCardUiState {
+        val latestVersion = record.entry.versions
+            .sortedWith { left, right -> compareVersions(right.version, left.version) }
+            .firstOrNull()
+            ?.version
+            .orEmpty()
+        return PluginCatalogEntryCardUiState(
+            sourceId = record.sourceId,
+            pluginId = record.entry.pluginId,
+            title = record.entry.title,
+            author = record.entry.author,
+            summary = record.entry.entrySummary.ifBlank { record.entry.description },
+            latestVersion = latestVersion,
+            sourceName = record.sourceTitle,
+        )
+    }
+
+    private fun buildSourceBadge(record: PluginInstallRecord): PluginSourceBadgeUiState {
+        val label = when (record.source.sourceType) {
+            com.astrbot.android.model.plugin.PluginSourceType.LOCAL_FILE -> "Local file"
+            com.astrbot.android.model.plugin.PluginSourceType.MANUAL_IMPORT -> "Manual import"
+            com.astrbot.android.model.plugin.PluginSourceType.REPOSITORY -> "Repository"
+            com.astrbot.android.model.plugin.PluginSourceType.DIRECT_LINK -> "Direct link"
+        }
+        return PluginSourceBadgeUiState(
+            sourceType = record.source.sourceType,
+            label = label,
+        )
+    }
+
+    private fun summarizeVersionHistory(versions: List<PluginCatalogVersion>): String {
+        if (versions.isEmpty()) return ""
+        return versions
+            .sortedWith { left, right -> compareVersions(right.version, left.version) }
+            .take(3)
+            .joinToString(separator = " | ") { version -> version.version }
+    }
+
+    private fun resolveChangelogSummary(
+        record: PluginInstallRecord,
+        catalogEntry: PluginCatalogEntryRecord?,
+        updateAvailability: PluginUpdateAvailability?,
+    ): String {
+        if (!updateAvailability?.changelogSummary.isNullOrBlank()) {
+            return updateAvailability?.changelogSummary.orEmpty()
+        }
+        return catalogEntry?.entry?.versions
+            ?.firstOrNull { version -> version.version == record.installedVersion }
+            ?.changelog
+            ?.lineSequence()
+            ?.map(String::trim)
+            ?.firstOrNull { line -> line.isNotBlank() }
+            .orEmpty()
+    }
+
+    private fun toUpdateHintUiState(update: PluginUpdateAvailability): PluginUpdateHintUiState {
+        return PluginUpdateHintUiState(
+            latestVersion = update.latestVersion,
+            changelogSummary = update.changelogSummary,
+            blockedReason = update.incompatibilityReason,
+        )
+    }
+
+    private fun toPermissionDiffHintUiState(
+        diff: com.astrbot.android.model.plugin.PluginPermissionDiff,
+    ): PluginPermissionDiffHintUiState {
+        return PluginPermissionDiffHintUiState(
+            addedPermissions = diff.added.map { permission -> permission.title },
+            removedPermissions = diff.removed.map { permission -> permission.title },
+            changedPermissions = diff.changed.map { permission -> permission.title },
+            upgradedPermissions = diff.riskUpgraded.map { upgrade -> upgrade.to.title },
+        )
+    }
+
+    private fun String.toUriHost(): String {
+        return runCatching { java.net.URI(this).host.orEmpty() }
+            .getOrDefault("")
+    }
+
+    private fun PluginInstallIntentResult.toFeedback(): PluginActionFeedback {
+        return when (this) {
+            is PluginInstallIntentResult.Installed -> PluginActionFeedback.Text(
+                "Installed ${record.manifestSnapshot.title} ${record.installedVersion}.",
+            )
+            is PluginInstallIntentResult.RepositorySynced -> PluginActionFeedback.Text(
+                "Repository synced: ${syncState.sourceId}.",
+            )
+            PluginInstallIntentResult.Ignored -> PluginActionFeedback.Text("Plugin action completed.")
         }
     }
 }

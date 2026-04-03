@@ -43,3 +43,50 @@ internal val migration10To11 = object : Migration(10, 11) {
         )
     }
 }
+
+internal val migration11To12 = object : Migration(11, 12) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            """
+            ALTER TABLE plugin_install_records
+            ADD COLUMN catalogSourceId TEXT
+            """.trimIndent(),
+        )
+        db.execSQL(
+            """
+            ALTER TABLE plugin_install_records
+            ADD COLUMN installedPackageUrl TEXT NOT NULL DEFAULT ''
+            """.trimIndent(),
+        )
+        db.execSQL(
+            """
+            ALTER TABLE plugin_install_records
+            ADD COLUMN lastCatalogCheckAtEpochMillis INTEGER
+            """.trimIndent(),
+        )
+        db.createPluginCatalogTablesV12()
+    }
+}
+
+internal val migration12To13 = object : Migration(12, 13) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            """
+            ALTER TABLE plugin_catalog_sources
+            ADD COLUMN lastSyncAtEpochMillis INTEGER
+            """.trimIndent(),
+        )
+        db.execSQL(
+            """
+            ALTER TABLE plugin_catalog_sources
+            ADD COLUMN lastSyncStatus TEXT NOT NULL DEFAULT 'NEVER_SYNCED'
+            """.trimIndent(),
+        )
+        db.execSQL(
+            """
+            ALTER TABLE plugin_catalog_sources
+            ADD COLUMN lastSyncErrorSummary TEXT NOT NULL DEFAULT ''
+            """.trimIndent(),
+        )
+    }
+}

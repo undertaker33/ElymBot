@@ -17,6 +17,12 @@ class PluginModelsTest {
     }
 
     @Test
+    fun plugin_source_type_supports_repository_and_direct_link_sources() {
+        assertTrue(PluginSourceType.values().contains(PluginSourceType.REPOSITORY))
+        assertTrue(PluginSourceType.values().contains(PluginSourceType.DIRECT_LINK))
+    }
+
+    @Test
     fun plugin_permission_declaration_defaults_to_medium_and_required() {
         val permission = PluginPermissionDeclaration(
             permissionId = "net.access",
@@ -179,6 +185,67 @@ class PluginModelsTest {
         assertEquals("1.2.3", installRecord.installedVersion)
         assertTrue(installRecord.isSourceTypeAligned)
         assertEquals(PluginInstallRecord.installFromManifest(manifest, PluginSource(PluginSourceType.LOCAL_FILE)), installRecord)
+    }
+
+    @Test
+    fun plugin_install_record_preserves_catalog_tracking_metadata() {
+        val manifest = PluginManifest(
+            pluginId = "com.example.catalog",
+            version = "3.1.0",
+            protocolVersion = 1,
+            author = "AstrBot",
+            title = "Catalog Plugin",
+            description = "Catalog tracking test",
+            minHostVersion = "0.3.0",
+            sourceType = PluginSourceType.REPOSITORY,
+            entrySummary = "Catalog entry",
+        )
+
+        val record = PluginInstallRecord.restoreFromPersistedState(
+            manifestSnapshot = manifest,
+            source = PluginSource(
+                sourceType = PluginSourceType.REPOSITORY,
+                location = "https://repo.example.com/catalog.json",
+                importedAt = 100L,
+            ),
+            catalogSourceId = "official",
+            installedPackageUrl = "https://repo.example.com/packages/catalog-plugin-3.1.0.zip",
+            lastCatalogCheckAtEpochMillis = 200L,
+        )
+
+        assertEquals("official", record.catalogSourceId)
+        assertEquals("https://repo.example.com/packages/catalog-plugin-3.1.0.zip", record.installedPackageUrl)
+        assertEquals(200L, record.lastCatalogCheckAtEpochMillis)
+    }
+
+    @Test
+    fun plugin_catalog_version_resolves_relative_package_url_against_catalog_url() {
+        val version = PluginCatalogVersion(
+            version = "1.2.0",
+            packageUrl = "../packages/demo-plugin-1.2.0.zip",
+            publishedAt = 100L,
+            protocolVersion = 1,
+            minHostVersion = "0.3.0",
+        )
+
+        val resolved = version.resolvePackageUrl("https://repo.example.com/catalogs/stable/index.json")
+
+        assertEquals("https://repo.example.com/catalogs/packages/demo-plugin-1.2.0.zip", resolved)
+    }
+
+    @Test
+    fun plugin_catalog_version_keeps_absolute_package_url_unchanged() {
+        val version = PluginCatalogVersion(
+            version = "1.2.0",
+            packageUrl = "https://cdn.example.com/demo-plugin-1.2.0.zip",
+            publishedAt = 100L,
+            protocolVersion = 1,
+            minHostVersion = "0.3.0",
+        )
+
+        val resolved = version.resolvePackageUrl("https://repo.example.com/catalogs/stable/index.json")
+
+        assertEquals("https://cdn.example.com/demo-plugin-1.2.0.zip", resolved)
     }
 
     @Test

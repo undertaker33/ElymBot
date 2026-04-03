@@ -9,6 +9,13 @@ keystore.properties
 .externalNativeBuild/
 captures/
 artifacts/
+# Keep most artifacts out of VCS, but allow the Task 6 independently packaged sample plugin assets.
+!artifacts/
+artifacts/*
+!artifacts/plugins/
+artifacts/plugins/*
+!artifacts/plugins/meme-manager-sample/
+!artifacts/plugins/meme-manager-sample/**
 .worktrees/
 __pycache__/
 *.pyc

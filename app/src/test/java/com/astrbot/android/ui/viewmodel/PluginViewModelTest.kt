@@ -11,17 +11,25 @@ import com.astrbot.android.model.plugin.PluginCardSchema
 import com.astrbot.android.model.plugin.PluginCompatibilityState
 import com.astrbot.android.model.plugin.PluginFailureState
 import com.astrbot.android.model.plugin.PluginInstallRecord
+import com.astrbot.android.model.plugin.PluginInstallIntent
 import com.astrbot.android.model.plugin.PluginInstallState
 import com.astrbot.android.model.plugin.PluginInstallStatus
 import com.astrbot.android.model.plugin.PluginManifest
 import com.astrbot.android.model.plugin.PluginPermissionDeclaration
 import com.astrbot.android.model.plugin.PluginRiskLevel
+import com.astrbot.android.model.plugin.PluginCatalogSyncState
+import com.astrbot.android.model.plugin.PluginCatalogSyncStatus
+import com.astrbot.android.model.plugin.PluginCatalogEntry
+import com.astrbot.android.model.plugin.PluginCatalogEntryRecord
+import com.astrbot.android.model.plugin.PluginCatalogVersion
+import com.astrbot.android.model.plugin.PluginInstallIntentResult
 import com.astrbot.android.model.plugin.PluginSelectOption
 import com.astrbot.android.model.plugin.PluginSettingsSchema
 import com.astrbot.android.model.plugin.PluginSettingsSection
 import com.astrbot.android.model.plugin.PluginSource
 import com.astrbot.android.model.plugin.PluginSourceType
 import com.astrbot.android.model.plugin.PluginTriggerSource
+import com.astrbot.android.model.plugin.PluginUpdateAvailability
 import com.astrbot.android.model.plugin.PluginUninstallPolicy
 import com.astrbot.android.model.plugin.SelectSettingField
 import com.astrbot.android.model.plugin.SettingsUiRequest
@@ -60,7 +68,6 @@ class PluginViewModelTest {
             listOf(
                 pluginRecord(
                     pluginId = "plugin-1",
-                    riskLevel = PluginRiskLevel.HIGH,
                     compatibilityState = PluginCompatibilityState.evaluated(
                         protocolSupported = true,
                         minHostVersionSatisfied = false,
@@ -68,6 +75,22 @@ class PluginViewModelTest {
                     ),
                 ),
                 pluginRecord(pluginId = "plugin-2"),
+            ),
+            repositorySources = listOf(
+                repositorySource(
+                    sourceId = "repo-1",
+                    title = "AstrBot Repo",
+                ),
+            ),
+            catalogEntries = listOf(
+                catalogEntryRecord(
+                    sourceId = "repo-1",
+                    pluginId = "catalog-1",
+                ),
+                catalogEntryRecord(
+                    sourceId = "repo-1",
+                    pluginId = "catalog-2",
+                ),
             ),
         )
 
@@ -77,9 +100,120 @@ class PluginViewModelTest {
         assertEquals("plugin-1", viewModel.uiState.value.selectedPluginId)
         assertEquals("plugin-1", viewModel.uiState.value.selectedPlugin?.pluginId)
         assertFalse(viewModel.uiState.value.isShowingDetail)
-        assertEquals(2, viewModel.uiState.value.summaryMetrics.totalInstalled)
-        assertEquals(1, viewModel.uiState.value.summaryMetrics.highRisk)
-        assertEquals(1, viewModel.uiState.value.summaryMetrics.incompatible)
+        assertEquals(2, viewModel.uiState.value.summaryMetrics.installedCount)
+        assertEquals(1, viewModel.uiState.value.summaryMetrics.repositorySourceCount)
+        assertEquals(2, viewModel.uiState.value.summaryMetrics.discoverableCount)
+        assertEquals(1, viewModel.uiState.value.summaryMetrics.incompatibleCount)
+        assertEquals(1, viewModel.uiState.value.repositorySources.size)
+        assertEquals(2, viewModel.uiState.value.catalogEntries.size)
+    }
+
+    @Test
+    fun detail_state_includes_source_repository_sync_version_changelog_update_and_permission_diff() = runTest(dispatcher) {
+        val deps = FakePluginDependencies(
+            records = listOf(
+                pluginRecord(
+                    pluginId = "plugin-1",
+                    sourceType = PluginSourceType.REPOSITORY,
+                    catalogSourceId = "repo-1",
+                    lastUpdatedAt = 1_710_000_000_000L,
+                ),
+            ),
+            repositorySources = listOf(
+                repositorySource(
+                    sourceId = "repo-1",
+                    title = "AstrBot Repo",
+                    catalogUrl = "https://repo.example.com/catalog.json",
+                    lastSyncAtEpochMillis = 1_715_000_000_000L,
+                ),
+            ),
+            catalogEntries = listOf(
+                catalogEntryRecord(
+                    sourceId = "repo-1",
+                    pluginId = "plugin-1",
+                    versions = listOf(
+                        catalogVersion(
+                            version = "1.2.0",
+                            publishedAt = 1_716_000_000_000L,
+                            changelog = "Adds sync insights\n- and more",
+                        ),
+                        catalogVersion(
+                            version = "1.1.0",
+                            publishedAt = 1_714_000_000_000L,
+                            changelog = "Older release",
+                        ),
+                        catalogVersion(
+                            version = "1.0.0",
+                            publishedAt = 1_712_000_000_000L,
+                            changelog = "Initial release",
+                        ),
+                    ),
+                ),
+            ),
+            updateAvailabilities = mapOf(
+                "plugin-1" to PluginUpdateAvailability(
+                    pluginId = "plugin-1",
+                    installedVersion = "1.0.0",
+                    latestVersion = "1.2.0",
+                    updateAvailable = true,
+                    canUpgrade = false,
+                    changelogSummary = "Adds sync insights",
+                    incompatibilityReason = "Host version is below required minimum 2.0.0.",
+                    catalogSourceId = "repo-1",
+                    packageUrl = "https://repo.example.com/plugin-1-1.2.0.zip",
+                    permissionDiff = pluginPermissionDiff(
+                        added = listOf(
+                            PluginPermissionDeclaration(
+                                permissionId = "host.logs.read",
+                                title = "Read host logs",
+                                description = "Reads host logs",
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        val viewModel = PluginViewModel(deps)
+        advanceUntilIdle()
+
+        viewModel.selectPlugin("plugin-1")
+        advanceUntilIdle()
+
+        val detail = viewModel.uiState.value.detailMetadataState
+        assertEquals(PluginSourceType.REPOSITORY, detail.sourceBadge?.sourceType)
+        assertEquals("Repository", detail.sourceBadge?.label)
+        assertEquals("AstrBot Repo", detail.repositoryNameOrHost)
+        assertEquals("repo.example.com", detail.repositoryHost)
+        assertEquals(1_715_000_000_000L, detail.lastSyncAtEpochMillis)
+        assertEquals(1_710_000_000_000L, detail.lastUpdatedAtEpochMillis)
+        assertEquals("1.2.0 | 1.1.0 | 1.0.0", detail.versionHistorySummary)
+        assertEquals("Adds sync insights", detail.changelogSummary)
+        assertEquals("1.2.0", detail.updateHint?.latestVersion)
+        assertEquals("Host version is below required minimum 2.0.0.", detail.updateHint?.blockedReason)
+        assertEquals(listOf("Read host logs"), detail.permissionDiffHint?.addedPermissions)
+    }
+
+    @Test
+    fun source_badge_mapping_uses_local_fact_types() = runTest(dispatcher) {
+        val records = listOf(
+            pluginRecord(pluginId = "local", sourceType = PluginSourceType.LOCAL_FILE),
+            pluginRecord(pluginId = "manual", sourceType = PluginSourceType.MANUAL_IMPORT),
+            pluginRecord(pluginId = "repo", sourceType = PluginSourceType.REPOSITORY, catalogSourceId = "repo-1"),
+            pluginRecord(pluginId = "direct", sourceType = PluginSourceType.DIRECT_LINK),
+        )
+        val deps = FakePluginDependencies(records = records)
+        val viewModel = PluginViewModel(deps)
+        advanceUntilIdle()
+
+        val localBadge = viewModel.buildSourceBadgeForTest(records[0])
+        val manualBadge = viewModel.buildSourceBadgeForTest(records[1])
+        val repositoryBadge = viewModel.buildSourceBadgeForTest(records[2])
+        val directBadge = viewModel.buildSourceBadgeForTest(records[3])
+
+        assertEquals("Local file", localBadge.label)
+        assertEquals("Manual import", manualBadge.label)
+        assertEquals("Repository", repositoryBadge.label)
+        assertEquals("Direct link", directBadge.label)
     }
 
     @Test
@@ -333,6 +467,266 @@ class PluginViewModelTest {
             feedback = viewModel.uiState.value.detailActionState.lastActionMessage,
             resId = R.string.plugin_action_feedback_disabled,
         )
+    }
+
+    @Test
+    fun submit_repository_url_builds_repository_install_intent() = runTest(dispatcher) {
+        val deps = FakePluginDependencies(emptyList())
+        val viewModel = PluginViewModel(deps)
+        advanceUntilIdle()
+
+        viewModel.updateRepositoryUrlDraft(" https://repo.example.com/catalog.json ")
+        viewModel.submitRepositoryUrl()
+        advanceUntilIdle()
+
+        assertEquals(
+            listOf(PluginInstallIntent.repositoryUrl("https://repo.example.com/catalog.json")),
+            deps.handledInstallIntents,
+        )
+        assertEquals("", viewModel.uiState.value.repositoryUrlDraft)
+        assertEquals("", viewModel.uiState.value.directPackageUrlDraft)
+    }
+
+    @Test
+    fun submit_direct_package_url_builds_direct_link_install_intent() = runTest(dispatcher) {
+        val deps = FakePluginDependencies(emptyList())
+        val viewModel = PluginViewModel(deps)
+        advanceUntilIdle()
+
+        viewModel.updateDirectPackageUrlDraft(" https://plugins.example.com/demo.zip ")
+        viewModel.submitDirectPackageUrl()
+        advanceUntilIdle()
+
+        assertEquals(
+            listOf(PluginInstallIntent.directPackageUrl("https://plugins.example.com/demo.zip")),
+            deps.handledInstallIntents,
+        )
+        assertEquals("", viewModel.uiState.value.directPackageUrlDraft)
+    }
+
+    @Test
+    fun submit_local_package_uri_installs_and_preserves_url_drafts() = runTest(dispatcher) {
+        val deps = FakePluginDependencies(emptyList()).apply {
+            nextLocalPackageInstallResult = PluginInstallIntentResult.Installed(
+                record = pluginRecord(pluginId = "local-import", sourceType = PluginSourceType.LOCAL_FILE),
+            )
+        }
+        val viewModel = PluginViewModel(deps)
+        advanceUntilIdle()
+
+        viewModel.updateRepositoryUrlDraft(" https://repo.example.com/catalog.json ")
+        viewModel.updateDirectPackageUrlDraft(" https://plugins.example.com/demo.zip ")
+        viewModel.submitLocalPackageUri("content://com.android.providers.downloads/document/123")
+        advanceUntilIdle()
+
+        assertEquals(listOf("content://com.android.providers.downloads/document/123"), deps.localPackageUris)
+        assertEquals(emptyList<PluginInstallIntent>(), deps.handledInstallIntents)
+        assertEquals(" https://repo.example.com/catalog.json ", viewModel.uiState.value.repositoryUrlDraft)
+        assertEquals(" https://plugins.example.com/demo.zip ", viewModel.uiState.value.directPackageUrlDraft)
+        assertEquals(false, viewModel.uiState.value.isInstallActionRunning)
+
+        val feedback = viewModel.uiState.value.detailActionState.lastActionMessage
+        assertTrue(feedback is PluginActionFeedback.Text)
+        feedback as PluginActionFeedback.Text
+        assertTrue(feedback.value.contains("Installed", ignoreCase = true))
+    }
+
+    @Test
+    fun submit_local_package_uri_failure_emits_error_and_does_not_block_future_url_installs() = runTest(dispatcher) {
+        val deps = FakePluginDependencies(emptyList()).apply {
+            localPackageInstallError = IllegalStateException("Zip import failed")
+        }
+        val viewModel = PluginViewModel(deps)
+        advanceUntilIdle()
+
+        viewModel.submitLocalPackageUri("content://com.android.providers.downloads/document/999")
+        advanceUntilIdle()
+
+        assertEquals(listOf("content://com.android.providers.downloads/document/999"), deps.localPackageUris)
+        assertEquals(false, viewModel.uiState.value.isInstallActionRunning)
+        val feedback = viewModel.uiState.value.detailActionState.lastActionMessage
+        assertTrue(feedback is PluginActionFeedback.Text)
+        feedback as PluginActionFeedback.Text
+        assertTrue(feedback.value.contains("Zip import failed"))
+
+        viewModel.updateRepositoryUrlDraft(" https://repo.example.com/catalog.json ")
+        viewModel.submitRepositoryUrl()
+        advanceUntilIdle()
+        assertEquals(
+            listOf(
+                PluginInstallIntent.repositoryUrl("https://repo.example.com/catalog.json"),
+            ),
+            deps.handledInstallIntents,
+        )
+    }
+
+    @Test
+    fun request_upgrade_with_added_permission_requires_secondary_confirmation_before_install() = runTest(dispatcher) {
+        val record = pluginRecord(
+            pluginId = "plugin-1",
+            sourceType = PluginSourceType.REPOSITORY,
+            catalogSourceId = "official",
+        )
+        val deps = FakePluginDependencies(
+            records = listOf(record),
+            updateAvailabilities = mapOf(
+                "plugin-1" to PluginUpdateAvailability(
+                    pluginId = "plugin-1",
+                    installedVersion = "1.0.0",
+                    latestVersion = "1.1.0",
+                    updateAvailable = true,
+                    canUpgrade = true,
+                    changelogSummary = "Adds log reading support.",
+                    catalogSourceId = "official",
+                    packageUrl = "https://repo.example.com/plugin-1-1.1.0.zip",
+                    permissionDiff = pluginPermissionDiff(
+                        added = listOf(
+                            PluginPermissionDeclaration(
+                                permissionId = "logs.read",
+                                title = "Read logs",
+                                description = "Reads host logs",
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        val viewModel = PluginViewModel(deps)
+        advanceUntilIdle()
+        viewModel.selectPlugin("plugin-1")
+        advanceUntilIdle()
+
+        viewModel.requestUpgradeForSelectedPlugin()
+        advanceUntilIdle()
+
+        assertEquals(true, viewModel.uiState.value.upgradeDialogState?.isVisible)
+        assertEquals(true, viewModel.uiState.value.upgradeDialogState?.requiresSecondaryConfirmation)
+        assertEquals(0, deps.upgradeRequests.size)
+
+        viewModel.confirmUpgrade()
+        advanceUntilIdle()
+
+        assertEquals(true, viewModel.uiState.value.upgradeDialogState?.isSecondaryConfirmationStep)
+        assertEquals(0, deps.upgradeRequests.size)
+
+        viewModel.confirmUpgrade()
+        advanceUntilIdle()
+
+        assertEquals(listOf("plugin-1"), deps.upgradeRequests.map { it.pluginId })
+        assertEquals(null, viewModel.uiState.value.upgradeDialogState)
+        assertTrue(viewModel.uiState.value.detailActionState.lastActionMessage is PluginActionFeedback.Text)
+    }
+
+    @Test
+    fun request_upgrade_without_new_permissions_installs_after_single_confirmation() = runTest(dispatcher) {
+        val record = pluginRecord(
+            pluginId = "plugin-1",
+            sourceType = PluginSourceType.REPOSITORY,
+            catalogSourceId = "official",
+        )
+        val deps = FakePluginDependencies(
+            records = listOf(record),
+            updateAvailabilities = mapOf(
+                "plugin-1" to PluginUpdateAvailability(
+                    pluginId = "plugin-1",
+                    installedVersion = "1.0.0",
+                    latestVersion = "1.1.0",
+                    updateAvailable = true,
+                    canUpgrade = true,
+                    changelogSummary = "Fixes metadata syncing.",
+                    catalogSourceId = "official",
+                    packageUrl = "https://repo.example.com/plugin-1-1.1.0.zip",
+                ),
+            ),
+        )
+        val viewModel = PluginViewModel(deps)
+        advanceUntilIdle()
+        viewModel.selectPlugin("plugin-1")
+        advanceUntilIdle()
+
+        viewModel.requestUpgradeForSelectedPlugin()
+        advanceUntilIdle()
+
+        assertEquals(true, viewModel.uiState.value.upgradeDialogState?.isVisible)
+        assertEquals(false, viewModel.uiState.value.upgradeDialogState?.requiresSecondaryConfirmation)
+
+        viewModel.confirmUpgrade()
+        advanceUntilIdle()
+
+        assertEquals(listOf("plugin-1"), deps.upgradeRequests.map { it.pluginId })
+        assertEquals(null, viewModel.uiState.value.upgradeDialogState)
+    }
+
+    @Test
+    fun request_upgrade_surfaces_block_reason_when_target_is_incompatible() = runTest(dispatcher) {
+        val record = pluginRecord(
+            pluginId = "plugin-1",
+            sourceType = PluginSourceType.REPOSITORY,
+            catalogSourceId = "official",
+        )
+        val deps = FakePluginDependencies(
+            records = listOf(record),
+            updateAvailabilities = mapOf(
+                "plugin-1" to PluginUpdateAvailability(
+                    pluginId = "plugin-1",
+                    installedVersion = "1.0.0",
+                    latestVersion = "2.0.0",
+                    updateAvailable = true,
+                    canUpgrade = false,
+                    incompatibilityReason = "Requires host 9.0.0 or newer.",
+                    catalogSourceId = "official",
+                    packageUrl = "https://repo.example.com/plugin-1-2.0.0.zip",
+                ),
+            ),
+        )
+        val viewModel = PluginViewModel(deps)
+        advanceUntilIdle()
+        viewModel.selectPlugin("plugin-1")
+        advanceUntilIdle()
+
+        viewModel.requestUpgradeForSelectedPlugin()
+        advanceUntilIdle()
+
+        assertEquals(null, viewModel.uiState.value.upgradeDialogState)
+        assertEquals(emptyList<PluginUpdateAvailability>(), deps.upgradeRequests)
+        assertEquals(
+            PluginActionFeedback.Text("Requires host 9.0.0 or newer."),
+            viewModel.uiState.value.detailActionState.lastActionMessage,
+        )
+    }
+
+    @Test
+    fun incompatible_update_reason_is_present_in_detail_action_state_before_click() = runTest(dispatcher) {
+        val record = pluginRecord(
+            pluginId = "plugin-1",
+            sourceType = PluginSourceType.REPOSITORY,
+            catalogSourceId = "official",
+        )
+        val deps = FakePluginDependencies(
+            records = listOf(record),
+            updateAvailabilities = mapOf(
+                "plugin-1" to PluginUpdateAvailability(
+                    pluginId = "plugin-1",
+                    installedVersion = "1.0.0",
+                    latestVersion = "2.0.0",
+                    updateAvailable = true,
+                    canUpgrade = false,
+                    incompatibilityReason = "Requires host 9.0.0 or newer.",
+                    catalogSourceId = "official",
+                    packageUrl = "https://repo.example.com/plugin-1-2.0.0.zip",
+                ),
+            ),
+        )
+        val viewModel = PluginViewModel(deps)
+        advanceUntilIdle()
+        viewModel.selectPlugin("plugin-1")
+        advanceUntilIdle()
+
+        assertEquals(
+            PluginActionFeedback.Text("Requires host 9.0.0 or newer."),
+            viewModel.uiState.value.detailActionState.updateBlockedReason,
+        )
+        assertEquals(false, viewModel.uiState.value.detailActionState.isUpgradeActionEnabled)
     }
 
     @Test
@@ -603,16 +997,33 @@ class PluginViewModelTest {
 
     private class FakePluginDependencies(
         records: List<PluginInstallRecord>,
+        repositorySources: List<com.astrbot.android.model.plugin.PluginRepositorySource> = emptyList(),
+        catalogEntries: List<PluginCatalogEntryRecord> = emptyList(),
+        updateAvailabilities: Map<String, PluginUpdateAvailability> = emptyMap(),
     ) : PluginViewModelDependencies {
         private val recordsFlow = MutableStateFlow(records)
+        private val repositorySourcesFlow = MutableStateFlow(repositorySources)
+        private val catalogEntriesFlow = MutableStateFlow(catalogEntries)
+        private val updateAvailabilitiesFlow = MutableStateFlow(updateAvailabilities)
         val enableRequests = mutableListOf<Pair<String, Boolean>>()
+        val handledInstallIntents = mutableListOf<PluginInstallIntent>()
+        val localPackageUris = mutableListOf<String>()
+        val upgradeRequests = mutableListOf<PluginUpdateAvailability>()
         var lastUpdatedPolicy: PluginUninstallPolicy? = null
         var lastUninstallPolicy: PluginUninstallPolicy? = null
+        var localPackageInstallError: Throwable? = null
+        var nextLocalPackageInstallResult: PluginInstallIntentResult? = null
 
         override val records: StateFlow<List<PluginInstallRecord>> = recordsFlow
+        override val repositorySources: StateFlow<List<com.astrbot.android.model.plugin.PluginRepositorySource>> = repositorySourcesFlow
+        override val catalogEntries: StateFlow<List<PluginCatalogEntryRecord>> = catalogEntriesFlow
 
         fun updateRecords(records: List<PluginInstallRecord>) {
             recordsFlow.value = records
+        }
+
+        override fun getUpdateAvailability(pluginId: String): PluginUpdateAvailability? {
+            return updateAvailabilitiesFlow.value[pluginId]
         }
 
         override fun setPluginEnabled(pluginId: String, enabled: Boolean): PluginInstallRecord {
@@ -654,14 +1065,56 @@ class PluginViewModelTest {
                 removedData = policy == PluginUninstallPolicy.REMOVE_DATA,
             )
         }
+
+        override suspend fun handleInstallIntent(intent: PluginInstallIntent): PluginInstallIntentResult {
+            handledInstallIntents += intent
+            return when (intent) {
+                is PluginInstallIntent.RepositoryUrl -> PluginInstallIntentResult.RepositorySynced(
+                    syncState = PluginCatalogSyncState(
+                        sourceId = "repo-source",
+                        lastSyncAtEpochMillis = 1L,
+                        lastSyncStatus = PluginCatalogSyncStatus.SUCCESS,
+                    ),
+                )
+                is PluginInstallIntent.DirectPackageUrl -> PluginInstallIntentResult.Ignored
+                is PluginInstallIntent.CatalogVersion -> PluginInstallIntentResult.Ignored
+            }
+        }
+
+        override suspend fun installFromLocalPackageUri(uri: String): PluginInstallIntentResult {
+            localPackageUris += uri
+            localPackageInstallError?.let { throw it }
+            return nextLocalPackageInstallResult ?: PluginInstallIntentResult.Ignored
+        }
+
+        override suspend fun upgradePlugin(update: PluginUpdateAvailability): PluginInstallRecord {
+            upgradeRequests += update
+            val existing = requireNotNull(recordsFlow.value.firstOrNull { it.pluginId == update.pluginId })
+            val upgraded = existing.withOverrides(
+                version = update.latestVersion,
+                sourceType = PluginSourceType.REPOSITORY,
+                catalogSourceId = update.catalogSourceId,
+                installedPackageUrl = update.packageUrl,
+                lastCatalogCheckAtEpochMillis = 99L,
+                lastUpdatedAt = 99L,
+            )
+            recordsFlow.value = recordsFlow.value.map { record ->
+                if (record.pluginId == update.pluginId) upgraded else record
+            }
+            updateAvailabilitiesFlow.value = updateAvailabilitiesFlow.value - update.pluginId
+            return upgraded
+        }
     }
 
     private fun pluginRecord(
         pluginId: String,
         riskLevel: PluginRiskLevel = PluginRiskLevel.LOW,
+        sourceType: PluginSourceType = PluginSourceType.LOCAL_FILE,
+        catalogSourceId: String? = null,
         enabled: Boolean = false,
         failureState: PluginFailureState = PluginFailureState.none(),
         uninstallPolicy: PluginUninstallPolicy = PluginUninstallPolicy.default(),
+        lastUpdatedAt: Long = 1L,
         compatibilityState: PluginCompatibilityState = PluginCompatibilityState.evaluated(
             protocolSupported = true,
             minHostVersionSatisfied = true,
@@ -685,20 +1138,74 @@ class PluginViewModelTest {
                 ),
                 minHostVersion = "1.0.0",
                 maxHostVersion = "2.0.0",
-                sourceType = PluginSourceType.LOCAL_FILE,
+                sourceType = sourceType,
                 entrySummary = "Entry",
                 riskLevel = riskLevel,
             ),
             source = PluginSource(
-                sourceType = PluginSourceType.LOCAL_FILE,
+                sourceType = sourceType,
                 location = "/tmp/$pluginId.zip",
                 importedAt = 1L,
             ),
             compatibilityState = compatibilityState,
             failureState = failureState,
             uninstallPolicy = uninstallPolicy,
+            catalogSourceId = catalogSourceId,
             enabled = enabled,
-            lastUpdatedAt = 1L,
+            lastUpdatedAt = lastUpdatedAt,
+        )
+    }
+
+    private fun repositorySource(
+        sourceId: String,
+        title: String,
+        catalogUrl: String = "https://repo.example.com/catalog.json",
+        lastSyncAtEpochMillis: Long? = null,
+    ): com.astrbot.android.model.plugin.PluginRepositorySource {
+        return com.astrbot.android.model.plugin.PluginRepositorySource(
+            sourceId = sourceId,
+            title = title,
+            catalogUrl = catalogUrl,
+            updatedAt = 1_700_000_000_000L,
+            lastSyncAtEpochMillis = lastSyncAtEpochMillis,
+            lastSyncStatus = PluginCatalogSyncStatus.SUCCESS,
+        )
+    }
+
+    private fun catalogEntryRecord(
+        sourceId: String,
+        pluginId: String,
+        versions: List<PluginCatalogVersion> = listOf(
+            catalogVersion(version = "1.0.0"),
+        ),
+    ): PluginCatalogEntryRecord {
+        return PluginCatalogEntryRecord(
+            sourceId = sourceId,
+            sourceTitle = "AstrBot Repo",
+            catalogUrl = "https://repo.example.com/catalog.json",
+            entry = PluginCatalogEntry(
+                pluginId = pluginId,
+                title = pluginId,
+                author = "AstrBot",
+                description = "Description for $pluginId",
+                entrySummary = "Summary for $pluginId",
+                versions = versions,
+            ),
+        )
+    }
+
+    private fun catalogVersion(
+        version: String,
+        publishedAt: Long = 1_700_000_000_000L,
+        changelog: String = "",
+    ): PluginCatalogVersion {
+        return PluginCatalogVersion(
+            version = version,
+            packageUrl = "https://repo.example.com/$version.zip",
+            publishedAt = publishedAt,
+            protocolVersion = 1,
+            minHostVersion = "1.0.0",
+            changelog = changelog,
         )
     }
 
@@ -745,22 +1252,44 @@ private fun assertResourceFeedback(
 }
 
 private fun PluginInstallRecord.withOverrides(
+    version: String = this.installedVersion,
+    sourceType: PluginSourceType = this.source.sourceType,
+    catalogSourceId: String? = this.catalogSourceId,
+    installedPackageUrl: String = this.installedPackageUrl,
+    lastCatalogCheckAtEpochMillis: Long? = this.lastCatalogCheckAtEpochMillis,
     enabled: Boolean = this.enabled,
     failureState: PluginFailureState = this.failureState,
     uninstallPolicy: PluginUninstallPolicy = this.uninstallPolicy,
     lastUpdatedAt: Long = this.lastUpdatedAt,
 ): PluginInstallRecord {
     return PluginInstallRecord.restoreFromPersistedState(
-        manifestSnapshot = manifestSnapshot,
-        source = source,
+        manifestSnapshot = manifestSnapshot.copy(
+            version = version,
+            sourceType = sourceType,
+        ),
+        source = source.copy(
+            sourceType = sourceType,
+            location = installedPackageUrl.ifBlank { source.location },
+        ),
         permissionSnapshot = permissionSnapshot,
         compatibilityState = compatibilityState,
         failureState = failureState,
         uninstallPolicy = uninstallPolicy,
+        catalogSourceId = catalogSourceId,
+        installedPackageUrl = installedPackageUrl,
+        lastCatalogCheckAtEpochMillis = lastCatalogCheckAtEpochMillis,
         enabled = enabled,
         installedAt = installedAt,
         lastUpdatedAt = lastUpdatedAt,
         localPackagePath = localPackagePath,
         extractedDir = extractedDir,
+    )
+}
+
+private fun pluginPermissionDiff(
+    added: List<PluginPermissionDeclaration> = emptyList(),
+): com.astrbot.android.model.plugin.PluginPermissionDiff {
+    return com.astrbot.android.model.plugin.PluginPermissionDiff(
+        added = added,
     )
 }

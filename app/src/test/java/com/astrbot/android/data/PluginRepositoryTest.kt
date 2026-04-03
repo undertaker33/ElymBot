@@ -4,6 +4,10 @@ import com.astrbot.android.data.db.PluginInstallAggregate
 import com.astrbot.android.data.db.PluginInstallAggregateDao
 import com.astrbot.android.data.db.PluginInstallRecordEntity
 import com.astrbot.android.data.db.PluginInstallWriteModel
+import com.astrbot.android.data.db.PluginCatalogDao
+import com.astrbot.android.data.db.PluginCatalogEntryEntity
+import com.astrbot.android.data.db.PluginCatalogSourceEntity
+import com.astrbot.android.data.db.PluginCatalogVersionEntity
 import com.astrbot.android.data.db.PluginManifestPermissionEntity
 import com.astrbot.android.data.db.PluginManifestSnapshotEntity
 import com.astrbot.android.data.db.PluginPermissionSnapshotEntity
@@ -11,12 +15,19 @@ import com.astrbot.android.data.db.toInstallRecord
 import com.astrbot.android.data.db.toWriteModel
 import com.astrbot.android.model.plugin.PluginCompatibilityState
 import com.astrbot.android.model.plugin.PluginFailureState
+import com.astrbot.android.model.plugin.PluginCatalogEntry
+import com.astrbot.android.model.plugin.PluginCatalogEntryRecord
+import com.astrbot.android.model.plugin.PluginCatalogSyncState
+import com.astrbot.android.model.plugin.PluginCatalogSyncStatus
+import com.astrbot.android.model.plugin.PluginCatalogVersion
 import com.astrbot.android.model.plugin.PluginInstallRecord
 import com.astrbot.android.model.plugin.PluginManifest
 import com.astrbot.android.model.plugin.PluginPermissionDeclaration
 import com.astrbot.android.model.plugin.PluginRiskLevel
+import com.astrbot.android.model.plugin.PluginRepositorySource
 import com.astrbot.android.model.plugin.PluginSource
 import com.astrbot.android.model.plugin.PluginSourceType
+import com.astrbot.android.model.plugin.PluginUpdateAvailability
 import com.astrbot.android.model.plugin.PluginUninstallPolicy
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.flow.Flow
@@ -219,6 +230,394 @@ class PluginRepositoryTest {
         assertEquals(listOf(record.pluginId), remover.removedRecords.map { it.pluginId })
         assertEquals(null, runBlocking { dao.getPluginInstallAggregate(record.pluginId) })
     }
+
+    @Test
+    fun repository_round_trips_catalog_tracking_fields_on_install_records() {
+        val dao = InMemoryPluginInstallAggregateDao()
+        val record = sampleRecord(
+            version = "2.1.0",
+            catalogSourceId = "official",
+            installedPackageUrl = "https://repo.example.com/packages/demo-2.1.0.zip",
+            lastCatalogCheckAtEpochMillis = 1_234L,
+        )
+        resetPluginRepositoryForTest(dao = dao, initialized = true)
+
+        PluginRepository.upsert(record)
+
+        val stored = runBlocking { dao.getPluginInstallAggregate(record.pluginId) }!!.toInstallRecord()
+        assertEquals("official", stored.catalogSourceId)
+        assertEquals("https://repo.example.com/packages/demo-2.1.0.zip", stored.installedPackageUrl)
+        assertEquals(1_234L, stored.lastCatalogCheckAtEpochMillis)
+    }
+
+    @Test
+    fun repository_replaces_catalog_source_and_exposes_nested_entries_and_versions() {
+        val catalogDao = InMemoryPluginCatalogDao()
+        resetPluginRepositoryForTest(
+            dao = InMemoryPluginInstallAggregateDao(),
+            catalogDao = catalogDao,
+            initialized = true,
+        )
+        val source = sampleRepositorySource()
+
+        PluginRepository.replaceRepositoryCatalog(source)
+
+        assertEquals(source, PluginRepository.getRepositorySource(source.sourceId))
+        assertEquals(source.plugins, PluginRepository.listCatalogEntries(source.sourceId))
+        assertEquals(source.plugins.single().versions, PluginRepository.listCatalogVersions(source.sourceId, "com.example.weather"))
+    }
+
+    @Test
+    fun repository_updates_catalog_source_metadata_without_dropping_entries() {
+        val catalogDao = InMemoryPluginCatalogDao()
+        resetPluginRepositoryForTest(
+            dao = InMemoryPluginInstallAggregateDao(),
+            catalogDao = catalogDao,
+            initialized = true,
+        )
+        val original = sampleRepositorySource()
+        PluginRepository.replaceRepositoryCatalog(original)
+
+        PluginRepository.upsertRepositorySource(
+            original.copy(
+                title = "Official Repository Mirror",
+                updatedAt = 2_000L,
+                lastSyncAtEpochMillis = 2_500L,
+                lastSyncStatus = PluginCatalogSyncStatus.SUCCESS,
+                lastSyncErrorSummary = "",
+                plugins = emptyList(),
+            ),
+        )
+
+        assertEquals("Official Repository Mirror", PluginRepository.getRepositorySource(original.sourceId)?.title)
+        assertEquals(
+            PluginCatalogSyncState(
+                sourceId = original.sourceId,
+                lastSyncAtEpochMillis = 2_500L,
+                lastSyncStatus = PluginCatalogSyncStatus.SUCCESS,
+                lastSyncErrorSummary = "",
+            ),
+            PluginRepository.getRepositorySourceSyncState(original.sourceId),
+        )
+        assertEquals(original.plugins.single(), PluginRepository.getCatalogEntry(original.sourceId, "com.example.weather"))
+    }
+
+    @Test
+    fun repository_lists_aggregated_catalog_entries_with_source_context() {
+        val catalogDao = InMemoryPluginCatalogDao()
+        resetPluginRepositoryForTest(
+            dao = InMemoryPluginInstallAggregateDao(),
+            catalogDao = catalogDao,
+            initialized = true,
+        )
+        val official = sampleRepositorySource()
+        val community = sampleRepositorySource(
+            sourceId = "community",
+            title = "Community Repository",
+            catalogUrl = "https://community.example.com/catalog.json",
+            pluginId = "com.example.translate",
+            pluginTitle = "Translate",
+            packageUrl = "./packages/translate-2.0.0.zip",
+        )
+        PluginRepository.replaceRepositoryCatalog(official)
+        PluginRepository.replaceRepositoryCatalog(community)
+
+        assertEquals(
+            listOf(
+                PluginCatalogEntryRecord(
+                    sourceId = "community",
+                    sourceTitle = "Community Repository",
+                    catalogUrl = "https://community.example.com/catalog.json",
+                    entry = community.plugins.single(),
+                ),
+                PluginCatalogEntryRecord(
+                    sourceId = "official",
+                    sourceTitle = "Official Repository",
+                    catalogUrl = "https://repo.example.com/catalogs/stable/index.json",
+                    entry = official.plugins.single(),
+                ),
+            ),
+            PluginRepository.listAllCatalogEntries(),
+        )
+    }
+
+    @Test
+    fun repository_computes_update_availability_for_same_plugin_and_source_only() {
+        val catalogDao = InMemoryPluginCatalogDao()
+        val dao = InMemoryPluginInstallAggregateDao()
+        resetPluginRepositoryForTest(
+            dao = dao,
+            catalogDao = catalogDao,
+            initialized = true,
+        )
+        PluginRepository.upsert(
+            sampleRecord(
+                version = "1.0.0",
+                sourceType = PluginSourceType.REPOSITORY,
+                catalogSourceId = "official",
+                installedPackageUrl = "https://repo.example.com/packages/demo-1.0.0.zip",
+            ),
+        )
+        PluginRepository.replaceRepositoryCatalog(
+            sampleRepositorySource(
+                pluginId = "com.example.demo",
+                versions = listOf(
+                    catalogVersion(
+                        version = "1.0.0",
+                        packageUrl = "https://repo.example.com/packages/demo-1.0.0.zip",
+                        publishedAt = 1_000L,
+                        changelog = "Current release",
+                    ),
+                    catalogVersion(
+                        version = "1.2.0",
+                        packageUrl = "https://repo.example.com/packages/demo-1.2.0.zip",
+                        publishedAt = 2_000L,
+                        changelog = "Adds weather push notifications.\nFixes edge cache handling.",
+                        permissions = listOf(
+                            PluginPermissionDeclaration(
+                                permissionId = "net.access",
+                                title = "Network access",
+                                description = "Allows outgoing requests",
+                                riskLevel = PluginRiskLevel.MEDIUM,
+                                required = true,
+                            ),
+                            PluginPermissionDeclaration(
+                                permissionId = "fs.logs",
+                                title = "Read logs",
+                                description = "Reads local logs",
+                                riskLevel = PluginRiskLevel.MEDIUM,
+                                required = false,
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        PluginRepository.replaceRepositoryCatalog(
+            sampleRepositorySource(
+                sourceId = "community",
+                title = "Community Repository",
+                catalogUrl = "https://community.example.com/catalog.json",
+                pluginId = "com.example.demo",
+                versions = listOf(
+                    catalogVersion(
+                        version = "9.9.9",
+                        packageUrl = "https://community.example.com/demo-9.9.9.zip",
+                        publishedAt = 3_000L,
+                    ),
+                ),
+            ),
+        )
+
+        val availability = PluginRepository.getUpdateAvailability(
+            pluginId = "com.example.demo",
+            hostVersion = "0.3.6",
+            supportedProtocolVersion = 1,
+        )
+
+        assertEquals(
+            PluginUpdateAvailability(
+                pluginId = "com.example.demo",
+                installedVersion = "1.0.0",
+                latestVersion = "1.2.0",
+                updateAvailable = true,
+                canUpgrade = true,
+                publishedAt = 2_000L,
+                changelogSummary = "Adds weather push notifications.",
+                permissionDiff = availability!!.permissionDiff,
+                sourceBadge = availability.sourceBadge,
+                compatibilityState = availability.compatibilityState,
+                incompatibilityReason = "",
+                catalogSourceId = "official",
+                packageUrl = "https://repo.example.com/packages/demo-1.2.0.zip",
+            ),
+            availability,
+        )
+        assertEquals(listOf("fs.logs"), availability.permissionDiff.added.map { it.permissionId })
+        assertTrue(availability.permissionDiff.removed.isEmpty())
+        assertTrue(availability.permissionDiff.riskUpgraded.isEmpty())
+        assertTrue(availability.permissionDiff.requiresSecondaryConfirmation)
+    }
+
+    @Test
+    fun repository_direct_link_without_source_id_does_not_produce_update_availability() {
+        val catalogDao = InMemoryPluginCatalogDao()
+        val dao = InMemoryPluginInstallAggregateDao()
+        resetPluginRepositoryForTest(
+            dao = dao,
+            catalogDao = catalogDao,
+            initialized = true,
+        )
+        PluginRepository.upsert(
+            sampleRecord(
+                version = "1.0.0",
+                sourceType = PluginSourceType.DIRECT_LINK,
+                catalogSourceId = null,
+                installedPackageUrl = "https://plugins.example.com/demo-1.0.0.zip",
+            ),
+        )
+        PluginRepository.replaceRepositoryCatalog(
+            sampleRepositorySource(
+                pluginId = "com.example.demo",
+                versions = listOf(catalogVersion(version = "1.1.0")),
+            ),
+        )
+
+        val availability = PluginRepository.getUpdateAvailability(
+            pluginId = "com.example.demo",
+            hostVersion = "0.3.6",
+            supportedProtocolVersion = 1,
+        )
+
+        assertEquals(null, availability)
+    }
+
+    @Test
+    fun repository_marks_incompatible_target_version_as_blocked_upgrade() {
+        val catalogDao = InMemoryPluginCatalogDao()
+        val dao = InMemoryPluginInstallAggregateDao()
+        resetPluginRepositoryForTest(
+            dao = dao,
+            catalogDao = catalogDao,
+            initialized = true,
+        )
+        PluginRepository.upsert(
+            sampleRecord(
+                version = "1.0.0",
+                sourceType = PluginSourceType.REPOSITORY,
+                catalogSourceId = "official",
+                installedPackageUrl = "https://repo.example.com/packages/demo-1.0.0.zip",
+            ),
+        )
+        PluginRepository.replaceRepositoryCatalog(
+            sampleRepositorySource(
+                pluginId = "com.example.demo",
+                versions = listOf(
+                    catalogVersion(version = "1.0.0"),
+                    catalogVersion(
+                        version = "1.5.0",
+                        minHostVersion = "9.0.0",
+                        changelog = "Requires newer host",
+                    ),
+                ),
+            ),
+        )
+
+        val availability = PluginRepository.getUpdateAvailability(
+            pluginId = "com.example.demo",
+            hostVersion = "0.3.6",
+            supportedProtocolVersion = 1,
+        )
+
+        assertEquals(true, availability?.updateAvailable)
+        assertEquals(false, availability?.canUpgrade)
+        assertTrue(availability?.incompatibilityReason?.contains("Host version 0.3.6 is below required minimum 9.0.0.") == true)
+    }
+
+    @Test
+    fun repository_permission_diff_detects_risk_upgrades_and_secondary_confirmation() {
+        val catalogDao = InMemoryPluginCatalogDao()
+        val dao = InMemoryPluginInstallAggregateDao()
+        resetPluginRepositoryForTest(
+            dao = dao,
+            catalogDao = catalogDao,
+            initialized = true,
+        )
+        PluginRepository.upsert(
+            sampleRecord(
+                version = "1.0.0",
+                sourceType = PluginSourceType.REPOSITORY,
+                catalogSourceId = "official",
+                permissions = listOf(
+                    PluginPermissionDeclaration(
+                        permissionId = "net.access",
+                        title = "Network access",
+                        description = "Allows outgoing requests",
+                        riskLevel = PluginRiskLevel.LOW,
+                        required = true,
+                    ),
+                ),
+            ),
+        )
+        PluginRepository.replaceRepositoryCatalog(
+            sampleRepositorySource(
+                pluginId = "com.example.demo",
+                versions = listOf(
+                    catalogVersion(version = "1.0.0"),
+                    catalogVersion(
+                        version = "1.1.0",
+                        permissions = listOf(
+                            PluginPermissionDeclaration(
+                                permissionId = "net.access",
+                                title = "Network access",
+                                description = "Allows outgoing requests",
+                                riskLevel = PluginRiskLevel.HIGH,
+                                required = true,
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        val availability = PluginRepository.getUpdateAvailability(
+            pluginId = "com.example.demo",
+            hostVersion = "0.3.6",
+            supportedProtocolVersion = 1,
+        )
+
+        assertEquals(1, availability?.permissionDiff?.riskUpgraded?.size)
+        assertEquals("net.access", availability?.permissionDiff?.riskUpgraded?.single()?.to?.permissionId)
+        assertTrue(availability?.permissionDiff?.requiresSecondaryConfirmation == true)
+    }
+}
+
+private class InMemoryPluginCatalogDao : PluginCatalogDao() {
+    private val sources = linkedMapOf<String, PluginCatalogSourceEntity>()
+    private val entries = linkedMapOf<String, MutableList<PluginCatalogEntryEntity>>()
+    private val versions = linkedMapOf<String, MutableList<PluginCatalogVersionEntity>>()
+
+    override suspend fun listSources(): List<PluginCatalogSourceEntity> = sources.values.sortedBy { it.sourceId }
+
+    override suspend fun getSource(sourceId: String): PluginCatalogSourceEntity? = sources[sourceId]
+
+    override suspend fun listEntries(sourceId: String): List<PluginCatalogEntryEntity> {
+        return entries[sourceId].orEmpty().sortedBy { it.sortIndex }
+    }
+
+    override suspend fun getEntry(sourceId: String, pluginId: String): PluginCatalogEntryEntity? {
+        return entries[sourceId].orEmpty().firstOrNull { it.pluginId == pluginId }
+    }
+
+    override suspend fun listVersions(sourceId: String, pluginId: String): List<PluginCatalogVersionEntity> {
+        return versions["$sourceId::$pluginId"].orEmpty().sortedBy { it.sortIndex }
+    }
+
+    override suspend fun upsertSources(entities: List<PluginCatalogSourceEntity>) {
+        entities.forEach { entity -> sources[entity.sourceId] = entity }
+    }
+
+    override suspend fun upsertEntries(entities: List<PluginCatalogEntryEntity>) {
+        entities.groupBy { it.sourceId }.forEach { (sourceId, grouped) ->
+            entries[sourceId] = grouped.sortedBy { it.sortIndex }.toMutableList()
+        }
+    }
+
+    override suspend fun upsertVersions(entities: List<PluginCatalogVersionEntity>) {
+        entities.groupBy { "${it.sourceId}::${it.pluginId}" }.forEach { (key, grouped) ->
+            versions[key] = grouped.sortedBy { it.sortIndex }.toMutableList()
+        }
+    }
+
+    override suspend fun deleteEntriesBySourceId(sourceId: String) {
+        val pluginIds = entries[sourceId].orEmpty().map { it.pluginId }
+        entries.remove(sourceId)
+        pluginIds.forEach { pluginId -> versions.remove("$sourceId::$pluginId") }
+    }
+
+    override suspend fun deleteVersionsBySourceId(sourceId: String) {
+        versions.keys.filter { it.startsWith("$sourceId::") }.toList().forEach(versions::remove)
+    }
 }
 
 private class InMemoryPluginInstallAggregateDao : PluginInstallAggregateDao() {
@@ -285,6 +684,7 @@ private class InMemoryPluginInstallAggregateDao : PluginInstallAggregateDao() {
 
 private fun sampleRecord(
     version: String,
+    sourceType: PluginSourceType = PluginSourceType.LOCAL_FILE,
     enabled: Boolean = false,
     installedAt: Long = 0L,
     lastUpdatedAt: Long = 0L,
@@ -295,6 +695,18 @@ private fun sampleRecord(
     ),
     uninstallPolicy: PluginUninstallPolicy = PluginUninstallPolicy.default(),
     failureState: PluginFailureState = PluginFailureState.none(),
+    permissions: List<PluginPermissionDeclaration> = listOf(
+        PluginPermissionDeclaration(
+            permissionId = "net.access",
+            title = "Network access",
+            description = "Allows outgoing requests",
+            riskLevel = PluginRiskLevel.MEDIUM,
+            required = true,
+        ),
+    ),
+    catalogSourceId: String? = null,
+    installedPackageUrl: String = "",
+    lastCatalogCheckAtEpochMillis: Long? = null,
 ): PluginInstallRecord {
     val manifest = PluginManifest(
         pluginId = "com.example.demo",
@@ -303,25 +715,17 @@ private fun sampleRecord(
         author = "AstrBot",
         title = "Demo Plugin",
         description = "Example plugin",
-        permissions = listOf(
-            PluginPermissionDeclaration(
-                permissionId = "net.access",
-                title = "Network access",
-                description = "Allows outgoing requests",
-                riskLevel = PluginRiskLevel.MEDIUM,
-                required = true,
-            ),
-        ),
+        permissions = permissions,
         minHostVersion = "0.3.0",
         maxHostVersion = "",
-        sourceType = PluginSourceType.LOCAL_FILE,
+        sourceType = sourceType,
         entrySummary = "Example entry",
         riskLevel = PluginRiskLevel.LOW,
     )
     return PluginInstallRecord.restoreFromPersistedState(
         manifestSnapshot = manifest,
         source = PluginSource(
-            sourceType = PluginSourceType.LOCAL_FILE,
+            sourceType = sourceType,
             location = "/tmp/$version.zip",
             importedAt = lastUpdatedAt,
         ),
@@ -329,6 +733,9 @@ private fun sampleRecord(
         compatibilityState = compatibilityState,
         uninstallPolicy = uninstallPolicy,
         failureState = failureState,
+        catalogSourceId = catalogSourceId,
+        installedPackageUrl = installedPackageUrl,
+        lastCatalogCheckAtEpochMillis = lastCatalogCheckAtEpochMillis,
         enabled = enabled,
         installedAt = installedAt,
         lastUpdatedAt = lastUpdatedAt,
@@ -337,8 +744,86 @@ private fun sampleRecord(
     )
 }
 
+private fun sampleRepositorySource(
+    sourceId: String = "official",
+    title: String = "Official Repository",
+    catalogUrl: String = "https://repo.example.com/catalogs/stable/index.json",
+    pluginId: String = "com.example.weather",
+    pluginTitle: String = "Weather",
+    packageUrl: String = "../packages/weather-1.4.0.zip",
+    versions: List<PluginCatalogVersion> = listOf(
+        catalogVersion(
+            version = "1.4.0",
+            packageUrl = packageUrl,
+            publishedAt = 1_700L,
+            protocolVersion = 2,
+            minHostVersion = "0.3.0",
+            maxHostVersion = "0.4.0",
+            permissions = listOf(
+                PluginPermissionDeclaration(
+                    permissionId = "network.http",
+                    title = "Network",
+                    description = "Fetches weather APIs",
+                    riskLevel = PluginRiskLevel.MEDIUM,
+                    required = true,
+                ),
+            ),
+            changelog = "Adds severe weather alerts.",
+        ),
+    ),
+): PluginRepositorySource {
+    return PluginRepositorySource(
+        sourceId = sourceId,
+        title = title,
+        catalogUrl = catalogUrl,
+        updatedAt = 1_800L,
+        plugins = listOf(
+            PluginCatalogEntry(
+                pluginId = pluginId,
+                title = pluginTitle,
+                author = "AstrBot",
+                description = "Shows current weather.",
+                entrySummary = "Weather commands",
+                scenarios = listOf("forecast", "alerts"),
+                versions = versions,
+            ),
+        ),
+    )
+}
+
+private fun catalogVersion(
+    version: String,
+    packageUrl: String = "https://repo.example.com/packages/demo-$version.zip",
+    publishedAt: Long = 1_000L,
+    protocolVersion: Int = 1,
+    minHostVersion: String = "0.3.0",
+    maxHostVersion: String = "",
+    permissions: List<PluginPermissionDeclaration> = listOf(
+        PluginPermissionDeclaration(
+            permissionId = "net.access",
+            title = "Network access",
+            description = "Allows outgoing requests",
+            riskLevel = PluginRiskLevel.MEDIUM,
+            required = true,
+        ),
+    ),
+    changelog: String = "Improves plugin behavior.",
+): PluginCatalogVersion {
+    return PluginCatalogVersion(
+        version = version,
+        packageUrl = packageUrl,
+        publishedAt = publishedAt,
+        protocolVersion = protocolVersion,
+        minHostVersion = minHostVersion,
+        maxHostVersion = maxHostVersion,
+        permissions = permissions,
+        changelog = changelog,
+    )
+}
+
 private fun resetPluginRepositoryForTest(
     dao: PluginInstallAggregateDao = InMemoryPluginInstallAggregateDao(),
+    catalogDao: PluginCatalogDao = InMemoryPluginCatalogDao(),
     initialized: Boolean,
     now: Long = 0L,
     dataRemover: PluginDataRemover = NoOpPluginDataRemover,
@@ -347,6 +832,10 @@ private fun resetPluginRepositoryForTest(
     repositoryClass.getDeclaredField("pluginDao").apply {
         isAccessible = true
         set(PluginRepository, dao)
+    }
+    repositoryClass.getDeclaredField("pluginCatalogDao").apply {
+        isAccessible = true
+        set(PluginRepository, catalogDao)
     }
 
     @Suppress("UNCHECKED_CAST")
