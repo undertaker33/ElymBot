@@ -27,6 +27,12 @@ enum class PluginQuickInstallMode {
     DirectPackageUrl,
 }
 
+enum class PluginLocalFilter {
+    ENABLED,
+    DISABLED,
+    UPDATES,
+}
+
 enum class PluginInstalledLibraryFilter {
     All,
     Enabled,
@@ -92,6 +98,31 @@ data class PluginInstalledLibraryPresentation(
     val cards: List<PluginInstalledLibraryCardPresentation>,
 )
 
+data class PluginLocalFilterPresentation(
+    val filter: PluginLocalFilter,
+    val count: Int,
+    val selected: Boolean,
+)
+
+data class PluginLocalCardPresentation(
+    val pluginId: String,
+    val title: String,
+    val description: String,
+    val author: String,
+    val isEnabled: Boolean,
+    val hasUpdateAvailable: Boolean,
+)
+
+data class PluginLocalWorkspacePresentation(
+    val filters: List<PluginLocalFilterPresentation>,
+    val cards: List<PluginLocalCardPresentation>,
+)
+
+data class PluginMarketPlaceholderPresentation(
+    val title: String,
+    val body: String,
+)
+
 data class PluginHealthOverviewPresentation(
     val installedCount: Int,
     val updatesAvailableCount: Int,
@@ -141,6 +172,40 @@ internal fun buildPluginHealthOverviewPresentation(
         updatesAvailableCount = updatesAvailableCount,
         needsReviewCount = needsReviewCount,
         sourceCount = uiState.repositorySources.size,
+    )
+}
+
+internal fun buildPluginLocalWorkspacePresentation(
+    uiState: PluginScreenUiState,
+    searchQuery: String,
+    selectedFilter: PluginLocalFilter,
+): PluginLocalWorkspacePresentation {
+    val normalizedQuery = searchQuery.trim()
+    val cards = uiState.records
+        .map { record -> buildPluginLocalCardPresentation(record, uiState) }
+        .sortedBy { it.title.lowercase() }
+    return PluginLocalWorkspacePresentation(
+        filters = listOf(
+            PluginLocalFilter.ENABLED,
+            PluginLocalFilter.DISABLED,
+            PluginLocalFilter.UPDATES,
+        ).map { filter ->
+            PluginLocalFilterPresentation(
+                filter = filter,
+                count = cards.count { it.matchesLocalFilter(filter) },
+                selected = filter == selectedFilter,
+            )
+        },
+        cards = cards
+            .filter { it.matchesSearch(normalizedQuery) }
+            .filter { it.matchesLocalFilter(selectedFilter) },
+    )
+}
+
+internal fun buildPluginMarketPlaceholderPresentation(): PluginMarketPlaceholderPresentation {
+    return PluginMarketPlaceholderPresentation(
+        title = "Market is coming soon",
+        body = "The market page is reserved in this iteration and will be filled in later.",
     )
 }
 
@@ -204,6 +269,20 @@ internal fun buildPluginQuickInstallPresentation(
         showLocalZipAction = selectedMode == PluginQuickInstallMode.LocalZip,
         showRepositoryUrlForm = selectedMode == PluginQuickInstallMode.RepositoryUrl,
         showDirectPackageUrlForm = selectedMode == PluginQuickInstallMode.DirectPackageUrl,
+    )
+}
+
+private fun buildPluginLocalCardPresentation(
+    record: PluginInstallRecord,
+    uiState: PluginScreenUiState,
+): PluginLocalCardPresentation {
+    return PluginLocalCardPresentation(
+        pluginId = record.pluginId,
+        title = record.manifestSnapshot.title,
+        description = record.manifestSnapshot.description.ifBlank { record.manifestSnapshot.entrySummary },
+        author = record.manifestSnapshot.author,
+        isEnabled = record.enabled,
+        hasUpdateAvailable = uiState.updateAvailabilitiesByPluginId[record.pluginId]?.updateAvailable == true,
     )
 }
 
@@ -358,6 +437,21 @@ private fun PluginInstalledLibraryCardPresentation.matchesFilter(filter: PluginI
         PluginInstalledLibraryFilter.Updates -> hasUpdateAvailable
         PluginInstalledLibraryFilter.Issues -> priority != PluginInstalledLibraryPriority.Normal
         PluginInstalledLibraryFilter.PermissionChanges -> hasPermissionChanges
+    }
+}
+
+private fun PluginLocalCardPresentation.matchesSearch(query: String): Boolean {
+    if (query.isBlank()) return true
+    return title.contains(query, ignoreCase = true) ||
+        description.contains(query, ignoreCase = true) ||
+        author.contains(query, ignoreCase = true)
+}
+
+private fun PluginLocalCardPresentation.matchesLocalFilter(filter: PluginLocalFilter): Boolean {
+    return when (filter) {
+        PluginLocalFilter.ENABLED -> isEnabled
+        PluginLocalFilter.DISABLED -> !isEnabled
+        PluginLocalFilter.UPDATES -> hasUpdateAvailable
     }
 }
 

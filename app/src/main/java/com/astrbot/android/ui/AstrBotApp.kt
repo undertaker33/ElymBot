@@ -38,6 +38,7 @@ import com.astrbot.android.ui.navigation.activeMainDestination
 import com.astrbot.android.ui.screen.BotWorkspaceTab
 import com.astrbot.android.ui.screen.ChatDrawerContent
 import com.astrbot.android.ui.screen.ConfigSection
+import com.astrbot.android.ui.screen.PluginWorkspaceTab
 import com.astrbot.android.ui.viewmodel.BridgeViewModel
 import com.astrbot.android.ui.viewmodel.ChatViewModel
 import com.astrbot.android.ui.viewmodel.ConfigViewModel
@@ -54,6 +55,7 @@ fun AstrBotApp(bridgeViewModel: BridgeViewModel = astrBotViewModel()) {
     val chatDrawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     var botWorkspaceTab by remember { mutableStateOf(BotWorkspaceTab.BOTS) }
+    var pluginWorkspaceTab by remember { mutableStateOf(PluginWorkspaceTab.LOCAL) }
     var configSelectedIds by remember { mutableStateOf(setOf<String>()) }
     var registeredSecondaryTopBar by remember { mutableStateOf<RegisteredSecondaryTopBar?>(null) }
     var configDetailChromeBinding by remember { mutableStateOf<ConfigDetailChromeBinding?>(null) }
@@ -141,6 +143,7 @@ fun AstrBotApp(bridgeViewModel: BridgeViewModel = astrBotViewModel()) {
     val currentMainSwipePage = currentMainSwipePage(
         activeMainRoute = activeMainRoute,
         botWorkspaceTab = botWorkspaceTab,
+        pluginWorkspaceTab = pluginWorkspaceTab,
     )
     val hostGlobalChatDrawer = shouldHostGlobalChatDrawer(
         activeMainRoute = activeMainRoute,
@@ -212,9 +215,13 @@ fun AstrBotApp(bridgeViewModel: BridgeViewModel = astrBotViewModel()) {
                                     if (activeMainRoute != AppDestination.Bots.route) {
                                         AppNavigator.openTopLevel(navController, AppDestination.Bots)
                                     }
+                                } ?: pluginWorkspaceTabForMainSwipePage(page)?.let { tab ->
+                                    pluginWorkspaceTab = tab
+                                    if (activeMainRoute != AppDestination.Plugins.route) {
+                                        AppNavigator.openTopLevel(navController, AppDestination.Plugins)
+                                    }
                                 } ?: run {
                                     when (page) {
-                                        MainSwipePage.PLUGINS -> AppNavigator.openTopLevel(navController, AppDestination.Plugins)
                                         MainSwipePage.CHAT -> AppNavigator.openTopLevel(navController, AppDestination.Chat)
                                         MainSwipePage.CONFIG -> AppNavigator.openTopLevel(navController, AppDestination.Config)
                                         MainSwipePage.ME -> AppNavigator.openTopLevel(navController, AppDestination.Me)
@@ -224,6 +231,8 @@ fun AstrBotApp(bridgeViewModel: BridgeViewModel = astrBotViewModel()) {
                             },
                             botWorkspaceTab = botWorkspaceTab,
                             onBotWorkspaceTabChange = { botWorkspaceTab = it },
+                            pluginWorkspaceTab = pluginWorkspaceTab,
+                            onPluginWorkspaceTabChange = { pluginWorkspaceTab = it },
                             chatViewModel = chatViewModel,
                             qqLoginViewModel = qqLoginViewModel,
                             chatDrawerState = chatDrawerState,
@@ -253,6 +262,7 @@ fun AstrBotApp(bridgeViewModel: BridgeViewModel = astrBotViewModel()) {
                 AstrBotAppTopBar(
                     activeMainDestination = activeMainDestination,
                     botWorkspaceTab = botWorkspaceTab,
+                    pluginWorkspaceTab = pluginWorkspaceTab,
                     configSelectedIds = configSelectedIds,
                     currentChatBot = currentChatBot,
                     chatBots = chatBots,
@@ -260,6 +270,7 @@ fun AstrBotApp(bridgeViewModel: BridgeViewModel = astrBotViewModel()) {
                     currentPersonaId = currentChatPersona?.id,
                     chatSelectorExpanded = chatSelectorExpanded,
                     onBotWorkspaceTabChange = { botWorkspaceTab = it },
+                    onPluginWorkspaceTabChange = { pluginWorkspaceTab = it },
                     onConfigSelectionClear = { configSelectedIds = emptySet() },
                     onOpenHistory = { scope.launch { chatDrawerState.open() } },
                     onBotSelectorExpandedChange = { chatSelectorExpanded = it },

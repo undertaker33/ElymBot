@@ -1,8 +1,5 @@
 package com.astrbot.android.ui.screen
 
-import android.net.Uri
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -23,6 +20,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.ChevronRight
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.AlertDialog
@@ -57,6 +56,7 @@ import com.astrbot.android.model.plugin.PluginInstallRecord
 import com.astrbot.android.model.plugin.PluginSourceType
 import com.astrbot.android.model.plugin.PluginUninstallPolicy
 import com.astrbot.android.ui.MonochromeUi
+import com.astrbot.android.ui.monochromeOutlinedTextFieldColors
 import com.astrbot.android.ui.screen.plugin.PluginBadgePalette
 import com.astrbot.android.ui.screen.plugin.PluginUiSpec
 import com.astrbot.android.ui.viewmodel.PluginActionFeedback
@@ -77,73 +77,239 @@ import java.util.Locale
 @Composable
 fun PluginScreen(
     pluginViewModel: PluginViewModel = astrBotViewModel(),
+    workspaceTab: PluginWorkspaceTab = PluginWorkspaceTab.LOCAL,
     onOpenPluginDetail: (String) -> Unit = {},
 ) {
     val uiState by pluginViewModel.uiState.collectAsState()
-    val localPackagePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
-        if (uri == null) return@rememberLauncherForActivityResult
-        pluginViewModel.submitLocalPackageUri(uri.toString())
-    }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(MonochromeUi.pageBackground),
     ) {
-        PluginHomepageWorkspace(
-            uiState = uiState,
-            onOpenPluginDetail = onOpenPluginDetail,
-            onRepositoryUrlDraftChange = pluginViewModel::updateRepositoryUrlDraft,
-            onDirectPackageUrlDraftChange = pluginViewModel::updateDirectPackageUrlDraft,
-            onSubmitRepositoryUrl = pluginViewModel::submitRepositoryUrl,
-            onSubmitDirectPackageUrl = pluginViewModel::submitDirectPackageUrl,
-            onImportLocalPackage = {
-                localPackagePicker.launch(
-                    arrayOf(
-                        "application/zip",
-                        "application/octet-stream",
-                        "application/x-zip-compressed",
-                    ),
-                )
-            },
-        )
+        when (workspaceTab) {
+            PluginWorkspaceTab.LOCAL -> PluginLocalWorkspace(
+                uiState = uiState,
+                onSearchQueryChange = pluginViewModel::updateLocalSearchQuery,
+                onFilterSelected = pluginViewModel::updateSelectedLocalFilter,
+                onOpenPluginDetail = onOpenPluginDetail,
+            )
+            PluginWorkspaceTab.MARKET -> PluginMarketWorkspace()
+        }
     }
 }
 
 @Composable
-internal fun PluginDetailScreen(
-    pluginId: String,
-    onBack: () -> Unit,
-    pluginViewModel: PluginViewModel = astrBotViewModel(),
+private fun PluginLocalWorkspace(
+    uiState: PluginScreenUiState,
+    onSearchQueryChange: (String) -> Unit,
+    onFilterSelected: (PluginLocalFilter) -> Unit,
+    onOpenPluginDetail: (String) -> Unit,
 ) {
-    val uiState by pluginViewModel.uiState.collectAsState()
-    LaunchedEffect(pluginId) {
-        pluginViewModel.selectPlugin(pluginId)
-    }
+    val presentation = buildPluginLocalWorkspacePresentation(
+        uiState = uiState,
+        searchQuery = uiState.localSearchQuery,
+        selectedFilter = uiState.selectedLocalFilter,
+    )
 
-    Box(
+    LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .background(MonochromeUi.pageBackground),
+            .padding(horizontal = PluginUiSpec.ScreenHorizontalPadding)
+            .testTag(PluginUiSpec.LocalPageTag),
+        contentPadding = PaddingValues(
+            top = PluginUiSpec.ScreenVerticalPadding,
+            bottom = PluginUiSpec.ListContentBottomPadding,
+        ),
+        verticalArrangement = Arrangement.spacedBy(PluginUiSpec.SectionSpacing),
     ) {
-        if (uiState.selectedPlugin != null) {
-            PluginDetailWorkspace(
-                uiState = uiState,
-                onBack = onBack,
-                onEnable = pluginViewModel::enableSelectedPlugin,
-                onDisable = pluginViewModel::disableSelectedPlugin,
-                onRequestUpgrade = pluginViewModel::requestUpgradeForSelectedPlugin,
-                onSelectPolicy = pluginViewModel::updateSelectedUninstallPolicy,
-                onUninstall = pluginViewModel::uninstallSelectedPlugin,
-                onSchemaCardActionClick = pluginViewModel::onSchemaCardActionClick,
-                onSettingsDraftChange = pluginViewModel::updateSettingsDraft,
+        item {
+            OutlinedTextField(
+                value = uiState.localSearchQuery,
+                onValueChange = onSearchQueryChange,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag(PluginUiSpec.LocalSearchTag),
+                singleLine = true,
+                shape = PluginUiSpec.SummaryShape,
+                leadingIcon = {
+                    Icon(
+                        imageVector = Icons.Outlined.Search,
+                        contentDescription = null,
+                        tint = MonochromeUi.textSecondary,
+                    )
+                },
+                placeholder = {
+                    Text(
+                        text = stringResource(R.string.plugin_installed_library_search_placeholder),
+                        color = MonochromeUi.textSecondary,
+                    )
+                },
+                colors = monochromeOutlinedTextFieldColors(),
             )
         }
-        uiState.upgradeDialogState?.let { dialogState ->
-            PluginUpgradeDialog(
-                state = dialogState,
-                onConfirm = pluginViewModel::confirmUpgrade,
-                onDismiss = pluginViewModel::dismissUpgradeDialog,
+        item {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .testTag(PluginUiSpec.LocalFilterRowTag),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                presentation.filters.forEach { filter ->
+                    FilterChip(
+                        selected = filter.selected,
+                        onClick = { onFilterSelected(filter.filter) },
+                        modifier = Modifier.testTag(PluginUiSpec.LocalFilterChipTag),
+                        label = {
+                            Text(
+                                text = stringResource(
+                                    when (filter.filter) {
+                                        PluginLocalFilter.ENABLED -> R.string.plugin_installed_library_filter_enabled
+                                        PluginLocalFilter.DISABLED -> R.string.plugin_local_status_disabled
+                                        PluginLocalFilter.UPDATES -> R.string.plugin_installed_library_filter_updates
+                                    },
+                                ),
+                            )
+                        },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = MonochromeUi.chipSelectedBackground,
+                            selectedLabelColor = MonochromeUi.textPrimary,
+                            containerColor = MonochromeUi.chipBackground,
+                            labelColor = MonochromeUi.textSecondary,
+                        ),
+                        border = FilterChipDefaults.filterChipBorder(
+                            enabled = true,
+                            selected = filter.selected,
+                            borderColor = MonochromeUi.border,
+                            selectedBorderColor = MonochromeUi.textPrimary,
+                            borderWidth = 1.dp,
+                            selectedBorderWidth = 1.2.dp,
+                        ),
+                    )
+                }
+            }
+        }
+        if (presentation.cards.isEmpty()) {
+            item {
+                PluginSectionEmptyState(
+                    message = stringResource(R.string.plugin_installed_library_empty_message),
+                )
+            }
+        } else {
+            items(presentation.cards, key = { it.pluginId }) { card ->
+                Box(modifier = Modifier.testTag(PluginUiSpec.LocalCardTag)) {
+                    PluginLocalCard(
+                        card = card,
+                        onClick = { onOpenPluginDetail(card.pluginId) },
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PluginLocalCard(
+    card: PluginLocalCardPresentation,
+    onClick: () -> Unit,
+) {
+    Surface(
+        onClick = onClick,
+        modifier = Modifier.testTag(PluginUiSpec.installedLibraryCardTag(card.pluginId)),
+        shape = PluginUiSpec.SectionShape,
+        color = MonochromeUi.cardBackground,
+        tonalElevation = 2.dp,
+        border = PluginUiSpec.CardBorder,
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 14.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(52.dp)
+                    .background(MonochromeUi.mutedSurface, CircleShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = card.title.take(1).uppercase(),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MonochromeUi.textPrimary,
+                )
+            }
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(
+                    text = card.title,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MonochromeUi.textPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = card.description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MonochromeUi.textSecondary,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = "${card.author} | ${localStatusLabel(card.isEnabled)}",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MonochromeUi.textSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Icon(
+                imageVector = Icons.Outlined.ChevronRight,
+                contentDescription = null,
+                modifier = Modifier.testTag(PluginUiSpec.LocalCardChevronTag),
+                tint = MonochromeUi.textSecondary,
+            )
+        }
+    }
+}
+
+@Composable
+private fun PluginMarketWorkspace() {
+    Surface(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(
+                horizontal = PluginUiSpec.ScreenHorizontalPadding,
+                vertical = PluginUiSpec.ScreenVerticalPadding,
+            )
+            .testTag(PluginUiSpec.MarketPageTag),
+        shape = PluginUiSpec.EmptyStateShape,
+        color = PluginUiSpec.EmptyStateContainerColor,
+        border = PluginUiSpec.CardBorder,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 28.dp, vertical = 32.dp),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text(
+                text = stringResource(R.string.plugin_market_placeholder_title),
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = MonochromeUi.textPrimary,
+            )
+            Text(
+                text = stringResource(R.string.plugin_market_placeholder_message),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MonochromeUi.textSecondary,
             )
         }
     }
@@ -195,106 +361,6 @@ private fun PluginHomepageWorkspace(
                 )
                 PluginHomepageSection.Discover -> PluginDiscoverSection(uiState)
                 PluginHomepageSection.Repositories -> PluginRepositoriesSection(uiState)
-            }
-        }
-    }
-}
-
-@Composable
-private fun PluginDetailWorkspace(
-    uiState: PluginScreenUiState,
-    onBack: () -> Unit,
-    onEnable: () -> Unit,
-    onDisable: () -> Unit,
-    onRequestUpgrade: () -> Unit,
-    onSelectPolicy: (PluginUninstallPolicy) -> Unit,
-    onUninstall: () -> Unit,
-    onSchemaCardActionClick: (actionId: String, payload: Map<String, String>) -> Unit,
-    onSettingsDraftChange: (fieldId: String, draftValue: PluginSettingDraftValue) -> Unit,
-) {
-    val record = uiState.selectedPlugin ?: return
-    val actionState = uiState.detailActionState
-
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = PluginUiSpec.ScreenHorizontalPadding)
-            .testTag(PluginUiSpec.DetailPanelTag),
-        contentPadding = PaddingValues(
-            top = PluginUiSpec.ScreenVerticalPadding,
-            bottom = PluginUiSpec.ListContentBottomPadding,
-        ),
-        verticalArrangement = Arrangement.spacedBy(PluginUiSpec.SectionSpacing),
-    ) {
-        item {
-            TextButton(
-                onClick = onBack,
-                modifier = Modifier.testTag(PluginUiSpec.DetailBackActionTag),
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.ArrowBack,
-                    contentDescription = null,
-                    tint = MonochromeUi.textSecondary,
-                )
-                Text(
-                    text = stringResource(R.string.common_back),
-                    color = MonochromeUi.textSecondary,
-                )
-            }
-        }
-        item { PluginDetailHero(record) }
-        actionState.failureState?.let { failureState ->
-            item {
-                PluginFailureBanner(failureState = failureState)
-            }
-        }
-        item {
-            PluginDetailSection(
-                title = stringResource(R.string.plugin_detail_overview_title),
-                body = record.manifestSnapshot.description,
-            )
-        }
-        item {
-            PluginKeyValueSection(
-                title = stringResource(R.string.plugin_detail_meta_title),
-                modifier = Modifier.testTag(PluginUiSpec.DetailMetadataTag),
-                items = listOf(
-                    stringResource(R.string.plugin_field_author) to record.manifestSnapshot.author,
-                    stringResource(R.string.plugin_field_protocol) to record.manifestSnapshot.protocolVersion.toString(),
-                    stringResource(R.string.plugin_field_min_host) to record.manifestSnapshot.minHostVersion,
-                    stringResource(R.string.plugin_field_max_host) to record.manifestSnapshot.maxHostVersion.ifBlank {
-                        stringResource(R.string.plugin_value_not_limited)
-                    },
-                    stringResource(R.string.plugin_field_source_location) to record.source.location,
-                ),
-            )
-        }
-        item {
-            PluginSourceDetailSection(
-                metadata = uiState.detailMetadataState,
-            )
-        }
-        item { PluginCompatibilitySection(record) }
-        item { PluginPermissionsSection(record) }
-        item {
-            PluginActionSection(
-                metadata = uiState.detailMetadataState,
-                actionState = actionState,
-                onEnable = onEnable,
-                onDisable = onDisable,
-                onRequestUpgrade = onRequestUpgrade,
-                onSelectPolicy = onSelectPolicy,
-                onUninstall = onUninstall,
-            )
-        }
-        if (shouldRenderSchemaWorkspace(uiState.schemaUiState)) {
-            item {
-                PluginSchemaRenderer(
-                    schemaUiState = uiState.schemaUiState,
-                    onCardActionClick = onSchemaCardActionClick,
-                    onSettingsDraftChange = onSettingsDraftChange,
-                    modifier = Modifier.testTag(PluginUiSpec.SchemaWorkspaceTag),
-                )
             }
         }
     }
@@ -1639,6 +1705,15 @@ private fun installStatusLabel(record: PluginInstallRecord): String {
         stringResource(R.string.common_enabled)
     } else {
         stringResource(R.string.plugin_status_installed)
+    }
+}
+
+@Composable
+private fun localStatusLabel(enabled: Boolean): String {
+    return if (enabled) {
+        stringResource(R.string.plugin_local_status_enabled)
+    } else {
+        stringResource(R.string.plugin_local_status_disabled)
     }
 }
 

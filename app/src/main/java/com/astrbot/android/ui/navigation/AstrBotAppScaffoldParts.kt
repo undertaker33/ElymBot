@@ -50,6 +50,7 @@ import com.astrbot.android.ui.screen.ModuleBackupScreen
 import com.astrbot.android.ui.screen.PersonaScreen
 import com.astrbot.android.ui.screen.PluginDetailScreenRoute
 import com.astrbot.android.ui.screen.PluginScreen
+import com.astrbot.android.ui.screen.PluginWorkspaceTab
 import com.astrbot.android.ui.screen.ProviderScreen
 import com.astrbot.android.ui.screen.QQAccountCenterScreen
 import com.astrbot.android.ui.screen.QQLoginScreen
@@ -63,6 +64,7 @@ import com.astrbot.android.ui.viewmodel.QQLoginViewModel
 internal fun AstrBotAppTopBar(
     activeMainDestination: Pair<AppDestination, String>?,
     botWorkspaceTab: BotWorkspaceTab,
+    pluginWorkspaceTab: PluginWorkspaceTab,
     configSelectedIds: Set<String>,
     currentChatBot: BotProfile?,
     chatBots: List<BotProfile>,
@@ -70,6 +72,7 @@ internal fun AstrBotAppTopBar(
     currentPersonaId: String?,
     chatSelectorExpanded: Boolean,
     onBotWorkspaceTabChange: (BotWorkspaceTab) -> Unit,
+    onPluginWorkspaceTabChange: (PluginWorkspaceTab) -> Unit,
     onConfigSelectionClear: () -> Unit,
     onOpenHistory: () -> Unit,
     onBotSelectorExpandedChange: (Boolean) -> Unit,
@@ -102,10 +105,17 @@ internal fun AstrBotAppTopBar(
                 title = stringResource(R.string.nav_plugins),
                 titleAlignment = TopBarTitleAlignment.End,
                 leftContent = {
-                    androidx.compose.material3.Text(
-                        stringResource(R.string.nav_plugins),
-                        color = MonochromeUi.textSecondary,
-                        fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
+                    TopBarSegmentedToggle(
+                        options = listOf(
+                            stringResource(R.string.plugin_workspace_tab_local),
+                            stringResource(R.string.plugin_workspace_tab_market),
+                        ),
+                        selectedIndex = pluginWorkspaceToggleSelectionIndex(pluginWorkspaceTab),
+                        onSelect = { index ->
+                            onPluginWorkspaceTabChange(
+                                if (index == 0) PluginWorkspaceTab.LOCAL else PluginWorkspaceTab.MARKET,
+                            )
+                        },
                     )
                 },
             )
@@ -158,6 +168,8 @@ internal fun AstrBotAppNavGraph(
     onMainSwipePageSettled: (MainSwipePage) -> Unit,
     botWorkspaceTab: BotWorkspaceTab,
     onBotWorkspaceTabChange: (BotWorkspaceTab) -> Unit,
+    pluginWorkspaceTab: PluginWorkspaceTab,
+    onPluginWorkspaceTabChange: (PluginWorkspaceTab) -> Unit,
     chatViewModel: ChatViewModel,
     qqLoginViewModel: QQLoginViewModel,
     chatDrawerState: androidx.compose.material3.DrawerState,
@@ -201,6 +213,8 @@ internal fun AstrBotAppNavGraph(
                 navController = navController,
                 botWorkspaceTab = botWorkspaceTab,
                 onBotWorkspaceTabChange = onBotWorkspaceTabChange,
+                pluginWorkspaceTab = pluginWorkspaceTab,
+                onPluginWorkspaceTabChange = onPluginWorkspaceTabChange,
                 chatViewModel = chatViewModel,
                 drawerState = chatDrawerState,
                 floatingBottomNavPadding = floatingBottomNavPadding,
@@ -219,6 +233,8 @@ internal fun AstrBotAppNavGraph(
                 },
                 botWorkspaceTab = botWorkspaceTab,
                 onBotWorkspaceTabChange = onBotWorkspaceTabChange,
+                pluginWorkspaceTab = pluginWorkspaceTab,
+                onPluginWorkspaceTabChange = onPluginWorkspaceTabChange,
                 chatViewModel = chatViewModel,
                 drawerState = chatDrawerState,
                 floatingBottomNavPadding = floatingBottomNavPadding,
@@ -241,6 +257,8 @@ internal fun AstrBotAppNavGraph(
                 navController = navController,
                 botWorkspaceTab = botWorkspaceTab,
                 onBotWorkspaceTabChange = onBotWorkspaceTabChange,
+                pluginWorkspaceTab = pluginWorkspaceTab,
+                onPluginWorkspaceTabChange = onPluginWorkspaceTabChange,
                 chatViewModel = chatViewModel,
                 drawerState = chatDrawerState,
                 floatingBottomNavPadding = floatingBottomNavPadding,
@@ -256,6 +274,8 @@ internal fun AstrBotAppNavGraph(
                 navController = navController,
                 botWorkspaceTab = botWorkspaceTab,
                 onBotWorkspaceTabChange = onBotWorkspaceTabChange,
+                pluginWorkspaceTab = pluginWorkspaceTab,
+                onPluginWorkspaceTabChange = onPluginWorkspaceTabChange,
                 chatViewModel = chatViewModel,
                 drawerState = chatDrawerState,
                 floatingBottomNavPadding = floatingBottomNavPadding,
@@ -285,6 +305,8 @@ internal fun AstrBotAppNavGraph(
                 navController = navController,
                 botWorkspaceTab = botWorkspaceTab,
                 onBotWorkspaceTabChange = onBotWorkspaceTabChange,
+                pluginWorkspaceTab = pluginWorkspaceTab,
+                onPluginWorkspaceTabChange = onPluginWorkspaceTabChange,
                 chatViewModel = chatViewModel,
                 drawerState = chatDrawerState,
                 floatingBottomNavPadding = floatingBottomNavPadding,
@@ -413,6 +435,13 @@ internal fun mainRoute(activeMainDestination: Pair<AppDestination, String>?): St
     return activeMainDestination?.first?.route
 }
 
+internal fun pluginWorkspaceToggleSelectionIndex(pluginWorkspaceTab: PluginWorkspaceTab): Int {
+    return when (pluginWorkspaceTab) {
+        PluginWorkspaceTab.LOCAL -> 0
+        PluginWorkspaceTab.MARKET -> 1
+    }
+}
+
 @Composable
 private fun MainTopLevelRail(
     currentMainSwipePage: MainSwipePage,
@@ -420,6 +449,8 @@ private fun MainTopLevelRail(
     navController: NavHostController,
     botWorkspaceTab: BotWorkspaceTab,
     onBotWorkspaceTabChange: (BotWorkspaceTab) -> Unit,
+    pluginWorkspaceTab: PluginWorkspaceTab,
+    onPluginWorkspaceTabChange: (PluginWorkspaceTab) -> Unit,
     chatViewModel: ChatViewModel,
     drawerState: androidx.compose.material3.DrawerState,
     floatingBottomNavPadding: androidx.compose.ui.unit.Dp,
@@ -455,7 +486,18 @@ private fun MainTopLevelRail(
                         onWorkspaceTabChange = onBotWorkspaceTabChange,
                     )
                 },
-                MainSwipePage.PLUGINS to { PluginScreen(onOpenPluginDetail = onOpenPluginDetail) },
+                MainSwipePage.PLUGINS_LOCAL to {
+                    PluginScreen(
+                        workspaceTab = PluginWorkspaceTab.LOCAL,
+                        onOpenPluginDetail = onOpenPluginDetail,
+                    )
+                },
+                MainSwipePage.PLUGINS_MARKET to {
+                    PluginScreen(
+                        workspaceTab = PluginWorkspaceTab.MARKET,
+                        onOpenPluginDetail = onOpenPluginDetail,
+                    )
+                },
                 MainSwipePage.CHAT to {
                     ChatScreen(
                         chatViewModel = chatViewModel,
