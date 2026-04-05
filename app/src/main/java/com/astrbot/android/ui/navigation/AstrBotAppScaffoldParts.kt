@@ -50,6 +50,8 @@ import com.astrbot.android.ui.screen.MeScreen
 import com.astrbot.android.ui.screen.ModuleBackupScreen
 import com.astrbot.android.ui.screen.PersonaScreen
 import com.astrbot.android.ui.screen.PluginDetailScreenRoute
+import com.astrbot.android.ui.screen.PluginRuntimeLogScreenRoute
+import com.astrbot.android.ui.screen.PluginTriggerManagementScreenRoute
 import com.astrbot.android.ui.screen.PluginWorkspaceScreenRoute
 import com.astrbot.android.ui.screen.PluginScreen
 import com.astrbot.android.ui.screen.PluginWorkspaceTab
@@ -253,6 +255,12 @@ internal fun AstrBotAppNavGraph(
                 onOpenWorkspace = {
                     AppNavigator.open(navController, AppDestination.PluginWorkspace.routeFor(pluginId))
                 },
+                onOpenLogs = {
+                    AppNavigator.open(navController, AppDestination.PluginLogs.routeFor(pluginId))
+                },
+                onOpenTriggers = {
+                    AppNavigator.open(navController, AppDestination.PluginTriggers.routeFor(pluginId))
+                },
                 onOpenConfig = {
                     AppNavigator.open(navController, AppDestination.PluginConfig.routeFor(pluginId))
                 },
@@ -265,11 +273,26 @@ internal fun AstrBotAppNavGraph(
                 onBack = { AppNavigator.back(navController) },
             )
         }
+        composable(AppDestination.PluginLogs.route) { backStackEntry ->
+            val pluginId = backStackEntry.arguments?.getString("pluginId").orEmpty()
+            PluginRuntimeLogScreenRoute(
+                pluginId = pluginId,
+                onBack = { AppNavigator.back(navController) },
+            )
+        }
+        composable(AppDestination.PluginTriggers.route) { backStackEntry ->
+            val pluginId = backStackEntry.arguments?.getString("pluginId").orEmpty()
+            PluginTriggerManagementScreenRoute(
+                pluginId = pluginId,
+                onBack = { AppNavigator.back(navController) },
+            )
+        }
         composable(AppDestination.PluginConfig.route) { backStackEntry ->
             val pluginId = backStackEntry.arguments?.getString("pluginId").orEmpty()
             PluginConfigScreenRoute(
                 pluginId = pluginId,
                 onBack = { AppNavigator.back(navController) },
+                onOpenConfigBackup = { AppNavigator.open(navController, AppDestination.ConfigBackup.route) },
             )
         }
         composable(AppDestination.Chat.route) {

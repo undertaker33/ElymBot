@@ -10,9 +10,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.ArrowBack
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -27,6 +24,10 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.astrbot.android.R
+import com.astrbot.android.ui.AppDestination
+import com.astrbot.android.ui.RegisterSecondaryTopBar
+import com.astrbot.android.ui.SecondaryTopBarSpec
+import com.astrbot.android.ui.SecondaryTopBarPlaceholder
 import com.astrbot.android.di.astrBotViewModel
 import com.astrbot.android.ui.MonochromeUi
 import com.astrbot.android.ui.screen.plugin.PluginUiSpec
@@ -38,8 +39,9 @@ import com.astrbot.android.ui.viewmodel.PluginScreenUiState
 import com.astrbot.android.ui.viewmodel.PluginViewModel
 
 private enum class PluginConfigSection {
-    StaticConfig,
-    RuntimeConfig,
+    BasicSettings,
+    RuntimeSettings,
+    DataSettings,
     EmptyState,
 }
 
@@ -47,18 +49,26 @@ private enum class PluginConfigSection {
 fun PluginConfigScreenRoute(
     pluginId: String,
     onBack: () -> Unit,
+    onOpenConfigBackup: () -> Unit = {},
     pluginViewModel: PluginViewModel = astrBotViewModel(),
 ) {
     val uiState by pluginViewModel.uiState.collectAsState()
     LaunchedEffect(pluginId) {
         pluginViewModel.selectPluginForConfig(pluginId)
     }
+    RegisterSecondaryTopBar(
+        route = AppDestination.PluginConfig.route,
+        spec = SecondaryTopBarSpec.SubPage(
+            title = stringResource(R.string.plugin_config_title),
+            onBack = onBack,
+        ),
+    )
 
     BoxWithConfigPageBackground {
         if (uiState.selectedPlugin != null) {
             PluginConfigWorkspace(
                 uiState = uiState,
-                onBack = onBack,
+                onOpenConfigBackup = onOpenConfigBackup,
                 onSchemaCardActionClick = pluginViewModel::onSchemaCardActionClick,
                 onSettingsDraftChange = pluginViewModel::updateSettingsDraft,
                 onStaticConfigDraftChange = pluginViewModel::updateStaticConfigDraft,
@@ -70,7 +80,7 @@ fun PluginConfigScreenRoute(
 @Composable
 private fun PluginConfigWorkspace(
     uiState: PluginScreenUiState,
-    onBack: () -> Unit,
+    onOpenConfigBackup: () -> Unit,
     onSchemaCardActionClick: (actionId: String, payload: Map<String, String>) -> Unit,
     onSettingsDraftChange: (fieldId: String, draftValue: com.astrbot.android.ui.viewmodel.PluginSettingDraftValue) -> Unit,
     onStaticConfigDraftChange: (fieldKey: String, draftValue: com.astrbot.android.ui.viewmodel.PluginSettingDraftValue) -> Unit,
@@ -90,20 +100,7 @@ private fun PluginConfigWorkspace(
         verticalArrangement = Arrangement.spacedBy(PluginUiSpec.SectionSpacing),
     ) {
         item {
-            TextButton(
-                onClick = onBack,
-                modifier = Modifier.testTag(PluginUiSpec.ConfigBackActionTag),
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.ArrowBack,
-                    contentDescription = null,
-                    tint = MonochromeUi.textSecondary,
-                )
-                Text(
-                    text = stringResource(R.string.common_back),
-                    color = MonochromeUi.textSecondary,
-                )
-            }
+            SecondaryTopBarPlaceholder()
         }
 
         item {
@@ -122,16 +119,27 @@ private fun PluginConfigWorkspace(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MonochromeUi.textSecondary,
                 )
+                Text(
+                    text = stringResource(R.string.plugin_config_backup_summary),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MonochromeUi.textSecondary,
+                )
+                TextButton(
+                    onClick = onOpenConfigBackup,
+                    modifier = Modifier.testTag("plugin-config-open-backup"),
+                ) {
+                    Text(stringResource(R.string.plugin_config_backup_action))
+                }
             }
         }
 
         items(sections, key = { it.name }) { section ->
             when (section) {
-                PluginConfigSection.StaticConfig -> {
+                PluginConfigSection.BasicSettings -> {
                     val staticConfigState = uiState.staticConfigUiState ?: return@items
                     PluginConfigSectionCard(
-                        title = stringResource(R.string.plugin_config_core_title),
-                        tag = PluginUiSpec.ConfigStaticSectionTag,
+                        title = stringResource(R.string.plugin_config_basic_title),
+                        tag = PluginUiSpec.ConfigBasicSectionTag,
                     ) {
                         PluginStaticConfigRenderer(
                             model = buildPluginStaticConfigRenderModel(
@@ -144,9 +152,9 @@ private fun PluginConfigWorkspace(
                     }
                 }
 
-                PluginConfigSection.RuntimeConfig -> {
+                PluginConfigSection.RuntimeSettings -> {
                     PluginConfigSectionCard(
-                        title = stringResource(R.string.plugin_config_extension_title),
+                        title = stringResource(R.string.plugin_config_runtime_title),
                         tag = PluginUiSpec.ConfigRuntimeSectionTag,
                     ) {
                         PluginSchemaRenderer(
@@ -154,6 +162,19 @@ private fun PluginConfigWorkspace(
                             onCardActionClick = onSchemaCardActionClick,
                             onSettingsDraftChange = onSettingsDraftChange,
                             modifier = Modifier.fillMaxWidth().testTag(PluginUiSpec.SchemaWorkspaceTag),
+                        )
+                    }
+                }
+
+                PluginConfigSection.DataSettings -> {
+                    PluginConfigSectionCard(
+                        title = stringResource(R.string.plugin_config_data_title),
+                        tag = PluginUiSpec.ConfigDataSectionTag,
+                    ) {
+                        Text(
+                            text = stringResource(R.string.plugin_config_data_message),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MonochromeUi.textSecondary,
                         )
                     }
                 }
@@ -178,10 +199,13 @@ private fun PluginConfigWorkspace(
 private fun buildConfigSections(uiState: PluginScreenUiState): List<PluginConfigSection> {
     return buildList {
         if (uiState.staticConfigUiState != null) {
-            add(PluginConfigSection.StaticConfig)
+            add(PluginConfigSection.BasicSettings)
         }
         if (uiState.schemaUiState !is PluginSchemaUiState.None) {
-            add(PluginConfigSection.RuntimeConfig)
+            add(PluginConfigSection.RuntimeSettings)
+        }
+        if (isNotEmpty()) {
+            add(PluginConfigSection.DataSettings)
         }
         if (isEmpty()) {
             add(PluginConfigSection.EmptyState)

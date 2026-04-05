@@ -12,14 +12,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.ArrowBack
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -30,17 +26,30 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.astrbot.android.R
+import com.astrbot.android.ui.AppDestination
+import com.astrbot.android.ui.RegisterSecondaryTopBar
+import com.astrbot.android.ui.SecondaryTopBarSpec
+import com.astrbot.android.ui.SecondaryTopBarPlaceholder
 import com.astrbot.android.di.astrBotViewModel
 import com.astrbot.android.ui.MonochromeUi
 import com.astrbot.android.ui.screen.plugin.PluginUiSpec
 import com.astrbot.android.ui.screen.plugin.schema.PluginSchemaRenderer
 import com.astrbot.android.ui.viewmodel.PluginActionFeedback
 import com.astrbot.android.ui.viewmodel.PluginHostWorkspaceUiState
+import com.astrbot.android.ui.viewmodel.PluginSchemaUiState
 import com.astrbot.android.ui.viewmodel.PluginScreenUiState
 import com.astrbot.android.ui.viewmodel.PluginViewModel
 import java.text.DateFormat
 import java.util.Date
 import java.util.Locale
+
+private enum class PluginWorkspaceSection {
+    ResourceArea,
+    ImportArea,
+    ExportArea,
+    CacheArea,
+    DebugArea,
+}
 
 @Composable
 fun PluginWorkspaceScreenRoute(
@@ -56,12 +65,18 @@ fun PluginWorkspaceScreenRoute(
     LaunchedEffect(pluginId) {
         pluginViewModel.selectPluginForWorkspace(pluginId)
     }
+    RegisterSecondaryTopBar(
+        route = AppDestination.PluginWorkspace.route,
+        spec = SecondaryTopBarSpec.SubPage(
+            title = stringResource(R.string.plugin_workspace_title),
+            onBack = onBack,
+        ),
+    )
 
     BoxWithPluginWorkspaceBackground {
         if (uiState.selectedPlugin != null) {
             PluginWorkspacePage(
                 uiState = uiState,
-                onBack = onBack,
                 onImport = { importLauncher.launch(arrayOf("*/*")) },
                 onDeleteFile = pluginViewModel::deleteWorkspaceFile,
                 onSchemaCardActionClick = pluginViewModel::onHostWorkspaceCardActionClick,
@@ -74,7 +89,6 @@ fun PluginWorkspaceScreenRoute(
 @Composable
 private fun PluginWorkspacePage(
     uiState: PluginScreenUiState,
-    onBack: () -> Unit,
     onImport: () -> Unit,
     onDeleteFile: (String) -> Unit,
     onSchemaCardActionClick: (String, Map<String, String>) -> Unit,
@@ -95,144 +109,149 @@ private fun PluginWorkspacePage(
         verticalArrangement = Arrangement.spacedBy(PluginUiSpec.SectionSpacing),
     ) {
         item {
-            TextButton(
-                onClick = onBack,
-                modifier = Modifier.testTag(PluginUiSpec.ConfigBackActionTag),
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.ArrowBack,
-                    contentDescription = null,
-                    tint = MonochromeUi.textSecondary,
-                )
-                Text(
-                    text = stringResource(R.string.common_back),
-                    color = MonochromeUi.textSecondary,
-                )
-            }
+            SecondaryTopBarPlaceholder()
         }
-        item {
-            PluginWorkspaceSectionCard(
-                title = stringResource(R.string.plugin_workspace_title),
-                tag = PluginUiSpec.WorkspaceSummaryTag,
-            ) {
-                Text(
-                    text = workspace.title,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MonochromeUi.textPrimary,
-                )
-                Text(
-                    text = workspace.description,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MonochromeUi.textSecondary,
-                )
-                WorkspacePathLine(
-                    label = stringResource(R.string.plugin_workspace_private_root_label),
-                    value = workspace.privateRootPath,
-                )
-                WorkspacePathLine(
-                    label = stringResource(R.string.plugin_workspace_imports_root_label),
-                    value = workspace.importsPath,
-                )
-                WorkspacePathLine(
-                    label = stringResource(R.string.plugin_workspace_runtime_root_label),
-                    value = workspace.runtimePath,
-                )
-            }
-        }
-        item {
-            PluginWorkspaceSectionCard(
-                title = stringResource(R.string.plugin_workspace_files_title),
-                tag = PluginUiSpec.WorkspaceFilesSectionTag,
-            ) {
-                workspace.lastActionMessage?.let { message ->
-                    Text(
-                        text = message.asWorkspaceText(),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MonochromeUi.textSecondary,
-                    )
-                }
-                OutlinedButton(
-                    onClick = onImport,
-                    enabled = !workspace.isImportActionRunning,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag(PluginUiSpec.WorkspaceImportActionTag),
-                ) {
-                    Text(stringResource(R.string.plugin_workspace_import_action))
-                }
-                if (workspace.files.isEmpty()) {
-                    Text(
-                        text = stringResource(R.string.plugin_workspace_empty_files),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MonochromeUi.textSecondary,
-                        modifier = Modifier.testTag(PluginUiSpec.WorkspaceEmptyFilesTag),
-                    )
-                } else {
-                    workspace.files.forEach { file ->
-                        Surface(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .testTag(PluginUiSpec.workspaceFileTag(file.relativePath)),
-                            shape = PluginUiSpec.SectionShape,
-                            color = MonochromeUi.cardBackground,
-                            border = PluginUiSpec.CardBorder,
+        items(buildWorkspaceSections(workspace), key = { it.name }) { section ->
+            when (section) {
+                    PluginWorkspaceSection.ResourceArea -> {
+                        PluginWorkspaceSectionCard(
+                            title = stringResource(R.string.plugin_workspace_resources_title),
+                            tag = PluginUiSpec.WorkspaceResourceSectionTag,
                         ) {
-                            Column(
-                                modifier = Modifier.padding(14.dp),
-                                verticalArrangement = Arrangement.spacedBy(6.dp),
-                            ) {
+                            Text(
+                                text = workspace.title,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MonochromeUi.textPrimary,
+                            )
+                            Text(
+                                text = workspace.description,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MonochromeUi.textSecondary,
+                            )
+                            WorkspacePathLine(
+                                label = stringResource(R.string.plugin_workspace_private_root_label),
+                                value = workspace.privateRootPath,
+                            )
+                            WorkspacePathLine(
+                                label = stringResource(R.string.plugin_workspace_runtime_root_label),
+                                value = workspace.runtimePath,
+                            )
+                        }
+                    }
+
+                    PluginWorkspaceSection.ImportArea -> {
+                        PluginWorkspaceSectionCard(
+                            title = stringResource(R.string.plugin_workspace_imports_title),
+                            tag = PluginUiSpec.WorkspaceImportSectionTag,
+                        ) {
+                            Text(
+                                text = stringResource(R.string.plugin_workspace_imports_summary),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MonochromeUi.textSecondary,
+                            )
+                            WorkspacePathLine(
+                                label = stringResource(R.string.plugin_workspace_imports_root_label),
+                                value = workspace.importsPath,
+                            )
+                            workspace.lastActionMessage?.let { message ->
                                 Text(
-                                    text = file.relativePath,
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    color = MonochromeUi.textPrimary,
-                                    fontWeight = FontWeight.Medium,
-                                )
-                                Text(
-                                    text = stringResource(
-                                        R.string.plugin_workspace_file_meta,
-                                        file.sizeBytes,
-                                        formatWorkspaceTimestamp(file.lastModifiedAtEpochMillis),
-                                    ),
-                                    style = MaterialTheme.typography.bodySmall,
+                                    text = message.asWorkspaceText(),
+                                    style = MaterialTheme.typography.bodyMedium,
                                     color = MonochromeUi.textSecondary,
                                 )
-                                OutlinedButton(
-                                    onClick = { onDeleteFile(file.relativePath) },
-                                    modifier = Modifier.testTag(
-                                        PluginUiSpec.workspaceDeleteActionTag(file.relativePath),
-                                    ),
-                                ) {
-                                    Text(stringResource(R.string.plugin_workspace_delete_action))
-                                }
+                            }
+                            OutlinedButton(
+                                onClick = onImport,
+                                enabled = !workspace.isImportActionRunning,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag(PluginUiSpec.WorkspaceImportActionTag),
+                            ) {
+                                Text(stringResource(R.string.plugin_workspace_import_action))
+                            }
+                            WorkspaceFileList(
+                                files = workspace.files.filter { it.relativePath.startsWith("imports/") },
+                                emptyMessage = stringResource(R.string.plugin_workspace_empty_files),
+                                onDeleteFile = onDeleteFile,
+                            )
+                        }
+                    }
+
+                    PluginWorkspaceSection.ExportArea -> {
+                        PluginWorkspaceSectionCard(
+                            title = stringResource(R.string.plugin_workspace_exports_title),
+                            tag = PluginUiSpec.WorkspaceExportSectionTag,
+                        ) {
+                            Text(
+                                text = stringResource(R.string.plugin_workspace_exports_summary),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MonochromeUi.textSecondary,
+                            )
+                            WorkspacePathLine(
+                                label = stringResource(R.string.plugin_workspace_exports_root_label),
+                                value = workspace.exportsPath,
+                            )
+                            WorkspaceFileList(
+                                files = workspace.files.filter { it.relativePath.startsWith("exports/") },
+                                emptyMessage = stringResource(R.string.plugin_workspace_exports_empty),
+                                onDeleteFile = onDeleteFile,
+                            )
+                        }
+                    }
+
+                    PluginWorkspaceSection.CacheArea -> {
+                        PluginWorkspaceSectionCard(
+                            title = stringResource(R.string.plugin_workspace_cache_title),
+                            tag = PluginUiSpec.WorkspaceCacheSectionTag,
+                        ) {
+                            WorkspacePathLine(
+                                label = stringResource(R.string.plugin_workspace_cache_root_label),
+                                value = workspace.cachePath,
+                            )
+                            WorkspaceFileList(
+                                files = workspace.files.filter { it.relativePath.startsWith("cache/") },
+                                emptyMessage = stringResource(R.string.plugin_workspace_cache_empty),
+                                onDeleteFile = onDeleteFile,
+                            )
+                        }
+                    }
+
+                    PluginWorkspaceSection.DebugArea -> {
+                        PluginWorkspaceSectionCard(
+                            title = stringResource(R.string.plugin_workspace_debug_title),
+                            tag = PluginUiSpec.WorkspaceDebugSectionTag,
+                        ) {
+                            if (workspace.managementSchemaState is PluginSchemaUiState.None) {
+                                Text(
+                                    text = stringResource(R.string.plugin_workspace_debug_empty),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MonochromeUi.textSecondary,
+                                )
+                            } else {
+                                PluginSchemaRenderer(
+                                    schemaUiState = workspace.managementSchemaState,
+                                    onCardActionClick = onSchemaCardActionClick,
+                                    onSettingsDraftChange = onSettingsDraftChange,
+                                    modifier = Modifier.fillMaxWidth().testTag(PluginUiSpec.SchemaWorkspaceTag),
+                                )
                             }
                         }
                     }
-                }
-            }
-        }
-        item {
-            PluginWorkspaceSectionCard(
-                title = stringResource(R.string.plugin_workspace_management_title),
-                tag = PluginUiSpec.WorkspaceManagementSectionTag,
-            ) {
-                if (workspace.managementSchemaState is com.astrbot.android.ui.viewmodel.PluginSchemaUiState.None) {
-                    Text(
-                        text = stringResource(R.string.plugin_config_empty_message),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MonochromeUi.textSecondary,
-                    )
-                } else {
-                    PluginSchemaRenderer(
-                        schemaUiState = workspace.managementSchemaState,
-                        onCardActionClick = onSchemaCardActionClick,
-                        onSettingsDraftChange = onSettingsDraftChange,
-                        modifier = Modifier.fillMaxWidth().testTag(PluginUiSpec.SchemaWorkspaceTag),
-                    )
-                }
             }
         }
     }
+}
+
+private fun buildWorkspaceSections(workspace: PluginHostWorkspaceUiState): List<PluginWorkspaceSection> {
+    if (!workspace.isVisible) return emptyList()
+    return listOf(
+        PluginWorkspaceSection.ResourceArea,
+        PluginWorkspaceSection.ImportArea,
+        PluginWorkspaceSection.ExportArea,
+        PluginWorkspaceSection.CacheArea,
+        PluginWorkspaceSection.DebugArea,
+    )
 }
 
 @Composable
@@ -272,6 +291,63 @@ private fun PluginWorkspaceSectionCard(
                 color = MonochromeUi.textPrimary,
             )
             content()
+        }
+    }
+}
+
+@Composable
+private fun WorkspaceFileList(
+    files: List<com.astrbot.android.ui.viewmodel.PluginHostWorkspaceFileUiState>,
+    emptyMessage: String,
+    onDeleteFile: (String) -> Unit,
+) {
+    if (files.isEmpty()) {
+        Text(
+            text = emptyMessage,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MonochromeUi.textSecondary,
+            modifier = Modifier.testTag(PluginUiSpec.WorkspaceEmptyFilesTag),
+        )
+        return
+    }
+
+    files.forEach { file ->
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag(PluginUiSpec.workspaceFileTag(file.relativePath)),
+            shape = PluginUiSpec.SectionShape,
+            color = MonochromeUi.cardBackground,
+            border = PluginUiSpec.CardBorder,
+        ) {
+            Column(
+                modifier = Modifier.padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text(
+                    text = file.relativePath,
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MonochromeUi.textPrimary,
+                    fontWeight = FontWeight.Medium,
+                )
+                Text(
+                    text = stringResource(
+                        R.string.plugin_workspace_file_meta,
+                        file.sizeBytes,
+                        formatWorkspaceTimestamp(file.lastModifiedAtEpochMillis),
+                    ),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MonochromeUi.textSecondary,
+                )
+                OutlinedButton(
+                    onClick = { onDeleteFile(file.relativePath) },
+                    modifier = Modifier.testTag(
+                        PluginUiSpec.workspaceDeleteActionTag(file.relativePath),
+                    ),
+                ) {
+                    Text(stringResource(R.string.plugin_workspace_delete_action))
+                }
+            }
         }
     }
 }

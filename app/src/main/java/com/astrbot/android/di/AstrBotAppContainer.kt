@@ -23,6 +23,7 @@ import com.astrbot.android.runtime.OneBotBridgeServer
 import com.astrbot.android.runtime.RuntimeLogRepository
 import com.astrbot.android.runtime.RuntimeSecretRepository
 import com.astrbot.android.runtime.TencentSilkEncoder
+import com.astrbot.android.runtime.plugin.PluginRuntimeLogCleanupRepository
 import com.astrbot.android.runtime.plugin.ExternalPluginRuntimeCatalog
 import com.astrbot.android.runtime.plugin.PluginRuntimeRegistry
 import com.astrbot.android.ui.viewmodel.BotViewModel
@@ -94,6 +95,7 @@ class AstrBotAppContainer(
         ConfigRepository.initialize(application)
         ConversationRepository.initialize(application)
         PluginRepository.initialize(application)
+        PluginRuntimeLogCleanupRepository.initialize(application)
         PluginRuntimeRegistry.registerExternalProvider {
             ExternalPluginRuntimeCatalog.plugins()
         }

@@ -4,6 +4,9 @@ import com.astrbot.android.model.plugin.ErrorResult
 import com.astrbot.android.model.plugin.PluginExecutionContext
 import com.astrbot.android.model.plugin.PluginExecutionResult
 import com.astrbot.android.model.plugin.PluginInstallState
+import com.astrbot.android.model.plugin.PluginRuntimeLogCategory
+import com.astrbot.android.model.plugin.PluginRuntimeLogLevel
+import com.astrbot.android.model.plugin.PluginRuntimeLogRecord
 import com.astrbot.android.model.plugin.PluginTriggerSource
 
 data class PluginExecutionOutcome(
@@ -21,19 +24,48 @@ data class PluginExecutionBatchResult(
     val trigger: PluginTriggerSource,
     val outcomes: List<PluginExecutionOutcome>,
     val skipped: List<PluginDispatchSkip>,
+    val merged: PluginExecutionMergeSnapshot = PluginExecutionMergeSnapshot(),
 )
 
 class PluginExecutionEngine(
     private val dispatcher: PluginRuntimeDispatcher,
     private val failureGuard: PluginFailureGuard,
+    private val clock: () -> Long = System::currentTimeMillis,
+    private val scheduler: PluginRuntimeScheduler = dispatcher.scheduler,
+    private val policyResolver: (PluginRuntimePlugin, PluginTriggerSource) -> PluginSchedulePolicy = dispatcher.policyResolver,
+    private val resultMerger: PluginExecutionResultMerger = PluginExecutionResultMerger(),
+    private val logBus: PluginRuntimeLogBus = PluginRuntimeLogBusProvider.bus(),
 ) {
     fun execute(
         plugin: PluginRuntimePlugin,
         context: PluginExecutionContext,
     ): PluginExecutionOutcome {
         val normalizedContext = normalizeContext(plugin = plugin, context = context)
+        val startedAt = clock()
+        val policy = policyResolver(plugin, normalizedContext.trigger)
         return try {
             val result = plugin.handler.execute(normalizedContext)
+            val durationMillis = (clock() - startedAt).coerceAtLeast(0L)
+            scheduler.recordSuccess(
+                pluginId = plugin.pluginId,
+                trigger = normalizedContext.trigger,
+                policy = policy,
+            )
+            logBus.publish(
+                PluginRuntimeLogRecord(
+                    occurredAtEpochMillis = startedAt,
+                    pluginId = plugin.pluginId,
+                    pluginVersion = plugin.pluginVersion,
+                    trigger = normalizedContext.trigger,
+                    category = PluginRuntimeLogCategory.Execution,
+                    level = PluginRuntimeLogLevel.Info,
+                    code = "execution_succeeded",
+                    message = "Plugin execution succeeded.",
+                    succeeded = true,
+                    durationMillis = durationMillis,
+                    resultType = result.runtimeResultTypeWire(),
+                ),
+            )
             PluginExecutionOutcome(
                 pluginId = plugin.pluginId,
                 pluginVersion = plugin.pluginVersion,
@@ -41,9 +73,33 @@ class PluginExecutionEngine(
                 context = normalizedContext,
                 result = result,
                 succeeded = true,
-                failureSnapshot = failureGuard.recordSuccess(plugin.pluginId),
+                failureSnapshot = failureGuard.recordSuccess(
+                    pluginId = plugin.pluginId,
+                    trigger = normalizedContext.trigger,
+                ),
             )
         } catch (error: Throwable) {
+            val durationMillis = (clock() - startedAt).coerceAtLeast(0L)
+            scheduler.recordFailure(
+                pluginId = plugin.pluginId,
+                trigger = normalizedContext.trigger,
+                policy = policy,
+            )
+            logBus.publish(
+                PluginRuntimeLogRecord(
+                    occurredAtEpochMillis = startedAt,
+                    pluginId = plugin.pluginId,
+                    pluginVersion = plugin.pluginVersion,
+                    trigger = normalizedContext.trigger,
+                    category = PluginRuntimeLogCategory.Execution,
+                    level = PluginRuntimeLogLevel.Error,
+                    code = "execution_failed",
+                    message = error.message ?: "Plugin execution failed.",
+                    succeeded = false,
+                    durationMillis = durationMillis,
+                    resultType = "error",
+                ),
+            )
             PluginExecutionOutcome(
                 pluginId = plugin.pluginId,
                 pluginVersion = plugin.pluginVersion,
@@ -57,6 +113,7 @@ class PluginExecutionEngine(
                 succeeded = false,
                 failureSnapshot = failureGuard.recordFailure(
                     pluginId = plugin.pluginId,
+                    trigger = normalizedContext.trigger,
                     errorSummary = error.message?.takeIf { it.isNotBlank() }
                         ?: error.javaClass.simpleName,
                 ),
@@ -72,15 +129,20 @@ class PluginExecutionEngine(
     ): PluginExecutionBatchResult {
         val plan = dispatcher.dispatch(trigger = trigger, plugins = plugins)
         val outcomes = plan.executable.map { plugin ->
+            val batchContext = contextFactory(plugin).copy(trigger = trigger)
             execute(
                 plugin = plugin,
-                context = contextFactory(plugin),
+                context = batchContext,
             )
         }
         return PluginExecutionBatchResult(
             trigger = trigger,
             outcomes = outcomes,
             skipped = plan.skipped,
+            merged = resultMerger.merge(
+                trigger = trigger,
+                outcomes = outcomes,
+            ),
         )
     }
 

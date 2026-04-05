@@ -454,6 +454,16 @@ private class FakePluginViewModelDependencies(
         return PluginHostWorkspaceSnapshot()
     }
 
+    override fun clearPluginFailureState(pluginId: String): PluginInstallRecord {
+        val updated = requireNotNull(recordsState.value.firstOrNull { it.pluginId == pluginId }).copyWith(
+            failureState = PluginFailureState.none(),
+        )
+        recordsState.value = recordsState.value.map { record ->
+            if (record.pluginId == pluginId) updated else record
+        }
+        return updated
+    }
+
     override fun setPluginEnabled(pluginId: String, enabled: Boolean): PluginInstallRecord {
         val updated = requireNotNull(recordsState.value.firstOrNull { it.pluginId == pluginId }).copyWith(
             enabled = enabled,

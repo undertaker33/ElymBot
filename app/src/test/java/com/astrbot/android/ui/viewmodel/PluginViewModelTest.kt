@@ -26,6 +26,7 @@ import com.astrbot.android.model.plugin.PluginCatalogEntry
 import com.astrbot.android.model.plugin.PluginCatalogEntryRecord
 import com.astrbot.android.model.plugin.PluginCatalogVersion
 import com.astrbot.android.model.plugin.PluginConfigStoreSnapshot
+import com.astrbot.android.model.plugin.PluginConfigStorageBoundary
 import com.astrbot.android.model.plugin.PluginInstallIntentResult
 import com.astrbot.android.model.plugin.PluginMediaItem
 import com.astrbot.android.model.plugin.PluginSelectOption
@@ -479,6 +480,241 @@ class PluginViewModelTest {
     }
 
     @Test
+    fun retry_selected_plugin_clears_failure_state_and_reenables_plugin() = runTest(dispatcher) {
+        val deps = FakePluginDependencies(
+            listOf(
+                pluginRecord(
+                    pluginId = "plugin-1",
+                    enabled = false,
+                    failureState = PluginFailureState(
+                        consecutiveFailureCount = 3,
+                        lastFailureAtEpochMillis = 1_000L,
+                        lastErrorSummary = "socket timeout",
+                        suspendedUntilEpochMillis = 4_102_444_800_000L,
+                    ),
+                ),
+            ),
+        )
+        val viewModel = PluginViewModel(deps)
+        advanceUntilIdle()
+
+        viewModel.selectPlugin("plugin-1")
+        advanceUntilIdle()
+
+        pluginViewModelMethod("retrySelectedPlugin").invoke(viewModel)
+        advanceUntilIdle()
+
+        assertEquals(listOf("plugin-1"), deps.clearedFailurePluginIds)
+        assertEquals(listOf("plugin-1" to true), deps.enableRequests)
+        assertNull(viewModel.uiState.value.detailActionState.failureState)
+    }
+
+    @Test
+    fun restore_selected_plugin_default_config_resets_static_and_runtime_drafts() = runTest(dispatcher) {
+        val deps = FakePluginDependencies(
+            records = listOf(pluginRecord(pluginId = "plugin-1")),
+            staticSchemas = mapOf(
+                "plugin-1" to PluginStaticConfigSchema(
+                    fields = listOf(
+                        PluginStaticConfigField(
+                            fieldKey = "token",
+                            fieldType = PluginStaticConfigFieldType.StringField,
+                            defaultValue = PluginStaticConfigValue.StringValue("sk-demo"),
+                        ),
+                    ),
+                ),
+            ),
+            configSnapshots = mapOf(
+                "plugin-1" to PluginConfigStorageBoundary(
+                    coreFieldKeys = setOf("token"),
+                    extensionFieldKeys = setOf("enabled"),
+                    coreDefaults = mapOf("token" to PluginStaticConfigValue.StringValue("sk-demo")),
+                ).createSnapshot(
+                    coreValues = mapOf("token" to PluginStaticConfigValue.StringValue("sk-live")),
+                    extensionValues = mapOf("enabled" to PluginStaticConfigValue.BoolValue(true)),
+                ),
+            ),
+        )
+        PluginRuntimeRegistry.registerProvider {
+            listOf(
+                runtimePlugin(pluginId = "plugin-1") {
+                    SettingsUiRequest(
+                        schema = PluginSettingsSchema(
+                            title = "Runtime Settings",
+                            sections = listOf(
+                                PluginSettingsSection(
+                                    sectionId = "general",
+                                    title = "General",
+                                    fields = listOf(
+                                        ToggleSettingField(
+                                            fieldId = "enabled",
+                                            label = "Enabled",
+                                            defaultValue = false,
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        ),
+                    )
+                },
+            )
+        }
+
+        val viewModel = PluginViewModel(deps)
+        advanceUntilIdle()
+
+        viewModel.selectPluginForConfig("plugin-1")
+        advanceUntilIdle()
+
+        pluginViewModelMethod("restoreSelectedPluginDefaultConfig").invoke(viewModel)
+        advanceUntilIdle()
+
+        val staticConfigState = requireNotNull(viewModel.uiState.value.staticConfigUiState)
+        assertEquals(
+            PluginSettingDraftValue.Text("sk-demo"),
+            staticConfigState.draftValues["token"],
+        )
+
+        val runtimeState = viewModel.uiState.value.schemaUiState as PluginSchemaUiState.Settings
+        assertEquals(
+            PluginSettingDraftValue.Toggle(false),
+            runtimeState.draftValues["enabled"],
+        )
+        assertEquals(
+            mapOf("token" to PluginStaticConfigValue.StringValue("sk-demo")),
+            deps.lastSavedCoreValues,
+        )
+        assertEquals(
+            mapOf("enabled" to PluginStaticConfigValue.BoolValue(false)),
+            deps.lastSavedExtensionValues,
+        )
+    }
+
+    @Test
+    fun clear_selected_plugin_cache_removes_only_cache_files() = runTest(dispatcher) {
+        val deps = FakePluginDependencies(
+            records = listOf(pluginRecord(pluginId = "plugin-1")),
+            workspaceSnapshots = mapOf(
+                "plugin-1" to PluginHostWorkspaceSnapshot(
+                    privateRootPath = "/data/user/0/com.astrbot/files/plugins/private/plugin-1",
+                    importsPath = "/data/user/0/com.astrbot/files/plugins/private/plugin-1/imports",
+                    runtimePath = "/data/user/0/com.astrbot/files/plugins/private/plugin-1/runtime",
+                    exportsPath = "/data/user/0/com.astrbot/files/plugins/private/plugin-1/exports",
+                    cachePath = "/data/user/0/com.astrbot/files/plugins/private/plugin-1/cache",
+                    files = listOf(
+                        PluginWorkspaceFileEntry(relativePath = "cache/runtime/state.json", sizeBytes = 10, lastModifiedAtEpochMillis = 1L),
+                        PluginWorkspaceFileEntry(relativePath = "exports/report.txt", sizeBytes = 20, lastModifiedAtEpochMillis = 2L),
+                    ),
+                ),
+            ),
+        )
+        val viewModel = PluginViewModel(deps)
+        advanceUntilIdle()
+
+        viewModel.selectPluginForWorkspace("plugin-1")
+        advanceUntilIdle()
+
+        pluginViewModelMethod("clearSelectedPluginCache").invoke(viewModel)
+        advanceUntilIdle()
+
+        assertEquals(listOf("cache/runtime/state.json"), deps.deletedWorkspaceFiles)
+        assertEquals(
+            listOf("exports/report.txt"),
+            viewModel.uiState.value.hostWorkspaceState.files.map { it.relativePath },
+        )
+    }
+
+    @Test
+    fun clear_selected_plugin_cache_retries_recoverable_plugin_after_cleanup() = runTest(dispatcher) {
+        val deps = FakePluginDependencies(
+            records = listOf(
+                pluginRecord(
+                    pluginId = "plugin-1",
+                    enabled = false,
+                    failureState = PluginFailureState(
+                        consecutiveFailureCount = 1,
+                        lastFailureAtEpochMillis = 123L,
+                        lastErrorSummary = "Disk cache corrupted",
+                        suspendedUntilEpochMillis = null,
+                    ),
+                ),
+            ),
+            workspaceSnapshots = mapOf(
+                "plugin-1" to PluginHostWorkspaceSnapshot(
+                    privateRootPath = "/data/user/0/com.astrbot/files/plugins/private/plugin-1",
+                    importsPath = "/data/user/0/com.astrbot/files/plugins/private/plugin-1/imports",
+                    runtimePath = "/data/user/0/com.astrbot/files/plugins/private/plugin-1/runtime",
+                    exportsPath = "/data/user/0/com.astrbot/files/plugins/private/plugin-1/exports",
+                    cachePath = "/data/user/0/com.astrbot/files/plugins/private/plugin-1/cache",
+                    files = listOf(
+                        PluginWorkspaceFileEntry(relativePath = "cache/runtime/state.json", sizeBytes = 10, lastModifiedAtEpochMillis = 1L),
+                    ),
+                ),
+            ),
+        )
+        val viewModel = PluginViewModel(deps)
+        advanceUntilIdle()
+
+        viewModel.selectPluginForWorkspace("plugin-1")
+        advanceUntilIdle()
+
+        pluginViewModelMethod("clearSelectedPluginCache").invoke(viewModel)
+        advanceUntilIdle()
+
+        assertEquals(listOf("cache/runtime/state.json"), deps.deletedWorkspaceFiles)
+        assertEquals(listOf("plugin-1"), deps.clearedFailurePluginIds)
+        assertEquals(listOf("plugin-1" to true), deps.enableRequests)
+        val feedback = viewModel.uiState.value.detailActionState.lastActionMessage
+        assertTrue(feedback is PluginActionFeedback.Text)
+        feedback as PluginActionFeedback.Text
+        assertTrue(feedback.value.contains("cache cleared", ignoreCase = true))
+        assertTrue(feedback.value.contains("retry", ignoreCase = true))
+    }
+
+    @Test
+    fun selected_plugin_diagnostics_report_contains_failure_and_update_context() = runTest(dispatcher) {
+        val deps = FakePluginDependencies(
+            records = listOf(
+                pluginRecord(
+                    pluginId = "plugin-1",
+                    enabled = false,
+                    failureState = PluginFailureState(
+                        consecutiveFailureCount = 2,
+                        lastFailureAtEpochMillis = 1_000L,
+                        lastErrorSummary = "socket timeout",
+                        suspendedUntilEpochMillis = null,
+                    ),
+                ),
+            ),
+            updateAvailabilities = mapOf(
+                "plugin-1" to PluginUpdateAvailability(
+                    pluginId = "plugin-1",
+                    installedVersion = "1.0.0",
+                    latestVersion = "1.1.0",
+                    updateAvailable = true,
+                    canUpgrade = false,
+                    changelogSummary = "Adds recovery summary",
+                    incompatibilityReason = "Host version is below required minimum 2.0.0.",
+                    catalogSourceId = "repo-1",
+                    packageUrl = "https://repo.example.com/packages/plugin-1-1.1.0.zip",
+                ),
+            ),
+        )
+        val viewModel = PluginViewModel(deps)
+        advanceUntilIdle()
+
+        viewModel.selectPlugin("plugin-1")
+        advanceUntilIdle()
+
+        val report = pluginViewModelMethod("buildSelectedPluginDiagnosticsReport").invoke(viewModel) as String
+
+        assertTrue(report.contains("plugin-1"))
+        assertTrue(report.contains("socket timeout"))
+        assertTrue(report.contains("1.1.0"))
+        assertTrue(report.contains("Host version is below required minimum 2.0.0."))
+    }
+
+    @Test
     fun update_uninstall_policy_persists_selection_and_uninstall_uses_selected_policy() = runTest(dispatcher) {
         val deps = FakePluginDependencies(
             listOf(pluginRecord(pluginId = "plugin-1", uninstallPolicy = PluginUninstallPolicy.KEEP_DATA)),
@@ -599,6 +835,14 @@ class PluginViewModelTest {
         assertTrue(feedback is PluginActionFeedback.Text)
         feedback as PluginActionFeedback.Text
         assertTrue(feedback.value.contains("Installed", ignoreCase = true))
+
+        val followUpGuide = viewModel.uiState.value.installFollowUpGuide
+        assertEquals("local-import", followUpGuide?.pluginId)
+        assertEquals("local-import", followUpGuide?.pluginTitle)
+        assertEquals("AstrBot", followUpGuide?.author)
+        assertEquals(1, followUpGuide?.permissionCount)
+        assertEquals("js_quickjs", followUpGuide?.runtimeLabel)
+        assertEquals(true, followUpGuide?.canEnableNow)
     }
 
     @Test
@@ -628,6 +872,7 @@ class PluginViewModelTest {
             ),
             deps.handledInstallIntents,
         )
+        assertNull(viewModel.uiState.value.installFollowUpGuide)
     }
 
     @Test
@@ -1613,6 +1858,8 @@ class PluginViewModelTest {
         val localPackageUris = mutableListOf<String>()
         val upgradeRequests = mutableListOf<PluginUpdateAvailability>()
         val workspaceImportUris = mutableListOf<String>()
+        val clearedFailurePluginIds = mutableListOf<String>()
+        val deletedWorkspaceFiles = mutableListOf<String>()
         var lastUpdatedPolicy: PluginUninstallPolicy? = null
         var lastUninstallPolicy: PluginUninstallPolicy? = null
         var localPackageInstallError: Throwable? = null
@@ -1696,11 +1943,24 @@ class PluginViewModelTest {
             pluginId: String,
             relativePath: String,
         ): PluginHostWorkspaceSnapshot {
+            deletedWorkspaceFiles += relativePath
             val current = workspaceSnapshotsByPluginId[pluginId] ?: PluginHostWorkspaceSnapshot()
             val updated = current.copy(
                 files = current.files.filterNot { it.relativePath == relativePath },
             )
             workspaceSnapshotsByPluginId[pluginId] = updated
+            return updated
+        }
+
+        override fun clearPluginFailureState(pluginId: String): PluginInstallRecord {
+            clearedFailurePluginIds += pluginId
+            val updated = requireNotNull(recordsFlow.value.firstOrNull { it.pluginId == pluginId }).withOverrides(
+                failureState = PluginFailureState.none(),
+                lastUpdatedAt = 88L,
+            )
+            recordsFlow.value = recordsFlow.value.map { record ->
+                if (record.pluginId == pluginId) updated else record
+            }
             return updated
         }
 
@@ -1782,6 +2042,7 @@ class PluginViewModelTest {
             updateAvailabilitiesFlow.value = updateAvailabilitiesFlow.value - update.pluginId
             return upgraded
         }
+
     }
 
     private fun pluginRecord(

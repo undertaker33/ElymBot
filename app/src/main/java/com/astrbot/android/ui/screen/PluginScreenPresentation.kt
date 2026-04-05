@@ -28,6 +28,7 @@ enum class PluginQuickInstallMode {
 }
 
 enum class PluginLocalFilter {
+    ALL,
     ENABLED,
     DISABLED,
     UPDATES,
@@ -36,6 +37,7 @@ enum class PluginLocalFilter {
 enum class PluginInstalledLibraryFilter {
     All,
     Enabled,
+    Disabled,
     Updates,
     Issues,
     PermissionChanges,
@@ -73,6 +75,27 @@ enum class PluginInstalledLibraryPrimaryAction {
     Update,
 }
 
+enum class PluginInstalledLibraryBulkAction {
+    ReviewIssues,
+    ReviewUpdates,
+    ReviewDisabled,
+}
+
+data class PluginInstalledLibrarySummaryPresentation(
+    val totalCount: Int,
+    val enabledCount: Int,
+    val needsReviewCount: Int,
+    val updatesCount: Int,
+    val disabledCount: Int,
+)
+
+data class PluginInstalledLibraryBulkActionPresentation(
+    val action: PluginInstalledLibraryBulkAction,
+    val count: Int,
+    val targetFilter: PluginInstalledLibraryFilter,
+    val enabled: Boolean,
+)
+
 data class PluginInstalledLibraryFilterPresentation(
     val filter: PluginInstalledLibraryFilter,
     val count: Int,
@@ -94,6 +117,8 @@ data class PluginInstalledLibraryCardPresentation(
 )
 
 data class PluginInstalledLibraryPresentation(
+    val summary: PluginInstalledLibrarySummaryPresentation,
+    val bulkActions: List<PluginInstalledLibraryBulkActionPresentation>,
     val filters: List<PluginInstalledLibraryFilterPresentation>,
     val cards: List<PluginInstalledLibraryCardPresentation>,
 )
@@ -135,6 +160,10 @@ data class PluginQuickInstallPresentation(
     val showLocalZipAction: Boolean,
     val showRepositoryUrlForm: Boolean,
     val showDirectPackageUrlForm: Boolean,
+    val promotedModes: List<PluginQuickInstallMode>,
+    val advancedModes: List<PluginQuickInstallMode>,
+    val isAdvancedModeSelected: Boolean,
+    val showInstallReadinessChecklist: Boolean,
 )
 
 data class PluginLocalInstallSheetPresentation(
@@ -156,9 +185,9 @@ data class PluginPermissionPresentation(
 internal fun buildPluginHomepageSections(): List<PluginHomepageSection> {
     return listOf(
         PluginHomepageSection.Hero,
-        PluginHomepageSection.QuickInstall,
         PluginHomepageSection.HealthOverview,
         PluginHomepageSection.InstalledLibrary,
+        PluginHomepageSection.QuickInstall,
         PluginHomepageSection.Discover,
         PluginHomepageSection.Repositories,
     )
@@ -192,6 +221,7 @@ internal fun buildPluginLocalWorkspacePresentation(
         .sortedBy { it.title.lowercase() }
     return PluginLocalWorkspacePresentation(
         filters = listOf(
+            PluginLocalFilter.ALL,
             PluginLocalFilter.ENABLED,
             PluginLocalFilter.DISABLED,
             PluginLocalFilter.UPDATES,
@@ -227,9 +257,37 @@ internal fun buildPluginInstalledLibraryPresentation(
                 .thenBy { it.pluginId },
         )
     return PluginInstalledLibraryPresentation(
+        summary = PluginInstalledLibrarySummaryPresentation(
+            totalCount = cards.size,
+            enabledCount = cards.count { it.isEnabled },
+            needsReviewCount = cards.count { it.priority != PluginInstalledLibraryPriority.Normal },
+            updatesCount = cards.count { it.hasUpdateAvailable },
+            disabledCount = cards.count { !it.isEnabled },
+        ),
+        bulkActions = listOf(
+            PluginInstalledLibraryBulkActionPresentation(
+                action = PluginInstalledLibraryBulkAction.ReviewIssues,
+                count = cards.count { it.priority != PluginInstalledLibraryPriority.Normal },
+                targetFilter = PluginInstalledLibraryFilter.Issues,
+                enabled = cards.any { it.priority != PluginInstalledLibraryPriority.Normal },
+            ),
+            PluginInstalledLibraryBulkActionPresentation(
+                action = PluginInstalledLibraryBulkAction.ReviewUpdates,
+                count = cards.count { it.hasUpdateAvailable },
+                targetFilter = PluginInstalledLibraryFilter.Updates,
+                enabled = cards.any { it.hasUpdateAvailable },
+            ),
+            PluginInstalledLibraryBulkActionPresentation(
+                action = PluginInstalledLibraryBulkAction.ReviewDisabled,
+                count = cards.count { !it.isEnabled },
+                targetFilter = PluginInstalledLibraryFilter.Disabled,
+                enabled = cards.any { !it.isEnabled },
+            ),
+        ),
         filters = listOf(
             PluginInstalledLibraryFilter.All,
             PluginInstalledLibraryFilter.Enabled,
+            PluginInstalledLibraryFilter.Disabled,
             PluginInstalledLibraryFilter.Updates,
             PluginInstalledLibraryFilter.Issues,
             PluginInstalledLibraryFilter.PermissionChanges,
@@ -275,6 +333,13 @@ internal fun buildPluginQuickInstallPresentation(
         showLocalZipAction = selectedMode == PluginQuickInstallMode.LocalZip,
         showRepositoryUrlForm = selectedMode == PluginQuickInstallMode.RepositoryUrl,
         showDirectPackageUrlForm = selectedMode == PluginQuickInstallMode.DirectPackageUrl,
+        promotedModes = listOf(
+            PluginQuickInstallMode.LocalZip,
+            PluginQuickInstallMode.RepositoryUrl,
+        ),
+        advancedModes = listOf(PluginQuickInstallMode.DirectPackageUrl),
+        isAdvancedModeSelected = selectedMode == PluginQuickInstallMode.DirectPackageUrl,
+        showInstallReadinessChecklist = true,
     )
 }
 
@@ -458,6 +523,7 @@ private fun PluginInstalledLibraryCardPresentation.matchesFilter(filter: PluginI
     return when (filter) {
         PluginInstalledLibraryFilter.All -> true
         PluginInstalledLibraryFilter.Enabled -> isEnabled
+        PluginInstalledLibraryFilter.Disabled -> !isEnabled
         PluginInstalledLibraryFilter.Updates -> hasUpdateAvailable
         PluginInstalledLibraryFilter.Issues -> priority != PluginInstalledLibraryPriority.Normal
         PluginInstalledLibraryFilter.PermissionChanges -> hasPermissionChanges
@@ -473,6 +539,7 @@ private fun PluginLocalCardPresentation.matchesSearch(query: String): Boolean {
 
 private fun PluginLocalCardPresentation.matchesLocalFilter(filter: PluginLocalFilter): Boolean {
     return when (filter) {
+        PluginLocalFilter.ALL -> true
         PluginLocalFilter.ENABLED -> isEnabled
         PluginLocalFilter.DISABLED -> !isEnabled
         PluginLocalFilter.UPDATES -> hasUpdateAvailable

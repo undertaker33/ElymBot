@@ -23,7 +23,9 @@ import com.astrbot.android.runtime.plugin.ExternalPluginBridgeRuntime
 import com.astrbot.android.runtime.plugin.ExternalPluginRuntimeCatalog
 import com.astrbot.android.runtime.plugin.DefaultAppChatPluginRuntime
 import com.astrbot.android.runtime.plugin.InMemoryPluginFailureStateStore
+import com.astrbot.android.runtime.plugin.InMemoryPluginScopedFailureStateStore
 import com.astrbot.android.runtime.plugin.PluginRuntimeFailureStateStoreProvider
+import com.astrbot.android.runtime.plugin.PluginRuntimeScopedFailureStateStoreProvider
 import com.astrbot.android.runtime.plugin.PluginRuntimeRegistry
 import com.astrbot.android.runtime.plugin.RecordingExternalPluginScriptExecutor
 import com.astrbot.android.runtime.plugin.createQuickJsExternalPluginInstallRecord
@@ -439,6 +441,9 @@ class OneBotBridgeServerTest {
         val providerSnapshot = ProviderRepository.snapshotProfiles()
         val sessionSnapshot = ConversationRepository.snapshotSessions()
         try {
+            PluginRuntimeScopedFailureStateStoreProvider.setStoreOverrideForTests(
+                InMemoryPluginScopedFailureStateStore(),
+            )
             BotRepository.restoreProfiles(listOf(bot), bot.id)
             ConfigRepository.restoreProfiles(listOf(config), config.id)
             ProviderRepository.restoreProfiles(providers)
@@ -448,6 +453,7 @@ class OneBotBridgeServerTest {
             ChatCompletionService.setHttpClientOverrideForTests(null)
             PluginRuntimeRegistry.reset()
             PluginRuntimeFailureStateStoreProvider.setStoreOverrideForTests(null)
+            PluginRuntimeScopedFailureStateStoreProvider.setStoreOverrideForTests(null)
             BotRepository.restoreProfiles(botSnapshot, selectedBotIdSnapshot)
             ConfigRepository.restoreProfiles(configSnapshot, selectedConfigIdSnapshot)
             ProviderRepository.restoreProfiles(providerSnapshot)

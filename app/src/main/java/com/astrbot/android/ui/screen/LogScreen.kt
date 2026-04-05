@@ -19,15 +19,23 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import com.astrbot.android.R
 import com.astrbot.android.di.astrBotViewModel
+import com.astrbot.android.runtime.RuntimeLogCleanupRepository
 import com.astrbot.android.runtime.RuntimeLogRepository
 import com.astrbot.android.ui.MonochromeUi
 import com.astrbot.android.ui.viewmodel.ChatViewModel
@@ -40,17 +48,40 @@ fun LogScreen(
     showContext: Boolean,
 ) {
     val logs by RuntimeLogRepository.logs.collectAsState()
+    val cleanupSettings by RuntimeLogCleanupRepository.settings.collectAsState()
     val sessions by conversationViewModel.sessions.collectAsState()
     val uiState by chatViewModel.uiState.collectAsState()
     val clipboardManager = LocalClipboardManager.current
     val context = LocalContext.current
     val joinedLogs = logs.joinToString(separator = "\n")
+    var showCleanupDialog by remember { mutableStateOf(false) }
     val contextPreview = if (sessions.isEmpty()) "" else conversationViewModel.contextPreview(uiState.selectedSessionId)
-    val displayTitle = if (showContext) "Context" else "Logs"
-    val displayText = if (showContext) {
-        contextPreview.ifBlank { "No context preview yet." }
+    val displayTitle = if (showContext) {
+        stringResource(R.string.log_screen_context_title)
     } else {
-        joinedLogs.ifBlank { "No logs yet." }
+        stringResource(R.string.log_screen_logs_title)
+    }
+    val displayText = if (showContext) {
+        contextPreview.ifBlank { context.getString(R.string.log_screen_context_empty) }
+    } else {
+        joinedLogs.ifBlank { context.getString(R.string.log_screen_logs_empty) }
+    }
+
+    LaunchedEffect(context) {
+        RuntimeLogCleanupRepository.initialize(context.applicationContext)
+    }
+    LaunchedEffect(
+        showContext,
+        cleanupSettings.enabled,
+        cleanupSettings.intervalHours,
+        cleanupSettings.intervalMinutes,
+        cleanupSettings.lastCleanupAtEpochMillis,
+    ) {
+        if (!showContext) {
+            RuntimeLogCleanupRepository.maybeAutoClear {
+                RuntimeLogRepository.clear()
+            }
+        }
     }
 
     Column(
@@ -69,7 +100,11 @@ fun LogScreen(
                     clipboardManager.setText(AnnotatedString(displayText))
                     Toast.makeText(
                         context,
-                        if (showContext) "Context copied" else "Logs copied",
+                        if (showContext) {
+                            context.getString(R.string.log_screen_context_copy_success)
+                        } else {
+                            context.getString(R.string.log_screen_logs_copy_success)
+                        },
                         Toast.LENGTH_SHORT,
                     ).show()
                 },
@@ -79,16 +114,29 @@ fun LogScreen(
                     contentColor = MonochromeUi.strongText,
                 ),
             ) {
-                Text("Copy all")
+                Text(
+                    text = stringResource(R.string.plugin_logs_copy_all),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
             OutlinedButton(
                 onClick = {
                     if (showContext) {
                         conversationViewModel.replaceMessages(uiState.selectedSessionId, emptyList())
-                        Toast.makeText(context, "Context cleared", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(
+                            context,
+                            context.getString(R.string.log_screen_context_clear_success),
+                            Toast.LENGTH_SHORT,
+                        ).show()
                     } else {
                         RuntimeLogRepository.clear()
-                        Toast.makeText(context, "Logs cleared", Toast.LENGTH_SHORT).show()
+                        RuntimeLogCleanupRepository.recordCleanup()
+                        Toast.makeText(
+                            context,
+                            context.getString(R.string.log_screen_logs_clear_success),
+                            Toast.LENGTH_SHORT,
+                        ).show()
                     }
                 },
                 enabled = if (showContext) contextPreview.isNotBlank() else logs.isNotEmpty(),
@@ -97,55 +145,65 @@ fun LogScreen(
                     disabledContentColor = MonochromeUi.textSecondary,
                 ),
             ) {
-                Text("Clear")
+                Text(
+                    text = stringResource(R.string.plugin_logs_clear),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            if (!showContext) {
+                OutlinedButton(
+                    onClick = { showCleanupDialog = true },
+                ) {
+                    Text(
+                        text = stringResource(R.string.plugin_logs_auto_clear_action),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
         }
-        LogPanel(
+        if (!showContext) {
+            Text(
+                text = stringResource(
+                    R.string.plugin_logs_auto_clear_summary,
+                    formatTimedCleanupInterval(
+                        enabled = cleanupSettings.enabled,
+                        intervalHours = cleanupSettings.intervalHours,
+                        intervalMinutes = cleanupSettings.intervalMinutes,
+                    ),
+                ),
+                style = MaterialTheme.typography.labelSmall,
+                color = MonochromeUi.textSecondary,
+            )
+        }
+        RuntimeLogPanel(
             title = displayTitle,
             content = displayText,
             modifier = Modifier.weight(1f),
         )
     }
-}
 
-@Composable
-private fun LogPanel(
-    title: String,
-    content: String,
-    modifier: Modifier = Modifier,
-) {
-    val scrollState = rememberScrollState()
-
-    Surface(
-        modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(26.dp),
-        tonalElevation = 2.dp,
-        color = MonochromeUi.cardBackground,
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleMedium,
-                color = MonochromeUi.textPrimary,
-            )
-            SelectionContainer {
-                Text(
-                    text = content,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(MonochromeUi.inputBackground, RoundedCornerShape(20.dp))
-                        .padding(horizontal = 14.dp, vertical = 12.dp)
-                        .verticalScroll(scrollState),
-                    color = MonochromeUi.textPrimary,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontFamily = FontFamily.Monospace,
+    if (showCleanupDialog && !showContext) {
+        TimedCleanupDialog(
+            enabled = cleanupSettings.enabled,
+            intervalHours = cleanupSettings.intervalHours,
+            intervalMinutes = cleanupSettings.intervalMinutes,
+            titleResId = R.string.plugin_logs_cleanup_dialog_title,
+            hoursResId = R.string.plugin_logs_cleanup_hours,
+            minutesResId = R.string.plugin_logs_cleanup_minutes,
+            enableResId = R.string.plugin_logs_cleanup_enable,
+            invalidIntervalResId = R.string.plugin_logs_cleanup_interval_invalid,
+            dialogTag = "runtime-log-cleanup-dialog",
+            onDismiss = { showCleanupDialog = false },
+            onConfirm = { enabled, hours, minutes ->
+                RuntimeLogCleanupRepository.updateSettings(
+                    enabled = enabled,
+                    intervalHours = hours,
+                    intervalMinutes = minutes,
                 )
-            }
-        }
+                showCleanupDialog = false
+            },
+        )
     }
 }

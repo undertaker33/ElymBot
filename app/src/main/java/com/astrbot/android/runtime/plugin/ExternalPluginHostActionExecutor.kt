@@ -4,6 +4,9 @@ import com.astrbot.android.model.plugin.ExternalPluginHostActionPolicy
 import com.astrbot.android.model.plugin.HostActionRequest
 import com.astrbot.android.model.plugin.PluginExecutionContext
 import com.astrbot.android.model.plugin.PluginHostAction
+import com.astrbot.android.model.plugin.PluginRuntimeLogCategory
+import com.astrbot.android.model.plugin.PluginRuntimeLogLevel
+import com.astrbot.android.model.plugin.PluginRuntimeLogRecord
 
 data class ExternalPluginHostActionExecutionResult(
     val action: PluginHostAction,
@@ -17,6 +20,8 @@ class ExternalPluginHostActionExecutor(
     private val failureGuard: PluginFailureGuard = PluginFailureGuard(
         store = PluginRuntimeFailureStateStoreProvider.store(),
     ),
+    private val logBus: PluginRuntimeLogBus = PluginRuntimeLogBusProvider.bus(),
+    private val clock: () -> Long = System::currentTimeMillis,
     private val sendMessageHandler: (String) -> Unit = {},
     private val sendNotificationHandler: (String, String) -> Unit = { _, _ -> },
     private val openHostPageHandler: (String) -> Unit = {},
@@ -26,8 +31,25 @@ class ExternalPluginHostActionExecutor(
         request: HostActionRequest,
         context: PluginExecutionContext,
     ): ExternalPluginHostActionExecutionResult {
-        val suspendedSnapshot = failureGuard.snapshot(pluginId)
+        val suspendedSnapshot = failureGuard.snapshot(
+            pluginId = pluginId,
+            trigger = context.trigger,
+        )
         if (suspendedSnapshot.isSuspended) {
+            logBus.publish(
+                PluginRuntimeLogRecord(
+                    occurredAtEpochMillis = clock(),
+                    pluginId = pluginId,
+                    pluginVersion = context.pluginVersion,
+                    trigger = context.trigger,
+                    category = PluginRuntimeLogCategory.HostAction,
+                    level = PluginRuntimeLogLevel.Warning,
+                    code = "host_action_blocked",
+                    message = "Plugin is suspended because recent host actions failed.",
+                    succeeded = false,
+                    hostAction = request.action,
+                ),
+            )
             return ExternalPluginHostActionExecutionResult(
                 action = request.action,
                 succeeded = false,
@@ -39,22 +61,55 @@ class ExternalPluginHostActionExecutor(
         return runCatching {
             validate(request = request, context = context)
             val message = perform(request)
+            logBus.publish(
+                PluginRuntimeLogRecord(
+                    occurredAtEpochMillis = clock(),
+                    pluginId = pluginId,
+                    pluginVersion = context.pluginVersion,
+                    trigger = context.trigger,
+                    category = PluginRuntimeLogCategory.HostAction,
+                    level = PluginRuntimeLogLevel.Info,
+                    code = "host_action_succeeded",
+                    message = message,
+                    succeeded = true,
+                    hostAction = request.action,
+                ),
+            )
             ExternalPluginHostActionExecutionResult(
                 action = request.action,
                 succeeded = true,
                 message = message,
-                failureSnapshot = failureGuard.recordSuccess(pluginId),
+                failureSnapshot = failureGuard.recordSuccess(
+                    pluginId = pluginId,
+                    trigger = context.trigger,
+                ),
             )
         }.getOrElse { error ->
             val message = error.message ?: "Host action execution failed."
             val failureSnapshot = failureGuard.recordFailure(
                 pluginId = pluginId,
+                trigger = context.trigger,
                 errorSummary = message,
+            )
+            logBus.publish(
+                PluginRuntimeLogRecord(
+                    occurredAtEpochMillis = clock(),
+                    pluginId = pluginId,
+                    pluginVersion = context.pluginVersion,
+                    trigger = context.trigger,
+                    category = PluginRuntimeLogCategory.HostAction,
+                    level = PluginRuntimeLogLevel.Error,
+                    code = "host_action_failed",
+                    message = message,
+                    succeeded = false,
+                    hostAction = request.action,
+                    metadata = mapOf("failureCode" to failureCode(message)),
+                ),
             )
             ExternalPluginHostActionExecutionResult(
                 action = request.action,
                 succeeded = false,
-                code = failureCode(request.action, message),
+                code = failureCode(message),
                 message = message,
                 failureSnapshot = failureSnapshot,
             )
@@ -112,10 +167,7 @@ class ExternalPluginHostActionExecutor(
         }
     }
 
-    private fun failureCode(
-        action: PluginHostAction,
-        message: String,
-    ): String {
+    private fun failureCode(message: String): String {
         return when {
             message.contains("not open for v1", ignoreCase = true) -> "host_action_not_open"
             message.contains("whitelist", ignoreCase = true) -> "host_action_not_whitelisted"

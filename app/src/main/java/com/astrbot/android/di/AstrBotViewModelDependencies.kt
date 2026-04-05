@@ -466,6 +466,8 @@ interface PluginViewModelDependencies {
         relativePath: String,
     ): PluginHostWorkspaceSnapshot
 
+    fun clearPluginFailureState(pluginId: String): PluginInstallRecord
+
     fun setPluginEnabled(pluginId: String, enabled: Boolean): PluginInstallRecord
 
     fun updatePluginUninstallPolicy(pluginId: String, policy: PluginUninstallPolicy): PluginInstallRecord
@@ -623,6 +625,10 @@ object DefaultPluginViewModelDependencies : PluginViewModelDependencies {
             storagePaths = storagePaths,
             pluginId = pluginId,
         )
+    }
+
+    override fun clearPluginFailureState(pluginId: String): PluginInstallRecord {
+        return PluginRepository.clearFailureState(pluginId)
     }
 
     override fun setPluginEnabled(pluginId: String, enabled: Boolean): PluginInstallRecord {

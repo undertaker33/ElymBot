@@ -11,7 +11,9 @@ class DefaultAppChatPluginRuntimeTest {
     fun default_app_chat_runtime_writes_failures_into_shared_store() {
         val attempts = AtomicInteger(0)
         val sharedStore = InMemoryPluginFailureStateStore()
+        val scopedStore = InMemoryPluginScopedFailureStateStore()
         PluginRuntimeFailureStateStoreProvider.setStoreOverrideForTests(sharedStore)
+        PluginRuntimeScopedFailureStateStoreProvider.setStoreOverrideForTests(scopedStore)
         PluginRuntimeRegistry.registerProvider {
             listOf(
                 runtimePlugin(
@@ -40,6 +42,7 @@ class DefaultAppChatPluginRuntimeTest {
         } finally {
             PluginRuntimeRegistry.reset()
             PluginRuntimeFailureStateStoreProvider.setStoreOverrideForTests(null)
+            PluginRuntimeScopedFailureStateStoreProvider.setStoreOverrideForTests(null)
         }
     }
 }

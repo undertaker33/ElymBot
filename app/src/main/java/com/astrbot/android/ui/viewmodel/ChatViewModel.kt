@@ -38,8 +38,10 @@ import com.astrbot.android.model.plugin.TextResult
 import com.astrbot.android.model.hasNativeStreamingSupport
 import com.astrbot.android.runtime.plugin.AppChatPluginRuntime
 import com.astrbot.android.runtime.plugin.DefaultAppChatPluginRuntime
+import com.astrbot.android.runtime.plugin.DefaultPluginHostCapabilityGateway
 import com.astrbot.android.runtime.plugin.ExternalPluginHostActionExecutor
 import com.astrbot.android.runtime.plugin.PluginDispatchSkipReason
+import com.astrbot.android.runtime.plugin.PluginExecutionHostApi
 import com.astrbot.android.runtime.plugin.PluginRuntimePlugin
 import com.astrbot.android.runtime.botcommand.BotCommandContext
 import com.astrbot.android.runtime.botcommand.BotCommandParser
@@ -77,6 +79,7 @@ class ChatViewModel(
     private val appChatPluginRuntime: AppChatPluginRuntime = DefaultAppChatPluginRuntime,
     private val ioDispatcher: CoroutineContext = Dispatchers.IO,
 ) : ViewModel() {
+    private val hostCapabilityGateway = DefaultPluginHostCapabilityGateway()
     val bots = dependencies.bots
     val providers = dependencies.providers
     val configProfiles = dependencies.configProfiles
@@ -773,6 +776,11 @@ class ChatViewModel(
                 "App chat plugin skipped: trigger=${trigger.wireValue} plugin=${skip.plugin.pluginId} reason=${skip.reason.name}",
             )
         }
+        batch.merged.conflicts.forEach { conflict ->
+            dependencies.log(
+                "App chat plugin merge conflict: trigger=${trigger.wireValue} plugin=${conflict.pluginId} overriddenBy=${conflict.overriddenByPluginId} type=${conflict.resultType}",
+            )
+        }
         batch.outcomes.forEach { outcome ->
             val resultName = outcome.result::class.simpleName ?: "UnknownResult"
             if (outcome.succeeded) {
@@ -821,7 +829,7 @@ class ChatViewModel(
         config: ConfigProfile?,
     ): PluginExecutionContext {
         val messagePreview = message.content.take(500)
-        return PluginExecutionContext(
+        val base = PluginExecutionContext(
             trigger = trigger,
             pluginId = plugin.pluginId,
             pluginVersion = plugin.pluginVersion,
@@ -872,6 +880,7 @@ class ChatViewModel(
                 extras = mapOf("source" to "app_chat"),
             ),
         )
+        return hostCapabilityGateway.injectContext(base)
     }
 
     private fun consumePluginCommandResult(
@@ -913,7 +922,8 @@ class ChatViewModel(
 
             is HostActionRequest -> {
                 val emittedMessages = mutableListOf<String>()
-                val executor = ExternalPluginHostActionExecutor(
+                val execution = DefaultPluginHostCapabilityGateway(
+                    hostActionExecutor = ExternalPluginHostActionExecutor(
                     sendMessageHandler = { text -> emittedMessages += text },
                     sendNotificationHandler = { title, message ->
                         dependencies.log("Plugin notification requested: title=$title message=$message")
@@ -921,8 +931,8 @@ class ChatViewModel(
                     openHostPageHandler = { route ->
                         dependencies.log("Plugin requested host page: route=$route")
                     },
-                )
-                val execution = executor.execute(
+                ),
+                ).executeHostAction(
                     pluginId = pluginId,
                     request = result,
                     context = context,

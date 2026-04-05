@@ -64,7 +64,7 @@ class PluginScreenPresentationTest {
         val filters = propertyValue<List<*>>(presentation, "filters")
         val cards = propertyValue<List<*>>(presentation, "cards")
 
-        assertEquals(listOf("ENABLED", "DISABLED", "UPDATES"), filters.map { propertyValue<Enum<*>>(it, "filter").name })
+        assertEquals(listOf("ALL", "ENABLED", "DISABLED", "UPDATES"), filters.map { propertyValue<Enum<*>>(it, "filter").name })
         assertEquals(listOf("update"), cards.map { propertyValue<String>(it, "pluginId") })
         assertEquals("Weather Toolkit", propertyValue<String>(cards.single(), "title"))
         assertEquals("Alice", propertyValue<String>(cards.single(), "author"))
@@ -80,13 +80,13 @@ class PluginScreenPresentationTest {
     }
 
     @Test
-    fun `homepage section builder keeps hero quick install health overview installed discover repositories order`() {
+    fun `homepage section builder keeps hero health installed quick install discover repositories order`() {
         assertEquals(
             listOf(
                 PluginHomepageSection.Hero,
-                PluginHomepageSection.QuickInstall,
                 PluginHomepageSection.HealthOverview,
                 PluginHomepageSection.InstalledLibrary,
+                PluginHomepageSection.QuickInstall,
                 PluginHomepageSection.Discover,
                 PluginHomepageSection.Repositories,
             ),
@@ -118,6 +118,13 @@ class PluginScreenPresentationTest {
                 showLocalZipAction = true,
                 showRepositoryUrlForm = false,
                 showDirectPackageUrlForm = false,
+                promotedModes = listOf(
+                    PluginQuickInstallMode.LocalZip,
+                    PluginQuickInstallMode.RepositoryUrl,
+                ),
+                advancedModes = listOf(PluginQuickInstallMode.DirectPackageUrl),
+                isAdvancedModeSelected = false,
+                showInstallReadinessChecklist = true,
             ),
             local,
         )
@@ -127,6 +134,13 @@ class PluginScreenPresentationTest {
                 showLocalZipAction = false,
                 showRepositoryUrlForm = true,
                 showDirectPackageUrlForm = false,
+                promotedModes = listOf(
+                    PluginQuickInstallMode.LocalZip,
+                    PluginQuickInstallMode.RepositoryUrl,
+                ),
+                advancedModes = listOf(PluginQuickInstallMode.DirectPackageUrl),
+                isAdvancedModeSelected = false,
+                showInstallReadinessChecklist = true,
             ),
             repository,
         )
@@ -136,6 +150,13 @@ class PluginScreenPresentationTest {
                 showLocalZipAction = false,
                 showRepositoryUrlForm = false,
                 showDirectPackageUrlForm = true,
+                promotedModes = listOf(
+                    PluginQuickInstallMode.LocalZip,
+                    PluginQuickInstallMode.RepositoryUrl,
+                ),
+                advancedModes = listOf(PluginQuickInstallMode.DirectPackageUrl),
+                isAdvancedModeSelected = true,
+                showInstallReadinessChecklist = true,
             ),
             direct,
         )
@@ -303,6 +324,7 @@ class PluginScreenPresentationTest {
             listOf(
                 PluginInstalledLibraryFilter.All,
                 PluginInstalledLibraryFilter.Enabled,
+                PluginInstalledLibraryFilter.Disabled,
                 PluginInstalledLibraryFilter.Updates,
                 PluginInstalledLibraryFilter.Issues,
                 PluginInstalledLibraryFilter.PermissionChanges,
@@ -396,6 +418,80 @@ class PluginScreenPresentationTest {
                 contentColor = errorPalette.contentColor,
             ),
             installedLibraryBadgePalette(PluginInstalledLibraryPriority.Critical),
+        )
+    }
+
+    @Test
+    fun `installed library presentation exposes summary counts and batch shortcuts`() {
+        val enabled = installedPluginRecord("enabled", enabled = true)
+        val disabled = installedPluginRecord("disabled", enabled = false)
+        val update = installedPluginRecord("update", enabled = true)
+        val incompatible = installedPluginRecord(
+            pluginId = "incompatible",
+            enabled = true,
+            compatibilityState = PluginCompatibilityState.evaluated(
+                protocolSupported = false,
+                minHostVersionSatisfied = true,
+                maxHostVersionSatisfied = true,
+            ),
+        )
+        val suspended = installedPluginRecord(
+            pluginId = "suspended",
+            enabled = false,
+            failureState = PluginFailureState(
+                consecutiveFailureCount = 4,
+                lastFailureAtEpochMillis = 1L,
+                lastErrorSummary = "socket timeout",
+                suspendedUntilEpochMillis = 4_102_444_800_000L,
+            ),
+        )
+
+        val uiState = PluginScreenUiState(
+            records = listOf(enabled, disabled, update, incompatible, suspended),
+            updateAvailabilitiesByPluginId = mapOf(
+                "update" to PluginUpdateAvailability(
+                    pluginId = "update",
+                    installedVersion = "1.0.0",
+                    latestVersion = "1.1.0",
+                    updateAvailable = true,
+                    canUpgrade = true,
+                    changelogSummary = "Adds more weather cards.",
+                    catalogSourceId = "repo-1",
+                    packageUrl = "https://repo.example.com/packages/update-1.1.0.zip",
+                ),
+            ),
+            failureStatesByPluginId = mapOf(
+                "suspended" to PluginFailureUiState(
+                    consecutiveFailureCount = 4,
+                    isSuspended = true,
+                    statusMessage = PluginActionFeedback.Text("Suspended"),
+                    summaryMessage = PluginActionFeedback.Text("Repeated failures"),
+                    recoveryMessage = PluginActionFeedback.Text("Recover"),
+                ),
+            ),
+        )
+
+        val presentation = buildPluginInstalledLibraryPresentation(
+            uiState = uiState,
+            selectedFilter = PluginInstalledLibraryFilter.All,
+        )
+
+        val summary = propertyValue<Any>(presentation, "summary")
+        assertEquals(5, propertyValue<Int>(summary, "totalCount"))
+        assertEquals(3, propertyValue<Int>(summary, "enabledCount"))
+        assertEquals(3, propertyValue<Int>(summary, "needsReviewCount"))
+        assertEquals(1, propertyValue<Int>(summary, "updatesCount"))
+        assertEquals(2, propertyValue<Int>(summary, "disabledCount"))
+
+        val bulkActions = propertyValue<List<*>>(presentation, "bulkActions")
+        assertEquals(
+            listOf("ReviewIssues", "ReviewUpdates", "ReviewDisabled"),
+            bulkActions.map { propertyValue<Enum<*>>(it, "action").name },
+        )
+        assertEquals(listOf(3, 1, 2), bulkActions.map { propertyValue<Int>(it, "count") })
+        assertEquals(
+            listOf("Issues", "Updates", "Disabled"),
+            bulkActions.map { propertyValue<Enum<*>>(it, "targetFilter").name },
         )
     }
 

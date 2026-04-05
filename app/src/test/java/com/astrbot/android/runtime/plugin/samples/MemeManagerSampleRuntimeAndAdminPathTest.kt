@@ -467,6 +467,28 @@ private class MinimalPluginViewModelDeps(
         return PluginHostWorkspaceSnapshot()
     }
 
+    override fun clearPluginFailureState(pluginId: String): PluginInstallRecord {
+        val current = recordsFlow.value.first { it.pluginId == pluginId }
+        val updated = PluginInstallRecord.restoreFromPersistedState(
+            manifestSnapshot = current.manifestSnapshot,
+            source = current.source,
+            permissionSnapshot = current.permissionSnapshot,
+            compatibilityState = current.compatibilityState,
+            uninstallPolicy = current.uninstallPolicy,
+            enabled = current.enabled,
+            failureState = com.astrbot.android.model.plugin.PluginFailureState.none(),
+            catalogSourceId = current.catalogSourceId,
+            installedPackageUrl = current.installedPackageUrl,
+            lastCatalogCheckAtEpochMillis = current.lastCatalogCheckAtEpochMillis,
+            installedAt = current.installedAt,
+            lastUpdatedAt = current.lastUpdatedAt,
+            localPackagePath = current.localPackagePath,
+            extractedDir = current.extractedDir,
+        )
+        recordsFlow.value = recordsFlow.value.map { if (it.pluginId == pluginId) updated else it }
+        return updated
+    }
+
     override fun setPluginEnabled(pluginId: String, enabled: Boolean): PluginInstallRecord {
         val current = recordsFlow.value.first { it.pluginId == pluginId }
         val updated = PluginInstallRecord.restoreFromPersistedState(
