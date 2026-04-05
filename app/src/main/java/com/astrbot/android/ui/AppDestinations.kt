@@ -22,6 +22,12 @@ internal sealed class AppDestination(
     data object PluginWorkspace : AppDestination("plugins/detail/{pluginId}/workspace", Icons.Outlined.Memory) {
         fun routeFor(pluginId: String): String = "plugins/detail/$pluginId/workspace"
     }
+    data object PluginLogs : AppDestination("plugins/detail/{pluginId}/logs", Icons.AutoMirrored.Outlined.List) {
+        fun routeFor(pluginId: String): String = "plugins/detail/$pluginId/logs"
+    }
+    data object PluginTriggers : AppDestination("plugins/detail/{pluginId}/triggers", Icons.AutoMirrored.Outlined.List) {
+        fun routeFor(pluginId: String): String = "plugins/detail/$pluginId/triggers"
+    }
     data object PluginConfig : AppDestination("plugins/detail/{pluginId}/config", Icons.Outlined.Settings) {
         fun routeFor(pluginId: String): String = "plugins/detail/$pluginId/config"
     }

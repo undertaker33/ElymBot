@@ -42,6 +42,7 @@ import com.astrbot.android.model.plugin.PluginStaticConfigSchema
 import com.astrbot.android.model.plugin.PluginStaticConfigValue
 import com.astrbot.android.model.plugin.PluginHostWorkspaceSnapshot
 import com.astrbot.android.model.plugin.resolveGovernanceSnapshot
+import com.astrbot.android.model.plugin.toStorageBoundary
 import com.astrbot.android.model.plugin.PluginUpdateAvailability
 import com.astrbot.android.model.plugin.PluginTriggerMetadata
 import com.astrbot.android.model.plugin.PluginTriggerSource
@@ -52,7 +53,14 @@ import com.astrbot.android.model.plugin.TextResult
 import com.astrbot.android.model.plugin.TextInputSettingField
 import com.astrbot.android.model.plugin.ToggleSettingField
 import com.astrbot.android.runtime.plugin.ExternalPluginHostActionExecutor
+import com.astrbot.android.runtime.plugin.DefaultPluginHostCapabilityGateway
+import com.astrbot.android.runtime.plugin.PluginExecutionHostApi
+import com.astrbot.android.runtime.plugin.PluginExecutionHostSnapshot
+import com.astrbot.android.runtime.plugin.PluginExecutionEngine
+import com.astrbot.android.runtime.plugin.PluginFailureGuard
 import com.astrbot.android.runtime.plugin.PluginRuntimePlugin
+import com.astrbot.android.runtime.plugin.PluginRuntimeDispatcher
+import com.astrbot.android.runtime.plugin.PluginRuntimeFailureStateStoreProvider
 import com.astrbot.android.runtime.plugin.PluginRuntimeRegistry
 import com.astrbot.android.runtime.plugin.compareVersions
 import com.astrbot.android.ui.screen.PluginLocalFilter
@@ -139,13 +147,14 @@ data class PluginScreenUiState(
     val updateAvailabilitiesByPluginId: Map<String, PluginUpdateAvailability> = emptyMap(),
     val failureStatesByPluginId: Map<String, PluginFailureUiState> = emptyMap(),
     val localSearchQuery: String = "",
-    val selectedLocalFilter: PluginLocalFilter = PluginLocalFilter.ENABLED,
+    val selectedLocalFilter: PluginLocalFilter = PluginLocalFilter.ALL,
     val repositoryUrlDraft: String = "",
     val directPackageUrlDraft: String = "",
     val isInstallActionRunning: Boolean = false,
     val selectedPluginId: String? = null,
     val selectedPlugin: PluginInstallRecord? = null,
     val isShowingDetail: Boolean = false,
+    val installFollowUpGuide: PluginInstallFollowUpGuideState? = null,
     val detailMetadataState: PluginDetailMetadataState = PluginDetailMetadataState(),
     val detailActionState: PluginDetailActionState = PluginDetailActionState(),
     val upgradeDialogState: PluginUpgradeDialogState? = null,
@@ -165,6 +174,16 @@ data class PluginDetailActionState(
     val uninstallPolicy: PluginUninstallPolicy = PluginUninstallPolicy.default(),
     val lastActionMessage: PluginActionFeedback? = null,
     val failureState: PluginFailureUiState? = null,
+)
+
+data class PluginInstallFollowUpGuideState(
+    val pluginId: String,
+    val pluginTitle: String,
+    val author: String,
+    val permissionCount: Int,
+    val runtimeLabel: String,
+    val riskLabel: String,
+    val canEnableNow: Boolean,
 )
 
 data class PluginUpgradeDialogState(
@@ -266,7 +285,9 @@ data class PluginHostWorkspaceUiState(
 class PluginViewModel(
     private val dependencies: PluginViewModelDependencies = DefaultPluginViewModelDependencies,
 ) : ViewModel() {
-    private val hostActionExecutor = ExternalPluginHostActionExecutor()
+    private val hostCapabilityGateway = DefaultPluginHostCapabilityGateway(
+        hostActionExecutor = ExternalPluginHostActionExecutor(),
+    )
     private val selectedPluginId = MutableStateFlow<String?>(null)
     private val showingDetail = MutableStateFlow(false)
     private val lastActionMessage = MutableStateFlow<PluginActionFeedback?>(null)
@@ -279,9 +300,10 @@ class PluginViewModel(
     private val repositoryUrlDraft = MutableStateFlow("")
     private val directPackageUrlDraft = MutableStateFlow("")
     private val installActionRunning = MutableStateFlow(false)
+    private val installFollowUpGuide = MutableStateFlow<PluginInstallFollowUpGuideState?>(null)
     private val upgradeDialogState = MutableStateFlow<PluginUpgradeDialogState?>(null)
     private val localSearchQuery = MutableStateFlow("")
-    private val selectedLocalFilter = MutableStateFlow(PluginLocalFilter.ENABLED)
+    private val selectedLocalFilter = MutableStateFlow(PluginLocalFilter.ALL)
     private var currentConfigBoundary: PluginConfigStorageBoundary? = null
 
     val uiState: StateFlow<PluginScreenUiState> = combine(
@@ -368,6 +390,8 @@ class PluginViewModel(
         state.copy(directPackageUrlDraft = directDraft)
     }.combine(installActionRunning) { state, isInstallRunning ->
         state.copy(isInstallActionRunning = isInstallRunning)
+    }.combine(installFollowUpGuide) { state, followUpGuide ->
+        state.copy(installFollowUpGuide = followUpGuide)
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.Eagerly,
@@ -495,6 +519,7 @@ class PluginViewModel(
             runCatching {
                 dependencies.installFromLocalPackageUri(uri)
             }.onSuccess { result ->
+                installFollowUpGuide.value = result.toInstallFollowUpGuide()
                 lastActionMessage.value = result.toFeedback()
             }.onFailure { error ->
                 lastActionMessage.value = PluginActionFeedback.Text(
@@ -566,6 +591,16 @@ class PluginViewModel(
 
     fun disableSelectedPlugin() {
         updateSelectedPluginEnabled(enabled = false)
+    }
+
+    fun enablePluginFromInstallGuide(pluginId: String) {
+        selectPlugin(pluginId)
+        enableSelectedPlugin()
+        installFollowUpGuide.value = null
+    }
+
+    fun dismissInstallFollowUpGuide() {
+        installFollowUpGuide.value = null
     }
 
     fun onSchemaCardActionClick(
@@ -698,6 +733,7 @@ class PluginViewModel(
                 dependencies.handleInstallIntent(intent)
             }.onSuccess { result ->
                 onSuccess()
+                installFollowUpGuide.value = result.toInstallFollowUpGuide()
                 lastActionMessage.value = result.toFeedback()
             }.onFailure { error ->
                 lastActionMessage.value = PluginActionFeedback.Text(
@@ -835,11 +871,21 @@ class PluginViewModel(
             runtime = runtime,
             entryPoint = entryPoint,
         )
-        val result = runCatching {
-            runtime.handler.execute(context)
-        }.getOrElse { throwable ->
-            ErrorResult(message = throwable.message ?: "Plugin runtime failed")
+        val execution = runCatching {
+            val failureGuard = PluginFailureGuard(
+                store = PluginRuntimeFailureStateStoreProvider.store(),
+            )
+            PluginExecutionEngine(
+                dispatcher = PluginRuntimeDispatcher(failureGuard),
+                failureGuard = failureGuard,
+            ).execute(
+                plugin = runtime,
+                context = context,
+            )
         }
+        val result = execution.getOrNull()?.result ?: ErrorResult(
+            message = execution.exceptionOrNull()?.message ?: "Plugin runtime failed",
+        )
         return result.toSchemaUiState(
             record = record,
             context = context,
@@ -851,7 +897,16 @@ class PluginViewModel(
         runtime: PluginRuntimePlugin,
         entryPoint: String,
     ): PluginExecutionContext {
-        return PluginExecutionContext(
+        val staticBoundary = dependencies.getPluginStaticConfigSchema(record.pluginId)?.toStorageBoundary()
+        val configSnapshot = staticBoundary?.let { boundary ->
+            runCatching {
+                dependencies.resolvePluginConfigSnapshot(
+                    pluginId = record.pluginId,
+                    boundary = boundary,
+                )
+            }.getOrDefault(com.astrbot.android.model.plugin.PluginConfigStoreSnapshot())
+        } ?: com.astrbot.android.model.plugin.PluginConfigStoreSnapshot()
+        val base = PluginExecutionContext(
             trigger = PluginTriggerSource.OnPluginEntryClick,
             pluginId = runtime.pluginId,
             pluginVersion = runtime.pluginVersion,
@@ -883,6 +938,14 @@ class PluginViewModel(
             hostActionWhitelist = ExternalPluginHostActionPolicy.openActions(),
             triggerMetadata = PluginTriggerMetadata(
                 entryPoint = entryPoint,
+            ),
+        )
+        return PluginExecutionHostApi.inject(
+            context = base,
+            hostSnapshot = PluginExecutionHostSnapshot(
+                workspaceSnapshot = dependencies.resolvePluginWorkspaceSnapshot(record.pluginId),
+                configBoundary = staticBoundary,
+                configSnapshot = configSnapshot,
             ),
         )
     }
@@ -917,7 +980,7 @@ class PluginViewModel(
                 PluginSchemaUiState.Error(error.message ?: "Plugin media result is invalid")
             }
             is HostActionRequest -> {
-                val execution = hostActionExecutor.execute(
+                val execution = hostCapabilityGateway.executeHostAction(
                     pluginId = record.pluginId,
                     request = this,
                     context = context,
@@ -990,6 +1053,118 @@ class PluginViewModel(
                 error.message ?: "Plugin workspace delete failed.",
             )
         }
+    }
+
+    fun retrySelectedPlugin() {
+        val selected = uiState.value.selectedPlugin ?: return
+        runCatching {
+            val recovered = dependencies.clearPluginFailureState(selected.pluginId)
+            if (!recovered.enabled) {
+                dependencies.setPluginEnabled(selected.pluginId, true)
+            } else {
+                recovered
+            }
+        }.onSuccess { record ->
+            lastActionMessage.value = PluginActionFeedback.Text(
+                "Recovery retry started for ${record.manifestSnapshot.title}.",
+            )
+        }.onFailure { error ->
+            lastActionMessage.value = PluginActionFeedback.Text(
+                error.message ?: "Recovery retry failed.",
+            )
+        }
+    }
+
+    fun restoreSelectedPluginDefaultConfig() {
+        val selectedPluginId = uiState.value.selectedPluginId ?: return
+        val staticResetState = staticConfigUiState.value?.schema?.toUiState(emptyMap())
+        if (staticResetState != null) {
+            staticConfigUiState.value = staticResetState
+            persistStaticConfig(staticResetState)
+        }
+
+        val runtimeResetState = (schemaUiState.value as? PluginSchemaUiState.Settings)?.let { settingsState ->
+            settingsState.copy(draftValues = settingsState.schema.defaultDraftValues())
+        }
+        if (runtimeResetState != null) {
+            schemaUiState.value = runtimeResetState
+            persistRuntimeConfig(runtimeResetState)
+        }
+
+        lastActionMessage.value = PluginActionFeedback.Text(
+            "Restored default settings for $selectedPluginId.",
+        )
+    }
+
+    fun clearSelectedPluginCache() {
+        val selected = uiState.value.selectedPlugin ?: return
+        val pluginId = selected.pluginId
+        val cacheFiles = hostWorkspaceSnapshot.value.files
+            .map { it.relativePath }
+            .filter { it.startsWith("cache/") }
+        if (cacheFiles.isEmpty()) {
+            val feedback = PluginActionFeedback.Text("No cache files were found.")
+            hostWorkspaceActionMessage.value = feedback
+            lastActionMessage.value = feedback
+            return
+        }
+        runCatching {
+            cacheFiles.fold(hostWorkspaceSnapshot.value) { _, relativePath ->
+                dependencies.deletePluginWorkspaceFile(
+                    pluginId = pluginId,
+                    relativePath = relativePath,
+                )
+            }
+        }.onSuccess { snapshot ->
+            hostWorkspaceSnapshot.value = snapshot
+            val recoveryRecord = if (selected.failureState.hasFailures) {
+                val recovered = dependencies.clearPluginFailureState(pluginId)
+                if (!recovered.enabled) {
+                    dependencies.setPluginEnabled(pluginId, true)
+                } else {
+                    recovered
+                }
+            } else {
+                null
+            }
+            val feedback = if (recoveryRecord != null) {
+                PluginActionFeedback.Text(
+                    "Plugin cache cleared. Recovery retry started for ${recoveryRecord.manifestSnapshot.title}.",
+                )
+            } else {
+                PluginActionFeedback.Text("Plugin cache cleared.")
+            }
+            hostWorkspaceActionMessage.value = feedback
+            lastActionMessage.value = feedback
+        }.onFailure { error ->
+            val feedback = PluginActionFeedback.Text(
+                error.message ?: "Plugin cache clear failed.",
+            )
+            hostWorkspaceActionMessage.value = feedback
+            lastActionMessage.value = feedback
+        }
+    }
+
+    fun buildSelectedPluginDiagnosticsReport(): String {
+        val selected = uiState.value.selectedPlugin ?: return "No plugin selected."
+        val update = uiState.value.updateAvailabilitiesByPluginId[selected.pluginId]
+        val failure = selected.failureState
+        return buildString {
+            appendLine("pluginId=${selected.pluginId}")
+            appendLine("title=${selected.manifestSnapshot.title}")
+            appendLine("installedVersion=${selected.installedVersion}")
+            appendLine("enabled=${selected.enabled}")
+            appendLine("sourceType=${selected.source.sourceType}")
+            appendLine("compatibility=${selected.compatibilityState.status}")
+            appendLine("compatibilityNotes=${selected.compatibilityState.notes}")
+            appendLine("failureCount=${failure.consecutiveFailureCount}")
+            appendLine("lastError=${failure.lastErrorSummary}")
+            appendLine("suspendedUntil=${failure.suspendedUntilEpochMillis ?: "none"}")
+            appendLine("updateAvailable=${update?.updateAvailable == true}")
+            appendLine("latestVersion=${update?.latestVersion.orEmpty()}")
+            appendLine("upgradeBlockedReason=${update?.incompatibilityReason.orEmpty()}")
+            appendLine("workspaceCache=${hostWorkspaceSnapshot.value.cachePath}")
+        }.trim()
     }
 
     private fun PluginSettingsSchema.defaultDraftValues(): Map<String, PluginSettingDraftValue> {
@@ -1441,6 +1616,25 @@ class PluginViewModel(
                 "Repository synced: ${syncState.sourceId}.",
             )
             PluginInstallIntentResult.Ignored -> PluginActionFeedback.Text("Plugin action completed.")
+        }
+    }
+
+    private fun PluginInstallIntentResult.toInstallFollowUpGuide(): PluginInstallFollowUpGuideState? {
+        return when (this) {
+            is PluginInstallIntentResult.Installed -> PluginInstallFollowUpGuideState(
+                pluginId = record.pluginId,
+                pluginTitle = record.manifestSnapshot.title,
+                author = record.manifestSnapshot.author,
+                permissionCount = record.permissionSnapshot.size,
+                runtimeLabel = "js_quickjs",
+                riskLabel = record.manifestSnapshot.riskLevel.name.lowercase(Locale.ROOT),
+                canEnableNow = !record.enabled &&
+                    record.compatibilityState.isCompatible() &&
+                    !record.failureState.hasFailures,
+            )
+            is PluginInstallIntentResult.RepositorySynced,
+            PluginInstallIntentResult.Ignored,
+            -> null
         }
     }
 }

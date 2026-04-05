@@ -14,7 +14,7 @@ import org.junit.Test
 class PluginDetailPresentationTest {
 
     @Test
-    fun `detail section builder keeps top summary primary actions overview safety metadata order`() {
+    fun `detail section builder keeps top summary manage recovery understand metadata order`() {
         val sectionsWithRuntimeSchema = buildPluginDetailSections(
             uiState = PluginScreenUiState(
                 schemaUiState = PluginSchemaUiState.Settings(
@@ -28,23 +28,23 @@ class PluginDetailPresentationTest {
 
         assertEquals(
             listOf(
-                PluginDetailSection.TopSummary,
-                PluginDetailSection.PrimaryActions,
-                PluginDetailSection.Overview,
-                PluginDetailSection.SafetyCompatibility,
-                PluginDetailSection.TechnicalMetadata,
+                "TopSummary",
+                "ManagePlugin",
+                "RecoveryAndUpgrade",
+                "UnderstandPlugin",
+                "TechnicalMetadata",
             ),
-            sectionsWithRuntimeSchema,
+            sectionsWithRuntimeSchema.map { it.name },
         )
         assertEquals(
             listOf(
-                PluginDetailSection.TopSummary,
-                PluginDetailSection.PrimaryActions,
-                PluginDetailSection.Overview,
-                PluginDetailSection.SafetyCompatibility,
-                PluginDetailSection.TechnicalMetadata,
+                "TopSummary",
+                "ManagePlugin",
+                "RecoveryAndUpgrade",
+                "UnderstandPlugin",
+                "TechnicalMetadata",
             ),
-            sectionsWithoutPanel,
+            sectionsWithoutPanel.map { it.name },
         )
     }
 

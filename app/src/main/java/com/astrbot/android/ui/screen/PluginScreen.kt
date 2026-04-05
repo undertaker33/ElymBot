@@ -74,6 +74,7 @@ import com.astrbot.android.ui.viewmodel.PluginCatalogEntryCardUiState
 import com.astrbot.android.ui.viewmodel.PluginDetailActionState
 import com.astrbot.android.ui.viewmodel.PluginDetailMetadataState
 import com.astrbot.android.ui.viewmodel.PluginFailureUiState
+import com.astrbot.android.ui.viewmodel.PluginInstallFollowUpGuideState
 import com.astrbot.android.ui.viewmodel.PluginRepositorySourceCardUiState
 import com.astrbot.android.ui.viewmodel.PluginSchemaUiState
 import com.astrbot.android.ui.viewmodel.PluginScreenUiState
@@ -110,6 +111,8 @@ fun PluginScreen(
                 onDirectPackageUrlDraftChange = pluginViewModel::updateDirectPackageUrlDraft,
                 onSubmitRepositoryUrl = pluginViewModel::submitRepositoryUrl,
                 onSubmitDirectPackageUrl = pluginViewModel::submitDirectPackageUrl,
+                onEnablePluginFromGuide = pluginViewModel::enablePluginFromInstallGuide,
+                onDismissInstallGuide = pluginViewModel::dismissInstallFollowUpGuide,
                 onImportLocalPackage = {
                     localPackagePicker.launch(arrayOf("application/zip", "application/octet-stream"))
                 },
@@ -129,6 +132,8 @@ private fun PluginLocalWorkspace(
     onDirectPackageUrlDraftChange: (String) -> Unit,
     onSubmitRepositoryUrl: () -> Unit,
     onSubmitDirectPackageUrl: () -> Unit,
+    onEnablePluginFromGuide: (String) -> Unit,
+    onDismissInstallGuide: () -> Unit,
     onImportLocalPackage: () -> Unit,
 ) {
     val presentation = buildPluginLocalWorkspacePresentation(
@@ -197,6 +202,7 @@ private fun PluginLocalWorkspace(
                                 Text(
                                     text = stringResource(
                                         when (filter.filter) {
+                                            PluginLocalFilter.ALL -> R.string.plugin_installed_library_filter_all
                                             PluginLocalFilter.ENABLED -> R.string.plugin_installed_library_filter_enabled
                                             PluginLocalFilter.DISABLED -> R.string.plugin_local_status_disabled
                                             PluginLocalFilter.UPDATES -> R.string.plugin_installed_library_filter_updates
@@ -489,6 +495,11 @@ private fun PluginInstallActionFields(
     val presentation = buildPluginQuickInstallPresentation(selectedMode)
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        PluginInstallReadinessCard(
+            selectedMode = presentation.selectedMode,
+            repositoryUrlDraft = repositoryUrlDraft,
+            directPackageUrlDraft = directPackageUrlDraft,
+        )
         when (presentation.selectedMode) {
             PluginQuickInstallMode.LocalZip -> {
                 OutlinedButton(
@@ -586,6 +597,8 @@ private fun PluginHomepageWorkspace(
     onDirectPackageUrlDraftChange: (String) -> Unit,
     onSubmitRepositoryUrl: () -> Unit,
     onSubmitDirectPackageUrl: () -> Unit,
+    onEnablePluginFromGuide: (String) -> Unit,
+    onDismissInstallGuide: () -> Unit,
     onImportLocalPackage: () -> Unit,
 ) {
     var quickInstallMode by rememberSaveable { mutableStateOf(PluginQuickInstallMode.LocalZip) }
@@ -608,12 +621,16 @@ private fun PluginHomepageWorkspace(
                     selectedMode = quickInstallMode,
                     repositoryUrlDraft = uiState.repositoryUrlDraft,
                     directPackageUrlDraft = uiState.directPackageUrlDraft,
+                    installFollowUpGuide = uiState.installFollowUpGuide,
                     isActionRunning = uiState.isInstallActionRunning,
                     onModeSelected = { quickInstallMode = it },
                     onRepositoryUrlDraftChange = onRepositoryUrlDraftChange,
                     onDirectPackageUrlDraftChange = onDirectPackageUrlDraftChange,
                     onSubmitRepositoryUrl = onSubmitRepositoryUrl,
                     onSubmitDirectPackageUrl = onSubmitDirectPackageUrl,
+                    onOpenPluginDetail = onOpenPluginDetail,
+                    onEnablePluginFromGuide = onEnablePluginFromGuide,
+                    onDismissInstallGuide = onDismissInstallGuide,
                     onImportLocalPackage = onImportLocalPackage,
                     lastActionMessage = uiState.detailActionState.lastActionMessage,
                 )
@@ -751,12 +768,16 @@ private fun PluginQuickInstallSection(
     selectedMode: PluginQuickInstallMode,
     repositoryUrlDraft: String,
     directPackageUrlDraft: String,
+    installFollowUpGuide: PluginInstallFollowUpGuideState?,
     isActionRunning: Boolean,
     onModeSelected: (PluginQuickInstallMode) -> Unit,
     onRepositoryUrlDraftChange: (String) -> Unit,
     onDirectPackageUrlDraftChange: (String) -> Unit,
     onSubmitRepositoryUrl: () -> Unit,
     onSubmitDirectPackageUrl: () -> Unit,
+    onOpenPluginDetail: (String) -> Unit,
+    onEnablePluginFromGuide: (String) -> Unit,
+    onDismissInstallGuide: () -> Unit,
     onImportLocalPackage: () -> Unit,
     lastActionMessage: PluginActionFeedback?,
 ) {
@@ -800,13 +821,34 @@ private fun PluginQuickInstallSection(
                     tag = "plugin-quick-install-repository-url",
                     onClick = { onModeSelected(PluginQuickInstallMode.RepositoryUrl) },
                 )
-                PolicyToggleButton(
-                    label = stringResource(R.string.plugin_quick_install_mode_direct_package_url),
-                    selected = presentation.showDirectPackageUrlForm,
-                    tag = "plugin-quick-install-direct-package-url",
-                    onClick = { onModeSelected(PluginQuickInstallMode.DirectPackageUrl) },
+            }
+            TextButton(
+                onClick = {
+                    onModeSelected(
+                        if (presentation.isAdvancedModeSelected) {
+                            PluginQuickInstallMode.LocalZip
+                        } else {
+                            PluginQuickInstallMode.DirectPackageUrl
+                        },
+                    )
+                },
+            ) {
+                Text(
+                    text = stringResource(
+                        if (presentation.isAdvancedModeSelected) {
+                            R.string.plugin_install_exit_advanced_action
+                        } else {
+                            R.string.plugin_install_open_advanced_action
+                        },
+                    ),
+                    color = MonochromeUi.textSecondary,
                 )
             }
+            PluginInstallReadinessCard(
+                selectedMode = presentation.selectedMode,
+                repositoryUrlDraft = repositoryUrlDraft,
+                directPackageUrlDraft = directPackageUrlDraft,
+            )
             when (presentation.selectedMode) {
                 PluginQuickInstallMode.LocalZip -> {
                     OutlinedButton(
@@ -852,6 +894,150 @@ private fun PluginQuickInstallSection(
             lastActionMessage?.let { message ->
                 PluginActionFeedbackCard(message = message)
             }
+            installFollowUpGuide?.let { guide ->
+                PluginInstallFollowUpGuideCard(
+                    guide = guide,
+                    onOpenPluginDetail = { onOpenPluginDetail(guide.pluginId) },
+                    onEnableNow = { onEnablePluginFromGuide(guide.pluginId) },
+                    onDismiss = onDismissInstallGuide,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun PluginInstallReadinessCard(
+    selectedMode: PluginQuickInstallMode,
+    repositoryUrlDraft: String,
+    directPackageUrlDraft: String,
+) {
+    val sourceSummary = when (selectedMode) {
+        PluginQuickInstallMode.LocalZip -> stringResource(R.string.plugin_install_readiness_source_local)
+        PluginQuickInstallMode.RepositoryUrl -> {
+            val host = repositoryUrlDraft.toInstallHost()
+            if (host.isBlank()) {
+                stringResource(R.string.plugin_install_readiness_source_repository)
+            } else {
+                stringResource(R.string.plugin_install_readiness_source_repository_host, host)
+            }
+        }
+        PluginQuickInstallMode.DirectPackageUrl -> {
+            val host = directPackageUrlDraft.toInstallHost()
+            if (host.isBlank()) {
+                stringResource(R.string.plugin_install_readiness_source_direct)
+            } else {
+                stringResource(R.string.plugin_install_readiness_source_direct_host, host)
+            }
+        }
+    }
+    val authorSummary = when (selectedMode) {
+        PluginQuickInstallMode.RepositoryUrl -> stringResource(R.string.plugin_install_readiness_author_repository)
+        PluginQuickInstallMode.LocalZip,
+        PluginQuickInstallMode.DirectPackageUrl,
+        -> stringResource(R.string.plugin_install_readiness_author_manifest)
+    }
+    val riskSummary = when (selectedMode) {
+        PluginQuickInstallMode.DirectPackageUrl -> stringResource(R.string.plugin_install_readiness_risk_direct)
+        PluginQuickInstallMode.RepositoryUrl -> stringResource(R.string.plugin_install_readiness_risk_repository)
+        PluginQuickInstallMode.LocalZip -> stringResource(R.string.plugin_install_readiness_risk_local)
+    }
+
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = PluginUiSpec.SectionShape,
+        color = MonochromeUi.cardAltBackground,
+        border = PluginUiSpec.CardBorder,
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text = stringResource(R.string.plugin_install_readiness_title),
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = MonochromeUi.textPrimary,
+            )
+            Text(
+                text = sourceSummary,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MonochromeUi.textSecondary,
+            )
+            Text(
+                text = authorSummary,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MonochromeUi.textSecondary,
+            )
+            Text(
+                text = stringResource(R.string.plugin_install_readiness_permissions),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MonochromeUi.textSecondary,
+            )
+            Text(
+                text = stringResource(R.string.plugin_install_readiness_runtime),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MonochromeUi.textSecondary,
+            )
+            Text(
+                text = riskSummary,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MonochromeUi.textSecondary,
+            )
+        }
+    }
+}
+
+@Composable
+private fun PluginInstallFollowUpGuideCard(
+    guide: PluginInstallFollowUpGuideState,
+    onOpenPluginDetail: () -> Unit,
+    onEnableNow: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = PluginUiSpec.SectionShape,
+        color = MonochromeUi.cardAltBackground,
+        border = BorderStroke(1.dp, MonochromeUi.divider),
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text(
+                text = stringResource(R.string.plugin_install_follow_up_title, guide.pluginTitle),
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = MonochromeUi.textPrimary,
+            )
+            Text(
+                text = stringResource(
+                    R.string.plugin_install_follow_up_summary,
+                    guide.author,
+                    guide.permissionCount,
+                    guide.runtimeLabel,
+                    guide.riskLabel,
+                ),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MonochromeUi.textSecondary,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (guide.canEnableNow) {
+                    OutlinedButton(onClick = onEnableNow) {
+                        Text(stringResource(R.string.plugin_install_follow_up_enable_action))
+                    }
+                }
+                OutlinedButton(onClick = onOpenPluginDetail) {
+                    Text(stringResource(R.string.plugin_install_follow_up_detail_action))
+                }
+                TextButton(onClick = onDismiss) {
+                    Text(
+                        text = stringResource(R.string.plugin_install_follow_up_later_action),
+                        color = MonochromeUi.textSecondary,
+                    )
+                }
+            }
         }
     }
 }
@@ -873,6 +1059,8 @@ private fun PluginInstalledLibrarySection(
             modifier = Modifier.testTag(PluginUiSpec.InstalledLibrarySectionTag),
         )
         PluginInstalledLibraryControls(
+            summary = presentation.summary,
+            bulkActions = presentation.bulkActions,
             filters = presentation.filters,
             onFilterSelected = { selectedFilter = it },
         )
@@ -893,6 +1081,8 @@ private fun PluginInstalledLibrarySection(
 
 @Composable
 private fun PluginInstalledLibraryControls(
+    summary: PluginInstalledLibrarySummaryPresentation,
+    bulkActions: List<PluginInstalledLibraryBulkActionPresentation>,
     filters: List<PluginInstalledLibraryFilterPresentation>,
     onFilterSelected: (PluginInstalledLibraryFilter) -> Unit,
 ) {
@@ -908,6 +1098,7 @@ private fun PluginInstalledLibraryControls(
             modifier = Modifier.padding(18.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            PluginInstalledLibrarySummaryRow(summary = summary)
             OutlinedTextField(
                 value = "",
                 onValueChange = {},
@@ -919,6 +1110,28 @@ private fun PluginInstalledLibraryControls(
                 singleLine = true,
                 readOnly = true,
             )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .testTag(PluginUiSpec.InstalledLibraryBulkActionsTag),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                bulkActions.forEach { action ->
+                    OutlinedButton(
+                        onClick = { onFilterSelected(action.targetFilter) },
+                        enabled = action.enabled,
+                        modifier = Modifier.testTag(PluginUiSpec.installedLibraryBulkActionTag(action.action.name)),
+                    ) {
+                        Text(
+                            text = stringResource(
+                                installedLibraryBulkActionLabelRes(action.action),
+                                action.count,
+                            ),
+                        )
+                    }
+                }
+            }
             Row(
                 modifier = Modifier.horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -941,6 +1154,50 @@ private fun PluginInstalledLibraryControls(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun PluginInstalledLibrarySummaryRow(
+    summary: PluginInstalledLibrarySummaryPresentation,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .testTag(PluginUiSpec.InstalledLibrarySummaryTag),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        InstalledLibrarySummaryChip(
+            label = stringResource(R.string.plugin_installed_library_summary_total, summary.totalCount),
+        )
+        InstalledLibrarySummaryChip(
+            label = stringResource(R.string.plugin_installed_library_summary_enabled, summary.enabledCount),
+        )
+        InstalledLibrarySummaryChip(
+            label = stringResource(R.string.plugin_installed_library_summary_needs_review, summary.needsReviewCount),
+        )
+        InstalledLibrarySummaryChip(
+            label = stringResource(R.string.plugin_installed_library_summary_disabled, summary.disabledCount),
+        )
+    }
+}
+
+@Composable
+private fun InstalledLibrarySummaryChip(
+    label: String,
+) {
+    Surface(
+        shape = PluginUiSpec.BadgeShape,
+        color = MonochromeUi.cardAltBackground,
+        border = PluginUiSpec.CardBorder,
+    ) {
+        Text(
+            text = label,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            style = MaterialTheme.typography.labelLarge,
+            color = MonochromeUi.textPrimary,
+        )
     }
 }
 
@@ -1091,6 +1348,7 @@ private fun installedLibraryFilterLabel(filter: PluginInstalledLibraryFilter): S
     return when (filter) {
         PluginInstalledLibraryFilter.All -> stringResource(R.string.plugin_installed_library_filter_all)
         PluginInstalledLibraryFilter.Enabled -> stringResource(R.string.plugin_installed_library_filter_enabled)
+        PluginInstalledLibraryFilter.Disabled -> stringResource(R.string.plugin_installed_library_status_disabled)
         PluginInstalledLibraryFilter.Updates -> stringResource(R.string.plugin_installed_library_filter_updates)
         PluginInstalledLibraryFilter.Issues -> stringResource(R.string.plugin_installed_library_filter_issues)
         PluginInstalledLibraryFilter.PermissionChanges -> stringResource(R.string.plugin_installed_library_filter_permission_changes)
@@ -1129,6 +1387,14 @@ private fun installedLibraryPrimaryActionLabel(action: PluginInstalledLibraryPri
         PluginInstalledLibraryPrimaryAction.Open -> stringResource(R.string.plugin_action_open)
         PluginInstalledLibraryPrimaryAction.Review -> stringResource(R.string.plugin_action_review)
         PluginInstalledLibraryPrimaryAction.Update -> stringResource(R.string.plugin_action_update)
+    }
+}
+
+private fun installedLibraryBulkActionLabelRes(action: PluginInstalledLibraryBulkAction): Int {
+    return when (action) {
+        PluginInstalledLibraryBulkAction.ReviewIssues -> R.string.plugin_installed_library_bulk_review_issues
+        PluginInstalledLibraryBulkAction.ReviewUpdates -> R.string.plugin_installed_library_bulk_review_updates
+        PluginInstalledLibraryBulkAction.ReviewDisabled -> R.string.plugin_installed_library_bulk_review_disabled
     }
 }
 
@@ -1941,6 +2207,11 @@ private fun PluginUpgradeDialog(
             }
         },
     )
+}
+
+private fun String.toInstallHost(): String {
+    return runCatching { java.net.URI(trim()).host.orEmpty() }
+        .getOrDefault("")
 }
 
 @Composable

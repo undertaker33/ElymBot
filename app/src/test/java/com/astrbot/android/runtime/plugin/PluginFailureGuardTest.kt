@@ -1,6 +1,7 @@
 package com.astrbot.android.runtime.plugin
 
 import com.astrbot.android.data.PluginRepository
+import com.astrbot.android.model.plugin.PluginFailureCategory
 import com.astrbot.android.model.plugin.PluginFailureState
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -32,10 +33,12 @@ class PluginFailureGuardTest {
         assertEquals(1, afterFirstFailure.consecutiveFailureCount)
         assertFalse(afterFirstFailure.isSuspended)
         assertEquals("socket timeout", afterFirstFailure.lastErrorSummary)
+        assertEquals(PluginFailureCategory.Timeout, afterFirstFailure.failureCategory)
         assertEquals(2, afterSecondFailure.consecutiveFailureCount)
         assertTrue(afterSecondFailure.isSuspended)
         assertEquals(5_050L, afterSecondFailure.lastFailureAtEpochMillis)
         assertEquals("socket timeout", afterSecondFailure.lastErrorSummary)
+        assertEquals(PluginFailureCategory.Timeout, afterSecondFailure.failureCategory)
         assertEquals(5_350L, afterSecondFailure.suspendedUntilEpochMillis)
     }
 
@@ -68,7 +71,67 @@ class PluginFailureGuardTest {
         assertEquals(0, recovered.consecutiveFailureCount)
         assertEquals(10_000L, recovered.lastFailureAtEpochMillis)
         assertEquals("plugin exploded", recovered.lastErrorSummary)
+        assertEquals(PluginFailureCategory.RuntimeError, recovered.failureCategory)
         assertEquals(null, recovered.suspendedUntilEpochMillis)
+    }
+
+    @Test
+    fun failure_guard_classifies_permission_and_payload_related_errors() {
+        val guard = PluginFailureGuard(
+            policy = PluginFailurePolicy(
+                maxConsecutiveFailures = 5,
+                suspensionWindowMillis = 1_000L,
+            ),
+            clock = { 1_000L },
+        )
+
+        val permissionFailure = guard.recordFailure(
+            pluginId = "plugin-permission",
+            errorSummary = "Host action SendNotification requires granted permission: send_notification",
+        )
+        val payloadFailure = guard.recordFailure(
+            pluginId = "plugin-payload",
+            errorSummary = "Host action OpenHostPage requires payload.route",
+        )
+
+        assertEquals(PluginFailureCategory.PermissionDenied, permissionFailure.failureCategory)
+        assertEquals(PluginFailureCategory.InvalidPayload, payloadFailure.failureCategory)
+    }
+
+    @Test
+    fun failure_guard_isolates_suspension_by_trigger_scope() {
+        val clock = TestClock(now = 30_000L)
+        val guard = PluginFailureGuard(
+            policy = PluginFailurePolicy(
+                maxConsecutiveFailures = 2,
+                suspensionWindowMillis = 500L,
+            ),
+            clock = { clock.now },
+        )
+
+        guard.recordFailure(
+            pluginId = "plugin-scoped",
+            trigger = com.astrbot.android.model.plugin.PluginTriggerSource.BeforeSendMessage,
+            errorSummary = "socket timeout",
+        )
+        guard.recordFailure(
+            pluginId = "plugin-scoped",
+            trigger = com.astrbot.android.model.plugin.PluginTriggerSource.BeforeSendMessage,
+            errorSummary = "socket timeout",
+        )
+
+        assertTrue(
+            guard.isSuspended(
+                pluginId = "plugin-scoped",
+                trigger = com.astrbot.android.model.plugin.PluginTriggerSource.BeforeSendMessage,
+            ),
+        )
+        assertFalse(
+            guard.isSuspended(
+                pluginId = "plugin-scoped",
+                trigger = com.astrbot.android.model.plugin.PluginTriggerSource.OnCommand,
+            ),
+        )
     }
 
     @Test
@@ -89,6 +152,7 @@ class PluginFailureGuardTest {
             consecutiveFailureCount = 2,
             lastFailureAtEpochMillis = 150L,
             lastErrorSummary = "socket timeout",
+            failureCategory = PluginFailureCategory.Timeout,
             isSuspended = true,
             suspendedUntilEpochMillis = 300L,
         )
@@ -125,6 +189,7 @@ class PluginFailureGuardTest {
             consecutiveFailureCount = 1,
             lastFailureAtEpochMillis = 20L,
             lastErrorSummary = "bootstrap unavailable",
+            failureCategory = PluginFailureCategory.RuntimeError,
             isSuspended = false,
             suspendedUntilEpochMillis = null,
         )

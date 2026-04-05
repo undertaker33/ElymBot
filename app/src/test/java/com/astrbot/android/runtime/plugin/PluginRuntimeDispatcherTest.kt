@@ -11,20 +11,31 @@ class PluginRuntimeDispatcherTest {
     fun dispatcher_filters_non_runnable_plugins_and_preserves_dispatch_order() {
         val clock = TestClock()
         val sharedStore = InMemoryPluginFailureStateStore()
+        val scopedStore = InMemoryPluginScopedFailureStateStore()
         val writerGuard = PluginFailureGuard(
             store = sharedStore,
+            scopedStore = scopedStore,
             policy = PluginFailurePolicy(
                 maxConsecutiveFailures = 2,
                 suspensionWindowMillis = 500L,
             ),
             clock = { clock.now },
         )
-        writerGuard.recordFailure("failed-suspended", errorSummary = "shared failure")
-        writerGuard.recordFailure("failed-suspended", errorSummary = "shared failure")
+        writerGuard.recordFailure(
+            pluginId = "failed-suspended",
+            trigger = PluginTriggerSource.OnCommand,
+            errorSummary = "shared failure",
+        )
+        writerGuard.recordFailure(
+            pluginId = "failed-suspended",
+            trigger = PluginTriggerSource.OnCommand,
+            errorSummary = "shared failure",
+        )
 
         val dispatcher = PluginRuntimeDispatcher(
             PluginFailureGuard(
                 store = sharedStore,
+                scopedStore = scopedStore,
                 policy = PluginFailurePolicy(
                     maxConsecutiveFailures = 2,
                     suspensionWindowMillis = 500L,
@@ -64,6 +75,44 @@ class PluginRuntimeDispatcherTest {
                 "incompatible" to PluginDispatchSkipReason.Incompatible,
                 "failed-suspended" to PluginDispatchSkipReason.FailureSuspended,
             ),
+            plan.skipped.associate { skipped -> skipped.plugin.pluginId to skipped.reason },
+        )
+    }
+
+    @Test
+    fun dispatcher_respects_scheduler_windows_and_exposes_trigger_scope() {
+        val clock = TestClock()
+        val policy = PluginSchedulePolicy(successCooldownMillis = 500L)
+        val scheduler = PluginRuntimeScheduler(clock = { clock.now })
+        scheduler.recordDispatched(
+            pluginId = "alpha",
+            trigger = PluginTriggerSource.OnCommand,
+        )
+        scheduler.recordSuccess(
+            pluginId = "alpha",
+            trigger = PluginTriggerSource.OnCommand,
+            policy = policy,
+        )
+
+        val dispatcher = PluginRuntimeDispatcher(
+            failureGuard = PluginFailureGuard(clock = { clock.now }),
+            clock = { clock.now },
+            scheduler = scheduler,
+            policyResolver = { _, _ -> policy },
+        )
+
+        val plan = dispatcher.dispatch(
+            trigger = PluginTriggerSource.OnCommand,
+            plugins = listOf(
+                runtimePlugin(pluginId = "alpha"),
+                runtimePlugin(pluginId = "beta"),
+            ),
+        )
+
+        assertEquals(PluginDispatchScope.Message, plan.scope)
+        assertEquals(listOf("beta"), plan.executable.map { plugin -> plugin.pluginId })
+        assertEquals(
+            mapOf("alpha" to PluginDispatchSkipReason.SchedulerCoolingDown),
             plan.skipped.associate { skipped -> skipped.plugin.pluginId to skipped.reason },
         )
     }

@@ -6,14 +6,14 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.ArrowBack
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.AlertDialog
@@ -32,11 +32,17 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.astrbot.android.R
+import com.astrbot.android.ui.AppDestination
+import com.astrbot.android.ui.RegisterSecondaryTopBar
+import com.astrbot.android.ui.SecondaryTopBarSpec
+import com.astrbot.android.ui.SecondaryTopBarPlaceholder
 import com.astrbot.android.di.astrBotViewModel
 import com.astrbot.android.model.plugin.PluginCompatibilityStatus
 import com.astrbot.android.model.plugin.PluginInstallRecord
@@ -59,6 +65,8 @@ fun PluginDetailScreenRoute(
     pluginId: String,
     onBack: () -> Unit,
     onOpenWorkspace: (String) -> Unit,
+    onOpenLogs: (String) -> Unit,
+    onOpenTriggers: (String) -> Unit,
     onOpenConfig: (String) -> Unit,
     pluginViewModel: PluginViewModel = astrBotViewModel(),
 ) {
@@ -66,19 +74,31 @@ fun PluginDetailScreenRoute(
     LaunchedEffect(pluginId) {
         pluginViewModel.selectPluginForDetail(pluginId)
     }
+    RegisterSecondaryTopBar(
+        route = AppDestination.PluginDetail.route,
+        spec = SecondaryTopBarSpec.SubPage(
+            title = stringResource(R.string.plugin_detail_title),
+            onBack = onBack,
+        ),
+    )
 
     BoxWithPageBackground {
         if (uiState.selectedPlugin != null) {
             PluginDetailRouteWorkspace(
                 uiState = uiState,
-                onBack = onBack,
                 onOpenWorkspace = onOpenWorkspace,
+                onOpenLogs = onOpenLogs,
+                onOpenTriggers = onOpenTriggers,
                 onOpenConfig = onOpenConfig,
                 onEnable = pluginViewModel::enableSelectedPlugin,
                 onDisable = pluginViewModel::disableSelectedPlugin,
                 onRequestUpgrade = pluginViewModel::requestUpgradeForSelectedPlugin,
                 onSelectPolicy = pluginViewModel::updateSelectedUninstallPolicy,
                 onUninstall = pluginViewModel::uninstallSelectedPlugin,
+                onRetryRecovery = pluginViewModel::retrySelectedPlugin,
+                onRestoreDefaults = pluginViewModel::restoreSelectedPluginDefaultConfig,
+                onClearCache = pluginViewModel::clearSelectedPluginCache,
+                buildDiagnosticsReport = pluginViewModel::buildSelectedPluginDiagnosticsReport,
             )
         }
         uiState.upgradeDialogState?.let { dialogState ->
@@ -94,14 +114,19 @@ fun PluginDetailScreenRoute(
 @Composable
 private fun PluginDetailRouteWorkspace(
     uiState: PluginScreenUiState,
-    onBack: () -> Unit,
     onOpenWorkspace: (String) -> Unit,
+    onOpenLogs: (String) -> Unit,
+    onOpenTriggers: (String) -> Unit,
     onOpenConfig: (String) -> Unit,
     onEnable: () -> Unit,
     onDisable: () -> Unit,
     onRequestUpgrade: () -> Unit,
     onSelectPolicy: (PluginUninstallPolicy) -> Unit,
     onUninstall: () -> Unit,
+    onRetryRecovery: () -> Unit,
+    onRestoreDefaults: () -> Unit,
+    onClearCache: () -> Unit,
+    buildDiagnosticsReport: () -> String,
 ) {
     val record = uiState.selectedPlugin ?: return
 
@@ -117,29 +142,17 @@ private fun PluginDetailRouteWorkspace(
         verticalArrangement = Arrangement.spacedBy(PluginUiSpec.SectionSpacing),
     ) {
         item {
-            TextButton(
-                onClick = onBack,
-                modifier = Modifier.testTag(PluginUiSpec.DetailBackActionTag),
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.ArrowBack,
-                    contentDescription = null,
-                    tint = MonochromeUi.textSecondary,
-                )
-                Text(
-                    text = stringResource(R.string.common_back),
-                    color = MonochromeUi.textSecondary,
-                )
-            }
+            SecondaryTopBarPlaceholder()
         }
 
         items(buildPluginDetailSections(uiState), key = { it.name }) { section ->
             when (section) {
                 PluginDetailSection.TopSummary -> PluginDetailTopSummarySection(record)
-                PluginDetailSection.PrimaryActions -> PluginDetailPrimaryActionsSection(
-                    record = record,
+                PluginDetailSection.ManagePlugin -> PluginDetailManageSection(
                     actionState = uiState.detailActionState,
                     onOpenWorkspace = { onOpenWorkspace(record.pluginId) },
+                    onOpenLogs = { onOpenLogs(record.pluginId) },
+                    onOpenTriggers = { onOpenTriggers(record.pluginId) },
                     onOpenConfig = { onOpenConfig(record.pluginId) },
                     onEnable = onEnable,
                     onDisable = onDisable,
@@ -147,10 +160,17 @@ private fun PluginDetailRouteWorkspace(
                     onSelectPolicy = onSelectPolicy,
                     onUninstall = onUninstall,
                 )
-                PluginDetailSection.Overview -> PluginDetailOverviewSection(record, uiState.detailMetadataState)
-                PluginDetailSection.SafetyCompatibility -> PluginDetailSafetyCompatibilitySection(
+                PluginDetailSection.RecoveryAndUpgrade -> PluginDetailRecoveryAndUpgradeSection(
                     record = record,
                     actionState = uiState.detailActionState,
+                    metadata = uiState.detailMetadataState,
+                    onRetryRecovery = onRetryRecovery,
+                    onRestoreDefaults = onRestoreDefaults,
+                    onClearCache = onClearCache,
+                    buildDiagnosticsReport = buildDiagnosticsReport,
+                )
+                PluginDetailSection.UnderstandPlugin -> PluginDetailUnderstandSection(
+                    record = record,
                     metadata = uiState.detailMetadataState,
                 )
                 PluginDetailSection.TechnicalMetadata -> PluginDetailTechnicalMetadataSection(record, uiState.detailMetadataState)
@@ -159,6 +179,7 @@ private fun PluginDetailRouteWorkspace(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun PluginDetailTopSummarySection(record: PluginInstallRecord) {
     Surface(
@@ -190,11 +211,13 @@ private fun PluginDetailTopSummarySection(record: PluginInstallRecord) {
                 style = MaterialTheme.typography.bodyMedium,
                 color = MonochromeUi.textSecondary,
             )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FlowRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
                 assistBadge(stringResource(R.string.plugin_field_author), record.manifestSnapshot.author)
                 assistBadge(stringResource(R.string.plugin_field_source_label), sourceTypeLabel(record.source.sourceType))
-                assistBadge(stringResource(R.string.plugin_field_compatibility_status), compatibilityLabel(record.compatibilityState.status))
-                assistBadge(stringResource(R.string.plugin_field_install_status), installStatusLabel(record))
             }
             Text(
                 text = record.manifestSnapshot.entrySummary,
@@ -206,10 +229,81 @@ private fun PluginDetailTopSummarySection(record: PluginInstallRecord) {
 }
 
 @Composable
-private fun PluginDetailPrimaryActionsSection(
+private fun PluginDetailUnderstandSection(
     record: PluginInstallRecord,
+    metadata: PluginDetailMetadataState,
+) {
+    PluginSectionCard(
+        title = stringResource(R.string.plugin_detail_understand_title),
+        tag = PluginUiSpec.DetailUnderstandTag,
+    ) {
+        Text(
+            text = record.manifestSnapshot.description,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MonochromeUi.textPrimary,
+        )
+        Text(
+            text = record.manifestSnapshot.entrySummary,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MonochromeUi.textSecondary,
+        )
+        PluginKeyValueSection(
+            title = stringResource(R.string.plugin_detail_identity_group_title),
+            items = listOf(
+                stringResource(R.string.plugin_field_author) to record.manifestSnapshot.author,
+                stringResource(R.string.plugin_field_source_label) to (metadata.sourceBadge?.label ?: sourceTypeLabel(record.source.sourceType)),
+                stringResource(R.string.plugin_field_repository_name_or_host) to metadata.repositoryNameOrHost.ifBlank {
+                    stringResource(R.string.plugin_value_not_available)
+                },
+                stringResource(R.string.plugin_field_install_status) to installStatusLabel(record),
+            ),
+        )
+        PluginKeyValueSection(
+            title = stringResource(R.string.plugin_detail_compatibility_group_title),
+            items = listOf(
+                stringResource(R.string.plugin_field_compatibility_status) to compatibilityLabel(record.compatibilityState.status),
+                stringResource(R.string.plugin_field_compatibility_notes) to record.compatibilityState.notes.ifBlank {
+                    stringResource(R.string.plugin_value_no_notes)
+                },
+            ),
+        )
+        PluginKeyValueSection(
+            title = stringResource(R.string.plugin_detail_permissions_group_title),
+            items = if (record.permissionSnapshot.isEmpty()) {
+                listOf(
+                    stringResource(R.string.plugin_detail_permissions_title) to stringResource(R.string.plugin_value_not_available),
+                )
+            } else {
+                record.permissionSnapshot.map { permission ->
+                    permission.title to stringResource(
+                        R.string.plugin_permission_summary_format,
+                        if (permission.required) {
+                            stringResource(R.string.plugin_permission_required)
+                        } else {
+                            stringResource(R.string.plugin_permission_optional)
+                        },
+                        permission.description,
+                    )
+                }
+            },
+        )
+        metadata.governanceState?.let { governanceState ->
+            PluginKeyValueSection(
+                title = stringResource(R.string.plugin_detail_governance_group_title),
+                items = buildGovernanceDisplayItems(governanceState).map { item ->
+                    stringResource(item.labelRes) to stringResource(item.valueRes)
+                },
+            )
+        }
+    }
+}
+
+@Composable
+private fun PluginDetailManageSection(
     actionState: PluginDetailActionState,
     onOpenWorkspace: () -> Unit,
+    onOpenLogs: () -> Unit,
+    onOpenTriggers: () -> Unit,
     onOpenConfig: () -> Unit,
     onEnable: () -> Unit,
     onDisable: () -> Unit,
@@ -218,20 +312,11 @@ private fun PluginDetailPrimaryActionsSection(
     onUninstall: () -> Unit,
 ) {
     PluginSectionCard(
-        title = stringResource(R.string.plugin_detail_actions_title),
-        tag = PluginUiSpec.DetailPrimaryActionsTag,
+        title = stringResource(R.string.plugin_detail_manage_title),
+        tag = PluginUiSpec.DetailManageTag,
     ) {
-        actionState.enableBlockedReason?.let { blockedReason ->
-            detailHintCard(blockedReason.asText())
-        }
-        actionState.updateBlockedReason?.let { blockedReason ->
-            detailHintCard(blockedReason.asText())
-        }
         actionState.lastActionMessage?.let { message ->
             detailHintCard(message.asText())
-        }
-        actionState.failureState?.let { failureState ->
-            PluginFailureBanner(failureState)
         }
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -266,6 +351,22 @@ private fun PluginDetailPrimaryActionsSection(
             Text(stringResource(R.string.plugin_action_open_workspace))
         }
         OutlinedButton(
+            onClick = onOpenLogs,
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag(PluginUiSpec.DetailOpenLogsActionTag),
+        ) {
+            Text(stringResource(R.string.plugin_action_view_logs))
+        }
+        OutlinedButton(
+            onClick = onOpenTriggers,
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag(PluginUiSpec.DetailOpenTriggersActionTag),
+        ) {
+            Text(stringResource(R.string.plugin_action_manage_triggers))
+        }
+        OutlinedButton(
             onClick = onOpenConfig,
             modifier = Modifier
                 .fillMaxWidth()
@@ -293,75 +394,93 @@ private fun PluginDetailPrimaryActionsSection(
 }
 
 @Composable
-private fun PluginDetailOverviewSection(record: PluginInstallRecord, metadata: PluginDetailMetadataState) {
-    PluginSectionCard(
-        title = stringResource(R.string.plugin_detail_overview_title),
-        tag = PluginUiSpec.DetailOverviewTag,
-    ) {
-        Text(
-            text = record.manifestSnapshot.description,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MonochromeUi.textPrimary,
-        )
-        Text(
-            text = record.manifestSnapshot.entrySummary,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MonochromeUi.textSecondary,
-        )
-    }
-}
-
-@Composable
-private fun PluginDetailSafetyCompatibilitySection(
+private fun PluginDetailRecoveryAndUpgradeSection(
     record: PluginInstallRecord,
     actionState: PluginDetailActionState,
     metadata: PluginDetailMetadataState,
+    onRetryRecovery: () -> Unit,
+    onRestoreDefaults: () -> Unit,
+    onClearCache: () -> Unit,
+    buildDiagnosticsReport: () -> String,
 ) {
+    val clipboardManager = LocalClipboardManager.current
     PluginSectionCard(
-        title = stringResource(R.string.plugin_detail_safety_compatibility_title),
-        tag = PluginUiSpec.DetailSafetyCompatibilityTag,
+        title = stringResource(R.string.plugin_detail_recovery_title),
+        tag = PluginUiSpec.DetailRecoveryTag,
     ) {
-        PluginKeyValueSection(
-            title = stringResource(R.string.plugin_detail_compatibility_group_title),
-            items = listOf(
-                stringResource(R.string.plugin_field_compatibility_status) to compatibilityLabel(record.compatibilityState.status),
-                stringResource(R.string.plugin_field_compatibility_notes) to record.compatibilityState.notes.ifBlank {
-                    stringResource(R.string.plugin_value_no_notes)
-                },
-            ),
-        )
-        PluginKeyValueSection(
-            title = stringResource(R.string.plugin_detail_permissions_group_title),
-            items = if (record.permissionSnapshot.isEmpty()) {
-                listOf(stringResource(R.string.plugin_detail_permissions_title) to stringResource(R.string.plugin_value_not_available))
-            } else {
-                record.permissionSnapshot.map { permission ->
-                    permission.title to buildString {
-                        append(if (permission.required) stringResource(R.string.plugin_permission_required) else stringResource(R.string.plugin_permission_optional))
-                        append(" | ")
-                        append(permission.description)
-                    }
-                }
-            },
-        )
-        metadata.governanceState?.let { governanceState ->
+        var hasRecoveryContent = false
+
+        actionState.enableBlockedReason?.let { blockedReason ->
+            hasRecoveryContent = true
+            detailHintCard(blockedReason.asText())
+        }
+        actionState.updateBlockedReason?.let { blockedReason ->
+            hasRecoveryContent = true
+            detailHintCard(blockedReason.asText())
+        }
+        metadata.updateHint?.let { updateHint ->
+            hasRecoveryContent = true
             PluginKeyValueSection(
-                title = stringResource(R.string.plugin_detail_governance_group_title),
-                items = buildGovernanceDisplayItems(governanceState).map { item ->
-                    stringResource(item.labelRes) to stringResource(item.valueRes)
-                },
+                title = stringResource(R.string.plugin_detail_update_readiness_group_title),
+                items = listOf(
+                    stringResource(R.string.plugin_action_update) to updateHint.latestVersion,
+                    stringResource(R.string.plugin_field_changelog_summary) to updateHint.changelogSummary.ifBlank {
+                        stringResource(R.string.plugin_value_no_changelog)
+                    },
+                    stringResource(R.string.plugin_detail_upgrade_readiness_label) to updateHint.blockedReason.ifBlank {
+                        stringResource(R.string.plugin_detail_upgrade_ready)
+                    },
+                ),
             )
         }
-        Text(
-            text = stringResource(R.string.plugin_detail_runtime_health_group_title),
-            style = MaterialTheme.typography.labelLarge,
-            fontWeight = FontWeight.SemiBold,
-            color = MonochromeUi.textPrimary,
-        )
+        metadata.permissionDiffHint?.let { permissionDiff ->
+            hasRecoveryContent = true
+            PluginPermissionDiffSection(permissionDiff)
+        }
         if (record.failureState.hasFailures) {
+            hasRecoveryContent = true
             actionState.failureState?.let { PluginFailureBanner(it) }
-        } else {
-            detailHintCard(stringResource(R.string.plugin_detail_runtime_health_clear))
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(
+                onClick = onRetryRecovery,
+                modifier = Modifier
+                    .weight(1f)
+                    .testTag(PluginUiSpec.DetailRetryActionTag),
+            ) {
+                Text(stringResource(R.string.plugin_action_retry))
+            }
+            OutlinedButton(
+                onClick = onRestoreDefaults,
+                modifier = Modifier
+                    .weight(1f)
+                    .testTag(PluginUiSpec.DetailRestoreDefaultsActionTag),
+            ) {
+                Text(stringResource(R.string.plugin_action_restore_defaults))
+            }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(
+                onClick = onClearCache,
+                modifier = Modifier
+                    .weight(1f)
+                    .testTag(PluginUiSpec.DetailClearCacheActionTag),
+            ) {
+                Text(stringResource(R.string.plugin_action_clear_cache))
+            }
+            OutlinedButton(
+                onClick = {
+                    clipboardManager.setText(AnnotatedString(buildDiagnosticsReport()))
+                },
+                modifier = Modifier
+                    .weight(1f)
+                    .testTag(PluginUiSpec.DetailCopyDiagnosticsActionTag),
+            ) {
+                Text(stringResource(R.string.plugin_action_copy_diagnostics))
+            }
+        }
+        if (!hasRecoveryContent) {
+            detailHintCard(stringResource(R.string.plugin_detail_recovery_clear))
         }
     }
 }
@@ -378,19 +497,16 @@ private fun PluginDetailTechnicalMetadataSection(
         PluginKeyValueSection(
             title = stringResource(R.string.plugin_detail_meta_title),
             items = listOf(
-                stringResource(R.string.plugin_field_protocol) to record.manifestSnapshot.protocolVersion.toString(),
-                stringResource(R.string.plugin_field_min_host) to record.manifestSnapshot.minHostVersion,
-                stringResource(R.string.plugin_field_max_host) to record.manifestSnapshot.maxHostVersion.ifBlank {
-                    stringResource(R.string.plugin_value_not_limited)
-                },
-                stringResource(R.string.plugin_field_author) to record.manifestSnapshot.author,
                 stringResource(R.string.plugin_field_source_label) to (metadata.sourceBadge?.label ?: sourceTypeLabel(record.source.sourceType)),
-                stringResource(R.string.plugin_field_source_location) to record.source.location.ifBlank {
+                stringResource(R.string.plugin_field_repository_name_or_host) to metadata.repositoryNameOrHost.ifBlank {
                     stringResource(R.string.plugin_value_not_available)
                 },
-                stringResource(R.string.plugin_field_last_updated) to formatPluginTimestamp(record.lastUpdatedAt),
+                stringResource(R.string.plugin_field_repository_host) to metadata.repositoryHost.ifBlank {
+                    stringResource(R.string.plugin_value_not_available)
+                },
                 stringResource(R.string.plugin_field_last_sync) to (metadata.lastSyncAtEpochMillis?.let(::formatPluginTimestamp)
                     ?: stringResource(R.string.plugin_value_not_synced)),
+                stringResource(R.string.plugin_field_last_updated) to formatPluginTimestamp(record.lastUpdatedAt),
                 stringResource(R.string.plugin_field_version_history) to metadata.versionHistorySummary.ifBlank {
                     stringResource(R.string.plugin_value_not_available)
                 },
@@ -399,7 +515,49 @@ private fun PluginDetailTechnicalMetadataSection(
                 },
             ),
         )
+        PluginKeyValueSection(
+            title = stringResource(R.string.plugin_detail_source_title),
+            items = listOf(
+                stringResource(R.string.plugin_field_protocol) to record.manifestSnapshot.protocolVersion.toString(),
+                stringResource(R.string.plugin_field_min_host) to record.manifestSnapshot.minHostVersion,
+                stringResource(R.string.plugin_field_max_host) to record.manifestSnapshot.maxHostVersion.ifBlank {
+                    stringResource(R.string.plugin_value_not_limited)
+                },
+                stringResource(R.string.plugin_field_source_location) to record.source.location.ifBlank {
+                    stringResource(R.string.plugin_value_not_available)
+                },
+            ),
+        )
     }
+}
+
+@Composable
+private fun PluginPermissionDiffSection(permissionDiff: com.astrbot.android.ui.viewmodel.PluginPermissionDiffHintUiState) {
+    PluginKeyValueSection(
+        title = stringResource(R.string.plugin_detail_permission_diff_group_title),
+        items = buildList {
+            if (permissionDiff.addedPermissions.isNotEmpty()) {
+                add(
+                    stringResource(R.string.plugin_permission_diff_added) to permissionDiff.addedPermissions.joinToString(),
+                )
+            }
+            if (permissionDiff.removedPermissions.isNotEmpty()) {
+                add(
+                    stringResource(R.string.plugin_permission_diff_removed) to permissionDiff.removedPermissions.joinToString(),
+                )
+            }
+            if (permissionDiff.changedPermissions.isNotEmpty()) {
+                add(
+                    stringResource(R.string.plugin_permission_diff_changed) to permissionDiff.changedPermissions.joinToString(),
+                )
+            }
+            if (permissionDiff.upgradedPermissions.isNotEmpty()) {
+                add(
+                    stringResource(R.string.plugin_permission_diff_upgraded) to permissionDiff.upgradedPermissions.joinToString(),
+                )
+            }
+        },
+    )
 }
 
 @Composable
@@ -435,6 +593,7 @@ private fun PluginKeyValueSection(
     items: List<Pair<String, String>>,
 ) {
     Surface(
+        modifier = Modifier.fillMaxWidth(),
         shape = PluginUiSpec.SectionShape,
         color = MonochromeUi.cardAltBackground,
         border = BorderStroke(1.dp, MonochromeUi.border.copy(alpha = 0.7f)),

@@ -37,6 +37,7 @@ import com.astrbot.android.model.plugin.PluginPermissionGrant
 import com.astrbot.android.model.plugin.PluginTriggerMetadata
 import com.astrbot.android.model.plugin.PluginTriggerSource
 import com.astrbot.android.model.plugin.TextResult
+import com.astrbot.android.runtime.plugin.DefaultPluginHostCapabilityGateway
 import com.astrbot.android.runtime.plugin.ExternalPluginHostActionExecutor
 import com.astrbot.android.runtime.plugin.PluginExecutionOutcome
 import com.astrbot.android.runtime.botcommand.BotCommandContext
@@ -78,6 +79,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 object OneBotBridgeServer {
     private const val PORT = 6199
+    private val hostCapabilityGateway = DefaultPluginHostCapabilityGateway()
     private const val PATH = "/ws"
     private const val AUTH_TOKEN = "astrbot_android_bridge"
     private const val MAX_RECENT_MESSAGE_IDS = 512
@@ -689,6 +691,11 @@ object OneBotBridgeServer {
                 "QQ runtime plugin skipped: trigger=${trigger.wireValue} plugin=${skip.plugin.pluginId} reason=${skip.reason.name}",
             )
         }
+        batch.merged.conflicts.forEach { conflict ->
+            RuntimeLogRepository.append(
+                "QQ runtime plugin merge conflict: trigger=${trigger.wireValue} plugin=${conflict.pluginId} overriddenBy=${conflict.overriddenByPluginId} type=${conflict.resultType}",
+            )
+        }
         batch.outcomes.forEach { outcome ->
             val resultName = outcome.result::class.simpleName ?: "UnknownResult"
             if (outcome.succeeded) {
@@ -716,7 +723,7 @@ object OneBotBridgeServer {
         config: com.astrbot.android.model.ConfigProfile,
         event: IncomingMessageEvent,
     ): PluginExecutionContext {
-        return PluginExecutionContext(
+        val base = PluginExecutionContext(
             trigger = trigger,
             pluginId = plugin.pluginId,
             pluginVersion = plugin.pluginVersion,
@@ -773,6 +780,7 @@ object OneBotBridgeServer {
                 ),
             ),
         )
+        return hostCapabilityGateway.injectContext(base)
     }
 
     private fun sendReply(
@@ -920,18 +928,20 @@ object OneBotBridgeServer {
             }
             is HostActionRequest -> {
                 val emittedMessages = mutableListOf<String>()
-                val execution = ExternalPluginHostActionExecutor(
-                    sendMessageHandler = { text ->
-                        emittedMessages += text
-                        sendReply(event, text)
-                    },
-                    sendNotificationHandler = { title, message ->
-                        RuntimeLogRepository.append("QQ plugin notification requested: title=$title message=$message")
-                    },
-                    openHostPageHandler = { route ->
-                        RuntimeLogRepository.append("QQ plugin requested host page: route=$route")
-                    },
-                ).execute(
+                val execution = DefaultPluginHostCapabilityGateway(
+                    hostActionExecutor = ExternalPluginHostActionExecutor(
+                        sendMessageHandler = { text ->
+                            emittedMessages += text
+                            sendReply(event, text)
+                        },
+                        sendNotificationHandler = { title, message ->
+                            RuntimeLogRepository.append("QQ plugin notification requested: title=$title message=$message")
+                        },
+                        openHostPageHandler = { route ->
+                            RuntimeLogRepository.append("QQ plugin requested host page: route=$route")
+                        },
+                    ),
+                ).executeHostAction(
                     pluginId = outcome.pluginId,
                     request = result,
                     context = outcome.context,

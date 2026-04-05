@@ -1,6 +1,8 @@
 package com.astrbot.android.runtime.plugin
 
 import com.astrbot.android.model.plugin.ErrorResult
+import com.astrbot.android.model.plugin.PluginSettingsSchema
+import com.astrbot.android.model.plugin.SettingsUiRequest
 import com.astrbot.android.model.plugin.TextResult
 import com.astrbot.android.model.plugin.PluginTriggerSource
 import org.junit.Assert.assertEquals
@@ -85,5 +87,106 @@ class PluginExecutionEngineTest {
         val snapshot = observerGuard.snapshot("boom")
         assertEquals(1, snapshot.consecutiveFailureCount)
         assertEquals("boom", snapshot.lastErrorSummary)
+    }
+
+    @Test
+    fun engine_updates_scheduler_state_and_exposes_merged_batch_snapshot() {
+        val clock = TestClock(now = 50_000L)
+        val failureGuard = PluginFailureGuard(clock = { clock.now })
+        val scheduler = PluginRuntimeScheduler(clock = { clock.now })
+        val policy = PluginSchedulePolicy(successCooldownMillis = 400L)
+        val engine = PluginExecutionEngine(
+            dispatcher = PluginRuntimeDispatcher(
+                failureGuard = failureGuard,
+                clock = { clock.now },
+                scheduler = scheduler,
+                policyResolver = { _, _ -> policy },
+            ),
+            failureGuard = failureGuard,
+            clock = { clock.now },
+            scheduler = scheduler,
+            policyResolver = { _, _ -> policy },
+        )
+        val plugins = listOf(
+            runtimePlugin("alpha") {
+                SettingsUiRequest(PluginSettingsSchema(title = "alpha"))
+            },
+            runtimePlugin("beta") {
+                SettingsUiRequest(PluginSettingsSchema(title = "beta"))
+            },
+        )
+
+        val firstBatch = engine.executeBatch(
+            trigger = PluginTriggerSource.OnCommand,
+            plugins = plugins,
+            contextFactory = ::executionContextFor,
+        )
+
+        assertEquals("beta", firstBatch.merged.primaryInteractivePluginId)
+        assertEquals(1, firstBatch.merged.conflicts.size)
+
+        val secondBatch = engine.executeBatch(
+            trigger = PluginTriggerSource.OnCommand,
+            plugins = plugins,
+            contextFactory = ::executionContextFor,
+        )
+
+        assertTrue(secondBatch.outcomes.isEmpty())
+        assertEquals(2, secondBatch.skipped.size)
+        assertTrue(
+            secondBatch.skipped.all { skipped ->
+                skipped.reason == PluginDispatchSkipReason.SchedulerCoolingDown
+            },
+        )
+    }
+
+    @Test
+    fun engine_batch_normalizes_context_trigger_to_batch_trigger_for_failure_isolation() {
+        val clock = TestClock(now = 90_000L)
+        val scopedStore = InMemoryPluginScopedFailureStateStore()
+        val failureGuard = PluginFailureGuard(
+            scopedStore = scopedStore,
+            policy = PluginFailurePolicy(
+                maxConsecutiveFailures = 3,
+                suspensionWindowMillis = 1_000L,
+            ),
+            clock = { clock.now },
+        )
+        val engine = PluginExecutionEngine(
+            dispatcher = PluginRuntimeDispatcher(failureGuard),
+            failureGuard = failureGuard,
+        )
+        val plugin = runtimePlugin(
+            pluginId = "shared-plugin",
+            supportedTriggers = setOf(PluginTriggerSource.BeforeSendMessage),
+        ) {
+            error("batch trigger boom")
+        }
+
+        repeat(3) {
+            engine.executeBatch(
+                trigger = PluginTriggerSource.BeforeSendMessage,
+                plugins = listOf(plugin),
+                contextFactory = {
+                    executionContextFor(
+                        plugin = plugin,
+                        trigger = PluginTriggerSource.OnCommand,
+                    )
+                },
+            )
+        }
+
+        val beforeSendSnapshot = failureGuard.snapshot(
+            pluginId = "shared-plugin",
+            trigger = PluginTriggerSource.BeforeSendMessage,
+        )
+        val onCommandSnapshot = failureGuard.snapshot(
+            pluginId = "shared-plugin",
+            trigger = PluginTriggerSource.OnCommand,
+        )
+
+        assertTrue(beforeSendSnapshot.isSuspended)
+        assertEquals(3, beforeSendSnapshot.consecutiveFailureCount)
+        assertEquals(0, onCommandSnapshot.consecutiveFailureCount)
     }
 }
