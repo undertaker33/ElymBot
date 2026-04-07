@@ -8,7 +8,6 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -26,6 +25,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.astrbot.android.R
 import com.astrbot.android.ui.MonochromeUi
+import com.astrbot.android.ui.monochromeSwitchColors
 
 internal fun formatTimedCleanupInterval(
     enabled: Boolean,
@@ -63,6 +63,9 @@ internal fun TimedCleanupDialog(
         modifier = Modifier.testTag(dialogTag),
         onDismissRequest = onDismiss,
         title = { Text(stringResource(titleResId)) },
+        containerColor = if (MonochromeUi.isDarkTheme) MonochromeUi.cardAltBackground else MonochromeUi.elevatedSurface,
+        titleContentColor = MonochromeUi.textPrimary,
+        textContentColor = MonochromeUi.textPrimary,
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(
@@ -121,6 +124,7 @@ internal fun TimedCleanupDialog(
                         checked = localEnabled,
                         onCheckedChange = { localEnabled = it },
                         modifier = Modifier.scale(0.85f),
+                        colors = monochromeSwitchColors(),
                     )
                     Text(
                         text = stringResource(enableResId),
@@ -159,12 +163,11 @@ private fun IntervalDropdownField(
             style = MaterialTheme.typography.labelMedium,
             color = MonochromeUi.textPrimary,
         )
-        OutlinedButton(
+        MonochromeSecondaryActionButton(
+            label = "$value$suffix",
             onClick = { expanded = true },
             modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text("$value$suffix")
-        }
+        )
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             range.forEach { option ->
                 DropdownMenuItem(
@@ -178,3 +181,5 @@ private fun IntervalDropdownField(
         }
     }
 }
+
+internal fun timedCleanupDialogUsesUnifiedMonochromeStyle(): Boolean = true

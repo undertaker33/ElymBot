@@ -791,6 +791,84 @@ class PluginViewModelTest {
         )
         assertEquals("", viewModel.uiState.value.repositoryUrlDraft)
         assertEquals("", viewModel.uiState.value.directPackageUrlDraft)
+        val feedback = viewModel.uiState.value.detailActionState.lastActionMessage
+        assertTrue(feedback is PluginActionFeedback.Text)
+        feedback as PluginActionFeedback.Text
+        assertTrue(feedback.value.contains("Market", ignoreCase = true))
+        assertTrue(feedback.value.contains("repo-source", ignoreCase = true))
+    }
+
+    @Test
+    fun catalog_entries_expose_repository_homepage_from_entry_or_package_url() = runTest(dispatcher) {
+        val deps = FakePluginDependencies(
+            records = emptyList(),
+            catalogEntries = listOf(
+                catalogEntryRecord(
+                    sourceId = "repo-1",
+                    pluginId = "explicit-repo",
+                    repositoryUrl = "https://github.com/example/explicit-repo",
+                ),
+                catalogEntryRecord(
+                    sourceId = "repo-1",
+                    pluginId = "derived-repo",
+                    versions = listOf(
+                        catalogVersion(
+                            version = "2.0.0",
+                            packageUrl = "https://github.com/example/derived-repo/releases/download/v2.0.0/derived-repo.zip",
+                        ),
+                    ),
+                ),
+            ),
+        )
+        val viewModel = PluginViewModel(deps)
+        advanceUntilIdle()
+
+        val cardsByPluginId = viewModel.uiState.value.catalogEntries.associateBy { it.pluginId }
+        assertEquals(
+            "https://github.com/example/explicit-repo",
+            cardsByPluginId.getValue("explicit-repo").repositoryUrl,
+        )
+        assertEquals(
+            "https://github.com/example/derived-repo",
+            cardsByPluginId.getValue("derived-repo").repositoryUrl,
+        )
+    }
+
+    @Test
+    fun install_or_update_catalog_plugin_uses_latest_catalog_version_intent() = runTest(dispatcher) {
+        val deps = FakePluginDependencies(
+            records = emptyList(),
+            catalogEntries = listOf(
+                catalogEntryRecord(
+                    sourceId = "repo-1",
+                    pluginId = "plugin-1",
+                    versions = listOf(
+                        catalogVersion(version = "1.0.0"),
+                        catalogVersion(
+                            version = "1.2.0",
+                            packageUrl = "./packages/plugin-1-1.2.0.zip",
+                        ),
+                    ),
+                ),
+            ),
+        )
+        val viewModel = PluginViewModel(deps)
+        advanceUntilIdle()
+
+        viewModel.installOrUpdateCatalogPlugin("plugin-1")
+        advanceUntilIdle()
+
+        assertEquals(
+            listOf(
+                PluginInstallIntent.catalogVersion(
+                    pluginId = "plugin-1",
+                    version = "1.2.0",
+                    packageUrl = "https://repo.example.com/packages/plugin-1-1.2.0.zip",
+                    catalogSourceId = "repo-1",
+                ),
+            ),
+            deps.handledInstallIntents,
+        )
     }
 
     @Test
@@ -2117,6 +2195,7 @@ class PluginViewModelTest {
     private fun catalogEntryRecord(
         sourceId: String,
         pluginId: String,
+        repositoryUrl: String = "",
         versions: List<PluginCatalogVersion> = listOf(
             catalogVersion(version = "1.0.0"),
         ),
@@ -2129,6 +2208,7 @@ class PluginViewModelTest {
                 pluginId = pluginId,
                 title = pluginId,
                 author = "AstrBot",
+                repositoryUrl = repositoryUrl,
                 description = "Description for $pluginId",
                 entrySummary = "Summary for $pluginId",
                 versions = versions,
@@ -2138,12 +2218,13 @@ class PluginViewModelTest {
 
     private fun catalogVersion(
         version: String,
+        packageUrl: String = "https://repo.example.com/$version.zip",
         publishedAt: Long = 1_700_000_000_000L,
         changelog: String = "",
     ): PluginCatalogVersion {
         return PluginCatalogVersion(
             version = version,
-            packageUrl = "https://repo.example.com/$version.zip",
+            packageUrl = packageUrl,
             publishedAt = publishedAt,
             protocolVersion = 1,
             minHostVersion = "1.0.0",

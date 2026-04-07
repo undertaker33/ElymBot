@@ -6,9 +6,13 @@ import com.astrbot.android.model.plugin.PluginReviewState
 import com.astrbot.android.model.plugin.PluginRiskLevel
 import com.astrbot.android.model.plugin.PluginSettingsSchema
 import com.astrbot.android.model.plugin.PluginTrustLevel
+import com.astrbot.android.ui.viewmodel.PluginDetailActionState
+import com.astrbot.android.ui.viewmodel.PluginDetailManageActionAvailability
 import com.astrbot.android.ui.viewmodel.PluginScreenUiState
 import com.astrbot.android.ui.viewmodel.PluginSchemaUiState
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PluginDetailPresentationTest {
@@ -75,5 +79,25 @@ class PluginDetailPresentationTest {
             ),
             items,
         )
+    }
+
+    @Test
+    fun `detail action state keeps manage availability centralized`() {
+        val state = PluginDetailActionState(
+            manageAvailability = PluginDetailManageActionAvailability(
+                canEnable = true,
+                canDisable = false,
+                canUpgrade = true,
+            ),
+        )
+
+        assertTrue(state.isEnableActionEnabled)
+        assertFalse(state.isDisableActionEnabled)
+        assertTrue(state.isUpgradeActionEnabled)
+    }
+
+    @Test
+    fun `plugin detail uses unified manage button styling helper`() {
+        assertTrue(pluginDetailUsesUnifiedManageButtonStyle())
     }
 }

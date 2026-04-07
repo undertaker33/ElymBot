@@ -2,6 +2,7 @@ package com.astrbot.android.ui
 
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.material3.ButtonColors
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.SwitchDefaults
@@ -77,3 +78,16 @@ fun monochromeOutlinedButtonColors() = ButtonDefaults.outlinedButtonColors(
 
 @Composable
 fun monochromeOutlinedButtonBorder() = BorderStroke(1.dp, MonochromeUi.border)
+
+@Composable
+fun monochromeManageOutlinedButtonColors(): ButtonColors = ButtonDefaults.outlinedButtonColors(
+    containerColor = if (MonochromeUi.isDarkTheme) MonochromeUi.iconButtonSurface else MonochromeUi.elevatedSurface,
+    contentColor = MonochromeUi.textPrimary,
+    disabledContainerColor = if (MonochromeUi.isDarkTheme) MonochromeUi.cardBackground else MonochromeUi.elevatedSurface,
+    disabledContentColor = MonochromeUi.textSecondary,
+)
+
+fun monochromeManageOutlinedButtonBorder(enabled: Boolean): BorderStroke = BorderStroke(
+    1.dp,
+    if (enabled) MonochromeUi.border else MonochromeUi.border.copy(alpha = 0.48f),
+)

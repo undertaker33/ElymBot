@@ -10,6 +10,7 @@ import com.astrbot.android.ui.viewmodel.PluginScreenUiState
 import com.astrbot.android.ui.viewmodel.PluginStaticConfigUiState
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PluginConfigurationStructureTest {
@@ -72,6 +73,12 @@ class PluginConfigurationStructureTest {
             listOf("ResourceArea", "ImportArea", "ExportArea", "CacheArea", "DebugArea"),
             sections.map { (it as Enum<*>).name },
         )
+    }
+
+    @Test
+    fun `config and workspace tertiary pages use unified action button styling`() {
+        assertTrue(pluginConfigUsesUnifiedActionButtons())
+        assertTrue(pluginWorkspaceUsesUnifiedActionButtons())
     }
 
     private fun buildConfigSectionsForTest(uiState: PluginScreenUiState): List<Enum<*>> {

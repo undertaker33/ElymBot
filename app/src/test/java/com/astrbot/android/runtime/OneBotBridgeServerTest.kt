@@ -428,6 +428,195 @@ class OneBotBridgeServerTest {
         }
     }
 
+    @Test
+    fun `unsupported qq slash command falls through to external plugin on_command before unsupported fallback`() = runTest {
+        val extractedDir = Files.createTempDirectory("onebot-qq-command-plugin").toFile()
+        try {
+            val record = createQuickJsExternalPluginInstallRecord(
+                extractedDir = extractedDir,
+                pluginId = "qq-external-plugin",
+                supportedTriggers = listOf("on_command"),
+            )
+            withOneBotState(
+                bot = defaultBot(),
+                config = defaultConfig(),
+                providers = listOf(defaultChatProvider()),
+            ) {
+                RuntimeLogRepository.clear()
+                val httpCalls = AtomicInteger(0)
+                val scriptExecutor = RecordingExternalPluginScriptExecutor(
+                    outputs = listOf(
+                        JSONObject(
+                            mapOf(
+                                "resultType" to "text",
+                                "text" to "plugin command reply",
+                            ),
+                        ).toString(),
+                    ),
+                )
+                PluginRuntimeRegistry.registerExternalProvider {
+                    ExternalPluginRuntimeCatalog.plugins(
+                        records = listOf(record),
+                        bridgeRuntime = ExternalPluginBridgeRuntime(
+                            scriptExecutor = scriptExecutor,
+                        ),
+                    )
+                }
+                ChatCompletionService.setHttpClientOverrideForTests(
+                    FakeHttpClient(
+                        onExecute = { request ->
+                            httpCalls.incrementAndGet()
+                            HttpResponsePayload(
+                                code = 200,
+                                body = """{"choices":[{"message":{"content":"unexpected"}}]}""",
+                                headers = emptyMap(),
+                                url = request.url,
+                            )
+                        },
+                    ),
+                )
+
+                invokeHandlePayload(
+                    """
+                    {
+                      "post_type": "message",
+                      "message_type": "private",
+                      "self_id": "10001",
+                      "user_id": "20002",
+                      "message_id": "message-plugin-fallback",
+                      "raw_message": "/表情管理 angry"
+                    }
+                    """.trimIndent(),
+                )
+
+                assertEquals(1, scriptExecutor.requests.size)
+                assertTrue(scriptExecutor.requests.single().contextJson.contains("/表情管理 angry"))
+                assertEquals(0, httpCalls.get())
+                val logs = RuntimeLogRepository.logs.value
+                assertTrue(logs.any { it.contains("QQ plugin command handled: plugin=qq-external-plugin result=TextResult") })
+                assertTrue(logs.none { it.contains("Bot command handled via router") })
+                assertTrue(logs.none { it.contains("Bot command unsupported after plugin fallback") })
+            }
+        } finally {
+            extractedDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `unsupported qq slash command without plugin keeps unsupported fallback and skips model dispatch`() = runTest {
+        withOneBotState(
+            bot = defaultBot(),
+            config = defaultConfig(),
+            providers = listOf(defaultChatProvider()),
+        ) {
+            RuntimeLogRepository.clear()
+            val httpCalls = AtomicInteger(0)
+            ChatCompletionService.setHttpClientOverrideForTests(
+                FakeHttpClient(
+                    onExecute = { request ->
+                        httpCalls.incrementAndGet()
+                        HttpResponsePayload(
+                            code = 200,
+                            body = """{"choices":[{"message":{"content":"unexpected"}}]}""",
+                            headers = emptyMap(),
+                            url = request.url,
+                        )
+                    },
+                ),
+            )
+
+            invokeHandlePayload(
+                """
+                {
+                  "post_type": "message",
+                  "message_type": "private",
+                  "self_id": "10001",
+                  "user_id": "20002",
+                  "message_id": "message-unsupported-fallback",
+                  "raw_message": "/does-not-exist"
+                }
+                """.trimIndent(),
+            )
+
+            assertEquals(0, httpCalls.get())
+            val logs = RuntimeLogRepository.logs.value
+            assertTrue(logs.any { it.contains("Bot command unsupported after plugin fallback: does-not-exist") })
+            assertTrue(logs.none { it.contains("Bot command handled via router") })
+        }
+    }
+
+    @Test
+    fun `unsupported qq slash command still falls back when plugin returns noop`() = runTest {
+        val extractedDir = Files.createTempDirectory("onebot-qq-command-noop").toFile()
+        try {
+            val record = createQuickJsExternalPluginInstallRecord(
+                extractedDir = extractedDir,
+                pluginId = "qq-external-plugin",
+                supportedTriggers = listOf("on_command"),
+            )
+            withOneBotState(
+                bot = defaultBot(),
+                config = defaultConfig(),
+                providers = listOf(defaultChatProvider()),
+            ) {
+                RuntimeLogRepository.clear()
+                val httpCalls = AtomicInteger(0)
+                val scriptExecutor = RecordingExternalPluginScriptExecutor(
+                    outputs = listOf(
+                        JSONObject(
+                            mapOf(
+                                "resultType" to "noop",
+                                "reason" to "command not matched",
+                            ),
+                        ).toString(),
+                    ),
+                )
+                PluginRuntimeRegistry.registerExternalProvider {
+                    ExternalPluginRuntimeCatalog.plugins(
+                        records = listOf(record),
+                        bridgeRuntime = ExternalPluginBridgeRuntime(
+                            scriptExecutor = scriptExecutor,
+                        ),
+                    )
+                }
+                ChatCompletionService.setHttpClientOverrideForTests(
+                    FakeHttpClient(
+                        onExecute = { request ->
+                            httpCalls.incrementAndGet()
+                            HttpResponsePayload(
+                                code = 200,
+                                body = """{"choices":[{"message":{"content":"unexpected"}}]}""",
+                                headers = emptyMap(),
+                                url = request.url,
+                            )
+                        },
+                    ),
+                )
+
+                invokeHandlePayload(
+                    """
+                    {
+                      "post_type": "message",
+                      "message_type": "private",
+                      "self_id": "10001",
+                      "user_id": "20002",
+                      "message_id": "message-plugin-noop-fallback",
+                      "raw_message": "/表情管理 missing"
+                    }
+                    """.trimIndent(),
+                )
+
+                assertEquals(1, scriptExecutor.requests.size)
+                assertEquals(0, httpCalls.get())
+                val logs = RuntimeLogRepository.logs.value
+                assertTrue(logs.any { it.contains("QQ plugin command produced no consumable results: command=/表情管理") })
+                assertTrue(logs.any { it.contains("Bot command unsupported after plugin fallback: 表情管理") })
+            }
+        } finally {
+            extractedDir.deleteRecursively()
+        }
+    }
+
     private suspend fun withOneBotState(
         bot: BotProfile,
         config: ConfigProfile,

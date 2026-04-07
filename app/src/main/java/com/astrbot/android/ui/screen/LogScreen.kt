@@ -12,10 +12,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -95,7 +92,8 @@ fun LogScreen(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Button(
+            MonochromePrimaryActionButton(
+                label = stringResource(R.string.plugin_logs_copy_all),
                 onClick = {
                     clipboardManager.setText(AnnotatedString(displayText))
                     Toast.makeText(
@@ -109,18 +107,10 @@ fun LogScreen(
                     ).show()
                 },
                 enabled = displayText.isNotBlank(),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MonochromeUi.strong,
-                    contentColor = MonochromeUi.strongText,
-                ),
-            ) {
-                Text(
-                    text = stringResource(R.string.plugin_logs_copy_all),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            OutlinedButton(
+                modifier = Modifier.weight(1f),
+            )
+            MonochromeSecondaryActionButton(
+                label = stringResource(R.string.plugin_logs_clear),
                 onClick = {
                     if (showContext) {
                         conversationViewModel.replaceMessages(uiState.selectedSessionId, emptyList())
@@ -140,27 +130,14 @@ fun LogScreen(
                     }
                 },
                 enabled = if (showContext) contextPreview.isNotBlank() else logs.isNotEmpty(),
-                colors = ButtonDefaults.outlinedButtonColors(
-                    contentColor = MonochromeUi.textPrimary,
-                    disabledContentColor = MonochromeUi.textSecondary,
-                ),
-            ) {
-                Text(
-                    text = stringResource(R.string.plugin_logs_clear),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
+                modifier = Modifier.weight(1f),
+            )
             if (!showContext) {
-                OutlinedButton(
+                MonochromeSecondaryActionButton(
+                    label = stringResource(R.string.plugin_logs_auto_clear_action),
                     onClick = { showCleanupDialog = true },
-                ) {
-                    Text(
-                        text = stringResource(R.string.plugin_logs_auto_clear_action),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
+                    modifier = Modifier.weight(1f),
+                )
             }
         }
         if (!showContext) {
@@ -207,3 +184,5 @@ fun LogScreen(
         )
     }
 }
+
+internal fun runtimeLogUsesUnifiedActionButtons(): Boolean = true

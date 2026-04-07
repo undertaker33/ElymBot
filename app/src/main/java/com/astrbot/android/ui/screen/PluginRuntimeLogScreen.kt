@@ -12,10 +12,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -111,7 +108,8 @@ fun PluginRuntimeLogScreenRoute(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Button(
+                MonochromePrimaryActionButton(
+                    label = stringResource(R.string.plugin_logs_copy_all),
                     onClick = {
                         clipboardManager.setText(AnnotatedString(displayText))
                         Toast.makeText(
@@ -124,18 +122,9 @@ fun PluginRuntimeLogScreenRoute(
                     modifier = Modifier
                         .weight(1f)
                         .testTag(PluginUiSpec.PluginLogsCopyActionTag),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MonochromeUi.strong,
-                        contentColor = MonochromeUi.strongText,
-                    ),
-                ) {
-                    Text(
-                        text = stringResource(R.string.plugin_logs_copy_all),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                OutlinedButton(
+                )
+                MonochromeSecondaryActionButton(
+                    label = stringResource(R.string.plugin_logs_clear),
                     onClick = {
                         logBus.clearPlugin(pluginId)
                         PluginRuntimeLogCleanupRepository.recordCleanup(pluginId)
@@ -149,25 +138,14 @@ fun PluginRuntimeLogScreenRoute(
                     modifier = Modifier
                         .weight(1f)
                         .testTag(PluginUiSpec.PluginLogsClearActionTag),
-                ) {
-                    Text(
-                        text = stringResource(R.string.plugin_logs_clear),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                OutlinedButton(
+                )
+                MonochromeSecondaryActionButton(
+                    label = stringResource(R.string.plugin_logs_auto_clear_action),
                     onClick = { showCleanupDialog = true },
                     modifier = Modifier
                         .weight(1f)
                         .testTag(PluginUiSpec.PluginLogsCleanupActionTag),
-                ) {
-                    Text(
-                        text = stringResource(R.string.plugin_logs_auto_clear_action),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
+                )
             }
             Text(
                 text = stringResource(
@@ -213,6 +191,8 @@ fun PluginRuntimeLogScreenRoute(
         )
     }
 }
+
+internal fun pluginRuntimeLogUsesUnifiedActionButtons(): Boolean = true
 
 internal fun buildPluginRuntimeLogText(
     records: List<com.astrbot.android.model.plugin.PluginRuntimeLogRecord>,

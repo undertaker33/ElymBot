@@ -19,6 +19,7 @@ class PluginCatalogJsonTest {
                   "pluginId": "com.example.weather",
                   "title": "Weather",
                   "author": "AstrBot",
+                  "repositoryUrl": "https://github.com/example/weather-plugin",
                   "description": "Shows current weather.",
                   "entrySummary": "Weather commands",
                   "scenarios": ["forecast", "alerts"],
@@ -56,6 +57,7 @@ class PluginCatalogJsonTest {
         assertEquals("https://repo.example.com/catalogs/stable/index.json", source.catalogUrl)
         assertEquals(1712123456789L, source.updatedAt)
         assertEquals("com.example.weather", entry.pluginId)
+        assertEquals("https://github.com/example/weather-plugin", entry.repositoryUrl)
         assertEquals(listOf("forecast", "alerts"), entry.scenarios)
         assertEquals("1.4.0", version.version)
         assertEquals("https://repo.example.com/catalogs/packages/weather-1.4.0.zip", version.resolvePackageUrl(source.catalogUrl))

@@ -3,6 +3,8 @@ package com.astrbot.android.runtime
 import com.astrbot.android.model.chat.ConversationAttachment
 import com.astrbot.android.model.chat.MessageType
 import com.astrbot.android.runtime.qq.QqReplyDecoration
+import java.nio.file.Files
+import java.util.Base64
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
@@ -139,5 +141,40 @@ class OneBotPayloadCodecTest {
         )
 
         assertEquals("纯文本", payload)
+    }
+    @Test
+    fun `build reply payload converts local image path to base64 payload`() {
+        val imageFile = Files.createTempFile("onebot-payload", ".png").toFile()
+        try {
+            val imageBytes = byteArrayOf(1, 2, 3, 4, 5)
+            imageFile.writeBytes(imageBytes)
+
+            val payload = OneBotPayloadCodec.buildReplyPayload(
+                text = "",
+                attachments = listOf(
+                    ConversationAttachment(
+                        id = "image-local",
+                        type = "image",
+                        mimeType = "image/png",
+                        remoteUrl = imageFile.absolutePath,
+                    ),
+                ),
+                decoration = QqReplyDecoration(
+                    textPrefix = "",
+                    quoteMessageId = null,
+                    mentionUserId = null,
+                ),
+            )
+
+            require(payload is JSONArray)
+            assertEquals(1, payload.length())
+            assertEquals("image", payload.getJSONObject(0).getString("type"))
+            assertEquals(
+                "base64://${Base64.getEncoder().encodeToString(imageBytes)}",
+                payload.getJSONObject(0).getJSONObject("data").getString("file"),
+            )
+        } finally {
+            imageFile.delete()
+        }
     }
 }

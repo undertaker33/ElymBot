@@ -13,7 +13,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -124,12 +123,11 @@ private fun PluginConfigWorkspace(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MonochromeUi.textSecondary,
                 )
-                TextButton(
+                MonochromeSecondaryActionButton(
+                    label = stringResource(R.string.plugin_config_backup_action),
                     onClick = onOpenConfigBackup,
                     modifier = Modifier.testTag("plugin-config-open-backup"),
-                ) {
-                    Text(stringResource(R.string.plugin_config_backup_action))
-                }
+                )
             }
         }
 
@@ -252,3 +250,5 @@ private fun BoxWithConfigPageBackground(content: @Composable () -> Unit) {
         content()
     }
 }
+
+internal fun pluginConfigUsesUnifiedActionButtons(): Boolean = true
