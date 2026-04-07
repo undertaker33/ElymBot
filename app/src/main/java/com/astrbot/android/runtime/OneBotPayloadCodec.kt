@@ -3,6 +3,9 @@ package com.astrbot.android.runtime
 import com.astrbot.android.model.chat.ConversationAttachment
 import com.astrbot.android.model.chat.MessageType
 import com.astrbot.android.runtime.qq.QqReplyDecoration
+import java.io.File
+import java.net.URI
+import java.util.Base64
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -101,8 +104,7 @@ internal object OneBotPayloadCodec {
                     }
 
                     "image" -> {
-                        val fileValue = attachment.base64Data.takeIf { it.isNotBlank() }?.let { "base64://$it" }
-                            ?: attachment.remoteUrl
+                        val fileValue = imagePayloadValue(attachment)
                         if (fileValue.isNotBlank()) {
                             put(
                                 JSONObject().put("type", "image").put(
@@ -190,6 +192,32 @@ internal object OneBotPayloadCodec {
 
     private fun jsonValueAsString(json: JSONObject, key: String): String {
         return json.opt(key)?.toString().orEmpty()
+    }
+
+    private fun imagePayloadValue(attachment: ConversationAttachment): String {
+        attachment.base64Data.takeIf { it.isNotBlank() }?.let { return "base64://$it" }
+        val remoteUrl = attachment.remoteUrl
+        val localFile = localFileForPayload(remoteUrl)
+        if (localFile != null) {
+            return runCatching {
+                "base64://${Base64.getEncoder().encodeToString(localFile.readBytes())}"
+            }.getOrDefault(remoteUrl)
+        }
+        return remoteUrl
+    }
+
+    private fun localFileForPayload(location: String): File? {
+        if (location.isBlank()) return null
+        return runCatching {
+            when {
+                location.startsWith("http://", ignoreCase = true) ||
+                    location.startsWith("https://", ignoreCase = true) ||
+                    location.startsWith("base64://", ignoreCase = true) -> null
+
+                location.startsWith("file://", ignoreCase = true) -> File(URI(location))
+                else -> File(location)
+            }
+        }.getOrNull()?.takeIf { it.exists() && it.isFile }
     }
 }
 

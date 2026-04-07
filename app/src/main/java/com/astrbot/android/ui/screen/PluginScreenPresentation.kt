@@ -6,11 +6,13 @@ import com.astrbot.android.model.plugin.PluginPermissionDeclaration
 import com.astrbot.android.model.plugin.PluginPermissionDiff
 import com.astrbot.android.model.plugin.PluginSourceType
 import com.astrbot.android.model.plugin.PluginUpdateAvailability
+import com.astrbot.android.runtime.plugin.compareVersions
 import com.astrbot.android.ui.screen.plugin.PluginBadgePalette
 import com.astrbot.android.ui.screen.plugin.PluginUiSpec
 import com.astrbot.android.ui.viewmodel.PluginFailureUiState
 import com.astrbot.android.ui.viewmodel.PluginScreenUiState
 import com.astrbot.android.ui.MonochromeUi
+import java.net.URI
 
 enum class PluginHomepageSection {
     Hero,
@@ -143,9 +145,44 @@ data class PluginLocalWorkspacePresentation(
     val cards: List<PluginLocalCardPresentation>,
 )
 
-data class PluginMarketPlaceholderPresentation(
+enum class PluginMarketStatus {
+    NOT_INSTALLED,
+    INSTALLED,
+    UPDATE_AVAILABLE,
+}
+
+enum class PluginMarketPrimaryAction {
+    INSTALL,
+    UPDATE,
+    INSTALLED,
+}
+
+data class PluginMarketCardPresentation(
+    val pluginId: String,
     val title: String,
-    val body: String,
+    val description: String,
+    val author: String,
+    val versionLabel: String,
+    val status: PluginMarketStatus,
+    val repositoryUrl: String,
+)
+
+data class PluginMarketWorkspacePresentation(
+    val cards: List<PluginMarketCardPresentation>,
+)
+
+data class PluginMarketDetailPresentation(
+    val pluginId: String,
+    val title: String,
+    val author: String,
+    val summary: String,
+    val latestVersionLabel: String,
+    val installedVersionLabel: String,
+    val status: PluginMarketStatus,
+    val primaryAction: PluginMarketPrimaryAction,
+    val repositoryUrl: String,
+    val repositoryHost: String,
+    val sourceName: String,
 )
 
 data class PluginHealthOverviewPresentation(
@@ -163,7 +200,6 @@ data class PluginQuickInstallPresentation(
     val promotedModes: List<PluginQuickInstallMode>,
     val advancedModes: List<PluginQuickInstallMode>,
     val isAdvancedModeSelected: Boolean,
-    val showInstallReadinessChecklist: Boolean,
 )
 
 data class PluginLocalInstallSheetPresentation(
@@ -238,10 +274,62 @@ internal fun buildPluginLocalWorkspacePresentation(
     )
 }
 
-internal fun buildPluginMarketPlaceholderPresentation(): PluginMarketPlaceholderPresentation {
-    return PluginMarketPlaceholderPresentation(
-        title = "Market is coming soon",
-        body = "The market page is reserved in this iteration and will be filled in later.",
+internal fun buildPluginMarketWorkspacePresentation(
+    uiState: PluginScreenUiState,
+    searchQuery: String,
+): PluginMarketWorkspacePresentation {
+    val normalizedQuery = searchQuery.trim()
+    val cards = uiState.catalogEntries
+        .map { entry ->
+            val installedRecord = uiState.records.firstOrNull { it.pluginId == entry.pluginId }
+            PluginMarketCardPresentation(
+                pluginId = entry.pluginId,
+                title = entry.title,
+                description = entry.summary,
+                author = entry.author,
+                versionLabel = entry.latestVersion,
+                status = when {
+                    installedRecord == null -> PluginMarketStatus.NOT_INSTALLED
+                    compareVersions(entry.latestVersion, installedRecord.installedVersion) > 0 ->
+                        PluginMarketStatus.UPDATE_AVAILABLE
+                    else -> PluginMarketStatus.INSTALLED
+                },
+                repositoryUrl = entry.repositoryUrl,
+            )
+        }
+        .sortedBy { it.title.lowercase() }
+        .filter { it.matchesSearch(normalizedQuery) }
+    return PluginMarketWorkspacePresentation(cards = cards)
+}
+
+internal fun buildPluginMarketDetailPresentation(
+    uiState: PluginScreenUiState,
+    pluginId: String,
+): PluginMarketDetailPresentation? {
+    val entry = uiState.catalogEntries.firstOrNull { it.pluginId == pluginId } ?: return null
+    val installedRecord = uiState.records.firstOrNull { it.pluginId == pluginId }
+    val status = when {
+        installedRecord == null -> PluginMarketStatus.NOT_INSTALLED
+        compareVersions(entry.latestVersion, installedRecord.installedVersion) > 0 ->
+            PluginMarketStatus.UPDATE_AVAILABLE
+        else -> PluginMarketStatus.INSTALLED
+    }
+    return PluginMarketDetailPresentation(
+        pluginId = entry.pluginId,
+        title = entry.title,
+        author = entry.author,
+        summary = entry.summary,
+        latestVersionLabel = entry.latestVersion,
+        installedVersionLabel = installedRecord?.installedVersion.orEmpty(),
+        status = status,
+        primaryAction = when (status) {
+            PluginMarketStatus.NOT_INSTALLED -> PluginMarketPrimaryAction.INSTALL
+            PluginMarketStatus.UPDATE_AVAILABLE -> PluginMarketPrimaryAction.UPDATE
+            PluginMarketStatus.INSTALLED -> PluginMarketPrimaryAction.INSTALLED
+        },
+        repositoryUrl = entry.repositoryUrl,
+        repositoryHost = entry.repositoryUrl.toRepositoryHost(),
+        sourceName = entry.sourceName,
     )
 }
 
@@ -339,7 +427,6 @@ internal fun buildPluginQuickInstallPresentation(
         ),
         advancedModes = listOf(PluginQuickInstallMode.DirectPackageUrl),
         isAdvancedModeSelected = selectedMode == PluginQuickInstallMode.DirectPackageUrl,
-        showInstallReadinessChecklist = true,
     )
 }
 
@@ -535,6 +622,18 @@ private fun PluginLocalCardPresentation.matchesSearch(query: String): Boolean {
     return title.contains(query, ignoreCase = true) ||
         description.contains(query, ignoreCase = true) ||
         author.contains(query, ignoreCase = true)
+}
+
+private fun PluginMarketCardPresentation.matchesSearch(query: String): Boolean {
+    if (query.isBlank()) return true
+    return title.contains(query, ignoreCase = true) ||
+        description.contains(query, ignoreCase = true) ||
+        author.contains(query, ignoreCase = true)
+}
+
+private fun String.toRepositoryHost(): String {
+    if (isBlank()) return ""
+    return runCatching { URI(this).host.orEmpty() }.getOrDefault("")
 }
 
 private fun PluginLocalCardPresentation.matchesLocalFilter(filter: PluginLocalFilter): Boolean {

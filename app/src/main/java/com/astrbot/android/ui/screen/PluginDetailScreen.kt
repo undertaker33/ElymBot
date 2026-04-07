@@ -320,60 +320,65 @@ private fun PluginDetailManageSection(
         }
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(
+            PluginDetailManageButton(
                 onClick = onEnable,
-                enabled = actionState.isEnableActionEnabled,
+                enabled = actionState.manageAvailability.canEnable,
                 modifier = Modifier.weight(1f).testTag(PluginUiSpec.DetailEnableActionTag),
-            ) { Text(stringResource(R.string.plugin_action_enable)) }
-            OutlinedButton(
+                label = stringResource(R.string.plugin_action_enable),
+            )
+            PluginDetailManageButton(
                 onClick = onDisable,
-                enabled = actionState.isDisableActionEnabled,
+                enabled = actionState.manageAvailability.canDisable,
                 modifier = Modifier.weight(1f).testTag(PluginUiSpec.DetailDisableActionTag),
-            ) { Text(stringResource(R.string.plugin_action_disable)) }
+                label = stringResource(R.string.plugin_action_disable),
+            )
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(
+            PluginDetailManageButton(
                 onClick = onRequestUpgrade,
-                enabled = actionState.isUpgradeActionEnabled,
+                enabled = actionState.manageAvailability.canUpgrade,
                 modifier = Modifier.weight(1f).testTag(PluginUiSpec.DetailUpgradeActionTag),
-            ) { Text(stringResource(R.string.plugin_action_update)) }
-            OutlinedButton(
+                label = stringResource(R.string.plugin_action_update),
+            )
+            PluginDetailManageButton(
                 onClick = onUninstall,
+                enabled = actionState.manageAvailability.canUninstall,
                 modifier = Modifier.weight(1f).testTag(PluginUiSpec.DetailUninstallActionTag),
-            ) { Text(stringResource(R.string.plugin_action_uninstall)) }
+                label = stringResource(R.string.plugin_action_uninstall),
+            )
         }
-        OutlinedButton(
+        PluginDetailManageButton(
             onClick = onOpenWorkspace,
+            enabled = actionState.manageAvailability.canOpenWorkspace,
             modifier = Modifier
                 .fillMaxWidth()
                 .testTag(PluginUiSpec.DetailOpenWorkspaceActionTag),
-        ) {
-            Text(stringResource(R.string.plugin_action_open_workspace))
-        }
-        OutlinedButton(
+            label = stringResource(R.string.plugin_action_open_workspace),
+        )
+        PluginDetailManageButton(
             onClick = onOpenLogs,
+            enabled = actionState.manageAvailability.canViewLogs,
             modifier = Modifier
                 .fillMaxWidth()
                 .testTag(PluginUiSpec.DetailOpenLogsActionTag),
-        ) {
-            Text(stringResource(R.string.plugin_action_view_logs))
-        }
-        OutlinedButton(
+            label = stringResource(R.string.plugin_action_view_logs),
+        )
+        PluginDetailManageButton(
             onClick = onOpenTriggers,
+            enabled = actionState.manageAvailability.canManageTriggers,
             modifier = Modifier
                 .fillMaxWidth()
                 .testTag(PluginUiSpec.DetailOpenTriggersActionTag),
-        ) {
-            Text(stringResource(R.string.plugin_action_manage_triggers))
-        }
-        OutlinedButton(
+            label = stringResource(R.string.plugin_action_manage_triggers),
+        )
+        PluginDetailManageButton(
             onClick = onOpenConfig,
+            enabled = actionState.manageAvailability.canOpenConfig,
             modifier = Modifier
                 .fillMaxWidth()
                 .testTag(PluginUiSpec.DetailOpenConfigActionTag),
-        ) {
-            Text(stringResource(R.string.plugin_action_open_config))
-        }
+            label = stringResource(R.string.plugin_action_open_config),
+        )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FilterChip(
                 selected = actionState.uninstallPolicy == PluginUninstallPolicy.KEEP_DATA,
@@ -442,48 +447,65 @@ private fun PluginDetailRecoveryAndUpgradeSection(
             actionState.failureState?.let { PluginFailureBanner(it) }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(
+            PluginDetailManageButton(
                 onClick = onRetryRecovery,
+                enabled = actionState.manageAvailability.canRetryRecovery,
                 modifier = Modifier
                     .weight(1f)
                     .testTag(PluginUiSpec.DetailRetryActionTag),
-            ) {
-                Text(stringResource(R.string.plugin_action_retry))
-            }
-            OutlinedButton(
+                label = stringResource(R.string.plugin_action_retry),
+            )
+            PluginDetailManageButton(
                 onClick = onRestoreDefaults,
+                enabled = actionState.manageAvailability.canRestoreDefaults,
                 modifier = Modifier
                     .weight(1f)
                     .testTag(PluginUiSpec.DetailRestoreDefaultsActionTag),
-            ) {
-                Text(stringResource(R.string.plugin_action_restore_defaults))
-            }
+                label = stringResource(R.string.plugin_action_restore_defaults),
+            )
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(
+            PluginDetailManageButton(
                 onClick = onClearCache,
+                enabled = actionState.manageAvailability.canClearCache,
                 modifier = Modifier
                     .weight(1f)
                     .testTag(PluginUiSpec.DetailClearCacheActionTag),
-            ) {
-                Text(stringResource(R.string.plugin_action_clear_cache))
-            }
-            OutlinedButton(
+                label = stringResource(R.string.plugin_action_clear_cache),
+            )
+            PluginDetailManageButton(
                 onClick = {
                     clipboardManager.setText(AnnotatedString(buildDiagnosticsReport()))
                 },
+                enabled = actionState.manageAvailability.canCopyDiagnostics,
                 modifier = Modifier
                     .weight(1f)
                     .testTag(PluginUiSpec.DetailCopyDiagnosticsActionTag),
-            ) {
-                Text(stringResource(R.string.plugin_action_copy_diagnostics))
-            }
+                label = stringResource(R.string.plugin_action_copy_diagnostics),
+            )
         }
         if (!hasRecoveryContent) {
             detailHintCard(stringResource(R.string.plugin_detail_recovery_clear))
         }
     }
 }
+
+@Composable
+private fun PluginDetailManageButton(
+    onClick: () -> Unit,
+    label: String,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+) {
+    MonochromeSecondaryActionButton(
+        label = label,
+        onClick = onClick,
+        enabled = enabled,
+        modifier = modifier,
+    )
+}
+
+internal fun pluginDetailUsesUnifiedManageButtonStyle(): Boolean = true
 
 @Composable
 private fun PluginDetailTechnicalMetadataSection(

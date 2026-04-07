@@ -16,11 +16,13 @@ import com.astrbot.android.ui.MonochromeUi
 import com.astrbot.android.ui.screen.plugin.PluginBadgePalette
 import com.astrbot.android.ui.screen.plugin.PluginUiSpec
 import com.astrbot.android.ui.viewmodel.PluginActionFeedback
+import com.astrbot.android.ui.viewmodel.PluginCatalogEntryCardUiState
 import com.astrbot.android.ui.viewmodel.PluginFailureUiState
 import com.astrbot.android.ui.viewmodel.PluginRepositorySourceCardUiState
 import com.astrbot.android.ui.viewmodel.PluginScreenUiState
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PluginScreenPresentationTest {
@@ -71,12 +73,132 @@ class PluginScreenPresentationTest {
     }
 
     @Test
-    fun `market placeholder presentation exposes title and body`() {
-        val placeholderMethod = pluginPresentationMethod("buildPluginMarketPlaceholderPresentation")
-        val placeholder = placeholderMethod.invoke(null)
+    fun `market workspace presentation maps install states and repository links`() {
+        val uiState = PluginScreenUiState(
+            records = listOf(
+                installedPluginRecord("installed", enabled = true),
+                installedPluginRecord("update", enabled = true),
+            ),
+            catalogEntries = listOf(
+                PluginCatalogEntryCardUiState(
+                    sourceId = "repo-1",
+                    pluginId = "installed",
+                    title = "Installed plugin",
+                    author = "Alice",
+                    summary = "Already on this device",
+                    latestVersion = "1.0.0",
+                    repositoryUrl = "https://github.com/example/installed-plugin",
+                ),
+                PluginCatalogEntryCardUiState(
+                    sourceId = "repo-1",
+                    pluginId = "update",
+                    title = "Needs update",
+                    author = "Bob",
+                    summary = "Has a newer cloud build",
+                    latestVersion = "1.1.0",
+                    repositoryUrl = "https://github.com/example/update-plugin",
+                ),
+                PluginCatalogEntryCardUiState(
+                    sourceId = "repo-1",
+                    pluginId = "cloud-only",
+                    title = "Cloud only",
+                    author = "Carol",
+                    summary = "Ready to install",
+                    latestVersion = "2.0.0",
+                    repositoryUrl = "https://github.com/example/cloud-only",
+                ),
+            ),
+        )
 
-        assertFalse(propertyValue<String>(placeholder, "title").isBlank())
-        assertFalse(propertyValue<String>(placeholder, "body").isBlank())
+        val presentationMethod = pluginPresentationMethod(
+            "buildPluginMarketWorkspacePresentation",
+            PluginScreenUiState::class.java,
+            String::class.java,
+        )
+        val presentation = presentationMethod.invoke(null, uiState, "")
+        val cards = propertyValue<List<*>>(presentation, "cards")
+
+        assertEquals(listOf("cloud-only", "installed", "update"), cards.map { propertyValue<String>(it, "pluginId") })
+        assertEquals(
+            listOf("NOT_INSTALLED", "INSTALLED", "UPDATE_AVAILABLE"),
+            cards.map { propertyValue<Enum<*>>(it, "status").name },
+        )
+        assertEquals(
+            "https://github.com/example/installed-plugin",
+            propertyValue<String>(cards.first { propertyValue<String>(it, "pluginId") == "installed" }, "repositoryUrl"),
+        )
+        assertEquals(
+            "https://github.com/example/update-plugin",
+            propertyValue<String>(cards.first { propertyValue<String>(it, "pluginId") == "update" }, "repositoryUrl"),
+        )
+    }
+
+    @Test
+    fun `market detail presentation exposes detail metadata and primary action state`() {
+        val uiState = PluginScreenUiState(
+            records = listOf(
+                installedPluginRecord("installed", enabled = true),
+                installedPluginRecord("update", enabled = true),
+            ),
+            catalogEntries = listOf(
+                PluginCatalogEntryCardUiState(
+                    sourceId = "repo-1",
+                    pluginId = "installed",
+                    title = "Installed plugin",
+                    author = "Alice",
+                    summary = "Already installed from another source",
+                    latestVersion = "1.0.0",
+                    repositoryUrl = "https://github.com/example/installed-plugin",
+                    sourceName = "AstrBot Market",
+                ),
+                PluginCatalogEntryCardUiState(
+                    sourceId = "repo-1",
+                    pluginId = "update",
+                    title = "Needs update",
+                    author = "Bob",
+                    summary = "Has a newer cloud build",
+                    latestVersion = "1.1.0",
+                    repositoryUrl = "https://github.com/example/update-plugin",
+                    sourceName = "AstrBot Market",
+                ),
+                PluginCatalogEntryCardUiState(
+                    sourceId = "repo-1",
+                    pluginId = "cloud-only",
+                    title = "Cloud only",
+                    author = "Carol",
+                    summary = "Ready to install",
+                    latestVersion = "2.0.0",
+                    repositoryUrl = "https://github.com/example/cloud-only",
+                    sourceName = "AstrBot Market",
+                ),
+            ),
+        )
+
+        val presentationMethod = pluginPresentationMethod(
+            "buildPluginMarketDetailPresentation",
+            PluginScreenUiState::class.java,
+            String::class.java,
+        )
+
+        val installed = presentationMethod.invoke(null, uiState, "installed")
+        val update = presentationMethod.invoke(null, uiState, "update")
+        val cloudOnly = presentationMethod.invoke(null, uiState, "cloud-only")
+        val missing = presentationMethod.invoke(null, uiState, "missing")
+
+        assertEquals("INSTALLED", propertyValue<Enum<*>>(installed, "status").name)
+        assertEquals("INSTALLED", propertyValue<Enum<*>>(installed, "primaryAction").name)
+        assertEquals("1.0.0", propertyValue<String>(installed, "installedVersionLabel"))
+
+        assertEquals("UPDATE_AVAILABLE", propertyValue<Enum<*>>(update, "status").name)
+        assertEquals("UPDATE", propertyValue<Enum<*>>(update, "primaryAction").name)
+        assertEquals("github.com", propertyValue<String>(update, "repositoryHost"))
+        assertEquals("AstrBot Market", propertyValue<String>(update, "sourceName"))
+
+        assertEquals("NOT_INSTALLED", propertyValue<Enum<*>>(cloudOnly, "status").name)
+        assertEquals("INSTALL", propertyValue<Enum<*>>(cloudOnly, "primaryAction").name)
+        assertEquals("", propertyValue<String>(cloudOnly, "installedVersionLabel"))
+
+        assertEquals(null, missing)
     }
 
     @Test
@@ -124,7 +246,6 @@ class PluginScreenPresentationTest {
                 ),
                 advancedModes = listOf(PluginQuickInstallMode.DirectPackageUrl),
                 isAdvancedModeSelected = false,
-                showInstallReadinessChecklist = true,
             ),
             local,
         )
@@ -140,7 +261,6 @@ class PluginScreenPresentationTest {
                 ),
                 advancedModes = listOf(PluginQuickInstallMode.DirectPackageUrl),
                 isAdvancedModeSelected = false,
-                showInstallReadinessChecklist = true,
             ),
             repository,
         )
@@ -156,7 +276,6 @@ class PluginScreenPresentationTest {
                 ),
                 advancedModes = listOf(PluginQuickInstallMode.DirectPackageUrl),
                 isAdvancedModeSelected = true,
-                showInstallReadinessChecklist = true,
             ),
             direct,
         )
@@ -176,6 +295,11 @@ class PluginScreenPresentationTest {
             propertyValue<List<PluginQuickInstallMode>>(presentation, "availableModes"),
         )
         assertFalse(propertyValue<Boolean>(presentation, "showSheet").not())
+    }
+
+    @Test
+    fun `local install dialog uses scrollable content container`() {
+        assertTrue(pluginLocalInstallDialogUsesScrollableContent())
     }
 
     @Test
@@ -581,6 +705,7 @@ class PluginScreenPresentationTest {
     private fun installedPluginRecord(
         pluginId: String,
         enabled: Boolean,
+        version: String = "1.0.0",
         compatibilityState: PluginCompatibilityState = PluginCompatibilityState.evaluated(
             protocolSupported = true,
             minHostVersionSatisfied = true,
@@ -591,7 +716,7 @@ class PluginScreenPresentationTest {
         return PluginInstallRecord.restoreFromPersistedState(
             manifestSnapshot = PluginManifest(
                 pluginId = pluginId,
-                version = "1.0.0",
+                version = version,
                 protocolVersion = 1,
                 author = "AstrBot",
                 title = pluginId,

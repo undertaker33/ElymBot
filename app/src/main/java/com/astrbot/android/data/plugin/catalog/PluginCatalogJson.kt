@@ -34,6 +34,9 @@ object PluginCatalogJson {
                         pluginId = readRequiredString(item, "pluginId"),
                         title = readRequiredString(item, "title"),
                         author = readRequiredString(item, "author"),
+                        repositoryUrl = item.optString("repositoryUrl")
+                            .ifBlank { item.optString("repoUrl") }
+                            .trim(),
                         description = readRequiredString(item, "description"),
                         entrySummary = readRequiredString(item, "entrySummary"),
                         scenarios = decodeStringList(item.optJSONArray("scenarios"), "scenarios"),

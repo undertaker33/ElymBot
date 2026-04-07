@@ -437,9 +437,6 @@ object PluginRepository : PluginInstallStore, PluginCatalogSyncStore {
         supportedProtocolVersion: Int,
     ): PluginUpdateAvailability? {
         val sourceId = record.catalogSourceId?.takeIf { it.isNotBlank() } ?: return null
-        if (record.source.sourceType == PluginSourceType.DIRECT_LINK) {
-            return null
-        }
         val versions = listCatalogVersions(sourceId = sourceId, pluginId = record.pluginId)
         val candidate = versions
             .filter { version -> compareVersions(version.version, record.installedVersion) > 0 }

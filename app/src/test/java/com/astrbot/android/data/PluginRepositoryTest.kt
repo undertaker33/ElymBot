@@ -664,6 +664,49 @@ class PluginRepositoryTest {
     }
 
     @Test
+    fun repository_treats_bound_direct_link_plugin_as_updateable_after_repository_alignment() {
+        val catalogDao = InMemoryPluginCatalogDao()
+        val dao = InMemoryPluginInstallAggregateDao()
+        resetPluginRepositoryForTest(
+            dao = dao,
+            catalogDao = catalogDao,
+            initialized = true,
+        )
+        PluginRepository.upsert(
+            sampleRecord(
+                version = "1.0.0",
+                sourceType = PluginSourceType.DIRECT_LINK,
+                catalogSourceId = "official",
+                installedPackageUrl = "https://plugins.example.com/demo-1.0.0.zip",
+            ),
+        )
+        PluginRepository.replaceRepositoryCatalog(
+            sampleRepositorySource(
+                pluginId = "com.example.demo",
+                versions = listOf(
+                    catalogVersion(version = "1.0.0"),
+                    catalogVersion(
+                        version = "1.1.0",
+                        packageUrl = "https://repo.example.com/packages/demo-1.1.0.zip",
+                        publishedAt = 2_000L,
+                        changelog = "Repository-aligned update",
+                    ),
+                ),
+            ),
+        )
+
+        val availability = PluginRepository.getUpdateAvailability(
+            pluginId = "com.example.demo",
+            hostVersion = "0.3.6",
+            supportedProtocolVersion = 1,
+        )
+
+        assertEquals("1.1.0", availability?.latestVersion)
+        assertEquals("official", availability?.catalogSourceId)
+        assertEquals("https://repo.example.com/packages/demo-1.1.0.zip", availability?.packageUrl)
+    }
+
+    @Test
     fun repository_marks_incompatible_target_version_as_blocked_upgrade() {
         val catalogDao = InMemoryPluginCatalogDao()
         val dao = InMemoryPluginInstallAggregateDao()

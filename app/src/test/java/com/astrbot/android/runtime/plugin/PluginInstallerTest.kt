@@ -450,9 +450,67 @@ class PluginInstallerTest {
         }
     }
 
+    @Test
+    fun installer_upgrade_from_direct_link_switches_plugin_to_repository_baseline() = runBlocking {
+        val tempDir = Files.createTempDirectory("plugin-installer-direct-link-upgrade").toFile()
+        try {
+            val repositoryDao = InMemoryPluginInstallAggregateDao()
+            resetPluginRepositoryForTest(dao = repositoryDao, initialized = true)
+            PluginRepository.upsert(
+                existingRecord(
+                    tempDir = tempDir,
+                    version = "1.0.0",
+                    sourceType = PluginSourceType.DIRECT_LINK,
+                    catalogSourceId = null,
+                    installedPackageUrl = "https://plugins.example.com/demo-1.0.0.zip",
+                    localPackagePath = File(tempDir, "direct-link-1.0.0.zip").absolutePath,
+                    extractedDir = File(tempDir, "existing-direct-link").absolutePath,
+                ),
+            )
+            val remotePackage = createPluginPackage(
+                directory = tempDir,
+                fileName = "repository-upgrade.zip",
+                manifest = validManifest(version = "1.2.0"),
+            )
+            val installer = PluginInstaller(
+                validator = PluginPackageValidator(hostVersion = "0.3.6", supportedProtocolVersion = 1),
+                storagePaths = PluginStoragePaths.fromFilesDir(tempDir),
+                installStore = PluginRepository,
+                remotePackageDownloader = RemotePluginPackageDownloader { _, destinationFile ->
+                    remotePackage.copyTo(destinationFile, overwrite = true)
+                },
+                clock = { 650L },
+            )
+
+            val upgraded = installer.upgrade(
+                PluginUpdateAvailability(
+                    pluginId = "com.example.demo",
+                    installedVersion = "1.0.0",
+                    latestVersion = "1.2.0",
+                    updateAvailable = true,
+                    canUpgrade = true,
+                    catalogSourceId = "official",
+                    packageUrl = "https://repo.example.com/packages/demo-1.2.0.zip",
+                ),
+            )
+
+            assertEquals(PluginSourceType.REPOSITORY, upgraded.source.sourceType)
+            assertEquals(PluginSourceType.REPOSITORY, upgraded.manifestSnapshot.sourceType)
+            assertEquals("official", upgraded.catalogSourceId)
+            assertEquals("https://repo.example.com/packages/demo-1.2.0.zip", upgraded.installedPackageUrl)
+            assertEquals(650L, upgraded.lastCatalogCheckAtEpochMillis)
+        } finally {
+            resetPluginRepositoryForTest()
+            tempDir.deleteRecursively()
+        }
+    }
+
     private fun existingRecord(
         tempDir: File,
         version: String,
+        sourceType: PluginSourceType = PluginSourceType.LOCAL_FILE,
+        catalogSourceId: String? = null,
+        installedPackageUrl: String = "",
         enabled: Boolean = false,
         installedAt: Long = 0L,
         lastUpdatedAt: Long = 0L,
@@ -467,13 +525,17 @@ class PluginInstallerTest {
                 createPluginPackage(
                     directory = tempDir,
                     fileName = "existing-$version.zip",
-                    manifest = validManifest(version = version),
+                    manifest = validManifest(version = version).apply {
+                        put("sourceType", sourceType.name)
+                    },
                 ),
             ).manifest,
             source = PluginSource(
-                sourceType = PluginSourceType.LOCAL_FILE,
-                location = File(tempDir, "existing-$version.zip").absolutePath,
+                sourceType = sourceType,
+                location = installedPackageUrl.ifBlank { File(tempDir, "existing-$version.zip").absolutePath },
             ),
+            catalogSourceId = catalogSourceId,
+            installedPackageUrl = installedPackageUrl,
             enabled = enabled,
             installedAt = installedAt,
             lastUpdatedAt = lastUpdatedAt,

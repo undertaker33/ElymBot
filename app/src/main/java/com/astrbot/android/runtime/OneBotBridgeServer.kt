@@ -42,6 +42,7 @@ import com.astrbot.android.runtime.plugin.ExternalPluginHostActionExecutor
 import com.astrbot.android.runtime.plugin.PluginExecutionOutcome
 import com.astrbot.android.runtime.botcommand.BotCommandContext
 import com.astrbot.android.runtime.botcommand.BotCommandParser
+import com.astrbot.android.runtime.botcommand.BotCommandResources
 import com.astrbot.android.runtime.botcommand.BotCommandRouter
 import com.astrbot.android.runtime.botcommand.BotCommandSource
 import com.astrbot.android.runtime.plugin.PluginExecutionEngine
@@ -261,11 +262,31 @@ object OneBotBridgeServer {
                 ConversationRepository.syncSystemSessionTitle(sessionId, sessionTitle)
             }
             val persona = resolvePersona(bot, session.personaId)
-            if (handleBotCommand(event, bot, config, sessionId, session, persona)) {
-                return@lock
-            }
-            if (handlePluginCommand(event, bot, config, sessionId, session, persona)) {
-                return@lock
+            val parsedBotCommand = BotCommandParser.parse(event.text)
+            when {
+                parsedBotCommand != null && BotCommandRouter.supports(parsedBotCommand.name) -> {
+                    if (handleBotCommand(event, bot, config, sessionId, session, persona)) {
+                        return@lock
+                    }
+                }
+
+                parsedBotCommand != null -> {
+                    if (handlePluginCommand(event, bot, config, sessionId, session, persona)) {
+                        return@lock
+                    }
+                    sendReply(
+                        event,
+                        BotCommandResources.unsupportedCommand(parsedBotCommand.name, currentLanguageTag()),
+                    )
+                    RuntimeLogRepository.append(
+                        "Bot command unsupported after plugin fallback: ${parsedBotCommand.name} session=$sessionId",
+                    )
+                    return@lock
+                }
+
+                handlePluginCommand(event, bot, config, sessionId, session, persona) -> {
+                    return@lock
+                }
             }
             val provider = resolveProvider(bot)
             if (provider == null) {
@@ -892,13 +913,27 @@ object OneBotBridgeServer {
         if (batch.outcomes.isEmpty()) {
             return false
         }
-        batch.outcomes.forEach { outcome ->
+        val consumableOutcomes = batch.outcomes.filter(::isConsumableQqPluginOutcome)
+        if (consumableOutcomes.isEmpty()) {
+            RuntimeLogRepository.append(
+                "QQ plugin command produced no consumable results: command=${trimmedText.substringBefore(' ')} outcomes=${batch.outcomes.joinToString { it.result::class.simpleName.orEmpty() }}",
+            )
+            return false
+        }
+        consumableOutcomes.forEach { outcome ->
             consumeQqPluginOutcome(event = event, outcome = outcome)
             RuntimeLogRepository.append(
                 "QQ plugin command handled: plugin=${outcome.pluginId} result=${outcome.result::class.simpleName.orEmpty()}",
             )
         }
         return true
+    }
+
+    private fun isConsumableQqPluginOutcome(outcome: PluginExecutionOutcome): Boolean {
+        return when (outcome.result) {
+            is TextResult, is ErrorResult, is MediaResult, is HostActionRequest -> true
+            else -> false
+        }
     }
 
     private fun consumeQqPluginOutcome(

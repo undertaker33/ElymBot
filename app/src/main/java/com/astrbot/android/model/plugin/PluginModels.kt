@@ -88,6 +88,7 @@ data class PluginCatalogEntry(
     val pluginId: String,
     val title: String,
     val author: String,
+    val repositoryUrl: String = "",
     val description: String,
     val entrySummary: String,
     val scenarios: List<String> = emptyList(),

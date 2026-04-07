@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -161,15 +160,14 @@ private fun PluginWorkspacePage(
                                     color = MonochromeUi.textSecondary,
                                 )
                             }
-                            OutlinedButton(
+                            MonochromeSecondaryActionButton(
+                                label = stringResource(R.string.plugin_workspace_import_action),
                                 onClick = onImport,
                                 enabled = !workspace.isImportActionRunning,
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .testTag(PluginUiSpec.WorkspaceImportActionTag),
-                            ) {
-                                Text(stringResource(R.string.plugin_workspace_import_action))
-                            }
+                            )
                             WorkspaceFileList(
                                 files = workspace.files.filter { it.relativePath.startsWith("imports/") },
                                 emptyMessage = stringResource(R.string.plugin_workspace_empty_files),
@@ -339,14 +337,13 @@ private fun WorkspaceFileList(
                     style = MaterialTheme.typography.bodySmall,
                     color = MonochromeUi.textSecondary,
                 )
-                OutlinedButton(
+                MonochromeSecondaryActionButton(
+                    label = stringResource(R.string.plugin_workspace_delete_action),
                     onClick = { onDeleteFile(file.relativePath) },
                     modifier = Modifier.testTag(
                         PluginUiSpec.workspaceDeleteActionTag(file.relativePath),
                     ),
-                ) {
-                    Text(stringResource(R.string.plugin_workspace_delete_action))
-                }
+                )
             }
         }
     }
@@ -378,3 +375,5 @@ private fun formatWorkspaceTimestamp(timestamp: Long): String {
         Locale.getDefault(),
     ).format(Date(timestamp))
 }
+
+internal fun pluginWorkspaceUsesUnifiedActionButtons(): Boolean = true

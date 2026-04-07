@@ -91,6 +91,7 @@ data class PluginCatalogEntryCardUiState(
     val author: String,
     val summary: String,
     val latestVersion: String = "",
+    val repositoryUrl: String = "",
     val sourceName: String = "",
 )
 
@@ -147,6 +148,7 @@ data class PluginScreenUiState(
     val updateAvailabilitiesByPluginId: Map<String, PluginUpdateAvailability> = emptyMap(),
     val failureStatesByPluginId: Map<String, PluginFailureUiState> = emptyMap(),
     val localSearchQuery: String = "",
+    val marketSearchQuery: String = "",
     val selectedLocalFilter: PluginLocalFilter = PluginLocalFilter.ALL,
     val repositoryUrlDraft: String = "",
     val directPackageUrlDraft: String = "",
@@ -167,13 +169,35 @@ data class PluginDetailActionState(
     val compatibilityNotes: String = "",
     val enableBlockedReason: PluginActionFeedback? = null,
     val updateBlockedReason: PluginActionFeedback? = null,
-    val isEnableActionEnabled: Boolean = false,
-    val isDisableActionEnabled: Boolean = false,
     val updateAvailability: PluginUpdateAvailability? = null,
-    val isUpgradeActionEnabled: Boolean = false,
+    val manageAvailability: PluginDetailManageActionAvailability = PluginDetailManageActionAvailability(),
     val uninstallPolicy: PluginUninstallPolicy = PluginUninstallPolicy.default(),
     val lastActionMessage: PluginActionFeedback? = null,
     val failureState: PluginFailureUiState? = null,
+) {
+    val isEnableActionEnabled: Boolean
+        get() = manageAvailability.canEnable
+
+    val isDisableActionEnabled: Boolean
+        get() = manageAvailability.canDisable
+
+    val isUpgradeActionEnabled: Boolean
+        get() = manageAvailability.canUpgrade
+}
+
+data class PluginDetailManageActionAvailability(
+    val canEnable: Boolean = false,
+    val canDisable: Boolean = false,
+    val canUpgrade: Boolean = false,
+    val canUninstall: Boolean = false,
+    val canOpenWorkspace: Boolean = false,
+    val canViewLogs: Boolean = false,
+    val canManageTriggers: Boolean = false,
+    val canOpenConfig: Boolean = false,
+    val canRetryRecovery: Boolean = false,
+    val canRestoreDefaults: Boolean = false,
+    val canClearCache: Boolean = false,
+    val canCopyDiagnostics: Boolean = false,
 )
 
 data class PluginInstallFollowUpGuideState(
@@ -303,6 +327,7 @@ class PluginViewModel(
     private val installFollowUpGuide = MutableStateFlow<PluginInstallFollowUpGuideState?>(null)
     private val upgradeDialogState = MutableStateFlow<PluginUpgradeDialogState?>(null)
     private val localSearchQuery = MutableStateFlow("")
+    private val marketSearchQuery = MutableStateFlow("")
     private val selectedLocalFilter = MutableStateFlow(PluginLocalFilter.ALL)
     private var currentConfigBoundary: PluginConfigStorageBoundary? = null
 
@@ -382,6 +407,8 @@ class PluginViewModel(
         state.copy(upgradeDialogState = upgradeDialog)
     }.combine(localSearchQuery) { state, searchQuery ->
         state.copy(localSearchQuery = searchQuery)
+    }.combine(marketSearchQuery) { state, searchQuery ->
+        state.copy(marketSearchQuery = searchQuery)
     }.combine(selectedLocalFilter) { state, filter ->
         state.copy(selectedLocalFilter = filter)
     }.combine(repositoryUrlDraft) { state, repositoryDraft ->
@@ -486,6 +513,10 @@ class PluginViewModel(
         localSearchQuery.value = value
     }
 
+    fun updateMarketSearchQuery(value: String) {
+        marketSearchQuery.value = value
+    }
+
     fun updateSelectedLocalFilter(filter: PluginLocalFilter) {
         selectedLocalFilter.value = filter
     }
@@ -509,6 +540,13 @@ class PluginViewModel(
             onSuccess = {
                 directPackageUrlDraft.value = ""
             },
+        )
+    }
+
+    fun installOrUpdateCatalogPlugin(pluginId: String) {
+        submitInstallIntent(
+            buildIntent = { buildCatalogVersionIntent(pluginId) },
+            onSuccess = {},
         )
     }
 
@@ -800,6 +838,20 @@ class PluginViewModel(
         }
         val failureState = buildFailureUiState(record)
         val enableBlockedReason = buildEnableBlockedReason(record, failureState)
+        val manageAvailability = PluginDetailManageActionAvailability(
+            canEnable = !record.enabled && enableBlockedReason == null,
+            canDisable = record.enabled,
+            canUpgrade = updateAvailability?.updateAvailable == true && updateAvailability.canUpgrade,
+            canUninstall = true,
+            canOpenWorkspace = true,
+            canViewLogs = true,
+            canManageTriggers = true,
+            canOpenConfig = true,
+            canRetryRecovery = true,
+            canRestoreDefaults = true,
+            canClearCache = true,
+            canCopyDiagnostics = true,
+        )
         return PluginDetailActionState(
             compatibilityNotes = record.compatibilityState.notes,
             enableBlockedReason = enableBlockedReason,
@@ -808,10 +860,8 @@ class PluginViewModel(
                 ?.incompatibilityReason
                 ?.takeIf { it.isNotBlank() }
                 ?.let(PluginActionFeedback::Text),
-            isEnableActionEnabled = !record.enabled && enableBlockedReason == null,
-            isDisableActionEnabled = record.enabled,
             updateAvailability = updateAvailability,
-            isUpgradeActionEnabled = updateAvailability?.updateAvailable == true && updateAvailability.canUpgrade,
+            manageAvailability = manageAvailability,
             uninstallPolicy = record.uninstallPolicy,
             lastActionMessage = actionMessage,
             failureState = failureState,
@@ -1532,16 +1582,34 @@ class PluginViewModel(
         val latestVersion = record.entry.versions
             .sortedWith { left, right -> compareVersions(right.version, left.version) }
             .firstOrNull()
-            ?.version
-            .orEmpty()
+        val latestVersionLabel = latestVersion?.version.orEmpty()
         return PluginCatalogEntryCardUiState(
             sourceId = record.sourceId,
             pluginId = record.entry.pluginId,
             title = record.entry.title,
             author = record.entry.author,
             summary = record.entry.entrySummary.ifBlank { record.entry.description },
-            latestVersion = latestVersion,
+            latestVersion = latestVersionLabel,
+            repositoryUrl = resolveRepositoryHomepage(
+                explicitRepositoryUrl = record.entry.repositoryUrl,
+                packageUrl = latestVersion?.resolvePackageUrl(record.catalogUrl).orEmpty(),
+            ),
             sourceName = record.sourceTitle,
+        )
+    }
+
+    private fun buildCatalogVersionIntent(pluginId: String): PluginInstallIntent.CatalogVersion {
+        val record = dependencies.catalogEntries.value.firstOrNull { it.entry.pluginId == pluginId }
+            ?: error("Plugin $pluginId is not available in the current market source.")
+        val latestVersion = record.entry.versions
+            .sortedWith { left, right -> compareVersions(right.version, left.version) }
+            .firstOrNull()
+            ?: error("Plugin $pluginId does not expose any installable versions.")
+        return PluginInstallIntent.catalogVersion(
+            pluginId = record.entry.pluginId,
+            version = latestVersion.version,
+            packageUrl = latestVersion.resolvePackageUrl(record.catalogUrl),
+            catalogSourceId = record.sourceId,
         )
     }
 
@@ -1607,13 +1675,34 @@ class PluginViewModel(
             .getOrDefault("")
     }
 
+    private fun resolveRepositoryHomepage(
+        explicitRepositoryUrl: String,
+        packageUrl: String,
+    ): String {
+        explicitRepositoryUrl.trim().takeIf { it.isNotBlank() }?.let { return it }
+        val uri = runCatching { java.net.URI(packageUrl) }.getOrNull() ?: return ""
+        if (!uri.host.equals("github.com", ignoreCase = true)) return ""
+        val segments = uri.path.split('/').filter { it.isNotBlank() }
+        if (segments.size < 2) return ""
+        return "https://github.com/${segments[0]}/${segments[1]}"
+    }
+
     private fun PluginInstallIntentResult.toFeedback(): PluginActionFeedback {
         return when (this) {
             is PluginInstallIntentResult.Installed -> PluginActionFeedback.Text(
                 "Installed ${record.manifestSnapshot.title} ${record.installedVersion}.",
             )
             is PluginInstallIntentResult.RepositorySynced -> PluginActionFeedback.Text(
-                "Repository synced: ${syncState.sourceId}.",
+                when (syncState.lastSyncStatus) {
+                    com.astrbot.android.model.plugin.PluginCatalogSyncStatus.SUCCESS ->
+                        "Market source synced: ${syncState.sourceId}. Open Market to review plugins."
+                    com.astrbot.android.model.plugin.PluginCatalogSyncStatus.EMPTY ->
+                        "Market source synced: ${syncState.sourceId}. No plugins were found yet."
+                    com.astrbot.android.model.plugin.PluginCatalogSyncStatus.FAILED ->
+                        "Market source saved: ${syncState.sourceId}, but sync failed."
+                    com.astrbot.android.model.plugin.PluginCatalogSyncStatus.NEVER_SYNCED ->
+                        "Market source saved: ${syncState.sourceId}."
+                },
             )
             PluginInstallIntentResult.Ignored -> PluginActionFeedback.Text("Plugin action completed.")
         }
