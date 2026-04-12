@@ -28,6 +28,7 @@ object PluginGovernanceSnapshotMapper {
         failureSnapshot: PluginFailureSnapshot? = PluginRuntimeFailureStateStoreProvider.store().get(installRecord.pluginId),
         lifecycleDiagnostics: List<PluginLifecycleDiagnostic> = PluginLifecycleDiagnosticsStore.snapshot(),
         clock: () -> Long = System::currentTimeMillis,
+        logBus: PluginRuntimeLogBus = PluginRuntimeLogBusProvider.bus(),
     ): PluginGovernanceSnapshot {
         val pluginId = installRecord.pluginId
         val bootstrapDiagnostics = runtimeSnapshot.diagnosticsByPluginId[pluginId].orEmpty()
@@ -68,7 +69,7 @@ object PluginGovernanceSnapshotMapper {
             lastFailureSummary = normalizedFailureSnapshot?.lastErrorSummary.orEmpty(),
         )
 
-        return PluginGovernanceSnapshot(
+        val snapshot = PluginGovernanceSnapshot(
             riskLevel = installRecord.resolveRiskLevel(),
             trustLevel = installRecord.resolveTrustLevel(),
             reviewState = installRecord.resolveReviewState(),
@@ -110,9 +111,27 @@ object PluginGovernanceSnapshotMapper {
                 .toRegistrationSummary(
                     pluginId = pluginId,
                     toolRegistrySnapshot = runtimeSnapshot.toolRegistrySnapshot,
-                ),
+            ),
             diagnosticsSummary = diagnosticsSummary,
         )
+        logBus.publishGovernanceSnapshotRefreshed(
+            pluginId = snapshot.pluginId,
+            pluginVersion = snapshot.pluginVersion,
+            occurredAtEpochMillis = clock(),
+            runtimeSessionId = runtimeSession?.sessionInstanceId.orEmpty(),
+            diagnosticsTotalCount = snapshot.diagnosticsSummary.totalCount,
+            activeFailureCount = snapshot.diagnosticsSummary.activeFailureCount,
+        )
+        logBus.publishPluginRuntimeHealthProjected(
+            pluginId = snapshot.pluginId,
+            pluginVersion = snapshot.pluginVersion,
+            occurredAtEpochMillis = clock(),
+            runtimeSessionId = runtimeSession?.sessionInstanceId.orEmpty(),
+            healthStatus = snapshot.runtimeHealth.status.name.uppercase(),
+            suspensionState = snapshot.suspensionState.name,
+            diagnosticsTotalCount = snapshot.diagnosticsSummary.totalCount,
+        )
+        return snapshot
     }
 
     private fun resolveRuntimeHealth(

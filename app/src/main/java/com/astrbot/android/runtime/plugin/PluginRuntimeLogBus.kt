@@ -9,6 +9,20 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
+data class PluginObservabilitySummary(
+    val totalCount: Int = 0,
+    val lastCode: String = "",
+    val lastLevel: PluginRuntimeLogLevel? = null,
+    val lastOccurredAtEpochMillis: Long? = null,
+    val failureCount: Int = 0,
+    val recoveryCount: Int = 0,
+    val latestRequestId: String? = null,
+    val latestToolCallId: String? = null,
+    val structuredCodes: Set<String> = emptySet(),
+)
+
+typealias PluginRuntimeLogSummary = PluginObservabilitySummary
+
 interface PluginRuntimeLogBus {
     val records: StateFlow<List<PluginRuntimeLogRecord>>
 
@@ -19,7 +33,13 @@ interface PluginRuntimeLogBus {
         pluginId: String? = null,
         trigger: PluginTriggerSource? = null,
         category: PluginRuntimeLogCategory? = null,
+        code: String? = null,
     ): List<PluginRuntimeLogRecord>
+
+    fun summary(
+        pluginId: String,
+        limit: Int = 100,
+    ): PluginObservabilitySummary
 
     fun clear()
 
@@ -38,7 +58,13 @@ object NoOpPluginRuntimeLogBus : PluginRuntimeLogBus {
         pluginId: String?,
         trigger: PluginTriggerSource?,
         category: PluginRuntimeLogCategory?,
+        code: String?,
     ): List<PluginRuntimeLogRecord> = emptyList()
+
+    override fun summary(
+        pluginId: String,
+        limit: Int,
+    ): PluginObservabilitySummary = PluginObservabilitySummary()
 
     override fun clear() = Unit
 
@@ -79,6 +105,7 @@ class InMemoryPluginRuntimeLogBus(
         pluginId: String?,
         trigger: PluginTriggerSource?,
         category: PluginRuntimeLogCategory?,
+        code: String?,
     ): List<PluginRuntimeLogRecord> {
         require(limit > 0) { "limit must be greater than zero." }
         return synchronized(buffer) {
@@ -87,9 +114,34 @@ class InMemoryPluginRuntimeLogBus(
                 .filter { record -> pluginId == null || record.pluginId == pluginId }
                 .filter { record -> trigger == null || record.trigger == trigger }
                 .filter { record -> category == null || record.category == category }
+                .filter { record -> code == null || record.code == code }
                 .take(limit)
                 .toList()
         }
+    }
+
+    override fun summary(
+        pluginId: String,
+        limit: Int,
+    ): PluginObservabilitySummary {
+        val records = snapshot(
+            limit = limit,
+            pluginId = pluginId,
+        )
+        return PluginObservabilitySummary(
+            totalCount = records.size,
+            lastCode = records.firstOrNull()?.code.orEmpty(),
+            lastLevel = records.firstOrNull()?.level,
+            lastOccurredAtEpochMillis = records.firstOrNull()?.occurredAtEpochMillis,
+            failureCount = records.count(PluginRuntimeLogRecord::countsAsFailureObservability),
+            recoveryCount = records.count(PluginRuntimeLogRecord::countsAsRecoveryObservability),
+            latestRequestId = records.firstNotNullOfOrNull { record -> record.requestId.takeIf(String::isNotBlank) },
+            latestToolCallId = records.firstNotNullOfOrNull { record -> record.toolCallId.takeIf(String::isNotBlank) },
+            structuredCodes = records
+                .map { record -> record.metadata["code"].orEmpty().ifBlank { record.code } }
+                .filter(String::isNotBlank)
+                .toSet(),
+        )
     }
 
     override fun clear() {
@@ -267,4 +319,119 @@ internal fun PluginRuntimeLogBus.publishToolAvailabilitySnapshotBuilt(
                 .ifBlank { "none" },
         ),
     )
+}
+
+internal fun PluginRuntimeLogBus.publishGovernanceSnapshotRefreshed(
+    pluginId: String,
+    pluginVersion: String,
+    occurredAtEpochMillis: Long,
+    runtimeSessionId: String,
+    diagnosticsTotalCount: Int,
+    activeFailureCount: Int,
+) {
+    publish(
+        PluginRuntimeLogRecord(
+            occurredAtEpochMillis = occurredAtEpochMillis,
+            pluginId = pluginId,
+            pluginVersion = pluginVersion,
+            category = PluginRuntimeLogCategory.WorkspaceApi,
+            level = PluginRuntimeLogLevel.Info,
+            code = "governance_snapshot_refreshed",
+            message = "Plugin governance snapshot refreshed.",
+            succeeded = true,
+            metadata = linkedMapOf(
+                "code" to "governance_snapshot_refreshed",
+                "stage" to "GovernanceSnapshot",
+                "outcome" to "REFRESHED",
+                "diagnosticsTotalCount" to diagnosticsTotalCount.toString(),
+                "activeFailureCount" to activeFailureCount.toString(),
+            ).also { values ->
+                if (runtimeSessionId.isNotBlank()) {
+                    values["sessionInstanceId"] = runtimeSessionId
+                }
+            },
+        ),
+    )
+}
+
+internal fun PluginRuntimeLogBus.publishPluginSuspensionStateChanged(
+    pluginId: String,
+    pluginVersion: String,
+    occurredAtEpochMillis: Long,
+    isSuspended: Boolean,
+    failureScope: String,
+    sourceCode: String,
+    consecutiveFailureCount: Int,
+    suspendedUntilEpochMillis: Long?,
+) {
+    publish(
+        PluginRuntimeLogRecord(
+            occurredAtEpochMillis = occurredAtEpochMillis,
+            pluginId = pluginId,
+            pluginVersion = pluginVersion,
+            category = PluginRuntimeLogCategory.FailureGuard,
+            level = if (isSuspended) PluginRuntimeLogLevel.Warning else PluginRuntimeLogLevel.Info,
+            code = "plugin_suspension_state_changed",
+            message = "Plugin suspension state changed.",
+            succeeded = !isSuspended,
+            metadata = linkedMapOf(
+                "code" to "plugin_suspension_state_changed",
+                "stage" to "FailureGuard",
+                "outcome" to if (isSuspended) "SUSPENDED" else "RESUMED",
+                "currentState" to if (isSuspended) "SUSPENDED" else "NOT_SUSPENDED",
+                "failureScope" to failureScope,
+                "sourceCode" to sourceCode,
+                "consecutiveFailureCount" to consecutiveFailureCount.toString(),
+                "suspendedUntilEpochMillis" to suspendedUntilEpochMillis?.toString().orEmpty(),
+            ),
+        ),
+    )
+}
+
+internal fun PluginRuntimeLogBus.publishPluginRuntimeHealthProjected(
+    pluginId: String,
+    pluginVersion: String,
+    occurredAtEpochMillis: Long,
+    runtimeSessionId: String,
+    healthStatus: String,
+    suspensionState: String,
+    diagnosticsTotalCount: Int,
+) {
+    publish(
+        PluginRuntimeLogRecord(
+            occurredAtEpochMillis = occurredAtEpochMillis,
+            pluginId = pluginId,
+            pluginVersion = pluginVersion,
+            category = PluginRuntimeLogCategory.WorkspaceApi,
+            level = PluginRuntimeLogLevel.Info,
+            code = "plugin_runtime_health_projected",
+            message = "Plugin runtime health projected for governance.",
+            succeeded = true,
+            metadata = linkedMapOf(
+                "code" to "plugin_runtime_health_projected",
+                "stage" to "RuntimeHealth",
+                "outcome" to healthStatus,
+                "healthStatus" to healthStatus,
+                "suspensionState" to suspensionState,
+                "diagnosticsTotalCount" to diagnosticsTotalCount.toString(),
+            ).also { values ->
+                if (runtimeSessionId.isNotBlank()) {
+                    values["sessionInstanceId"] = runtimeSessionId
+                }
+            },
+        ),
+    )
+}
+
+private fun PluginRuntimeLogRecord.countsAsFailureObservability(): Boolean {
+    return succeeded == false ||
+        code == "failure_guard_recorded" ||
+        code == "failure_guard_suspended" ||
+        code == "failure_guard_recovery_failed"
+}
+
+private fun PluginRuntimeLogRecord.countsAsRecoveryObservability(): Boolean {
+    return code == "failure_guard_recovered" ||
+        code == "failure_guard_resumed" ||
+        (code == "plugin_suspension_state_changed" && metadata["currentState"] == "NOT_SUSPENDED")
 }
