@@ -109,6 +109,8 @@ interface PluginScopedFailureStateStore {
 
     fun put(snapshot: PluginFailureSnapshot)
 
+    fun snapshot(pluginId: String): List<PluginFailureSnapshot>
+
     fun remove(
         pluginId: String,
         trigger: PluginTriggerSource,
@@ -126,6 +128,10 @@ class InMemoryPluginScopedFailureStateStore : PluginScopedFailureStateStore {
     override fun put(snapshot: PluginFailureSnapshot) {
         val trigger = snapshot.trigger ?: return
         states[key(snapshot.pluginId, trigger)] = snapshot
+    }
+
+    override fun snapshot(pluginId: String): List<PluginFailureSnapshot> {
+        return states.values.filter { snapshot -> snapshot.pluginId == pluginId }
     }
 
     override fun remove(
@@ -194,6 +200,16 @@ class PluginFailureGuard(
         } else {
             resolveScoped(pluginId, trigger)
         } ?: PluginFailureSnapshot(pluginId = pluginId, trigger = trigger)
+        val aggregateBefore = if (trigger == null) {
+            current
+        } else {
+            resolve(pluginId) ?: PluginFailureSnapshot(pluginId = pluginId)
+        }
+        val shouldProjectRecoveryFailed = current.canProjectRecoveryFailure()
+        val shouldProjectAggregateRecoveryFailed = trigger != null && (
+            aggregateBefore.canProjectRecoveryFailure() ||
+                logBus.hasRecoveredBoundary(pluginId = pluginId, failureScope = "plugin")
+            )
         val category = classifyFailure(errorSummary.ifBlank { current.lastErrorSummary })
         val snapshot = evolveFailureSnapshot(
             current = current,
@@ -204,8 +220,9 @@ class PluginFailureGuard(
             now = now,
         )
         saveSnapshot(snapshot)
+        var aggregateAfter = snapshot
         if (trigger != null) {
-            saveAggregateFailure(
+            aggregateAfter = saveAggregateFailure(
                 pluginId = pluginId,
                 errorSummary = errorSummary,
                 category = category,
@@ -222,7 +239,10 @@ class PluginFailureGuard(
                 code = if (snapshot.isSuspended) "failure_guard_suspended" else "failure_guard_recorded",
                 message = errorSummary.ifBlank { "Plugin failure recorded." },
                 succeeded = false,
-                metadata = mapOf(
+                metadata = linkedMapOf(
+                    "code" to if (snapshot.isSuspended) "failure_guard_suspended" else "failure_guard_recorded",
+                    "stage" to "FailureGuard",
+                    "outcome" to if (snapshot.isSuspended) "SUSPENDED" else "FAILED",
                     "consecutiveFailureCount" to snapshot.consecutiveFailureCount.toString(),
                     "failureCategory" to category.wireValue,
                     "failureScope" to (trigger?.wireValue ?: "plugin"),
@@ -230,6 +250,72 @@ class PluginFailureGuard(
                 ),
             ),
         )
+        if (shouldProjectRecoveryFailed) {
+            logBus.publish(
+                PluginRuntimeLogRecord(
+                    occurredAtEpochMillis = now,
+                    pluginId = pluginId,
+                    trigger = trigger,
+                    category = PluginRuntimeLogCategory.FailureGuard,
+                    level = PluginRuntimeLogLevel.Warning,
+                    code = "failure_guard_recovery_failed",
+                    message = errorSummary.ifBlank { "Plugin recovery attempt failed." },
+                    succeeded = false,
+                    metadata = linkedMapOf(
+                        "code" to "failure_guard_recovery_failed",
+                        "stage" to "FailureGuard",
+                        "outcome" to "RECOVERY_FAILED",
+                        "failureCategory" to category.wireValue,
+                        "failureScope" to (trigger?.wireValue ?: "plugin"),
+                        "consecutiveFailureCount" to snapshot.consecutiveFailureCount.toString(),
+                    ),
+                ),
+            )
+        }
+        if (current.isSuspended != snapshot.isSuspended) {
+            logBus.publishPluginSuspensionStateChanged(
+                pluginId = pluginId,
+                pluginVersion = "",
+                occurredAtEpochMillis = now,
+                isSuspended = snapshot.isSuspended,
+                failureScope = trigger?.wireValue ?: "plugin",
+                sourceCode = if (snapshot.isSuspended) "failure_guard_suspended" else "failure_guard_recorded",
+                consecutiveFailureCount = snapshot.consecutiveFailureCount,
+                suspendedUntilEpochMillis = snapshot.suspendedUntilEpochMillis,
+            )
+        }
+        if (trigger != null) {
+            if (shouldProjectAggregateRecoveryFailed) {
+                publishRecoveryFailed(
+                    logBus = logBus,
+                    pluginId = pluginId,
+                    trigger = null,
+                    category = category,
+                    failureCount = aggregateAfter.consecutiveFailureCount,
+                    now = now,
+                )
+            }
+            if (!aggregateBefore.isSuspended && aggregateAfter.isSuspended) {
+                publishFailureRecord(
+                    logBus = logBus,
+                    snapshot = aggregateAfter,
+                    trigger = null,
+                    category = category,
+                    now = now,
+                    errorSummary = errorSummary,
+                )
+                logBus.publishPluginSuspensionStateChanged(
+                    pluginId = pluginId,
+                    pluginVersion = "",
+                    occurredAtEpochMillis = now,
+                    isSuspended = true,
+                    failureScope = "plugin",
+                    sourceCode = "failure_guard_suspended",
+                    consecutiveFailureCount = aggregateAfter.consecutiveFailureCount,
+                    suspendedUntilEpochMillis = aggregateAfter.suspendedUntilEpochMillis,
+                )
+            }
+        }
         return snapshot
     }
 
@@ -242,19 +328,26 @@ class PluginFailureGuard(
         } else {
             resolveScoped(pluginId, trigger)
         } ?: PluginFailureSnapshot(pluginId = pluginId, trigger = trigger)
+        val aggregateBefore = if (trigger == null) {
+            current
+        } else {
+            resolve(pluginId) ?: PluginFailureSnapshot(pluginId = pluginId)
+        }
         val snapshot = current.copy(
             consecutiveFailureCount = 0,
             isSuspended = false,
             suspendedUntilEpochMillis = null,
         )
         saveSnapshot(snapshot)
+        var aggregateAfter = snapshot
         if (trigger != null) {
-            saveAggregateRecovery(pluginId)
+            aggregateAfter = saveAggregateRecovery(pluginId)
         }
         if (current.consecutiveFailureCount > 0 || current.isSuspended) {
+            val now = clock()
             logBus.publish(
                 PluginRuntimeLogRecord(
-                    occurredAtEpochMillis = clock(),
+                    occurredAtEpochMillis = now,
                     pluginId = pluginId,
                     trigger = trigger,
                     category = PluginRuntimeLogCategory.FailureGuard,
@@ -262,15 +355,82 @@ class PluginFailureGuard(
                     code = "failure_guard_recovered",
                     message = "Plugin failure state recovered.",
                     succeeded = true,
-                    metadata = mapOf(
+                    metadata = linkedMapOf(
+                        "code" to "failure_guard_recovered",
+                        "stage" to "FailureGuard",
+                        "outcome" to "RECOVERED",
                         "failureCategory" to current.failureCategory.wireValue,
                         "failureScope" to (trigger?.wireValue ?: "plugin"),
                         "previousConsecutiveFailureCount" to current.consecutiveFailureCount.toString(),
                     ),
                 ),
             )
+            if (current.isSuspended) {
+                logBus.publishPluginSuspensionStateChanged(
+                    pluginId = pluginId,
+                    pluginVersion = "",
+                    occurredAtEpochMillis = now,
+                    isSuspended = false,
+                    failureScope = trigger?.wireValue ?: "plugin",
+                    sourceCode = "failure_guard_recovered",
+                    consecutiveFailureCount = snapshot.consecutiveFailureCount,
+                    suspendedUntilEpochMillis = snapshot.suspendedUntilEpochMillis,
+                )
+            }
+            if (trigger != null && aggregateBefore.hasFailuresForProjection() && !aggregateAfter.hasFailuresForProjection()) {
+                logBus.publish(
+                    PluginRuntimeLogRecord(
+                        occurredAtEpochMillis = now,
+                        pluginId = pluginId,
+                        category = PluginRuntimeLogCategory.FailureGuard,
+                        level = PluginRuntimeLogLevel.Info,
+                        code = "failure_guard_recovered",
+                        message = "Plugin failure state recovered.",
+                        succeeded = true,
+                        metadata = linkedMapOf(
+                            "code" to "failure_guard_recovered",
+                            "stage" to "FailureGuard",
+                            "outcome" to "RECOVERED",
+                            "failureCategory" to aggregateBefore.failureCategory.wireValue,
+                            "failureScope" to "plugin",
+                            "previousConsecutiveFailureCount" to aggregateBefore.consecutiveFailureCount.toString(),
+                        ),
+                    ),
+                )
+            }
+            if (trigger != null && aggregateBefore.isSuspended != aggregateAfter.isSuspended) {
+                logBus.publishPluginSuspensionStateChanged(
+                    pluginId = pluginId,
+                    pluginVersion = "",
+                    occurredAtEpochMillis = now,
+                    isSuspended = aggregateAfter.isSuspended,
+                    failureScope = "plugin",
+                    sourceCode = "failure_guard_recovered",
+                    consecutiveFailureCount = aggregateAfter.consecutiveFailureCount,
+                    suspendedUntilEpochMillis = aggregateAfter.suspendedUntilEpochMillis,
+                )
+            }
         }
         return snapshot
+    }
+
+    fun recover(pluginId: String): PluginFailureSnapshot {
+        scopedStore.snapshot(pluginId)
+            .filter { snapshot ->
+                snapshot.consecutiveFailureCount > 0 ||
+                    snapshot.isSuspended ||
+                    snapshot.suspendedUntilEpochMillis != null
+            }
+            .sortedBy { snapshot -> snapshot.trigger?.wireValue.orEmpty() }
+            .forEach { snapshot ->
+                snapshot.trigger?.let { trigger ->
+                    recordSuccess(
+                        pluginId = pluginId,
+                        trigger = trigger,
+                    )
+                }
+            }
+        return recordSuccess(pluginId = pluginId)
     }
 
     fun reset(
@@ -284,9 +444,10 @@ class PluginFailureGuard(
         }
         removeSnapshot(pluginId, trigger)
         if (hadState) {
+            val now = clock()
             logBus.publish(
                 PluginRuntimeLogRecord(
-                    occurredAtEpochMillis = clock(),
+                    occurredAtEpochMillis = now,
                     pluginId = pluginId,
                     trigger = trigger,
                     category = PluginRuntimeLogCategory.FailureGuard,
@@ -294,6 +455,11 @@ class PluginFailureGuard(
                     code = "failure_guard_reset",
                     message = "Plugin failure state reset.",
                     succeeded = true,
+                    metadata = linkedMapOf(
+                        "code" to "failure_guard_reset",
+                        "stage" to "FailureGuard",
+                        "outcome" to "RESET",
+                    ),
                 ),
             )
         }
@@ -331,9 +497,10 @@ class PluginFailureGuard(
             suspendedUntilEpochMillis = null,
         )
         save(recovered)
+        val now = clock()
         logBus.publish(
             PluginRuntimeLogRecord(
-                occurredAtEpochMillis = clock(),
+                occurredAtEpochMillis = now,
                 pluginId = snapshot.pluginId,
                 trigger = snapshot.trigger,
                 category = PluginRuntimeLogCategory.FailureGuard,
@@ -341,7 +508,23 @@ class PluginFailureGuard(
                 code = "failure_guard_resumed",
                 message = "Plugin suspension window expired and execution resumed.",
                 succeeded = true,
+                metadata = linkedMapOf(
+                    "code" to "failure_guard_resumed",
+                    "stage" to "FailureGuard",
+                    "outcome" to "RECOVERED",
+                    "failureScope" to (snapshot.trigger?.wireValue ?: "plugin"),
+                ),
             ),
+        )
+        logBus.publishPluginSuspensionStateChanged(
+            pluginId = snapshot.pluginId,
+            pluginVersion = "",
+            occurredAtEpochMillis = now,
+            isSuspended = false,
+            failureScope = snapshot.trigger?.wireValue ?: "plugin",
+            sourceCode = "failure_guard_resumed",
+            consecutiveFailureCount = recovered.consecutiveFailureCount,
+            suspendedUntilEpochMillis = recovered.suspendedUntilEpochMillis,
         )
         return recovered
     }
@@ -396,7 +579,7 @@ class PluginFailureGuard(
         errorSummary: String,
         category: PluginFailureCategory,
         now: Long,
-    ) {
+    ): PluginFailureSnapshot {
         val aggregate = evolveFailureSnapshot(
             current = resolve(pluginId) ?: PluginFailureSnapshot(pluginId = pluginId),
             pluginId = pluginId,
@@ -406,20 +589,43 @@ class PluginFailureGuard(
             now = now,
         )
         store.put(aggregate)
+        return aggregate
     }
 
-    private fun saveAggregateRecovery(pluginId: String) {
-        val current = resolve(pluginId) ?: return
-        val snapshot = current.copy(
-            consecutiveFailureCount = 0,
-            isSuspended = false,
-            suspendedUntilEpochMillis = null,
-        )
-        if (snapshot.lastFailureAtEpochMillis == null) {
-            store.remove(pluginId)
+    private fun saveAggregateRecovery(pluginId: String): PluginFailureSnapshot {
+        val current = resolve(pluginId) ?: PluginFailureSnapshot(pluginId = pluginId)
+        val scopedSnapshots = scopedStore.snapshot(pluginId)
+        val snapshot = if (scopedSnapshots.isEmpty()) {
+            current.copy(
+                consecutiveFailureCount = 0,
+                isSuspended = false,
+                suspendedUntilEpochMillis = null,
+            )
         } else {
-            store.put(snapshot)
+            val latestScoped = scopedSnapshots.maxByOrNull { scoped -> scoped.lastFailureAtEpochMillis ?: Long.MIN_VALUE }
+            val failureCount = scopedSnapshots.sumOf(PluginFailureSnapshot::consecutiveFailureCount)
+            val suspended = scopedSnapshots.any(PluginFailureSnapshot::isSuspended) ||
+                failureCount >= policy.maxConsecutiveFailures
+            current.copy(
+                consecutiveFailureCount = failureCount,
+                lastFailureAtEpochMillis = latestScoped?.lastFailureAtEpochMillis ?: current.lastFailureAtEpochMillis,
+                lastErrorSummary = latestScoped?.lastErrorSummary?.ifBlank { current.lastErrorSummary } ?: current.lastErrorSummary,
+                failureCategory = latestScoped?.failureCategory ?: current.failureCategory,
+                isSuspended = suspended,
+                suspendedUntilEpochMillis = if (suspended) {
+                    scopedSnapshots.maxOfOrNull { scoped -> scoped.suspendedUntilEpochMillis ?: Long.MIN_VALUE }
+                        ?.takeIf { until -> until != Long.MIN_VALUE }
+                } else {
+                    null
+                },
+            )
         }
+        if (snapshot.hasFailuresForProjection()) {
+            store.put(snapshot)
+        } else {
+            store.remove(pluginId)
+        }
+        return snapshot
     }
 }
 
@@ -469,4 +675,98 @@ internal fun classifyFailure(errorSummary: String): PluginFailureCategory {
             "not open" in normalized -> PluginFailureCategory.UnsupportedAction
         else -> PluginFailureCategory.RuntimeError
     }
+}
+
+private fun PluginFailureSnapshot.canProjectRecoveryFailure(): Boolean {
+    return !isSuspended &&
+        consecutiveFailureCount == 0 &&
+        lastFailureAtEpochMillis != null &&
+        lastErrorSummary.isNotBlank()
+}
+
+private fun PluginFailureSnapshot.hasFailuresForProjection(): Boolean {
+    return consecutiveFailureCount > 0 || isSuspended || suspendedUntilEpochMillis != null
+}
+
+private fun PluginRuntimeLogBus.hasRecoveredBoundary(
+    pluginId: String,
+    failureScope: String,
+): Boolean {
+    val latestScopedBoundary = snapshot(
+        limit = 50,
+        pluginId = pluginId,
+        category = PluginRuntimeLogCategory.FailureGuard,
+    ).firstOrNull { record ->
+        record.metadata["failureScope"] == failureScope &&
+            (
+                record.code == "failure_guard_recovered" ||
+                    record.code == "failure_guard_resumed" ||
+                    record.code == "failure_guard_recovery_failed" ||
+                    record.code == "failure_guard_suspended" ||
+                    record.code == "failure_guard_recorded"
+                )
+    } ?: return false
+    return latestScopedBoundary.code == "failure_guard_recovered" ||
+        latestScopedBoundary.code == "failure_guard_resumed"
+}
+
+private fun publishFailureRecord(
+    logBus: PluginRuntimeLogBus,
+    snapshot: PluginFailureSnapshot,
+    trigger: PluginTriggerSource?,
+    category: PluginFailureCategory,
+    now: Long,
+    errorSummary: String,
+) {
+    logBus.publish(
+        PluginRuntimeLogRecord(
+            occurredAtEpochMillis = now,
+            pluginId = snapshot.pluginId,
+            trigger = trigger,
+            category = PluginRuntimeLogCategory.FailureGuard,
+            level = if (snapshot.isSuspended) PluginRuntimeLogLevel.Error else PluginRuntimeLogLevel.Warning,
+            code = if (snapshot.isSuspended) "failure_guard_suspended" else "failure_guard_recorded",
+            message = errorSummary.ifBlank { "Plugin failure recorded." },
+            succeeded = false,
+            metadata = linkedMapOf(
+                "code" to if (snapshot.isSuspended) "failure_guard_suspended" else "failure_guard_recorded",
+                "stage" to "FailureGuard",
+                "outcome" to if (snapshot.isSuspended) "SUSPENDED" else "FAILED",
+                "consecutiveFailureCount" to snapshot.consecutiveFailureCount.toString(),
+                "failureCategory" to category.wireValue,
+                "failureScope" to (trigger?.wireValue ?: "plugin"),
+                "suspendedUntilEpochMillis" to (snapshot.suspendedUntilEpochMillis?.toString() ?: ""),
+            ),
+        ),
+    )
+}
+
+private fun publishRecoveryFailed(
+    logBus: PluginRuntimeLogBus,
+    pluginId: String,
+    trigger: PluginTriggerSource?,
+    category: PluginFailureCategory,
+    failureCount: Int,
+    now: Long,
+) {
+    logBus.publish(
+        PluginRuntimeLogRecord(
+            occurredAtEpochMillis = now,
+            pluginId = pluginId,
+            trigger = trigger,
+            category = PluginRuntimeLogCategory.FailureGuard,
+            level = PluginRuntimeLogLevel.Warning,
+            code = "failure_guard_recovery_failed",
+            message = "Plugin recovery attempt failed.",
+            succeeded = false,
+            metadata = linkedMapOf(
+                "code" to "failure_guard_recovery_failed",
+                "stage" to "FailureGuard",
+                "outcome" to "RECOVERY_FAILED",
+                "failureCategory" to category.wireValue,
+                "failureScope" to (trigger?.wireValue ?: "plugin"),
+                "consecutiveFailureCount" to failureCount.toString(),
+            ),
+        ),
+    )
 }

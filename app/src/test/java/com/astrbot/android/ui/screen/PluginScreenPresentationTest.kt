@@ -4,11 +4,17 @@ import java.lang.reflect.Method
 import com.astrbot.android.data.PluginRepository
 import com.astrbot.android.model.plugin.PluginCompatibilityState
 import com.astrbot.android.model.plugin.PluginFailureState
+import com.astrbot.android.model.plugin.PluginGovernanceSnapshot
 import com.astrbot.android.model.plugin.PluginInstallRecord
 import com.astrbot.android.model.plugin.PluginManifest
 import com.astrbot.android.model.plugin.PluginPermissionDeclaration
 import com.astrbot.android.model.plugin.PluginPermissionDiff
 import com.astrbot.android.model.plugin.PluginPermissionUpgrade
+import com.astrbot.android.model.plugin.PluginReviewState
+import com.astrbot.android.model.plugin.PluginRiskLevel
+import com.astrbot.android.model.plugin.PluginRuntimeHealthSnapshot
+import com.astrbot.android.model.plugin.PluginRuntimeHealthStatus
+import com.astrbot.android.model.plugin.PluginTrustLevel
 import com.astrbot.android.model.plugin.PluginUpdateAvailability
 import com.astrbot.android.model.plugin.PluginSource
 import com.astrbot.android.model.plugin.PluginSourceType
@@ -20,6 +26,7 @@ import com.astrbot.android.ui.viewmodel.PluginActionFeedback
 import com.astrbot.android.ui.viewmodel.PluginCatalogEntryCardUiState
 import com.astrbot.android.ui.viewmodel.PluginCatalogEntryVersionUiState
 import com.astrbot.android.ui.viewmodel.PluginFailureUiState
+import com.astrbot.android.ui.viewmodel.PluginGovernanceSummaryUiState
 import com.astrbot.android.ui.viewmodel.PluginRepositorySourceCardUiState
 import com.astrbot.android.ui.viewmodel.PluginScreenUiState
 import org.junit.Assert.assertEquals
@@ -77,6 +84,55 @@ class PluginScreenPresentationTest {
         assertEquals(listOf("update"), cards.map { propertyValue<String>(it, "pluginId") })
         assertEquals("Weather Toolkit", propertyValue<String>(cards.single(), "title"))
         assertEquals("Alice", propertyValue<String>(cards.single(), "author"))
+    }
+
+    @Test
+    fun `local workspace presentation exposes governance health summary from v2 snapshot`() {
+        val governance = PluginGovernanceSummaryUiState(
+            snapshot = PluginGovernanceSnapshot(
+                pluginId = "weather",
+                pluginVersion = "2.0.0",
+                protocolVersion = 2,
+                runtimeKind = "js_quickjs",
+                riskLevel = PluginRiskLevel.MEDIUM,
+                trustLevel = PluginTrustLevel.REPOSITORY_LISTED,
+                reviewState = PluginReviewState.LOCAL_CHECKS_PASSED,
+                runtimeHealth = PluginRuntimeHealthSnapshot(
+                    status = PluginRuntimeHealthStatus.UpgradeRequired,
+                    detail = "Upgrade the host before enabling this plugin.",
+                ),
+            ),
+        )
+        val uiState = PluginScreenUiState(
+            records = listOf(installedPluginRecord("weather", enabled = false)),
+            governanceByPluginId = mapOf("weather" to governance),
+        )
+
+        val presentation = buildPluginLocalWorkspacePresentation(
+            uiState = uiState,
+            searchQuery = "",
+            selectedFilter = PluginLocalFilter.ALL,
+        )
+        val card = presentation.cards.single()
+
+        assertEquals(2, card.protocolVersion)
+        assertEquals("Upgrade required", card.runtimeHealthLabel)
+        assertEquals("Upgrade the host before enabling this plugin.", card.runtimeHealthDetail)
+    }
+
+    @Test
+    fun `local workspace presentation keeps runtime health unknown when governance snapshot is missing`() {
+        val presentation = buildPluginLocalWorkspacePresentation(
+            uiState = PluginScreenUiState(
+                records = listOf(installedPluginRecord("weather", enabled = true)),
+            ),
+            searchQuery = "",
+            selectedFilter = PluginLocalFilter.ALL,
+        )
+
+        val card = presentation.cards.single()
+        assertEquals("Unknown", card.runtimeHealthLabel)
+        assertTrue(card.runtimeHealthDetail.contains("governance", ignoreCase = true))
     }
 
     @Test
@@ -403,6 +459,37 @@ class PluginScreenPresentationTest {
     }
 
     @Test
+    fun `health overview presentation counts governance failures even without updates`() {
+        val uiState = PluginScreenUiState(
+            records = listOf(
+                installedPluginRecord("healthy", enabled = true),
+                installedPluginRecord("upgrade", enabled = false),
+                installedPluginRecord("suspended", enabled = false),
+            ),
+            governanceByPluginId = mapOf(
+                "healthy" to governanceSummary(
+                    pluginId = "healthy",
+                    runtimeHealthStatus = PluginRuntimeHealthStatus.Disabled,
+                ),
+                "upgrade" to governanceSummary(
+                    pluginId = "upgrade",
+                    runtimeHealthStatus = PluginRuntimeHealthStatus.UpgradeRequired,
+                ),
+                "suspended" to governanceSummary(
+                    pluginId = "suspended",
+                    runtimeHealthStatus = PluginRuntimeHealthStatus.Suspended,
+                ),
+            ),
+        )
+
+        val presentation = buildPluginHealthOverviewPresentation(uiState)
+
+        assertEquals(3, presentation.installedCount)
+        assertEquals(0, presentation.updatesAvailableCount)
+        assertEquals(2, presentation.needsReviewCount)
+    }
+
+    @Test
     fun `plugin card and permissions presentation do not expose risk labels`() {
         val record = pluginRecord("demo")
 
@@ -538,7 +625,7 @@ class PluginScreenPresentationTest {
 
         assertEquals(4, overview.installedCount)
         assertEquals(1, overview.updatesAvailableCount)
-        assertEquals(3, overview.needsReviewCount)
+        assertEquals(2, overview.needsReviewCount)
         assertEquals(2, overview.sourceCount)
     }
 
@@ -833,6 +920,63 @@ class PluginScreenPresentationTest {
         )
     }
 
+    @Test
+    fun `overview needs review count stays aligned with issues filter and review issues bulk action`() {
+        val uiState = PluginScreenUiState(
+            records = listOf(
+                installedPluginRecord("healthy", enabled = true),
+                installedPluginRecord("upgrade", enabled = false),
+                installedPluginRecord("bootstrap", enabled = true),
+                installedPluginRecord("update", enabled = true),
+            ),
+            governanceByPluginId = mapOf(
+                "healthy" to governanceSummary(
+                    pluginId = "healthy",
+                    runtimeHealthStatus = PluginRuntimeHealthStatus.Healthy,
+                ),
+                "upgrade" to governanceSummary(
+                    pluginId = "upgrade",
+                    runtimeHealthStatus = PluginRuntimeHealthStatus.UpgradeRequired,
+                ),
+                "bootstrap" to governanceSummary(
+                    pluginId = "bootstrap",
+                    runtimeHealthStatus = PluginRuntimeHealthStatus.BootstrapFailed,
+                ),
+            ),
+            updateAvailabilitiesByPluginId = mapOf(
+                "update" to PluginUpdateAvailability(
+                    pluginId = "update",
+                    installedVersion = "1.0.0",
+                    latestVersion = "1.1.0",
+                    updateAvailable = true,
+                    canUpgrade = true,
+                    changelogSummary = "Adds more weather cards.",
+                    catalogSourceId = "repo-1",
+                    packageUrl = "https://repo.example.com/packages/update-1.1.0.zip",
+                ),
+            ),
+        )
+
+        val overview = buildPluginHealthOverviewPresentation(uiState)
+        val issuesPresentation = buildPluginInstalledLibraryPresentation(
+            uiState = uiState,
+            selectedFilter = PluginInstalledLibraryFilter.Issues,
+        )
+        val reviewIssuesAction = buildPluginInstalledLibraryPresentation(
+            uiState = uiState,
+            selectedFilter = PluginInstalledLibraryFilter.All,
+        ).bulkActions.single { it.action == PluginInstalledLibraryBulkAction.ReviewIssues }
+
+        assertEquals(3, overview.needsReviewCount)
+        assertEquals(overview.needsReviewCount, issuesPresentation.summary.needsReviewCount)
+        assertEquals(overview.needsReviewCount, issuesPresentation.cards.size)
+        assertEquals(overview.needsReviewCount, reviewIssuesAction.count)
+        assertEquals(
+            setOf("bootstrap", "update", "upgrade"),
+            issuesPresentation.cards.map { it.pluginId }.toSet(),
+        )
+    }
+
     private fun pluginRecord(pluginId: String): PluginInstallRecord {
         return pluginRecord(pluginId = pluginId, compatible = true)
     }
@@ -1045,6 +1189,27 @@ class PluginScreenPresentationTest {
             failureState = failureState,
             enabled = enabled,
             lastUpdatedAt = 1L,
+        )
+    }
+
+    private fun governanceSummary(
+        pluginId: String,
+        runtimeHealthStatus: PluginRuntimeHealthStatus,
+    ): PluginGovernanceSummaryUiState {
+        return PluginGovernanceSummaryUiState(
+            snapshot = PluginGovernanceSnapshot(
+                pluginId = pluginId,
+                pluginVersion = "1.0.0",
+                protocolVersion = 2,
+                runtimeKind = "js_quickjs",
+                riskLevel = PluginRiskLevel.LOW,
+                trustLevel = PluginTrustLevel.LOCAL_PACKAGE,
+                reviewState = PluginReviewState.LOCAL_CHECKS_PASSED,
+                runtimeHealth = PluginRuntimeHealthSnapshot(
+                    status = runtimeHealthStatus,
+                    detail = runtimeHealthStatus.name,
+                ),
+            ),
         )
     }
 

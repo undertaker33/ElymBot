@@ -35,4 +35,36 @@ data class PluginRuntimeLogRecord(
     val hostAction: PluginHostAction? = null,
     val resultType: String = "",
     val metadata: Map<String, String> = emptyMap(),
-)
+) {
+    val runtimeSessionId: String
+        get() = metadata.resolveStructuredValue("runtimeSessionId", "sessionInstanceId")
+
+    val requestId: String
+        get() = metadata.resolveStructuredValue("requestId")
+
+    val stage: String
+        get() = metadata.resolveStructuredValue("stage")
+
+    val handlerName: String
+        get() = metadata.resolveStructuredValue("handlerName", "handlerId")
+
+    val toolId: String
+        get() = metadata.resolveStructuredValue("toolId")
+
+    val toolCallId: String
+        get() = metadata.resolveStructuredValue("toolCallId")
+
+    val outcome: String
+        get() = metadata.resolveStructuredValue("outcome")
+}
+
+private fun Map<String, String>.resolveStructuredValue(
+    primaryKey: String,
+    fallbackKey: String? = null,
+): String {
+    val primary = this[primaryKey].orEmpty()
+    if (primary.isNotBlank()) {
+        return primary
+    }
+    return fallbackKey?.let { key -> this[key].orEmpty() }.orEmpty()
+}

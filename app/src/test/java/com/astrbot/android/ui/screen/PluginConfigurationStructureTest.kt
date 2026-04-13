@@ -1,9 +1,21 @@
 package com.astrbot.android.ui.screen
 
 import com.astrbot.android.model.plugin.PluginHostWorkspaceSnapshot
+import com.astrbot.android.model.plugin.PluginGovernanceSnapshot
+import com.astrbot.android.model.plugin.PluginManifest
+import com.astrbot.android.model.plugin.PluginReviewState
+import com.astrbot.android.model.plugin.PluginRiskLevel
+import com.astrbot.android.model.plugin.PluginRuntimeHealthSnapshot
+import com.astrbot.android.model.plugin.PluginRuntimeHealthStatus
 import com.astrbot.android.model.plugin.PluginSettingsSchema
+import com.astrbot.android.model.plugin.PluginSource
+import com.astrbot.android.model.plugin.PluginSourceType
 import com.astrbot.android.model.plugin.PluginStaticConfigSchema
+import com.astrbot.android.model.plugin.PluginTrustLevel
+import com.astrbot.android.model.plugin.PluginInstallRecord
 import com.astrbot.android.ui.viewmodel.PluginActionFeedback
+import com.astrbot.android.ui.viewmodel.PluginDetailActionState
+import com.astrbot.android.ui.viewmodel.PluginFailureUiState
 import com.astrbot.android.ui.viewmodel.PluginHostWorkspaceUiState
 import com.astrbot.android.ui.viewmodel.PluginSchemaUiState
 import com.astrbot.android.ui.viewmodel.PluginScreenUiState
@@ -82,11 +94,68 @@ class PluginConfigurationStructureTest {
         assertTrue(pluginWorkspaceUsesUnifiedActionButtons())
     }
 
+    @Test
+    fun `config and workspace gates become read only for suspended or unsupported plugins`() {
+        val unsupportedState = buildPluginGovernanceReadOnlyState(
+            record = pluginRecord("unsupported"),
+            actionState = PluginDetailActionState(
+                mutationGate = com.astrbot.android.ui.viewmodel.PluginGovernanceMutationGate(
+                    isReadOnly = true,
+                    blockedMessage = "This plugin is unsupported on this host. Protocol v1 is no longer supported by the host.",
+                ),
+            ),
+        )
+        val suspendedState = buildPluginGovernanceReadOnlyState(
+            record = pluginRecord("suspended"),
+            actionState = PluginDetailActionState(
+                mutationGate = com.astrbot.android.ui.viewmodel.PluginGovernanceMutationGate(
+                    isReadOnly = true,
+                    blockedMessage = "This plugin is suspended until recovery completes. Configuration and workspace actions are read-only.",
+                ),
+                failureState = PluginFailureUiState(
+                    consecutiveFailureCount = 3,
+                    isSuspended = true,
+                    statusMessage = PluginActionFeedback.Text("Suspended"),
+                    summaryMessage = PluginActionFeedback.Text("Repeated runtime failures"),
+                    recoveryMessage = PluginActionFeedback.Text("Recover first"),
+                ),
+            ),
+        )
+
+        assertTrue(unsupportedState.isReadOnly)
+        assertTrue(unsupportedState.message.contains("unsupported", ignoreCase = true))
+        assertTrue(suspendedState.isReadOnly)
+        assertTrue(suspendedState.message.contains("suspended", ignoreCase = true))
+    }
+
     private fun buildConfigSectionsForTest(uiState: PluginScreenUiState): List<Enum<*>> {
         val method = Class.forName("com.astrbot.android.ui.screen.PluginConfigScreenKt")
             .getDeclaredMethod("buildConfigSections", PluginScreenUiState::class.java)
         method.isAccessible = true
         @Suppress("UNCHECKED_CAST")
         return method.invoke(null, uiState) as List<Enum<*>>
+    }
+
+    private fun pluginRecord(pluginId: String): PluginInstallRecord {
+        return PluginInstallRecord.restoreFromPersistedState(
+            manifestSnapshot = PluginManifest(
+                pluginId = pluginId,
+                version = "2.0.0",
+                protocolVersion = 2,
+                author = "AstrBot",
+                title = pluginId,
+                description = "Plugin $pluginId",
+                minHostVersion = "1.0.0",
+                maxHostVersion = "",
+                sourceType = PluginSourceType.LOCAL_FILE,
+                entrySummary = "Entry",
+            ),
+            source = PluginSource(
+                sourceType = PluginSourceType.LOCAL_FILE,
+                location = "/tmp/$pluginId.zip",
+                importedAt = 1L,
+            ),
+            lastUpdatedAt = 1L,
+        )
     }
 }

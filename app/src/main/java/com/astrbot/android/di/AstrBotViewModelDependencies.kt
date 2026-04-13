@@ -54,8 +54,14 @@ import com.astrbot.android.model.plugin.PluginUninstallPolicy
 import com.astrbot.android.runtime.ContainerBridgeController
 import com.astrbot.android.runtime.ConversationSessionLockManager
 import com.astrbot.android.runtime.RuntimeLogRepository
+import com.astrbot.android.runtime.plugin.PluginFailureGuard
 import com.astrbot.android.runtime.plugin.PluginInstaller
 import com.astrbot.android.runtime.plugin.PluginPackageValidator
+import com.astrbot.android.runtime.plugin.PluginGovernanceReadModel
+import com.astrbot.android.runtime.plugin.PluginGovernanceRepository
+import com.astrbot.android.runtime.plugin.PluginRuntimeLogBus
+import com.astrbot.android.runtime.plugin.PluginRuntimeLogBusProvider
+import com.astrbot.android.runtime.plugin.PluginRuntimeFailureStateStoreProvider
 import com.astrbot.android.runtime.plugin.catalog.PluginCatalogSynchronizer
 import com.astrbot.android.runtime.plugin.catalog.PluginInstallIntentHandler
 import com.astrbot.android.runtime.plugin.catalog.PluginRepositorySubscriptionManager
@@ -63,6 +69,7 @@ import com.astrbot.android.runtime.plugin.catalog.UrlConnectionPluginCatalogFetc
 import java.io.File
 import java.security.MessageDigest
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
 
@@ -436,6 +443,9 @@ interface PluginViewModelDependencies {
     val records: StateFlow<List<PluginInstallRecord>>
     val repositorySources: StateFlow<List<PluginRepositorySource>>
     val catalogEntries: StateFlow<List<PluginCatalogEntryRecord>>
+    val governanceReadModels: Flow<Map<String, PluginGovernanceReadModel>>
+    val logBus: PluginRuntimeLogBus
+        get() = PluginRuntimeLogBusProvider.bus()
 
     suspend fun handleInstallIntent(
         intent: PluginInstallIntent,
@@ -457,6 +467,10 @@ interface PluginViewModelDependencies {
         )
 
     fun getUpdateAvailability(pluginId: String): PluginUpdateAvailability?
+
+    fun getPluginGovernance(pluginId: String): PluginGovernanceReadModel? = null
+
+    fun getPluginGovernanceSilently(pluginId: String): PluginGovernanceReadModel? = null
 
     suspend fun upgradePlugin(update: PluginUpdateAvailability): PluginInstallRecord
 
@@ -497,15 +511,26 @@ interface PluginViewModelDependencies {
 
     fun clearPluginFailureState(pluginId: String): PluginInstallRecord
 
+    fun recoverPluginFailureState(pluginId: String): PluginInstallRecord = clearPluginFailureState(pluginId)
+
     fun setPluginEnabled(pluginId: String, enabled: Boolean): PluginInstallRecord
 
     fun uninstallPlugin(pluginId: String, policy: PluginUninstallPolicy): com.astrbot.android.data.PluginUninstallResult
 }
 
 object DefaultPluginViewModelDependencies : PluginViewModelDependencies {
+    private val governanceRepository by lazy { PluginGovernanceRepository() }
+    private val pluginFailureGuard by lazy {
+        PluginFailureGuard(
+            store = PluginRuntimeFailureStateStoreProvider.store(),
+        )
+    }
+
     override val records: StateFlow<List<PluginInstallRecord>> = PluginRepository.records
     override val repositorySources: StateFlow<List<PluginRepositorySource>> = PluginRepository.repositorySources
     override val catalogEntries: StateFlow<List<PluginCatalogEntryRecord>> = PluginRepository.catalogEntries
+    override val governanceReadModels: Flow<Map<String, PluginGovernanceReadModel>> =
+        governanceRepository.observeReadModels()
 
     override suspend fun handleInstallIntent(
         intent: PluginInstallIntent,
@@ -620,6 +645,14 @@ object DefaultPluginViewModelDependencies : PluginViewModelDependencies {
             pluginId = pluginId,
             hostVersion = hostVersion,
         )
+    }
+
+    override fun getPluginGovernance(pluginId: String): PluginGovernanceReadModel? {
+        return governanceRepository.get(pluginId)
+    }
+
+    override fun getPluginGovernanceSilently(pluginId: String): PluginGovernanceReadModel? {
+        return governanceRepository.getSilently(pluginId)
     }
 
     override fun getHostVersion(): String {
@@ -742,6 +775,13 @@ object DefaultPluginViewModelDependencies : PluginViewModelDependencies {
 
     override fun clearPluginFailureState(pluginId: String): PluginInstallRecord {
         return PluginRepository.clearFailureState(pluginId)
+    }
+
+    override fun recoverPluginFailureState(pluginId: String): PluginInstallRecord {
+        pluginFailureGuard.recover(pluginId)
+        return requireNotNull(PluginRepository.findByPluginId(pluginId)) {
+            "Plugin $pluginId is not installed."
+        }
     }
 
     override fun setPluginEnabled(pluginId: String, enabled: Boolean): PluginInstallRecord {

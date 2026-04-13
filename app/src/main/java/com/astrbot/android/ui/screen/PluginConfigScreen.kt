@@ -99,6 +99,7 @@ private fun PluginConfigWorkspace(
     val record = uiState.selectedPlugin ?: return
     val sections = buildConfigSections(uiState)
     val context = LocalContext.current
+    val readOnlyState = buildPluginGovernanceReadOnlyState(record, uiState.detailActionState)
 
     Box(modifier = Modifier.fillMaxSize()) {
         LazyColumn(
@@ -137,6 +138,13 @@ private fun PluginConfigWorkspace(
                         style = MaterialTheme.typography.bodyMedium,
                         color = MonochromeUi.textSecondary,
                     )
+                    if (readOnlyState.isReadOnly) {
+                        Text(
+                            text = readOnlyState.message,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MonochromeUi.textSecondary,
+                        )
+                    }
                     MonochromeSecondaryActionButton(
                         label = stringResource(R.string.plugin_config_backup_action),
                         onClick = onOpenConfigBackup,
@@ -153,14 +161,22 @@ private fun PluginConfigWorkspace(
                             title = stringResource(R.string.plugin_config_basic_title),
                             tag = PluginUiSpec.ConfigBasicSectionTag,
                         ) {
-                            PluginStaticConfigRenderer(
-                                model = buildPluginStaticConfigRenderModel(
-                                    schema = staticConfigState.schema,
-                                    draftValues = staticConfigState.draftValues,
-                                ),
-                                onDraftChange = onStaticConfigDraftChange,
-                                modifier = Modifier.fillMaxWidth(),
-                            )
+                            if (readOnlyState.isReadOnly) {
+                                Text(
+                                    text = readOnlyState.message,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MonochromeUi.textSecondary,
+                                )
+                            } else {
+                                PluginStaticConfigRenderer(
+                                    model = buildPluginStaticConfigRenderModel(
+                                        schema = staticConfigState.schema,
+                                        draftValues = staticConfigState.draftValues,
+                                    ),
+                                    onDraftChange = onStaticConfigDraftChange,
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                            }
                         }
                     }
 
@@ -169,12 +185,20 @@ private fun PluginConfigWorkspace(
                             title = stringResource(R.string.plugin_config_runtime_title),
                             tag = PluginUiSpec.ConfigRuntimeSectionTag,
                         ) {
-                            PluginSchemaRenderer(
-                                schemaUiState = uiState.schemaUiState,
-                                onCardActionClick = onSchemaCardActionClick,
-                                onSettingsDraftChange = onSettingsDraftChange,
-                                modifier = Modifier.fillMaxWidth().testTag(PluginUiSpec.SchemaWorkspaceTag),
-                            )
+                            if (readOnlyState.isReadOnly) {
+                                Text(
+                                    text = readOnlyState.message,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MonochromeUi.textSecondary,
+                                )
+                            } else {
+                                PluginSchemaRenderer(
+                                    schemaUiState = uiState.schemaUiState,
+                                    onCardActionClick = onSchemaCardActionClick,
+                                    onSettingsDraftChange = onSettingsDraftChange,
+                                    modifier = Modifier.fillMaxWidth().testTag(PluginUiSpec.SchemaWorkspaceTag),
+                                )
+                            }
                         }
                     }
 
@@ -184,7 +208,11 @@ private fun PluginConfigWorkspace(
                             tag = PluginUiSpec.ConfigDataSectionTag,
                         ) {
                             Text(
-                                text = stringResource(R.string.plugin_config_data_message),
+                                text = if (readOnlyState.isReadOnly) {
+                                    "${stringResource(R.string.plugin_config_data_message)} ${readOnlyState.message}"
+                                } else {
+                                    stringResource(R.string.plugin_config_data_message)
+                                },
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MonochromeUi.textSecondary,
                             )
@@ -209,8 +237,12 @@ private fun PluginConfigWorkspace(
 
         FloatingActionButton(
             onClick = {
-                onSaveConfig()
-                Toast.makeText(context, context.getString(R.string.common_saved), Toast.LENGTH_SHORT).show()
+                if (readOnlyState.isReadOnly) {
+                    Toast.makeText(context, readOnlyState.message, Toast.LENGTH_SHORT).show()
+                } else {
+                    onSaveConfig()
+                    Toast.makeText(context, context.getString(R.string.common_saved), Toast.LENGTH_SHORT).show()
+                }
             },
             modifier = Modifier
                 .align(Alignment.BottomEnd)

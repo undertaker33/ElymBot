@@ -5,12 +5,14 @@ import com.astrbot.android.data.plugin.PluginStoragePaths
 import com.astrbot.android.model.plugin.PluginInstallIntent
 import com.astrbot.android.model.plugin.PluginRuntimeDeclarationSnapshot
 import com.astrbot.android.model.plugin.PluginSourceType
+import com.astrbot.android.model.plugin.PluginUpdateAvailability
 import com.astrbot.android.runtime.plugin.PluginInstaller
 import com.astrbot.android.runtime.plugin.PluginPackageValidator
 import com.astrbot.android.runtime.plugin.RemotePluginPackageDownloader
 import java.io.File
 import java.nio.file.Files
 import kotlinx.coroutines.runBlocking
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -53,6 +55,7 @@ class MemeManagerSampleInstallAndUpgradeTest {
             assertEquals("sample", installed.catalogSourceId)
             assertEquals(2, installed.manifestSnapshot.protocolVersion)
             assertEquals(2, installed.packageContractSnapshot?.protocolVersion)
+            assertEquals("_conf_schema.json", installed.packageContractSnapshot?.config?.staticSchema)
             assertEquals(
                 PluginRuntimeDeclarationSnapshot(
                     kind = "js_quickjs",
@@ -61,15 +64,103 @@ class MemeManagerSampleInstallAndUpgradeTest {
                 ),
                 installed.packageContractSnapshot?.runtime,
             )
+            val contractJson = JSONObject(File(installed.extractedDir, "android-plugin.json").readText(Charsets.UTF_8))
             assertTrue(File(installed.localPackagePath).exists())
             assertTrue(File(installed.extractedDir, "android-plugin.json").exists())
             assertTrue(File(installed.extractedDir, "runtime/index.js").exists())
+            assertTrue(File(installed.extractedDir, "_conf_schema.json").exists())
+            assertFalse(contractJson.has("supportedTriggers"))
+            assertFalse(contractJson.has("triggers"))
             assertFalse(File(installed.extractedDir, "android-execution.json").exists())
             assertTrue(File(installed.extractedDir, "assets/readme.txt").exists())
             assertTrue(File(installed.extractedDir, "resources/memes/index.json").exists())
             assertTrue(
                 File(installed.extractedDir, "resources/memes/angry/9D03FF21BB828C2AF9CCC7FCCB1E25B3.jpg").exists(),
             )
+        } finally {
+            resetPluginRepositoryForSampleTest(initialized = false)
+            tempDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun sample_plugin_upgrade_reinstalls_v2_contract_and_packaged_assets_from_catalog_package() = runBlocking {
+        val tempDir = Files.createTempDirectory("meme-manager-sample-upgrade-install").toFile()
+        try {
+            resetPluginRepositoryForSampleTest(initialized = true)
+
+            val storagePaths = PluginStoragePaths.fromFilesDir(tempDir)
+            val downloader = RemotePluginPackageDownloader { packageUrl, destinationFile, _ ->
+                val version = if (packageUrl.contains("1.1.0")) "1.1.0" else "1.0.0"
+                val packageZip = SampleAssetPaths.packageZip(version)
+                assertTrue("Missing sample zip: ${packageZip.absolutePath}", packageZip.exists())
+                packageZip.copyTo(destinationFile, overwrite = true)
+            }
+            val installUrl = "https://samples.astrbot.local/catalog/packages/meme-manager-1.0.0.zip"
+            val upgradeUrl = "https://samples.astrbot.local/catalog/packages/meme-manager-1.1.0.zip"
+
+            val installed = PluginInstaller(
+                validator = PluginPackageValidator(hostVersion = "0.3.6", supportedProtocolVersion = 2),
+                storagePaths = storagePaths,
+                installStore = PluginRepository,
+                remotePackageDownloader = downloader,
+                clock = { 1000L },
+            ).install(
+                PluginInstallIntent.catalogVersion(
+                    pluginId = SAMPLE_PLUGIN_ID,
+                    version = "1.0.0",
+                    packageUrl = installUrl,
+                    catalogSourceId = "sample",
+                ),
+            )
+
+            val upgraded = PluginInstaller(
+                validator = PluginPackageValidator(hostVersion = "0.3.6", supportedProtocolVersion = 2),
+                storagePaths = storagePaths,
+                installStore = PluginRepository,
+                remotePackageDownloader = downloader,
+                clock = { 2000L },
+            ).upgrade(
+                PluginUpdateAvailability(
+                    pluginId = SAMPLE_PLUGIN_ID,
+                    installedVersion = installed.installedVersion,
+                    latestVersion = "1.1.0",
+                    updateAvailable = true,
+                    canUpgrade = true,
+                    catalogSourceId = "sample",
+                    packageUrl = upgradeUrl,
+                ),
+            )
+
+            val persisted = PluginRepository.findByPluginId(SAMPLE_PLUGIN_ID)
+            val contractJson = JSONObject(File(upgraded.extractedDir, "android-plugin.json").readText(Charsets.UTF_8))
+
+            assertEquals("1.1.0", upgraded.installedVersion)
+            assertEquals("sample", upgraded.catalogSourceId)
+            assertEquals(upgradeUrl, upgraded.installedPackageUrl)
+            assertEquals(1000L, upgraded.installedAt)
+            assertEquals(2000L, upgraded.lastUpdatedAt)
+            assertEquals(2000L, upgraded.lastCatalogCheckAtEpochMillis)
+            assertEquals(2, upgraded.packageContractSnapshot?.protocolVersion)
+            assertEquals("_conf_schema.json", upgraded.packageContractSnapshot?.config?.staticSchema)
+            assertEquals(
+                PluginRuntimeDeclarationSnapshot(
+                    kind = "js_quickjs",
+                    bootstrap = "runtime/index.js",
+                    apiVersion = 1,
+                ),
+                upgraded.packageContractSnapshot?.runtime,
+            )
+            assertEquals(upgraded.packageContractSnapshot, persisted?.packageContractSnapshot)
+            assertTrue(File(upgraded.localPackagePath).exists())
+            assertTrue(File(upgraded.extractedDir, "assets/readme.txt").exists())
+            assertTrue(File(upgraded.extractedDir, "resources/admin/seed.txt").exists())
+            assertTrue(File(upgraded.extractedDir, "resources/memes/index.json").exists())
+            assertTrue(File(upgraded.extractedDir, "runtime/index.js").exists())
+            assertTrue(File(upgraded.extractedDir, "_conf_schema.json").exists())
+            assertFalse(contractJson.has("supportedTriggers"))
+            assertFalse(contractJson.has("triggers"))
+            assertFalse(File(upgraded.extractedDir, "android-execution.json").exists())
         } finally {
             resetPluginRepositoryForSampleTest(initialized = false)
             tempDir.deleteRecursively()

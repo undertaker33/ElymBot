@@ -2,9 +2,11 @@ package com.astrbot.android.ui.screen
 
 import com.astrbot.android.model.plugin.PluginCompatibilityStatus
 import com.astrbot.android.model.plugin.PluginCompatibilityState
+import com.astrbot.android.model.plugin.PluginGovernanceSnapshot
 import com.astrbot.android.model.plugin.PluginInstallRecord
 import com.astrbot.android.model.plugin.PluginPermissionDeclaration
 import com.astrbot.android.model.plugin.PluginPermissionDiff
+import com.astrbot.android.model.plugin.PluginRuntimeHealthStatus
 import com.astrbot.android.model.plugin.PluginSourceType
 import com.astrbot.android.model.plugin.PluginUpdateAvailability
 import com.astrbot.android.runtime.plugin.compareVersions
@@ -119,6 +121,7 @@ data class PluginInstalledLibraryCardPresentation(
     val isEnabled: Boolean,
     val hasUpdateAvailable: Boolean,
     val hasPermissionChanges: Boolean,
+    val hasIssue: Boolean,
 )
 
 data class PluginInstalledLibraryPresentation(
@@ -141,6 +144,9 @@ data class PluginLocalCardPresentation(
     val author: String,
     val isEnabled: Boolean,
     val hasUpdateAvailable: Boolean,
+    val protocolVersion: Int,
+    val runtimeHealthLabel: String,
+    val runtimeHealthDetail: String,
 )
 
 data class PluginLocalWorkspacePresentation(
@@ -272,11 +278,9 @@ internal fun buildPluginHealthOverviewPresentation(
     uiState: PluginScreenUiState,
 ): PluginHealthOverviewPresentation {
     val updatesAvailableCount = uiState.updateAvailabilitiesByPluginId.values.count { it.updateAvailable }
-    val needsReviewCount = uiState.records.count { record ->
-        uiState.failureStatesByPluginId.containsKey(record.pluginId) ||
-            record.compatibilityState.status == PluginCompatibilityStatus.INCOMPATIBLE ||
-            uiState.updateAvailabilitiesByPluginId[record.pluginId]?.updateAvailable == true
-    }
+    val needsReviewCount = uiState.records
+        .map { record -> buildPluginInstalledLibraryCardPresentation(record, uiState) }
+        .count { card -> card.hasIssue }
     return PluginHealthOverviewPresentation(
         installedCount = uiState.records.size,
         updatesAvailableCount = updatesAvailableCount,
@@ -504,16 +508,16 @@ internal fun buildPluginInstalledLibraryPresentation(
         summary = PluginInstalledLibrarySummaryPresentation(
             totalCount = cards.size,
             enabledCount = cards.count { it.isEnabled },
-            needsReviewCount = cards.count { it.priority != PluginInstalledLibraryPriority.Normal },
+            needsReviewCount = cards.count { it.hasIssue },
             updatesCount = cards.count { it.hasUpdateAvailable },
             disabledCount = cards.count { !it.isEnabled },
         ),
         bulkActions = listOf(
             PluginInstalledLibraryBulkActionPresentation(
                 action = PluginInstalledLibraryBulkAction.ReviewIssues,
-                count = cards.count { it.priority != PluginInstalledLibraryPriority.Normal },
+                count = cards.count { it.hasIssue },
                 targetFilter = PluginInstalledLibraryFilter.Issues,
-                enabled = cards.any { it.priority != PluginInstalledLibraryPriority.Normal },
+                enabled = cards.any { it.hasIssue },
             ),
             PluginInstalledLibraryBulkActionPresentation(
                 action = PluginInstalledLibraryBulkAction.ReviewUpdates,
@@ -608,6 +612,7 @@ private fun buildPluginLocalCardPresentation(
     record: PluginInstallRecord,
     uiState: PluginScreenUiState,
 ): PluginLocalCardPresentation {
+    val governance = uiState.governanceByPluginId[record.pluginId]?.snapshot
     return PluginLocalCardPresentation(
         pluginId = record.pluginId,
         title = record.manifestSnapshot.title,
@@ -615,6 +620,13 @@ private fun buildPluginLocalCardPresentation(
         author = record.manifestSnapshot.author,
         isEnabled = record.enabled,
         hasUpdateAvailable = uiState.updateAvailabilitiesByPluginId[record.pluginId]?.updateAvailable == true,
+        protocolVersion = governance?.protocolVersion?.takeIf { it > 0 } ?: record.manifestSnapshot.protocolVersion,
+        runtimeHealthLabel = governance?.runtimeHealth?.status?.toLocalRuntimeHealthLabel() ?: "Unknown",
+        runtimeHealthDetail = localRuntimeHealthDetail(
+            governance = governance,
+            runtimeHealthStatus = governance?.runtimeHealth?.status,
+            record = record,
+        ),
     )
 }
 
@@ -624,6 +636,7 @@ private fun buildPluginInstalledLibraryCardPresentation(
 ): PluginInstalledLibraryCardPresentation {
     val updateAvailability = uiState.updateAvailabilitiesByPluginId[record.pluginId]
     val failureState = uiState.failureStatesByPluginId[record.pluginId]
+    val runtimeHealthStatus = uiState.governanceByPluginId[record.pluginId]?.snapshot?.runtimeHealth?.status
     val hasUpdateAvailable = updateAvailability?.updateAvailable == true
     val hasPermissionChanges = updateAvailability?.permissionDiff?.hasMeaningfulChanges() == true
     val criticalPermissionChanges = updateAvailability?.permissionDiff?.requiresSecondaryConfirmation == true
@@ -642,6 +655,21 @@ private fun buildPluginInstalledLibraryCardPresentation(
             isEnabled = record.enabled,
             hasUpdateAvailable = hasUpdateAvailable,
             hasPermissionChanges = hasPermissionChanges,
+            hasIssue = true,
+        )
+        runtimeHealthStatus == PluginRuntimeHealthStatus.Suspended -> PluginInstalledLibraryCardPresentation(
+            pluginId = record.pluginId,
+            title = record.manifestSnapshot.title,
+            versionLabel = record.installedVersion,
+            sourceLabel = pluginSourceLabelPlain(record.source.sourceType),
+            priority = PluginInstalledLibraryPriority.Critical,
+            status = PluginInstalledLibraryStatus.Suspended,
+            insight = PluginInstalledLibraryInsight.Suspended,
+            primaryAction = PluginInstalledLibraryPrimaryAction.Review,
+            isEnabled = record.enabled,
+            hasUpdateAvailable = hasUpdateAvailable,
+            hasPermissionChanges = hasPermissionChanges,
+            hasIssue = true,
         )
         compatibilityStatus == PluginCompatibilityStatus.INCOMPATIBLE -> PluginInstalledLibraryCardPresentation(
             pluginId = record.pluginId,
@@ -655,6 +683,21 @@ private fun buildPluginInstalledLibraryCardPresentation(
             isEnabled = record.enabled,
             hasUpdateAvailable = hasUpdateAvailable,
             hasPermissionChanges = hasPermissionChanges,
+            hasIssue = true,
+        )
+        runtimeHealthStatus == PluginRuntimeHealthStatus.UnsupportedProtocol -> PluginInstalledLibraryCardPresentation(
+            pluginId = record.pluginId,
+            title = record.manifestSnapshot.title,
+            versionLabel = record.installedVersion,
+            sourceLabel = pluginSourceLabelPlain(record.source.sourceType),
+            priority = PluginInstalledLibraryPriority.Critical,
+            status = PluginInstalledLibraryStatus.Incompatible,
+            insight = PluginInstalledLibraryInsight.Incompatible,
+            primaryAction = PluginInstalledLibraryPrimaryAction.Review,
+            isEnabled = record.enabled,
+            hasUpdateAvailable = hasUpdateAvailable,
+            hasPermissionChanges = hasPermissionChanges,
+            hasIssue = true,
         )
         hasPermissionChanges && criticalPermissionChanges -> PluginInstalledLibraryCardPresentation(
             pluginId = record.pluginId,
@@ -668,6 +711,7 @@ private fun buildPluginInstalledLibraryCardPresentation(
             isEnabled = record.enabled,
             hasUpdateAvailable = hasUpdateAvailable,
             hasPermissionChanges = true,
+            hasIssue = true,
         )
         hasUpdateAvailable -> PluginInstalledLibraryCardPresentation(
             pluginId = record.pluginId,
@@ -681,6 +725,7 @@ private fun buildPluginInstalledLibraryCardPresentation(
             isEnabled = record.enabled,
             hasUpdateAvailable = true,
             hasPermissionChanges = hasPermissionChanges,
+            hasIssue = true,
         )
         hasPermissionChanges -> PluginInstalledLibraryCardPresentation(
             pluginId = record.pluginId,
@@ -694,6 +739,22 @@ private fun buildPluginInstalledLibraryCardPresentation(
             isEnabled = record.enabled,
             hasUpdateAvailable = false,
             hasPermissionChanges = true,
+            hasIssue = true,
+        )
+        runtimeHealthStatus == PluginRuntimeHealthStatus.BootstrapFailed ||
+            runtimeHealthStatus == PluginRuntimeHealthStatus.UpgradeRequired -> PluginInstalledLibraryCardPresentation(
+            pluginId = record.pluginId,
+            title = record.manifestSnapshot.title,
+            versionLabel = record.installedVersion,
+            sourceLabel = pluginSourceLabelPlain(record.source.sourceType),
+            priority = PluginInstalledLibraryPriority.Attention,
+            status = PluginInstalledLibraryStatus.CompatibilityUnknown,
+            insight = PluginInstalledLibraryInsight.CompatibilityUnknown,
+            primaryAction = PluginInstalledLibraryPrimaryAction.Review,
+            isEnabled = record.enabled,
+            hasUpdateAvailable = hasUpdateAvailable,
+            hasPermissionChanges = hasPermissionChanges,
+            hasIssue = true,
         )
         compatibilityStatus == PluginCompatibilityStatus.UNKNOWN -> PluginInstalledLibraryCardPresentation(
             pluginId = record.pluginId,
@@ -707,6 +768,7 @@ private fun buildPluginInstalledLibraryCardPresentation(
             isEnabled = record.enabled,
             hasUpdateAvailable = false,
             hasPermissionChanges = false,
+            hasIssue = true,
         )
         else -> PluginInstalledLibraryCardPresentation(
             pluginId = record.pluginId,
@@ -724,6 +786,7 @@ private fun buildPluginInstalledLibraryCardPresentation(
             isEnabled = record.enabled,
             hasUpdateAvailable = false,
             hasPermissionChanges = false,
+            hasIssue = false,
         )
     }
 }
@@ -768,7 +831,7 @@ private fun PluginInstalledLibraryCardPresentation.matchesFilter(filter: PluginI
         PluginInstalledLibraryFilter.Enabled -> isEnabled
         PluginInstalledLibraryFilter.Disabled -> !isEnabled
         PluginInstalledLibraryFilter.Updates -> hasUpdateAvailable
-        PluginInstalledLibraryFilter.Issues -> priority != PluginInstalledLibraryPriority.Normal
+        PluginInstalledLibraryFilter.Issues -> hasIssue
         PluginInstalledLibraryFilter.PermissionChanges -> hasPermissionChanges
     }
 }
@@ -803,6 +866,38 @@ private fun PluginLocalCardPresentation.matchesLocalFilter(filter: PluginLocalFi
 
 private fun PluginPermissionDiff.hasMeaningfulChanges(): Boolean {
     return added.isNotEmpty() || removed.isNotEmpty() || changed.isNotEmpty() || riskUpgraded.isNotEmpty()
+}
+
+private fun PluginRuntimeHealthStatus.toLocalRuntimeHealthLabel(): String {
+    return when (this) {
+        PluginRuntimeHealthStatus.Healthy -> "Healthy"
+        PluginRuntimeHealthStatus.BootstrapFailed -> "Bootstrap failed"
+        PluginRuntimeHealthStatus.Suspended -> "Suspended"
+        PluginRuntimeHealthStatus.Disabled -> "Disabled"
+        PluginRuntimeHealthStatus.UnsupportedProtocol -> "Unsupported protocol"
+        PluginRuntimeHealthStatus.UpgradeRequired -> "Upgrade required"
+    }
+}
+
+private fun localRuntimeHealthDetail(
+    governance: PluginGovernanceSnapshot?,
+    runtimeHealthStatus: PluginRuntimeHealthStatus?,
+    record: PluginInstallRecord,
+): String {
+    governance?.runtimeHealth?.detail
+        ?.takeIf { detail -> detail.isNotBlank() }
+        ?.let { return it }
+    if (runtimeHealthStatus == null) {
+        return "Governance snapshot unavailable."
+    }
+    return when (runtimeHealthStatus) {
+        PluginRuntimeHealthStatus.Suspended -> "This plugin is suspended until recovery is available."
+        PluginRuntimeHealthStatus.UpgradeRequired -> "Upgrade the host before enabling this plugin."
+        PluginRuntimeHealthStatus.UnsupportedProtocol -> "This plugin protocol is not supported on the current host."
+        PluginRuntimeHealthStatus.BootstrapFailed -> "Runtime bootstrap failed."
+        PluginRuntimeHealthStatus.Disabled -> if (record.enabled) "" else "Runtime is currently disabled."
+        PluginRuntimeHealthStatus.Healthy -> ""
+    }
 }
 
 internal fun pluginCompatibilityLabelPlain(status: PluginCompatibilityStatus): String {

@@ -68,6 +68,82 @@ class PluginRuntimeLogBusTest {
     }
 
     @Test
+    fun in_memory_log_bus_exposes_structured_governance_fields_when_querying_by_plugin_id() {
+        val bus = InMemoryPluginRuntimeLogBus(capacity = 8)
+
+        bus.publishGovernanceSnapshotRefreshed(
+            pluginId = "plugin.alpha",
+            pluginVersion = "1.2.3",
+            occurredAtEpochMillis = 100L,
+            runtimeSessionId = "session-alpha",
+            diagnosticsTotalCount = 4,
+            activeFailureCount = 1,
+        )
+        bus.publishGovernanceSnapshotRefreshed(
+            pluginId = "plugin.beta",
+            pluginVersion = "9.9.9",
+            occurredAtEpochMillis = 200L,
+            runtimeSessionId = "session-beta",
+            diagnosticsTotalCount = 0,
+            activeFailureCount = 0,
+        )
+
+        val record = bus.snapshot(
+            pluginId = "plugin.alpha",
+            code = "governance_snapshot_refreshed",
+        ).single()
+
+        assertEquals("plugin.alpha", record.pluginId)
+        assertEquals("1.2.3", record.pluginVersion)
+        assertEquals("session-alpha", record.runtimeSessionId)
+        assertEquals("governance_snapshot_refreshed", record.metadata["code"])
+        assertEquals("GovernanceSnapshot", record.stage)
+        assertEquals("REFRESHED", record.outcome)
+        assertEquals("4", record.metadata["diagnosticsTotalCount"])
+        assertEquals("1", record.metadata["activeFailureCount"])
+        assertEquals(
+            PluginObservabilitySummary(
+                totalCount = 1,
+                lastCode = "governance_snapshot_refreshed",
+                lastLevel = PluginRuntimeLogLevel.Info,
+                lastOccurredAtEpochMillis = 100L,
+                failureCount = 0,
+                recoveryCount = 0,
+                latestRequestId = null,
+                latestToolCallId = null,
+                structuredCodes = setOf("governance_snapshot_refreshed"),
+            ),
+            bus.summary(pluginId = "plugin.alpha"),
+        )
+    }
+
+    @Test
+    fun governance_snapshot_mapper_publishes_snapshot_refreshed_and_runtime_health_projected_hooks() {
+        val bus = InMemoryPluginRuntimeLogBus(capacity = 16)
+
+        PluginGovernanceSnapshotMapper.map(
+            installRecord = samplePluginV2InstallRecord(pluginId = "plugin.mapper"),
+            runtimeSnapshot = PluginV2ActiveRuntimeSnapshot(),
+            failureSnapshot = null,
+            lifecycleDiagnostics = emptyList(),
+            clock = { 1_000L },
+            logBus = bus,
+        )
+
+        val records = bus.snapshot(pluginId = "plugin.mapper", limit = 8)
+        assertEquals(
+            listOf("plugin_runtime_health_projected", "governance_snapshot_refreshed"),
+            records.map(PluginRuntimeLogRecord::code),
+        )
+        assertEquals("RuntimeHealth", records.first().stage)
+        assertEquals("DISABLED", records.first().outcome)
+        assertEquals("plugin_runtime_health_projected", records.first().metadata["code"])
+        assertEquals("GovernanceSnapshot", records.last().stage)
+        assertEquals("REFRESHED", records.last().outcome)
+        assertEquals("governance_snapshot_refreshed", records.last().metadata["code"])
+    }
+
+    @Test
     fun engine_and_dispatcher_publish_runtime_logs_for_queued_skipped_success_and_failure_paths() {
         val clock = TestClock(now = 1_000L)
         val bus = InMemoryPluginRuntimeLogBus(capacity = 32)

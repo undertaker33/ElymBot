@@ -1,6 +1,7 @@
 package com.astrbot.android.runtime.plugin
 
 import com.astrbot.android.data.PluginInstallStore
+import com.astrbot.android.data.PluginRepository
 import com.astrbot.android.data.plugin.PluginStoragePaths
 import com.astrbot.android.model.plugin.PluginDownloadProgress
 import com.astrbot.android.model.plugin.PluginInstallIntent
@@ -81,6 +82,7 @@ class PluginInstaller(
     private val installStore: PluginInstallStore,
     private val remotePackageDownloader: RemotePluginPackageDownloader = UrlConnectionRemotePluginPackageDownloader(),
     private val clock: () -> Long = System::currentTimeMillis,
+    private val logBus: PluginRuntimeLogBus = PluginRuntimeLogBusProvider.bus(),
 ) {
     fun installFromLocalPackage(packageFile: File): PluginInstallRecord {
         return installPackage(
@@ -187,13 +189,34 @@ class PluginInstaller(
         catalogSourceId: String?,
         lastCatalogCheckAtEpochMillis: Long?,
     ): PluginInstallRecord {
-        val validation = validator.validate(packageFile)
-        check(validation.installable) {
-            if (!validation.compatibilityState.isCompatible()) {
-                "Plugin package is incompatible with the current host."
-            } else {
-                "Plugin package is not installable."
+        val validation = runCatching { validator.validate(packageFile) }
+            .onSuccess { result ->
+                logBus.publishInstallerV2ValidationCompleted(
+                    pluginId = result.manifest.pluginId,
+                    pluginVersion = result.manifest.version,
+                    occurredAtEpochMillis = clock(),
+                    outcome = if (result.installable) "INSTALLABLE" else "BLOCKED",
+                    installable = result.installable,
+                    protocolVersion = result.manifest.protocolVersion,
+                    runtimeKind = result.packageContract?.runtime?.kind.orEmpty(),
+                    issueCount = result.validationIssues.size,
+                )
             }
+            .getOrElse { error ->
+                logBus.publishInstallerV2ValidationCompleted(
+                    pluginId = "",
+                    pluginVersion = "",
+                    occurredAtEpochMillis = clock(),
+                    outcome = "FAILED",
+                    installable = false,
+                    protocolVersion = null,
+                    runtimeKind = "",
+                    issueCount = 1,
+                )
+                throw PluginRepository.buildLocalPackageInstallBlockedException(error)
+            }
+        if (!validation.installable) {
+            throw PluginRepository.buildLocalPackageInstallBlockedException(validation)
         }
 
         val existing = installStore.findByPluginId(validation.manifest.pluginId)

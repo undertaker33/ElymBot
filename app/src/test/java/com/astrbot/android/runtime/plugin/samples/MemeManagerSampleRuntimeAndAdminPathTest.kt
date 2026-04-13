@@ -40,11 +40,17 @@ class MemeManagerSampleRuntimeAndAdminPathTest {
                 ),
                 installed.packageContractSnapshot!!.runtime,
             )
+            assertEquals("_conf_schema.json", installed.packageContractSnapshot!!.config.staticSchema)
+            assertEquals("", installed.packageContractSnapshot!!.config.settingsSchema)
             assertEquals(installed.packageContractSnapshot, persisted?.packageContractSnapshot)
             assertEquals("js_quickjs", contractJson.getJSONObject("runtime").getString("kind"))
             assertEquals("runtime/index.js", contractJson.getJSONObject("runtime").getString("bootstrap"))
+            assertEquals("_conf_schema.json", contractJson.getJSONObject("config").getString("staticSchema"))
             assertTrue(File(installed.extractedDir, "runtime/index.js").exists())
             assertTrue(File(installed.extractedDir, "android-plugin.json").exists())
+            assertTrue(File(installed.extractedDir, "_conf_schema.json").exists())
+            assertFalse(contractJson.has("supportedTriggers"))
+            assertFalse(contractJson.has("triggers"))
             assertFalse(File(installed.extractedDir, "android-execution.json").exists())
         } finally {
             resetPluginRepositoryForSampleTest(initialized = false)
@@ -64,12 +70,21 @@ class MemeManagerSampleRuntimeAndAdminPathTest {
                 installed.extractedDir,
                 "resources/memes/angry/9D03FF21BB828C2AF9CCC7FCCB1E25B3.jpg",
             )
+            val contractJson = JSONObject(File(installed.extractedDir, "android-plugin.json").readText(Charsets.UTF_8))
             val indexJson = JSONObject(mediaIndex.readText(Charsets.UTF_8))
+            val staticSchema = JSONObject(
+                File(installed.extractedDir, "_conf_schema.json").readText(Charsets.UTF_8),
+            )
 
             assertTrue(adminSeed.exists())
             assertTrue(adminSeed.readText(Charsets.UTF_8).trim().isNotBlank())
             assertTrue(mediaIndex.exists())
             assertTrue(firstMeme.exists())
+            assertEquals("_conf_schema.json", installed.packageContractSnapshot!!.config.staticSchema)
+            assertEquals("angry", staticSchema.getJSONObject("default_category").getString("default"))
+            assertFalse(contractJson.has("supportedTriggers"))
+            assertFalse(contractJson.has("triggers"))
+            assertEquals("/meme", indexJson.getJSONArray("triggers").getJSONObject(0).getString("keyword"))
             assertTrue(indexJson.getJSONArray("categories").length() > 0)
             assertTrue(indexJson.getJSONArray("triggers").length() > 0)
         } finally {
@@ -85,15 +100,19 @@ class MemeManagerSampleRuntimeAndAdminPathTest {
             resetPluginRepositoryForSampleTest(initialized = true)
             val installed = installSample(tempDir = tempDir, version = "1.1.0")
             val persisted = PluginRepository.findByPluginId(SAMPLE_PLUGIN_ID)
+            val contractJson = JSONObject(File(installed.extractedDir, "android-plugin.json").readText(Charsets.UTF_8))
 
             assertEquals("sample", installed.catalogSourceId)
             assertTrue(installed.source.location.endsWith("meme-manager-1.1.0.zip"))
             assertTrue(File(installed.localPackagePath).exists())
             assertEquals(installed.packageContractSnapshot, persisted?.packageContractSnapshot)
+            assertEquals("_conf_schema.json", installed.packageContractSnapshot!!.config.staticSchema)
             assertTrue(File(installed.extractedDir, "assets/readme.txt").exists())
             assertTrue(File(installed.extractedDir, "resources/admin/seed.txt").exists())
             assertTrue(File(installed.extractedDir, "resources/memes/index.json").exists())
             assertTrue(File(installed.extractedDir, "runtime/index.js").exists())
+            assertTrue(File(installed.extractedDir, "_conf_schema.json").exists())
+            assertFalse(contractJson.has("supportedTriggers"))
             assertFalse(File(installed.extractedDir, "android-execution.json").exists())
         } finally {
             resetPluginRepositoryForSampleTest(initialized = false)

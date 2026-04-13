@@ -95,6 +95,8 @@ private fun PluginWorkspacePage(
 ) {
     val workspace = uiState.hostWorkspaceState
     if (!workspace.isVisible) return
+    val record = uiState.selectedPlugin
+    val readOnlyState = buildPluginGovernanceReadOnlyState(record, uiState.detailActionState)
 
     LazyColumn(
         modifier = Modifier
@@ -128,6 +130,13 @@ private fun PluginWorkspacePage(
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MonochromeUi.textSecondary,
                             )
+                            if (readOnlyState.isReadOnly) {
+                                Text(
+                                    text = readOnlyState.message,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MonochromeUi.textSecondary,
+                                )
+                            }
                             WorkspacePathLine(
                                 label = stringResource(R.string.plugin_workspace_private_root_label),
                                 value = workspace.privateRootPath,
@@ -163,7 +172,7 @@ private fun PluginWorkspacePage(
                             MonochromeSecondaryActionButton(
                                 label = stringResource(R.string.plugin_workspace_import_action),
                                 onClick = onImport,
-                                enabled = !workspace.isImportActionRunning,
+                                enabled = !workspace.isImportActionRunning && !readOnlyState.isReadOnly,
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .testTag(PluginUiSpec.WorkspaceImportActionTag),
@@ -172,6 +181,7 @@ private fun PluginWorkspacePage(
                                 files = workspace.files.filter { it.relativePath.startsWith("imports/") },
                                 emptyMessage = stringResource(R.string.plugin_workspace_empty_files),
                                 onDeleteFile = onDeleteFile,
+                                allowDelete = !readOnlyState.isReadOnly,
                             )
                         }
                     }
@@ -194,6 +204,7 @@ private fun PluginWorkspacePage(
                                 files = workspace.files.filter { it.relativePath.startsWith("exports/") },
                                 emptyMessage = stringResource(R.string.plugin_workspace_exports_empty),
                                 onDeleteFile = onDeleteFile,
+                                allowDelete = !readOnlyState.isReadOnly,
                             )
                         }
                     }
@@ -211,6 +222,7 @@ private fun PluginWorkspacePage(
                                 files = workspace.files.filter { it.relativePath.startsWith("cache/") },
                                 emptyMessage = stringResource(R.string.plugin_workspace_cache_empty),
                                 onDeleteFile = onDeleteFile,
+                                allowDelete = !readOnlyState.isReadOnly,
                             )
                         }
                     }
@@ -220,7 +232,13 @@ private fun PluginWorkspacePage(
                             title = stringResource(R.string.plugin_workspace_debug_title),
                             tag = PluginUiSpec.WorkspaceDebugSectionTag,
                         ) {
-                            if (workspace.managementSchemaState is PluginSchemaUiState.None) {
+                            if (readOnlyState.isReadOnly) {
+                                Text(
+                                    text = readOnlyState.message,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MonochromeUi.textSecondary,
+                                )
+                            } else if (workspace.managementSchemaState is PluginSchemaUiState.None) {
                                 Text(
                                     text = stringResource(R.string.plugin_workspace_debug_empty),
                                     style = MaterialTheme.typography.bodyMedium,
@@ -298,6 +316,7 @@ private fun WorkspaceFileList(
     files: List<com.astrbot.android.ui.viewmodel.PluginHostWorkspaceFileUiState>,
     emptyMessage: String,
     onDeleteFile: (String) -> Unit,
+    allowDelete: Boolean,
 ) {
     if (files.isEmpty()) {
         Text(
@@ -340,6 +359,7 @@ private fun WorkspaceFileList(
                 MonochromeSecondaryActionButton(
                     label = stringResource(R.string.plugin_workspace_delete_action),
                     onClick = { onDeleteFile(file.relativePath) },
+                    enabled = allowDelete,
                     modifier = Modifier.testTag(
                         PluginUiSpec.workspaceDeleteActionTag(file.relativePath),
                     ),
