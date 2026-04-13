@@ -46,6 +46,10 @@ class PluginExecutionResultMergerTest {
             trigger = PluginTriggerSource.OnCommand,
             outcomes = listOf(
                 outcome(pluginId = "alpha", result = TextResult("alpha")),
+                outcome(
+                    pluginId = "beta",
+                    result = SettingsUiRequest(PluginSettingsSchema(title = "beta")),
+                ),
             ),
             requestedStage = PluginExecutionStage.LlmRequest,
         )
@@ -53,7 +57,10 @@ class PluginExecutionResultMergerTest {
         assertTrue(merged.orderedPluginIds.isEmpty())
         assertTrue(merged.resultTypeCounts.isEmpty())
         assertTrue(merged.conflicts.isEmpty())
-        val guardrail = logBus.snapshot(limit = 10).single()
+        val logs = logBus.snapshot(limit = 10)
+        assertEquals(1, logs.size)
+        val guardrail = logs.single()
+        assertEquals("__legacy_result_merger__", guardrail.pluginId)
         assertEquals(PluginRuntimeLogCategory.ResultMerger, guardrail.category)
         assertEquals(PluginRuntimeLogLevel.Warning, guardrail.level)
         assertEquals("legacy_result_merger_guardrail", guardrail.code)

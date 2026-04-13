@@ -115,6 +115,69 @@ class DefaultAppChatPluginRuntimeTest {
     }
 
     @Test
+    fun default_app_chat_runtime_llm_pipeline_bypasses_legacy_trigger_registry() = runBlocking {
+        val legacyAttempts = AtomicInteger(0)
+        PluginRuntimeRegistry.registerProvider {
+            listOf(
+                runtimePlugin(
+                    pluginId = "legacy-before-send",
+                    supportedTriggers = setOf(PluginTriggerSource.BeforeSendMessage),
+                ) {
+                    legacyAttempts.incrementAndGet()
+                    error("legacy execute path should not run during v2 llm pipeline delivery")
+                },
+            )
+        }
+
+        try {
+            val event = PluginMessageEvent(
+                eventId = "evt-runtime-llm-legacy-bypass",
+                platformAdapterType = "app_chat",
+                messageType = com.astrbot.android.model.chat.MessageType.FriendMessage,
+                conversationId = "conv-runtime-legacy-bypass",
+                senderId = "sender-runtime-legacy-bypass",
+                timestampEpochMillis = 321L,
+                rawText = "hello runtime bypass",
+                initialWorkingText = "hello runtime bypass",
+            )
+
+            val result = DefaultAppChatPluginRuntime.runLlmPipeline(
+                input = PluginV2LlmPipelineInput(
+                    event = event,
+                    messageIds = listOf("msg-runtime-bypass"),
+                    streamingMode = PluginV2StreamingMode.NON_STREAM,
+                    availableProviderIds = listOf("provider-a"),
+                    availableModelIdsByProvider = mapOf("provider-a" to listOf("model-a")),
+                    selectedProviderId = "provider-a",
+                    selectedModelId = "model-a",
+                    messages = listOf(
+                        PluginProviderMessageDto(
+                            role = PluginProviderMessageRole.USER,
+                            parts = listOf(PluginProviderMessagePartDto.TextPart("hello runtime bypass")),
+                        ),
+                    ),
+                    invokeProvider = { request, _ ->
+                        PluginV2ProviderInvocationResult.NonStreaming(
+                            response = PluginLlmResponse(
+                                requestId = request.requestId,
+                                providerId = request.selectedProviderId,
+                                modelId = request.selectedModelId,
+                                text = "runtime-bypass-response",
+                            ),
+                        )
+                    },
+                ),
+            )
+
+            assertEquals(0, legacyAttempts.get())
+            assertEquals("runtime-bypass-response", result.sendableResult.text)
+            assertTrue(result.admission.requestId.isNotBlank())
+        } finally {
+            PluginRuntimeRegistry.reset()
+        }
+    }
+
+    @Test
     fun default_app_chat_runtime_delivers_admitted_pipeline_with_single_runtime_entrypoint() = runBlocking {
         val event = PluginMessageEvent(
             eventId = "evt-runtime-delivery",

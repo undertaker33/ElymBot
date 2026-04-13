@@ -613,12 +613,15 @@ class PluginViewModelTest {
 
         assertEquals(1, selectedPlugin?.manifestSnapshot?.protocolVersion)
         assertEquals("INCOMPATIBLE", selectedPlugin?.compatibilityState?.status?.name)
-        assertEquals("Protocol version 1 is not supported.", selectedPlugin?.compatibilityState?.notes)
+        assertEquals(
+            "Legacy v1 plugin packages are unsupported. Upgrade the plugin package to protocol version 2.",
+            selectedPlugin?.compatibilityState?.notes,
+        )
         assertFalse(actionState.isEnableActionEnabled)
         assertResourceFeedback(
             feedback = actionState.enableBlockedReason,
             resId = R.string.plugin_action_feedback_enable_blocked_incompatible_with_notes,
-            expectedArg = "Protocol version 1 is not supported.",
+            expectedArg = "Legacy v1 plugin packages are unsupported. Upgrade the plugin package to protocol version 2.",
         )
 
         viewModel.enableSelectedPlugin()
@@ -628,7 +631,7 @@ class PluginViewModelTest {
         assertResourceFeedback(
             feedback = viewModel.uiState.value.detailActionState.lastActionMessage,
             resId = R.string.plugin_action_feedback_enable_blocked_incompatible_with_notes,
-            expectedArg = "Protocol version 1 is not supported.",
+            expectedArg = "Legacy v1 plugin packages are unsupported. Upgrade the plugin package to protocol version 2.",
         )
     }
 
