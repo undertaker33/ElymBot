@@ -3,10 +3,13 @@ package com.astrbot.android.runtime.plugin
 import com.astrbot.android.data.PluginRepository
 import com.astrbot.android.model.plugin.PluginDiagnosticsSummary
 import com.astrbot.android.model.plugin.PluginGovernanceSnapshot
+import com.astrbot.android.model.plugin.PluginInstallRecord
 import com.astrbot.android.model.plugin.PluginLifecycleDiagnostic
 import com.astrbot.android.model.plugin.PluginLifecycleDiagnosticsStore
 import com.astrbot.android.model.plugin.PluginRuntimeLogRecord
 import com.astrbot.android.model.plugin.PluginSuspensionState
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
 
 enum class PluginGovernanceRecoveryStatus {
     IDLE,
@@ -36,7 +39,8 @@ data class PluginGovernanceReadModel(
 )
 
 class PluginGovernanceRepository(
-    private val findInstallRecord: (String) -> com.astrbot.android.model.plugin.PluginInstallRecord? = PluginRepository::findByPluginId,
+    private val installRecordsFlow: Flow<List<PluginInstallRecord>> = PluginRepository.records,
+    private val findInstallRecord: (String) -> PluginInstallRecord? = PluginRepository::findByPluginId,
     private val runtimeSnapshotProvider: () -> PluginV2ActiveRuntimeSnapshot = { PluginV2ActiveRuntimeStoreProvider.store().snapshot() },
     private val failureStateStore: PluginFailureStateStore = PluginRuntimeFailureStateStoreProvider.store(),
     private val diagnosticsSnapshotProvider: () -> List<PluginLifecycleDiagnostic> = PluginLifecycleDiagnosticsStore::snapshot,
@@ -48,6 +52,45 @@ class PluginGovernanceRepository(
         logLimit: Int = 20,
     ): PluginGovernanceReadModel? {
         val installRecord = findInstallRecord(pluginId) ?: return null
+        return buildReadModel(
+            installRecord = installRecord,
+            logLimit = logLimit,
+            publishProjectionLogs = true,
+        )
+    }
+
+    fun getSilently(
+        pluginId: String,
+        logLimit: Int = 20,
+    ): PluginGovernanceReadModel? {
+        val installRecord = findInstallRecord(pluginId) ?: return null
+        return buildReadModel(
+            installRecord = installRecord,
+            logLimit = logLimit,
+            publishProjectionLogs = false,
+        )
+    }
+
+    fun observeReadModels(
+        logLimit: Int = 20,
+    ): Flow<Map<String, PluginGovernanceReadModel>> {
+        return combine(installRecordsFlow, logBus.records) { recordsSnapshot, _ ->
+            recordsSnapshot.mapNotNull { record ->
+                buildReadModel(
+                    installRecord = record,
+                    logLimit = logLimit,
+                    publishProjectionLogs = false,
+                )?.let { record.pluginId to it }
+            }.toMap()
+        }
+    }
+
+    private fun buildReadModel(
+        installRecord: PluginInstallRecord,
+        logLimit: Int,
+        publishProjectionLogs: Boolean,
+    ): PluginGovernanceReadModel? {
+        val pluginId = installRecord.pluginId
         val runtimeSnapshot = runtimeSnapshotProvider()
         val lifecycleDiagnostics = diagnosticsSnapshotProvider()
             .filter { diagnostic -> diagnostic.pluginId == pluginId }
@@ -67,6 +110,7 @@ class PluginGovernanceRepository(
             lifecycleDiagnostics = lifecycleDiagnostics,
             clock = clock,
             logBus = logBus,
+            publishProjectionLogs = publishProjectionLogs,
         )
         return PluginGovernanceReadModel(
             snapshot = snapshot,

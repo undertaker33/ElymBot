@@ -29,6 +29,7 @@ object PluginGovernanceSnapshotMapper {
         lifecycleDiagnostics: List<PluginLifecycleDiagnostic> = PluginLifecycleDiagnosticsStore.snapshot(),
         clock: () -> Long = System::currentTimeMillis,
         logBus: PluginRuntimeLogBus = PluginRuntimeLogBusProvider.bus(),
+        publishProjectionLogs: Boolean = true,
     ): PluginGovernanceSnapshot {
         val pluginId = installRecord.pluginId
         val bootstrapDiagnostics = runtimeSnapshot.diagnosticsByPluginId[pluginId].orEmpty()
@@ -114,23 +115,25 @@ object PluginGovernanceSnapshotMapper {
             ),
             diagnosticsSummary = diagnosticsSummary,
         )
-        logBus.publishGovernanceSnapshotRefreshed(
-            pluginId = snapshot.pluginId,
-            pluginVersion = snapshot.pluginVersion,
-            occurredAtEpochMillis = clock(),
-            runtimeSessionId = runtimeSession?.sessionInstanceId.orEmpty(),
-            diagnosticsTotalCount = snapshot.diagnosticsSummary.totalCount,
-            activeFailureCount = snapshot.diagnosticsSummary.activeFailureCount,
-        )
-        logBus.publishPluginRuntimeHealthProjected(
-            pluginId = snapshot.pluginId,
-            pluginVersion = snapshot.pluginVersion,
-            occurredAtEpochMillis = clock(),
-            runtimeSessionId = runtimeSession?.sessionInstanceId.orEmpty(),
-            healthStatus = snapshot.runtimeHealth.status.name.uppercase(),
-            suspensionState = snapshot.suspensionState.name,
-            diagnosticsTotalCount = snapshot.diagnosticsSummary.totalCount,
-        )
+        if (publishProjectionLogs) {
+            logBus.publishGovernanceSnapshotRefreshed(
+                pluginId = snapshot.pluginId,
+                pluginVersion = snapshot.pluginVersion,
+                occurredAtEpochMillis = clock(),
+                runtimeSessionId = runtimeSession?.sessionInstanceId.orEmpty(),
+                diagnosticsTotalCount = snapshot.diagnosticsSummary.totalCount,
+                activeFailureCount = snapshot.diagnosticsSummary.activeFailureCount,
+            )
+            logBus.publishPluginRuntimeHealthProjected(
+                pluginId = snapshot.pluginId,
+                pluginVersion = snapshot.pluginVersion,
+                occurredAtEpochMillis = clock(),
+                runtimeSessionId = runtimeSession?.sessionInstanceId.orEmpty(),
+                healthStatus = snapshot.runtimeHealth.status.name.uppercase(),
+                suspensionState = snapshot.suspensionState.name,
+                diagnosticsTotalCount = snapshot.diagnosticsSummary.totalCount,
+            )
+        }
         return snapshot
     }
 

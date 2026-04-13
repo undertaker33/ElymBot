@@ -414,6 +414,25 @@ class PluginFailureGuard(
         return snapshot
     }
 
+    fun recover(pluginId: String): PluginFailureSnapshot {
+        scopedStore.snapshot(pluginId)
+            .filter { snapshot ->
+                snapshot.consecutiveFailureCount > 0 ||
+                    snapshot.isSuspended ||
+                    snapshot.suspendedUntilEpochMillis != null
+            }
+            .sortedBy { snapshot -> snapshot.trigger?.wireValue.orEmpty() }
+            .forEach { snapshot ->
+                snapshot.trigger?.let { trigger ->
+                    recordSuccess(
+                        pluginId = pluginId,
+                        trigger = trigger,
+                    )
+                }
+            }
+        return recordSuccess(pluginId = pluginId)
+    }
+
     fun reset(
         pluginId: String,
         trigger: PluginTriggerSource? = null,

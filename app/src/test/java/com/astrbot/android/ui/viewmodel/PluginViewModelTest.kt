@@ -27,10 +27,18 @@ import com.astrbot.android.model.plugin.PluginCatalogSyncStatus
 import com.astrbot.android.model.plugin.PluginCatalogEntry
 import com.astrbot.android.model.plugin.PluginCatalogEntryRecord
 import com.astrbot.android.model.plugin.PluginCatalogVersion
+import com.astrbot.android.model.plugin.PluginDiagnosticsSummary
 import com.astrbot.android.model.plugin.PluginConfigStoreSnapshot
 import com.astrbot.android.model.plugin.PluginConfigStorageBoundary
+import com.astrbot.android.model.plugin.PluginGovernanceSnapshot
+import com.astrbot.android.model.plugin.PluginGovernanceFailureSnapshot
 import com.astrbot.android.model.plugin.PluginInstallIntentResult
 import com.astrbot.android.model.plugin.PluginMediaItem
+import com.astrbot.android.model.plugin.PluginPackageContractSnapshot
+import com.astrbot.android.model.plugin.PluginRegistrationSummary
+import com.astrbot.android.model.plugin.PluginRuntimeDeclarationSnapshot
+import com.astrbot.android.model.plugin.PluginRuntimeHealthSnapshot
+import com.astrbot.android.model.plugin.PluginRuntimeHealthStatus
 import com.astrbot.android.model.plugin.PluginSelectOption
 import com.astrbot.android.model.plugin.PluginSettingsSchema
 import com.astrbot.android.model.plugin.PluginSettingsSection
@@ -40,11 +48,13 @@ import com.astrbot.android.model.plugin.PluginStaticConfigSchema
 import com.astrbot.android.model.plugin.PluginStaticConfigValue
 import com.astrbot.android.model.plugin.PluginSource
 import com.astrbot.android.model.plugin.PluginSourceType
+import com.astrbot.android.model.plugin.PluginSuspensionState
 import com.astrbot.android.model.plugin.PluginTriggerSource
 import com.astrbot.android.model.plugin.PluginUpdateAvailability
 import com.astrbot.android.model.plugin.PluginUninstallPolicy
 import com.astrbot.android.model.plugin.PluginHostWorkspaceSnapshot
 import com.astrbot.android.model.plugin.PluginWorkspaceFileEntry
+import com.astrbot.android.model.plugin.resolveGovernanceSnapshot
 import com.astrbot.android.model.plugin.SelectSettingField
 import com.astrbot.android.model.plugin.SettingsUiRequest
 import com.astrbot.android.model.plugin.TextResult
@@ -54,6 +64,10 @@ import com.astrbot.android.model.plugin.HostActionRequest
 import com.astrbot.android.model.plugin.PluginHostAction
 import com.astrbot.android.runtime.plugin.ExternalPluginBridgeRuntime
 import com.astrbot.android.runtime.plugin.ExternalPluginRuntimeCatalog
+import com.astrbot.android.runtime.plugin.PluginGovernanceFailureProjection
+import com.astrbot.android.runtime.plugin.PluginGovernanceReadModel
+import com.astrbot.android.runtime.plugin.PluginGovernanceRecoveryStatus
+import com.astrbot.android.runtime.plugin.PluginObservabilitySummary
 import com.astrbot.android.runtime.plugin.PluginRuntimePlugin
 import com.astrbot.android.runtime.plugin.PluginRuntimeRegistry
 import com.astrbot.android.runtime.plugin.RecordingExternalPluginScriptExecutor
@@ -66,8 +80,10 @@ import java.nio.file.Files
 import org.json.JSONObject
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
@@ -356,6 +372,83 @@ class PluginViewModelTest {
     }
 
     @Test
+    fun governance_projection_exposes_local_badges_and_detail_summary_from_repository_read_model() = runTest(dispatcher) {
+        val deps = FakePluginDependencies(
+            records = listOf(
+                pluginRecord(
+                    pluginId = "plugin-1",
+                    enabled = true,
+                    packageContractSnapshot = PluginPackageContractSnapshot(
+                        protocolVersion = 2,
+                        runtime = PluginRuntimeDeclarationSnapshot(
+                            kind = "js_quickjs",
+                            bootstrap = "dist/index.js",
+                            apiVersion = 2,
+                        ),
+                    ),
+                ),
+            ),
+        )
+        deps.putGovernance(
+            pluginId = "plugin-1",
+            readModel = governanceReadModel(
+                snapshot = PluginGovernanceSnapshot(
+                    pluginId = "plugin-1",
+                    pluginVersion = "2.4.0",
+                    protocolVersion = 7,
+                    runtimeKind = "python_pyside",
+                    riskLevel = PluginRiskLevel.HIGH,
+                    trustLevel = PluginTrustLevel.REPOSITORY_LISTED,
+                    reviewState = PluginReviewState.LOCAL_CHECKS_PASSED,
+                    runtimeHealth = PluginRuntimeHealthSnapshot(
+                        status = PluginRuntimeHealthStatus.UpgradeRequired,
+                        detail = "Host compatibility requires an upgrade path before activation.",
+                    ),
+                    suspensionState = PluginSuspensionState.SUSPENDED,
+                    registrationSummary = PluginRegistrationSummary(
+                        commandCount = 2,
+                        toolCount = 4,
+                    ),
+                ),
+                observabilitySummary = PluginObservabilitySummary(
+                    totalCount = 3,
+                    failureCount = 1,
+                    structuredCodes = setOf("plugin_runtime_health_projected"),
+                ),
+                failureProjection = PluginGovernanceFailureProjection(
+                    pluginId = "plugin-1",
+                    status = PluginGovernanceRecoveryStatus.SUSPENDED,
+                    consecutiveFailureCount = 4,
+                    suspendedUntilEpochMillis = 4_102_444_800_000L,
+                    lastErrorSummary = "bootstrap blocked by host upgrade requirement",
+                ),
+            ),
+        )
+        val viewModel = PluginViewModel(deps)
+        advanceUntilIdle()
+
+        viewModel.selectPlugin("plugin-1")
+        advanceUntilIdle()
+
+        val governanceByPluginId = propertyValue<Map<String, Any>>(viewModel.uiState.value, "governanceByPluginId")
+        val localGovernance = requireNotNull(governanceByPluginId["plugin-1"])
+        val localSnapshot = propertyValue<PluginGovernanceSnapshot>(localGovernance, "snapshot")
+        assertEquals(PluginRuntimeHealthStatus.UpgradeRequired, localSnapshot.runtimeHealth.status)
+        assertEquals(PluginSuspensionState.SUSPENDED, localSnapshot.suspensionState)
+
+        val detailMetadata = viewModel.uiState.value.detailMetadataState
+        assertEquals(7, detailMetadata.governanceState?.protocolVersion)
+        assertEquals("python_pyside", detailMetadata.governanceState?.runtimeKind)
+        assertEquals(PluginRuntimeHealthStatus.UpgradeRequired, detailMetadata.governanceState?.runtimeHealth?.status)
+        assertEquals(PluginSuspensionState.SUSPENDED, detailMetadata.governanceState?.suspensionState)
+        assertEquals(4, detailMetadata.governanceState?.registrationSummary?.toolCount)
+
+        val governanceSummary = propertyValue<Any>(detailMetadata, "governanceSummary")
+        val observabilitySummary = propertyValue<PluginObservabilitySummary>(governanceSummary, "observabilitySummary")
+        assertEquals(3, observabilitySummary.totalCount)
+    }
+
+    @Test
     fun source_badge_mapping_uses_local_fact_types() = runTest(dispatcher) {
         val records = listOf(
             pluginRecord(pluginId = "local", sourceType = PluginSourceType.LOCAL_FILE),
@@ -635,6 +728,232 @@ class PluginViewModelTest {
         advanceUntilIdle()
 
         assertEquals(listOf("plugin-1" to true), deps.enableRequests)
+    }
+
+    @Test
+    fun detail_action_state_uses_governance_failure_projection_and_hides_log_entry_without_observability() = runTest(dispatcher) {
+        val deps = FakePluginDependencies(
+            listOf(
+                pluginRecord(
+                    pluginId = "plugin-1",
+                    enabled = false,
+                    failureState = PluginFailureState.none(),
+                ),
+            ),
+        )
+        deps.putGovernance(
+            pluginId = "plugin-1",
+            readModel = governanceReadModel(
+                snapshot = PluginGovernanceSnapshot(
+                    pluginId = "plugin-1",
+                    pluginVersion = "1.0.0",
+                    protocolVersion = 2,
+                    runtimeKind = "js_quickjs",
+                    riskLevel = PluginRiskLevel.MEDIUM,
+                    trustLevel = PluginTrustLevel.LOCAL_PACKAGE,
+                    reviewState = PluginReviewState.LOCAL_CHECKS_PASSED,
+                    runtimeHealth = PluginRuntimeHealthSnapshot(
+                        status = PluginRuntimeHealthStatus.Suspended,
+                        detail = "Failure guard has suspended the plugin.",
+                    ),
+                    suspensionState = PluginSuspensionState.SUSPENDED,
+                ),
+                observabilitySummary = PluginObservabilitySummary(),
+                failureProjection = PluginGovernanceFailureProjection(
+                    pluginId = "plugin-1",
+                    status = PluginGovernanceRecoveryStatus.SUSPENDED,
+                    consecutiveFailureCount = 5,
+                    suspendedUntilEpochMillis = 4_102_444_800_000L,
+                    lastErrorSummary = "plugin boot loop detected",
+                ),
+            ),
+        )
+        val viewModel = PluginViewModel(deps)
+        advanceUntilIdle()
+
+        viewModel.selectPlugin("plugin-1")
+        advanceUntilIdle()
+
+        val actionState = viewModel.uiState.value.detailActionState
+        assertTrue(requireNotNull(actionState.failureState).isSuspended)
+        assertEquals(5, actionState.failureState?.consecutiveFailureCount)
+        assertResourceFeedback(
+            feedback = actionState.enableBlockedReason,
+            resId = R.string.plugin_failure_enable_blocked_until_recovery,
+        )
+        assertFalse(actionState.manageAvailability.canViewLogs)
+
+        val governanceSummary = propertyValue<Any>(actionState, "governanceSummary")
+        val failureProjection = propertyValue<PluginGovernanceFailureProjection>(governanceSummary, "failureProjection")
+        assertEquals(PluginGovernanceRecoveryStatus.SUSPENDED, failureProjection.status)
+    }
+
+    @Test
+    fun governance_projection_refreshes_when_observable_read_model_changes_without_record_mutation() = runTest(dispatcher) {
+        val deps = FakePluginDependencies(
+            listOf(
+                pluginRecord(
+                    pluginId = "plugin-1",
+                    enabled = false,
+                ),
+            ),
+        )
+        deps.putGovernance(
+            pluginId = "plugin-1",
+            readModel = governanceReadModel(
+                snapshot = PluginGovernanceSnapshot(
+                    pluginId = "plugin-1",
+                    pluginVersion = "1.0.0",
+                    protocolVersion = 2,
+                    runtimeKind = "js_quickjs",
+                    riskLevel = PluginRiskLevel.MEDIUM,
+                    trustLevel = PluginTrustLevel.LOCAL_PACKAGE,
+                    reviewState = PluginReviewState.LOCAL_CHECKS_PASSED,
+                    runtimeHealth = PluginRuntimeHealthSnapshot(
+                        status = PluginRuntimeHealthStatus.Disabled,
+                        detail = "Plugin is installed but disabled.",
+                    ),
+                    suspensionState = PluginSuspensionState.NOT_SUSPENDED,
+                ),
+            ),
+        )
+        val viewModel = PluginViewModel(deps)
+        advanceUntilIdle()
+
+        viewModel.selectPlugin("plugin-1")
+        advanceUntilIdle()
+
+        assertEquals(
+            PluginRuntimeHealthStatus.Disabled,
+            viewModel.uiState.value.detailMetadataState.governanceState?.runtimeHealth?.status,
+        )
+        assertFalse(viewModel.uiState.value.detailActionState.manageAvailability.canViewLogs)
+
+        deps.putGovernance(
+            pluginId = "plugin-1",
+            readModel = governanceReadModel(
+                snapshot = PluginGovernanceSnapshot(
+                    pluginId = "plugin-1",
+                    pluginVersion = "1.0.0",
+                    protocolVersion = 7,
+                    runtimeKind = "python_pyside",
+                    riskLevel = PluginRiskLevel.HIGH,
+                    trustLevel = PluginTrustLevel.REPOSITORY_LISTED,
+                    reviewState = PluginReviewState.LOCAL_CHECKS_PASSED,
+                    runtimeHealth = PluginRuntimeHealthSnapshot(
+                        status = PluginRuntimeHealthStatus.UpgradeRequired,
+                        detail = "Host upgrade required before activation.",
+                    ),
+                    suspensionState = PluginSuspensionState.SUSPENDED,
+                    registrationSummary = PluginRegistrationSummary(
+                        commandCount = 2,
+                        toolCount = 3,
+                    ),
+                ),
+                observabilitySummary = PluginObservabilitySummary(
+                    totalCount = 2,
+                    failureCount = 1,
+                ),
+                failureProjection = PluginGovernanceFailureProjection(
+                    pluginId = "plugin-1",
+                    status = PluginGovernanceRecoveryStatus.SUSPENDED,
+                    consecutiveFailureCount = 4,
+                    suspendedUntilEpochMillis = 4_102_444_800_000L,
+                    lastErrorSummary = "upgrade required",
+                ),
+            ),
+        )
+        advanceUntilIdle()
+
+        assertEquals(
+            PluginRuntimeHealthStatus.UpgradeRequired,
+            viewModel.uiState.value.detailMetadataState.governanceState?.runtimeHealth?.status,
+        )
+        assertEquals(7, viewModel.uiState.value.detailMetadataState.governanceState?.protocolVersion)
+        assertTrue(viewModel.uiState.value.detailActionState.manageAvailability.canViewLogs)
+        assertTrue(requireNotNull(viewModel.uiState.value.detailActionState.failureState).isSuspended)
+    }
+
+    @Test
+    fun recover_selected_plugin_from_suspension_clears_failure_state_and_reenables_management_actions() = runTest(dispatcher) {
+        val deps = FakePluginDependencies(
+            listOf(
+                pluginRecord(
+                    pluginId = "plugin-1",
+                    enabled = false,
+                    failureState = PluginFailureState(
+                        consecutiveFailureCount = 3,
+                        lastFailureAtEpochMillis = 1_000L,
+                        lastErrorSummary = "socket timeout",
+                        suspendedUntilEpochMillis = 4_102_444_800_000L,
+                    ),
+                ),
+            ),
+        )
+        deps.putGovernance(
+            pluginId = "plugin-1",
+            readModel = governanceReadModel(
+                snapshot = PluginGovernanceSnapshot(
+                    pluginId = "plugin-1",
+                    pluginVersion = "1.0.0",
+                    protocolVersion = 2,
+                    runtimeKind = "js_quickjs",
+                    riskLevel = PluginRiskLevel.MEDIUM,
+                    trustLevel = PluginTrustLevel.LOCAL_PACKAGE,
+                    reviewState = PluginReviewState.LOCAL_CHECKS_PASSED,
+                    runtimeHealth = PluginRuntimeHealthSnapshot(
+                        status = PluginRuntimeHealthStatus.Suspended,
+                        detail = "Failure guard has suspended the plugin.",
+                    ),
+                    suspensionState = PluginSuspensionState.SUSPENDED,
+                    lastFailure = PluginGovernanceFailureSnapshot(
+                        summary = "socket timeout",
+                        occurredAtEpochMillis = 1_000L,
+                        suspendedUntilEpochMillis = 4_102_444_800_000L,
+                    ),
+                ),
+                failureProjection = PluginGovernanceFailureProjection(
+                    pluginId = "plugin-1",
+                    status = PluginGovernanceRecoveryStatus.SUSPENDED,
+                    consecutiveFailureCount = 3,
+                    suspendedUntilEpochMillis = 4_102_444_800_000L,
+                    lastErrorSummary = "socket timeout",
+                ),
+            ),
+        )
+        val viewModel = PluginViewModel(deps)
+        advanceUntilIdle()
+
+        viewModel.selectPlugin("plugin-1")
+        advanceUntilIdle()
+
+        val initialActionState = viewModel.uiState.value.detailActionState
+        assertFalse(initialActionState.isEnableActionEnabled)
+        assertEquals(
+            true,
+            propertyValue<Boolean>(initialActionState.manageAvailability, "canRecover"),
+        )
+
+        val recoverMethod = PluginViewModel::class.java.methods.firstOrNull { method ->
+            method.name == "recoverSelectedPluginFromSuspension" && method.parameterCount == 0
+        }
+        assertTrue(recoverMethod != null)
+
+        recoverMethod!!.invoke(viewModel)
+        advanceUntilIdle()
+
+        assertEquals(emptyList<String>(), deps.clearedFailurePluginIds)
+        assertEquals(listOf("plugin-1"), deps.recoveredFailurePluginIds)
+        assertNull(viewModel.uiState.value.detailActionState.failureState)
+        assertTrue(viewModel.uiState.value.detailActionState.isEnableActionEnabled)
+        assertEquals(
+            false,
+            propertyValue<Boolean>(viewModel.uiState.value.detailActionState.manageAvailability, "canRecover"),
+        )
+        val feedback = viewModel.uiState.value.detailActionState.lastActionMessage
+        assertTrue(feedback is PluginActionFeedback.Text)
+        feedback as PluginActionFeedback.Text
+        assertTrue(feedback.value.contains("recover", ignoreCase = true))
     }
 
     @Test
@@ -1101,7 +1420,37 @@ class PluginViewModelTest {
     fun submit_local_package_uri_installs_and_preserves_url_drafts() = runTest(dispatcher) {
         val deps = FakePluginDependencies(emptyList()).apply {
             nextLocalPackageInstallResult = PluginInstallIntentResult.Installed(
-                record = pluginRecord(pluginId = "local-import", sourceType = PluginSourceType.LOCAL_FILE),
+                record = pluginRecord(
+                    pluginId = "local-import",
+                    sourceType = PluginSourceType.LOCAL_FILE,
+                    packageContractSnapshot = PluginPackageContractSnapshot(
+                        protocolVersion = 6,
+                        runtime = PluginRuntimeDeclarationSnapshot(
+                            kind = "python_pyside",
+                            bootstrap = "main.py",
+                            apiVersion = 2,
+                        ),
+                    ),
+                ),
+            )
+            sideEffectfulGovernanceReadPublishesLogs = true
+            putGovernance(
+                pluginId = "local-import",
+                readModel = governanceReadModel(
+                    snapshot = PluginGovernanceSnapshot(
+                        pluginId = "local-import",
+                        pluginVersion = "1.0.0",
+                        protocolVersion = 6,
+                        runtimeKind = "python_pyside",
+                        riskLevel = PluginRiskLevel.HIGH,
+                        trustLevel = PluginTrustLevel.LOCAL_PACKAGE,
+                        reviewState = PluginReviewState.LOCAL_CHECKS_PASSED,
+                        runtimeHealth = PluginRuntimeHealthSnapshot(
+                            status = PluginRuntimeHealthStatus.UpgradeRequired,
+                            detail = "Host compatibility requires an upgrade path before activation.",
+                        ),
+                    ),
+                ),
             )
         }
         val viewModel = PluginViewModel(deps)
@@ -1128,8 +1477,11 @@ class PluginViewModelTest {
         assertEquals("local-import", followUpGuide?.pluginTitle)
         assertEquals("AstrBot", followUpGuide?.author)
         assertEquals(1, followUpGuide?.permissionCount)
-        assertEquals("js_quickjs", followUpGuide?.runtimeLabel)
-        assertEquals(true, followUpGuide?.canEnableNow)
+        assertEquals("python_pyside", followUpGuide?.runtimeLabel)
+        assertEquals("high", followUpGuide?.riskLabel)
+        assertEquals(false, followUpGuide?.canEnableNow)
+        assertEquals(0, deps.sideEffectfulGovernanceReadCount)
+        assertEquals(1, deps.silentGovernanceReadCount)
     }
 
     @Test
@@ -2220,6 +2572,7 @@ class PluginViewModelTest {
         private val repositorySourcesFlow = MutableStateFlow(repositorySources)
         private val catalogEntriesFlow = MutableStateFlow(catalogEntries)
         private val updateAvailabilitiesFlow = MutableStateFlow(updateAvailabilities)
+        private val governanceOverridesFlow = MutableStateFlow<Map<String, PluginGovernanceReadModel>>(emptyMap())
         private val staticSchemasByPluginId = staticSchemas.toMutableMap()
         private val configSnapshotsByPluginId = configSnapshots.toMutableMap()
         private val workspaceSnapshotsByPluginId = workspaceSnapshots.toMutableMap()
@@ -2229,7 +2582,11 @@ class PluginViewModelTest {
         val upgradeRequests = mutableListOf<PluginUpdateAvailability>()
         val workspaceImportUris = mutableListOf<String>()
         val clearedFailurePluginIds = mutableListOf<String>()
+        val recoveredFailurePluginIds = mutableListOf<String>()
         val deletedWorkspaceFiles = mutableListOf<String>()
+        var sideEffectfulGovernanceReadCount: Int = 0
+        var silentGovernanceReadCount: Int = 0
+        var sideEffectfulGovernanceReadPublishesLogs: Boolean = false
         var lastUninstallPolicy: PluginUninstallPolicy? = null
         var localPackageInstallError: Throwable? = null
         var nextLocalPackageInstallResult: PluginInstallIntentResult? = null
@@ -2247,6 +2604,17 @@ class PluginViewModelTest {
         override val records: StateFlow<List<PluginInstallRecord>> = recordsFlow
         override val repositorySources: StateFlow<List<com.astrbot.android.model.plugin.PluginRepositorySource>> = repositorySourcesFlow
         override val catalogEntries: StateFlow<List<PluginCatalogEntryRecord>> = catalogEntriesFlow
+        override val governanceReadModels: Flow<Map<String, PluginGovernanceReadModel>> = combine(
+            recordsFlow,
+            governanceOverridesFlow,
+        ) { currentRecords, governanceOverrides ->
+            currentRecords.associate { record ->
+                record.pluginId to (
+                    governanceOverrides[record.pluginId]
+                        ?: fallbackGovernanceReadModel(record)
+                    )
+            }
+        }
 
         override fun getHostVersion(): String = hostVersion
 
@@ -2265,8 +2633,33 @@ class PluginViewModelTest {
             repositorySourcesFlow.value = sources
         }
 
+        fun putGovernance(pluginId: String, readModel: PluginGovernanceReadModel) {
+            governanceOverridesFlow.value = governanceOverridesFlow.value + (pluginId to readModel)
+        }
+
         override fun getUpdateAvailability(pluginId: String): PluginUpdateAvailability? {
             return updateAvailabilitiesFlow.value[pluginId]
+        }
+
+        override fun getPluginGovernance(pluginId: String): PluginGovernanceReadModel? {
+            sideEffectfulGovernanceReadCount += 1
+            val readModel = lookupGovernance(pluginId)
+            if (sideEffectfulGovernanceReadPublishesLogs && readModel != null) {
+                governanceOverridesFlow.value = governanceOverridesFlow.value + (
+                    pluginId to readModel.copy(
+                        observabilitySummary = PluginObservabilitySummary(
+                            totalCount = 1,
+                            lastCode = "governance_snapshot_refreshed",
+                        ),
+                    )
+                )
+            }
+            return readModel
+        }
+
+        override fun getPluginGovernanceSilently(pluginId: String): PluginGovernanceReadModel? {
+            silentGovernanceReadCount += 1
+            return lookupGovernance(pluginId)
         }
 
         override fun getPluginStaticConfigSchema(pluginId: String): PluginStaticConfigSchema? {
@@ -2348,6 +2741,45 @@ class PluginViewModelTest {
             )
             recordsFlow.value = recordsFlow.value.map { record ->
                 if (record.pluginId == pluginId) updated else record
+            }
+            return updated
+        }
+
+        override fun recoverPluginFailureState(pluginId: String): PluginInstallRecord {
+            recoveredFailurePluginIds += pluginId
+            val updated = requireNotNull(recordsFlow.value.firstOrNull { it.pluginId == pluginId }).withOverrides(
+                failureState = PluginFailureState.none(),
+                lastUpdatedAt = 89L,
+            )
+            recordsFlow.value = recordsFlow.value.map { record ->
+                if (record.pluginId == pluginId) updated else record
+            }
+            val governance = lookupGovernance(pluginId)
+            if (governance != null) {
+                governanceOverridesFlow.value = governanceOverridesFlow.value + (
+                    pluginId to governance.copy(
+                        snapshot = governance.snapshot.copy(
+                            runtimeHealth = governance.snapshot.runtimeHealth.copy(
+                                status = PluginRuntimeHealthStatus.Disabled,
+                                detail = "Plugin is installed but disabled.",
+                            ),
+                            suspensionState = PluginSuspensionState.NOT_SUSPENDED,
+                            autoRecoveryState = governance.snapshot.autoRecoveryState.copy(
+                                status = "IDLE",
+                                consecutiveFailureCount = 0,
+                                suspendedUntilEpochMillis = null,
+                            ),
+                            lastFailure = governance.snapshot.lastFailure?.copy(
+                                suspendedUntilEpochMillis = null,
+                            ),
+                        ),
+                        failureProjection = governance.failureProjection.copy(
+                            status = PluginGovernanceRecoveryStatus.RECOVERED,
+                            consecutiveFailureCount = 0,
+                            suspendedUntilEpochMillis = null,
+                        ),
+                    )
+                )
             }
             return updated
         }
@@ -2456,6 +2888,71 @@ class PluginViewModelTest {
             return upgraded
         }
 
+        private fun fallbackGovernanceReadModel(record: PluginInstallRecord): PluginGovernanceReadModel {
+            val baseSnapshot = record.resolveGovernanceSnapshot()
+            val suspendedUntilEpochMillis = record.failureState.suspendedUntilEpochMillis
+            val isSuspended = suspendedUntilEpochMillis?.let { it > System.currentTimeMillis() } ?: false
+            val snapshot = baseSnapshot.copy(
+                runtimeHealth = if (isSuspended) {
+                    baseSnapshot.runtimeHealth.copy(
+                        status = PluginRuntimeHealthStatus.Suspended,
+                        detail = "Failure guard has suspended the plugin.",
+                    )
+                } else {
+                    baseSnapshot.runtimeHealth
+                },
+                suspensionState = if (isSuspended) {
+                    PluginSuspensionState.SUSPENDED
+                } else {
+                    PluginSuspensionState.NOT_SUSPENDED
+                },
+                autoRecoveryState = baseSnapshot.autoRecoveryState.copy(
+                    status = when {
+                        isSuspended -> "SUSPENDED"
+                        record.failureState.consecutiveFailureCount > 0 -> "TRACKING_FAILURES"
+                        else -> "IDLE"
+                    },
+                    consecutiveFailureCount = record.failureState.consecutiveFailureCount,
+                    suspendedUntilEpochMillis = if (isSuspended) suspendedUntilEpochMillis else null,
+                    lastFailureAtEpochMillis = record.failureState.lastFailureAtEpochMillis,
+                ),
+                lastFailure = if (record.failureState.hasFailures) {
+                    PluginGovernanceFailureSnapshot(
+                        summary = record.failureState.lastErrorSummary,
+                        occurredAtEpochMillis = record.failureState.lastFailureAtEpochMillis,
+                        suspendedUntilEpochMillis = if (isSuspended) suspendedUntilEpochMillis else null,
+                    )
+                } else {
+                    null
+                },
+            )
+            return PluginGovernanceReadModel(
+                snapshot = snapshot,
+                observabilitySummary = PluginObservabilitySummary(),
+                recentLogs = emptyList(),
+                diagnosticsSummary = snapshot.diagnosticsSummary,
+                lifecycleDiagnostics = emptyList(),
+                failureProjection = PluginGovernanceFailureProjection(
+                    pluginId = record.pluginId,
+                    status = when {
+                        isSuspended -> PluginGovernanceRecoveryStatus.SUSPENDED
+                        record.failureState.consecutiveFailureCount > 0 -> PluginGovernanceRecoveryStatus.TRACKING_FAILURES
+                        else -> PluginGovernanceRecoveryStatus.IDLE
+                    },
+                    consecutiveFailureCount = record.failureState.consecutiveFailureCount,
+                    suspendedUntilEpochMillis = if (isSuspended) suspendedUntilEpochMillis else null,
+                    lastErrorSummary = record.failureState.lastErrorSummary,
+                ),
+            )
+        }
+
+        private fun lookupGovernance(pluginId: String): PluginGovernanceReadModel? {
+            return governanceOverridesFlow.value[pluginId]
+                ?: recordsFlow.value.firstOrNull { record -> record.pluginId == pluginId }?.let { record ->
+                    fallbackGovernanceReadModel(record)
+                }
+        }
+
         private fun projectInstalledRecord(record: PluginInstallRecord): PluginInstallRecord {
             return PluginRepository.projectInstallRecordForHost(
                 record = record,
@@ -2470,6 +2967,7 @@ class PluginViewModelTest {
         riskLevel: PluginRiskLevel = PluginRiskLevel.LOW,
         sourceType: PluginSourceType = PluginSourceType.LOCAL_FILE,
         protocolVersion: Int = PluginRepository.SUPPORTED_PROTOCOL_VERSION,
+        packageContractSnapshot: PluginPackageContractSnapshot? = null,
         catalogSourceId: String? = null,
         enabled: Boolean = false,
         extractedDir: String = "",
@@ -2509,6 +3007,7 @@ class PluginViewModelTest {
                 location = "/tmp/$pluginId.zip",
                 importedAt = 1L,
             ),
+            packageContractSnapshot = packageContractSnapshot,
             compatibilityState = compatibilityState,
             failureState = failureState,
             uninstallPolicy = uninstallPolicy,
@@ -2516,6 +3015,24 @@ class PluginViewModelTest {
             enabled = enabled,
             lastUpdatedAt = lastUpdatedAt,
             extractedDir = extractedDir,
+        )
+    }
+
+    private fun governanceReadModel(
+        snapshot: PluginGovernanceSnapshot,
+        observabilitySummary: PluginObservabilitySummary = PluginObservabilitySummary(),
+        failureProjection: PluginGovernanceFailureProjection = PluginGovernanceFailureProjection(
+            pluginId = snapshot.pluginId,
+        ),
+        diagnosticsSummary: PluginDiagnosticsSummary = snapshot.diagnosticsSummary,
+    ): PluginGovernanceReadModel {
+        return PluginGovernanceReadModel(
+            snapshot = snapshot,
+            observabilitySummary = observabilitySummary,
+            recentLogs = emptyList(),
+            diagnosticsSummary = diagnosticsSummary,
+            lifecycleDiagnostics = emptyList(),
+            failureProjection = failureProjection,
         )
     }
 
@@ -2608,7 +3125,9 @@ class PluginViewModelTest {
     }
 
     private fun pluginViewModelMethod(name: String, vararg parameterTypes: Class<*>): Method {
-        return PluginViewModel::class.java.getMethod(name, *parameterTypes)
+        return PluginViewModel::class.java.getDeclaredMethod(name, *parameterTypes).apply {
+            isAccessible = true
+        }
     }
 
 }

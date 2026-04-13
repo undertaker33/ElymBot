@@ -424,4 +424,60 @@ class PluginFailureGuardTest {
         val recoveryFailedEvents = bus.snapshot(pluginId = pluginId, code = "failure_guard_recovery_failed")
         assertTrue(recoveryFailedEvents.any { record -> record.metadata["failureScope"] == "plugin" })
     }
+
+    @Test
+    fun recover_clears_plugin_and_scoped_suspension_without_dropping_recovery_observability() {
+        val pluginId = "plugin-manual-recover"
+        val clock = TestClock(now = 20_000L)
+        val bus = InMemoryPluginRuntimeLogBus(capacity = 64)
+        val guard = PluginFailureGuard(
+            store = InMemoryPluginFailureStateStore(),
+            scopedStore = InMemoryPluginScopedFailureStateStore(),
+            policy = PluginFailurePolicy(
+                maxConsecutiveFailures = 2,
+                suspensionWindowMillis = 500L,
+            ),
+            clock = { clock.now },
+            logBus = bus,
+        )
+
+        guard.recordFailure(
+            pluginId = pluginId,
+            trigger = PluginTriggerSource.BeforeSendMessage,
+            errorSummary = "socket timeout",
+        )
+        guard.recordFailure(
+            pluginId = pluginId,
+            trigger = PluginTriggerSource.BeforeSendMessage,
+            errorSummary = "socket timeout",
+        )
+
+        assertTrue(guard.isSuspended(pluginId))
+        assertTrue(guard.isSuspended(pluginId, PluginTriggerSource.BeforeSendMessage))
+
+        val recovered = guard.recover(pluginId)
+
+        assertFalse(recovered.isSuspended)
+        assertEquals(0, recovered.consecutiveFailureCount)
+        assertFalse(guard.isSuspended(pluginId))
+        assertFalse(guard.isSuspended(pluginId, PluginTriggerSource.BeforeSendMessage))
+
+        val recoveredEvents = bus.snapshot(pluginId = pluginId, code = "failure_guard_recovered")
+        assertTrue(recoveredEvents.any { record -> record.metadata["failureScope"] == PluginTriggerSource.BeforeSendMessage.wireValue })
+        assertTrue(recoveredEvents.any { record -> record.metadata["failureScope"] == "plugin" })
+
+        val suspensionChanges = bus.snapshot(pluginId = pluginId, code = "plugin_suspension_state_changed")
+        assertTrue(
+            suspensionChanges.any { record ->
+                record.metadata["failureScope"] == PluginTriggerSource.BeforeSendMessage.wireValue &&
+                    record.metadata["currentState"] == "NOT_SUSPENDED"
+            },
+        )
+        assertTrue(
+            suspensionChanges.any { record ->
+                record.metadata["failureScope"] == "plugin" &&
+                    record.metadata["currentState"] == "NOT_SUSPENDED"
+            },
+        )
+    }
 }
