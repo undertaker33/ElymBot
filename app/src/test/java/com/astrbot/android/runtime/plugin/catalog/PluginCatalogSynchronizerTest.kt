@@ -11,6 +11,8 @@ import com.astrbot.android.model.plugin.PluginPermissionDeclaration
 import com.astrbot.android.model.plugin.PluginRepositorySource
 import com.astrbot.android.model.plugin.PluginRiskLevel
 import com.astrbot.android.runtime.RuntimeLogRepository
+import com.astrbot.android.runtime.plugin.InMemoryPluginRuntimeLogBus
+import com.astrbot.android.runtime.plugin.PluginRuntimeLogBusProvider
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -61,6 +63,43 @@ class PluginCatalogSynchronizerTest {
                     it.contains("versions=1")
             },
         )
+    }
+
+    @Test
+    fun sync_publishes_structured_market_v2_validation_completed_hook() = runBlocking {
+        val bus = InMemoryPluginRuntimeLogBus(capacity = 16)
+        PluginRuntimeLogBusProvider.setBusOverrideForTests(bus)
+        try {
+            val store = FakePluginCatalogSyncStore(
+                source = subscribedSource(),
+            )
+            val synchronizer = PluginCatalogSynchronizer(
+                store = store,
+                fetcher = FakePluginCatalogFetcher(
+                    responseByUrl = mapOf(
+                        "https://repo.example.com/catalogs/stable/index.json" to successCatalogJson(),
+                    ),
+                ),
+                now = { 9_999L },
+            )
+
+            synchronizer.sync("official")
+
+            val record = bus.snapshot(
+                pluginId = "__market__",
+                code = "market_v2_validation_completed",
+            ).single()
+            assertEquals("market_v2_validation_completed", record.metadata["code"])
+            assertEquals("PluginMarket", record.stage)
+            assertEquals("SUCCESS", record.outcome)
+            assertEquals("official", record.metadata["sourceId"])
+            assertEquals("1", record.metadata["pluginCount"])
+            assertEquals("1", record.metadata["versionCount"])
+            assertEquals("1", record.metadata["v2VersionCount"])
+            assertEquals("0", record.metadata["issueCount"])
+        } finally {
+            PluginRuntimeLogBusProvider.setBusOverrideForTests(null)
+        }
     }
 
     @Test

@@ -94,6 +94,87 @@ class PluginInstallerTest {
     }
 
     @Test
+    fun installer_publishes_structured_v2_validation_hook_for_installable_package() {
+        val tempDir = Files.createTempDirectory("plugin-installer-validation-hook").toFile()
+        val bus = InMemoryPluginRuntimeLogBus(capacity = 16)
+        PluginRuntimeLogBusProvider.setBusOverrideForTests(bus)
+        try {
+            resetPluginRepositoryForTest(dao = InMemoryPluginInstallAggregateDao(), initialized = true)
+            val installer = PluginInstaller(
+                validator = PluginPackageValidator(hostVersion = "0.3.6", supportedProtocolVersion = 2),
+                storagePaths = PluginStoragePaths.fromFilesDir(tempDir),
+                installStore = PluginRepository,
+                clock = { 321L },
+            )
+            val candidate = createPluginPackage(
+                directory = tempDir,
+                fileName = "candidate.zip",
+                manifest = validManifest(version = "1.0.0"),
+            )
+
+            installer.installFromLocalPackage(candidate)
+
+            val record = bus.snapshot(
+                pluginId = "com.example.demo",
+                code = "installer_v2_validation_completed",
+            ).single()
+            assertEquals("installer_v2_validation_completed", record.metadata["code"])
+            assertEquals("PluginInstaller", record.stage)
+            assertEquals("INSTALLABLE", record.outcome)
+            assertEquals("true", record.metadata["installable"])
+            assertEquals("2", record.metadata["protocolVersion"])
+            assertEquals("js_quickjs", record.metadata["runtimeKind"])
+            assertEquals("0", record.metadata["issueCount"])
+        } finally {
+            PluginRuntimeLogBusProvider.setBusOverrideForTests(null)
+            resetPluginRepositoryForTest()
+            tempDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun installer_publishes_structured_v2_validation_hook_for_blocked_package_without_persisting() {
+        val tempDir = Files.createTempDirectory("plugin-installer-validation-blocked-hook").toFile()
+        val bus = InMemoryPluginRuntimeLogBus(capacity = 16)
+        PluginRuntimeLogBusProvider.setBusOverrideForTests(bus)
+        try {
+            resetPluginRepositoryForTest(dao = InMemoryPluginInstallAggregateDao(), initialized = true)
+            val installer = PluginInstaller(
+                validator = PluginPackageValidator(hostVersion = "0.3.6", supportedProtocolVersion = 2),
+                storagePaths = PluginStoragePaths.fromFilesDir(tempDir),
+                installStore = PluginRepository,
+                clock = { 322L },
+            )
+            val candidate = createPluginPackage(
+                directory = tempDir,
+                fileName = "damaged.zip",
+                manifest = validManifest(version = "1.0.0"),
+                includeRuntimeBootstrap = false,
+            )
+
+            val failure = runCatching {
+                installer.installFromLocalPackage(candidate)
+            }.exceptionOrNull()
+
+            assertTrue(failure is PluginPackageInstallBlockedException)
+            val record = bus.snapshot(
+                pluginId = "com.example.demo",
+                code = "installer_v2_validation_completed",
+            ).single()
+            assertEquals("BLOCKED", record.outcome)
+            assertEquals("false", record.metadata["installable"])
+            assertEquals("2", record.metadata["protocolVersion"])
+            assertEquals("js_quickjs", record.metadata["runtimeKind"])
+            assertEquals("1", record.metadata["issueCount"])
+            assertEquals(null, PluginRepository.findByPluginId("com.example.demo"))
+        } finally {
+            PluginRuntimeLogBusProvider.setBusOverrideForTests(null)
+            resetPluginRepositoryForTest()
+            tempDir.deleteRecursively()
+        }
+    }
+
+    @Test
     fun installer_downloads_catalog_package_and_writes_repository_origin() = runBlocking {
         val tempDir = Files.createTempDirectory("plugin-installer-repository").toFile()
         try {

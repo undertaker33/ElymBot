@@ -138,16 +138,29 @@ private fun projectFailureProjection(
         record.code == "failure_guard_recovery_failed" ||
             record.code == "failure_guard_recovered" ||
             record.code == "failure_guard_resumed" ||
+            record.code == "plugin_recovery_completed" ||
+            record.code == "plugin_recovery_failed" ||
             record.code == "plugin_suspension_state_changed"
     }
+    val activeFailureCount = snapshot.autoRecoveryState.consecutiveFailureCount
+    val autoRecoveryStatus = snapshot.autoRecoveryState.status
+    val hasActiveFailure = snapshot.suspensionState == PluginSuspensionState.SUSPENDED ||
+        autoRecoveryStatus == "SUSPENDED" ||
+        (autoRecoveryStatus == "TRACKING_FAILURES" && activeFailureCount > 0)
     val status = when {
-        snapshot.suspensionState == PluginSuspensionState.SUSPENDED -> PluginGovernanceRecoveryStatus.SUSPENDED
-        transitionRecord?.code == "failure_guard_recovery_failed" -> PluginGovernanceRecoveryStatus.RECOVERY_FAILED
+        hasActiveFailure &&
+            (
+                transitionRecord?.code == "failure_guard_recovery_failed" ||
+                    transitionRecord?.code == "plugin_recovery_failed"
+                ) -> PluginGovernanceRecoveryStatus.RECOVERY_FAILED
+        snapshot.suspensionState == PluginSuspensionState.SUSPENDED ||
+            autoRecoveryStatus == "SUSPENDED" -> PluginGovernanceRecoveryStatus.SUSPENDED
         transitionRecord?.code == "failure_guard_recovered" ||
-            transitionRecord?.code == "failure_guard_resumed" -> PluginGovernanceRecoveryStatus.RECOVERED
+            transitionRecord?.code == "failure_guard_resumed" ||
+            transitionRecord?.code == "plugin_recovery_completed" -> PluginGovernanceRecoveryStatus.RECOVERED
         transitionRecord?.code == "plugin_suspension_state_changed" &&
             transitionRecord.metadata["currentState"] == "NOT_SUSPENDED" -> PluginGovernanceRecoveryStatus.RECOVERED
-        (failureSnapshot?.consecutiveFailureCount ?: snapshot.autoRecoveryState.consecutiveFailureCount) > 0 -> {
+        autoRecoveryStatus == "TRACKING_FAILURES" && activeFailureCount > 0 -> {
             PluginGovernanceRecoveryStatus.TRACKING_FAILURES
         }
         else -> PluginGovernanceRecoveryStatus.IDLE

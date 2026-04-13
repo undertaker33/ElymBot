@@ -69,6 +69,10 @@ import com.astrbot.android.runtime.plugin.PluginRuntimeDispatcher
 import com.astrbot.android.runtime.plugin.PluginRuntimeFailureStateStoreProvider
 import com.astrbot.android.runtime.plugin.PluginRuntimeRegistry
 import com.astrbot.android.runtime.plugin.compareVersions
+import com.astrbot.android.runtime.plugin.publishPluginRecoveryCompleted
+import com.astrbot.android.runtime.plugin.publishPluginRecoveryFailed
+import com.astrbot.android.runtime.plugin.publishPluginRecoveryRequested
+import com.astrbot.android.runtime.plugin.publishUiGovernanceProjectionBuilt
 import com.astrbot.android.runtime.RuntimeLogRepository
 import com.astrbot.android.ui.screen.PluginLocalFilter
 import com.astrbot.android.ui.screen.buildPluginMarketVersionOptions
@@ -380,6 +384,7 @@ class PluginViewModel(
     private val selectedMarketVersionKeys = MutableStateFlow<Map<String, String>>(emptyMap())
     private var officialMarketBootstrapAttempted = false
     private var currentConfigBoundary: PluginConfigStorageBoundary? = null
+    private var lastGovernanceProjectionLogKey: String = ""
 
     val uiState: StateFlow<PluginScreenUiState> = combine(
         combine(
@@ -412,6 +417,13 @@ class PluginViewModel(
         val failureStates = buildFailureStates(
             records = snapshot.records,
             governanceByPluginId = governanceByPluginId,
+        )
+        publishUiGovernanceProjectionBuiltIfChanged(
+            records = snapshot.records,
+            selectedPlugin = selectedPlugin,
+            isShowingDetail = snapshot.isShowingDetail && selectedPlugin != null,
+            governanceByPluginId = governanceByPluginId,
+            failureStates = failureStates,
         )
         PluginScreenUiState(
             records = snapshot.records,
@@ -762,19 +774,46 @@ class PluginViewModel(
 
     fun recoverSelectedPluginFromSuspension() {
         val selected = uiState.value.selectedPlugin ?: return
+        val currentFailureProjection = uiState.value.detailActionState.governanceSummary?.failureProjection
         if (!uiState.value.detailActionState.manageAvailability.canRecover) {
             lastActionMessage.value = PluginActionFeedback.Text(
                 "Plugin is not currently suspended, so there is nothing to recover.",
             )
             return
         }
+        dependencies.logBus.publishPluginRecoveryRequested(
+            pluginId = selected.pluginId,
+            pluginVersion = selected.installedVersion,
+            occurredAtEpochMillis = System.currentTimeMillis(),
+            recoveryStatus = currentFailureProjection?.status?.name.orEmpty().ifBlank { "SUSPENDED" },
+            consecutiveFailureCount = currentFailureProjection?.consecutiveFailureCount
+                ?: selected.failureState.consecutiveFailureCount,
+            suspendedUntilEpochMillis = currentFailureProjection?.suspendedUntilEpochMillis
+                ?: selected.failureState.suspendedUntilEpochMillis,
+        )
         runCatching {
             dependencies.recoverPluginFailureState(selected.pluginId)
         }.onSuccess {
+            dependencies.logBus.publishPluginRecoveryCompleted(
+                pluginId = selected.pluginId,
+                pluginVersion = selected.installedVersion,
+                occurredAtEpochMillis = System.currentTimeMillis(),
+            )
             lastActionMessage.value = PluginActionFeedback.Text(
                 "Plugin recovered from suspension. You can enable it again.",
             )
         }.onFailure { error ->
+            dependencies.logBus.publishPluginRecoveryFailed(
+                pluginId = selected.pluginId,
+                pluginVersion = selected.installedVersion,
+                occurredAtEpochMillis = System.currentTimeMillis(),
+                recoveryStatus = currentFailureProjection?.status?.name.orEmpty().ifBlank { "SUSPENDED" },
+                consecutiveFailureCount = currentFailureProjection?.consecutiveFailureCount
+                    ?: selected.failureState.consecutiveFailureCount,
+                suspendedUntilEpochMillis = currentFailureProjection?.suspendedUntilEpochMillis
+                    ?: selected.failureState.suspendedUntilEpochMillis,
+                errorSummary = error.message ?: error.javaClass.simpleName,
+            )
             lastActionMessage.value = PluginActionFeedback.Text(
                 error.message ?: "Failed to recover plugin suspension.",
             )
@@ -1623,6 +1662,49 @@ class PluginViewModel(
         }
     }
 
+    private fun publishUiGovernanceProjectionBuiltIfChanged(
+        records: List<PluginInstallRecord>,
+        selectedPlugin: PluginInstallRecord?,
+        isShowingDetail: Boolean,
+        governanceByPluginId: Map<String, PluginGovernanceSummaryUiState>,
+        failureStates: Map<String, PluginFailureUiState>,
+    ) {
+        val pluginIds = records.map { record -> record.pluginId }
+        val projectionKey = buildString {
+            append("selected=").append(selectedPlugin?.pluginId.orEmpty())
+            append(";detail=").append(isShowingDetail)
+            append(";plugins=")
+            append(
+                records.joinToString(separator = "|") { record ->
+                    val governance = governanceByPluginId[record.pluginId]
+                    listOf(
+                        record.pluginId,
+                        record.installedVersion,
+                        record.enabled.toString(),
+                        governance?.snapshot?.runtimeHealth?.status?.name.orEmpty(),
+                        governance?.snapshot?.suspensionState?.name.orEmpty(),
+                        governance?.snapshot?.autoRecoveryState?.status.orEmpty(),
+                        governance?.failureProjection?.status?.name.orEmpty(),
+                        failureStates.containsKey(record.pluginId).toString(),
+                    ).joinToString(separator = ":")
+                },
+            )
+        }
+        if (projectionKey == lastGovernanceProjectionLogKey) {
+            return
+        }
+        lastGovernanceProjectionLogKey = projectionKey
+        dependencies.logBus.publishUiGovernanceProjectionBuilt(
+            occurredAtEpochMillis = System.currentTimeMillis(),
+            pluginCount = records.size,
+            selectedPluginId = selectedPlugin?.pluginId,
+            isShowingDetail = isShowingDetail,
+            failureUiCount = failureStates.size,
+            pluginIds = pluginIds,
+            projectionKey = projectionKey,
+        )
+    }
+
     private fun buildFailureStates(
         records: List<PluginInstallRecord>,
         governanceByPluginId: Map<String, PluginGovernanceSummaryUiState>,
@@ -1642,18 +1724,37 @@ class PluginViewModel(
         val failureProjection = governanceSummary?.failureProjection
         val autoRecoveryState = governanceSummary?.snapshot?.autoRecoveryState
         val lastFailure = governanceSummary?.snapshot?.lastFailure
+        val recoveryStatus = failureProjection?.status
         val consecutiveFailureCount = failureProjection?.consecutiveFailureCount
             ?: autoRecoveryState?.consecutiveFailureCount
-            ?: record.failureState.consecutiveFailureCount
+            ?: if (governanceSummary == null) record.failureState.consecutiveFailureCount else 0
         val suspendedUntilEpochMillis = failureProjection?.suspendedUntilEpochMillis
             ?: autoRecoveryState?.suspendedUntilEpochMillis
-            ?: record.failureState.suspendedUntilEpochMillis
-        val recoveryStatus = failureProjection?.status
+            ?: if (governanceSummary == null) record.failureState.suspendedUntilEpochMillis else null
+        val snapshotSuspended = governanceSummary?.snapshot?.suspensionState ==
+            com.astrbot.android.model.plugin.PluginSuspensionState.SUSPENDED
+        if (governanceSummary != null) {
+            val activeGovernanceFailure = snapshotSuspended ||
+                recoveryStatus == PluginGovernanceRecoveryStatus.SUSPENDED ||
+                recoveryStatus == PluginGovernanceRecoveryStatus.RECOVERY_FAILED ||
+                (
+                    recoveryStatus == PluginGovernanceRecoveryStatus.TRACKING_FAILURES &&
+                        consecutiveFailureCount > 0
+                    ) ||
+                autoRecoveryState?.status == "SUSPENDED" ||
+                (
+                    autoRecoveryState?.status == "TRACKING_FAILURES" &&
+                        consecutiveFailureCount > 0
+                    )
+            if (!activeGovernanceFailure) {
+                return null
+            }
+        }
         val lastErrorSummary = failureProjection?.lastErrorSummary
             ?.takeIf { summary -> summary.isNotBlank() }
             ?: lastFailure?.summary
                 ?.takeIf { summary -> summary.isNotBlank() }
-            ?: record.failureState.lastErrorSummary
+            ?: if (governanceSummary == null) record.failureState.lastErrorSummary else null
         if (
             recoveryStatus == PluginGovernanceRecoveryStatus.RECOVERED &&
             consecutiveFailureCount <= 0 &&
@@ -1669,8 +1770,7 @@ class PluginViewModel(
             return null
         }
         val isSuspended = suspendedUntilEpochMillis?.let { suspendedUntil -> suspendedUntil > System.currentTimeMillis() }
-            ?: (governanceSummary?.snapshot?.suspensionState ==
-                com.astrbot.android.model.plugin.PluginSuspensionState.SUSPENDED)
+            ?: snapshotSuspended
         val summary = lastErrorSummary?.takeIf { it.isNotBlank() }
             ?: record.manifestSnapshot.title
         val summaryMessage = PluginActionFeedback.Resource(

@@ -59,6 +59,8 @@ import com.astrbot.android.runtime.plugin.PluginInstaller
 import com.astrbot.android.runtime.plugin.PluginPackageValidator
 import com.astrbot.android.runtime.plugin.PluginGovernanceReadModel
 import com.astrbot.android.runtime.plugin.PluginGovernanceRepository
+import com.astrbot.android.runtime.plugin.PluginRuntimeLogBus
+import com.astrbot.android.runtime.plugin.PluginRuntimeLogBusProvider
 import com.astrbot.android.runtime.plugin.PluginRuntimeFailureStateStoreProvider
 import com.astrbot.android.runtime.plugin.catalog.PluginCatalogSynchronizer
 import com.astrbot.android.runtime.plugin.catalog.PluginInstallIntentHandler
@@ -442,6 +444,8 @@ interface PluginViewModelDependencies {
     val repositorySources: StateFlow<List<PluginRepositorySource>>
     val catalogEntries: StateFlow<List<PluginCatalogEntryRecord>>
     val governanceReadModels: Flow<Map<String, PluginGovernanceReadModel>>
+    val logBus: PluginRuntimeLogBus
+        get() = PluginRuntimeLogBusProvider.bus()
 
     suspend fun handleInstallIntent(
         intent: PluginInstallIntent,

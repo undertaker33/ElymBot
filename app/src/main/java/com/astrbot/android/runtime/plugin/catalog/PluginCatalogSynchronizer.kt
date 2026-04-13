@@ -8,12 +8,16 @@ import com.astrbot.android.model.plugin.PluginCatalogVersion
 import com.astrbot.android.model.plugin.PluginInstallIntent
 import com.astrbot.android.model.plugin.PluginRepositorySource
 import com.astrbot.android.runtime.RuntimeLogRepository
+import com.astrbot.android.runtime.plugin.PluginRuntimeLogBus
+import com.astrbot.android.runtime.plugin.PluginRuntimeLogBusProvider
+import com.astrbot.android.runtime.plugin.publishMarketV2ValidationCompleted
 
 class PluginCatalogSynchronizer(
     private val store: PluginCatalogSyncStore,
     private val fetcher: PluginCatalogFetcher,
     private val now: () -> Long = System::currentTimeMillis,
     private val decode: (String) -> PluginRepositorySource = PluginCatalogJson::decodeRepositorySource,
+    private val logBus: PluginRuntimeLogBus = PluginRuntimeLogBusProvider.bus(),
 ) {
     suspend fun sync(sourceId: String): PluginCatalogSyncState {
         val subscribedSource = store.getRepositorySource(sourceId)
@@ -56,6 +60,11 @@ class PluginCatalogSynchronizer(
             if (normalized.plugins.isEmpty()) {
                 val emptySource = normalized.copy(lastSyncStatus = PluginCatalogSyncStatus.EMPTY)
                 store.upsertRepositorySource(emptySource)
+                logBus.publishMarketValidationForSource(
+                    source = emptySource,
+                    outcome = PluginCatalogSyncStatus.EMPTY.name,
+                    occurredAtEpochMillis = now(),
+                )
                 RuntimeLogRepository.append(
                     "Plugin market sync empty: sourceId=${emptySource.sourceId} cachedPlugins=${syncSource.plugins.size}",
                 )
@@ -63,6 +72,11 @@ class PluginCatalogSynchronizer(
             } else {
                 val successSource = normalized.copy(lastSyncStatus = PluginCatalogSyncStatus.SUCCESS)
                 store.replaceRepositoryCatalog(successSource)
+                logBus.publishMarketValidationForSource(
+                    source = successSource,
+                    outcome = PluginCatalogSyncStatus.SUCCESS.name,
+                    occurredAtEpochMillis = now(),
+                )
                 RuntimeLogRepository.append(
                     "Plugin market sync success: " +
                         "sourceId=${successSource.sourceId} " +
@@ -78,12 +92,38 @@ class PluginCatalogSynchronizer(
                 lastSyncErrorSummary = failure.toErrorSummary(),
             )
             store.upsertRepositorySource(failedSource)
+            logBus.publishMarketV2ValidationCompleted(
+                occurredAtEpochMillis = now(),
+                sourceId = failedSource.sourceId,
+                outcome = PluginCatalogSyncStatus.FAILED.name,
+                pluginCount = 0,
+                versionCount = 0,
+                v2VersionCount = 0,
+                issueCount = 1,
+            )
             RuntimeLogRepository.append(
                 "Plugin market sync failed: sourceId=${failedSource.sourceId} error=${failure.toRuntimeLogSummary()}",
             )
             failedSource.toSyncState()
         }
     }
+}
+
+private fun PluginRuntimeLogBus.publishMarketValidationForSource(
+    source: PluginRepositorySource,
+    outcome: String,
+    occurredAtEpochMillis: Long,
+) {
+    val versions = source.plugins.flatMap(PluginCatalogEntry::versions)
+    publishMarketV2ValidationCompleted(
+        occurredAtEpochMillis = occurredAtEpochMillis,
+        sourceId = source.sourceId,
+        outcome = outcome,
+        pluginCount = source.plugins.size,
+        versionCount = versions.size,
+        v2VersionCount = versions.count { version -> version.protocolVersion == 2 },
+        issueCount = versions.count { version -> version.protocolVersion != 2 },
+    )
 }
 
 private fun PluginRepositorySource.withNormalizedCatalogUrl(): PluginRepositorySource {

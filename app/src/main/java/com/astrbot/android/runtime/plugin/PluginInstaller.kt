@@ -82,6 +82,7 @@ class PluginInstaller(
     private val installStore: PluginInstallStore,
     private val remotePackageDownloader: RemotePluginPackageDownloader = UrlConnectionRemotePluginPackageDownloader(),
     private val clock: () -> Long = System::currentTimeMillis,
+    private val logBus: PluginRuntimeLogBus = PluginRuntimeLogBusProvider.bus(),
 ) {
     fun installFromLocalPackage(packageFile: File): PluginInstallRecord {
         return installPackage(
@@ -189,7 +190,29 @@ class PluginInstaller(
         lastCatalogCheckAtEpochMillis: Long?,
     ): PluginInstallRecord {
         val validation = runCatching { validator.validate(packageFile) }
+            .onSuccess { result ->
+                logBus.publishInstallerV2ValidationCompleted(
+                    pluginId = result.manifest.pluginId,
+                    pluginVersion = result.manifest.version,
+                    occurredAtEpochMillis = clock(),
+                    outcome = if (result.installable) "INSTALLABLE" else "BLOCKED",
+                    installable = result.installable,
+                    protocolVersion = result.manifest.protocolVersion,
+                    runtimeKind = result.packageContract?.runtime?.kind.orEmpty(),
+                    issueCount = result.validationIssues.size,
+                )
+            }
             .getOrElse { error ->
+                logBus.publishInstallerV2ValidationCompleted(
+                    pluginId = "",
+                    pluginVersion = "",
+                    occurredAtEpochMillis = clock(),
+                    outcome = "FAILED",
+                    installable = false,
+                    protocolVersion = null,
+                    runtimeKind = "",
+                    issueCount = 1,
+                )
                 throw PluginRepository.buildLocalPackageInstallBlockedException(error)
             }
         if (!validation.installable) {
