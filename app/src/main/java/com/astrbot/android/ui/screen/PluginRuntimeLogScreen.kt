@@ -200,6 +200,53 @@ internal fun buildPluginRuntimeLogText(
     if (records.isEmpty()) return ""
     val formatter = SimpleDateFormat("HH:mm:ss", Locale.US)
     return records.joinToString(separator = "\n\n") { record ->
+        val structuredFields = buildList {
+            add("plugin=${record.pluginId}")
+            if (record.pluginVersion.isNotBlank()) {
+                add("version=${record.pluginVersion}")
+            }
+            if (record.runtimeSessionId.isNotBlank()) {
+                add("session=${record.runtimeSessionId}")
+            }
+            if (record.requestId.isNotBlank()) {
+                add("request=${record.requestId}")
+            }
+            if (record.stage.isNotBlank()) {
+                add("stage=${record.stage}")
+            }
+            if (record.handlerName.isNotBlank()) {
+                add("handler=${record.handlerName}")
+            }
+            if (record.toolId.isNotBlank()) {
+                add("tool=${record.toolId}")
+            }
+            if (record.toolCallId.isNotBlank()) {
+                add("toolCall=${record.toolCallId}")
+            }
+            record.hostAction?.let { hostAction ->
+                add("hostAction=${hostAction.wireValue}")
+            }
+            record.succeeded?.let { succeeded ->
+                add("succeeded=$succeeded")
+            }
+            if (record.outcome.isNotBlank()) {
+                add("outcome=${record.outcome}")
+            }
+            record.durationMillis?.let { duration ->
+                add("durationMs=$duration")
+            }
+        }
+        val consumedMetadataKeys = setOf(
+            "runtimeSessionId",
+            "sessionInstanceId",
+            "requestId",
+            "stage",
+            "handlerName",
+            "handlerId",
+            "toolId",
+            "toolCallId",
+            "outcome",
+        )
         buildString {
             append("[")
             append(formatter.format(Date(record.occurredAtEpochMillis)))
@@ -210,30 +257,15 @@ internal fun buildPluginRuntimeLogText(
             append(" ")
             append(record.code)
             appendLine()
-            append("plugin=")
-            append(record.pluginId)
-            if (record.pluginVersion.isNotBlank()) {
-                append(" version=")
-                append(record.pluginVersion)
-            }
-            record.trigger?.let { trigger ->
-                append(" trigger=")
-                append(trigger.wireValue)
-            }
-            if (record.resultType.isNotBlank()) {
-                append(" resultType=")
-                append(record.resultType)
-            }
-            record.durationMillis?.let { duration ->
-                append(" durationMs=")
-                append(duration)
-            }
+            append(structuredFields.joinToString(separator = " "))
             appendLine()
             append(record.message.ifBlank { "-" })
-            if (record.metadata.isNotEmpty()) {
+            val remainingMetadata = record.metadata
+                .filterKeys { key -> key !in consumedMetadataKeys }
+            if (remainingMetadata.isNotEmpty()) {
                 appendLine()
                 append(
-                    record.metadata.entries
+                    remainingMetadata.entries
                         .sortedBy { it.key }
                         .joinToString(separator = " ") { (key, value) -> "$key=$value" },
                 )

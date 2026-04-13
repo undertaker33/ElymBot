@@ -85,6 +85,7 @@ fun PluginDetailScreenRoute(
                 onOpenConfig = onOpenConfig,
                 onEnable = pluginViewModel::enableSelectedPlugin,
                 onDisable = pluginViewModel::disableSelectedPlugin,
+                onRecover = pluginViewModel::recoverSelectedPluginFromSuspension,
                 onRequestUpgrade = pluginViewModel::requestUpgradeForSelectedPlugin,
                 onUninstall = pluginViewModel::uninstallSelectedPlugin,
                 onRestoreDefaults = pluginViewModel::restoreSelectedPluginDefaultConfig,
@@ -108,6 +109,7 @@ private fun PluginDetailRouteWorkspace(
     onOpenConfig: (String) -> Unit,
     onEnable: () -> Unit,
     onDisable: () -> Unit,
+    onRecover: () -> Unit,
     onRequestUpgrade: () -> Unit,
     onUninstall: () -> Unit,
     onRestoreDefaults: () -> Unit,
@@ -132,7 +134,10 @@ private fun PluginDetailRouteWorkspace(
 
         items(buildPluginDetailSections(uiState), key = { it.name }) { section ->
             when (section) {
-                PluginDetailSection.TopSummary -> PluginDetailTopSummarySection(record)
+                PluginDetailSection.TopSummary -> PluginDetailTopSummarySection(
+                    record = record,
+                    metadata = uiState.detailMetadataState,
+                )
                 PluginDetailSection.ManagePlugin -> PluginDetailManageSection(
                     pluginTitle = record.manifestSnapshot.title,
                     actionState = uiState.detailActionState,
@@ -140,6 +145,7 @@ private fun PluginDetailRouteWorkspace(
                     onOpenConfig = { onOpenConfig(record.pluginId) },
                     onEnable = onEnable,
                     onDisable = onDisable,
+                    onRecover = onRecover,
                     onRequestUpgrade = onRequestUpgrade,
                     onUninstall = onUninstall,
                     onRestoreDefaults = onRestoreDefaults,
@@ -157,7 +163,10 @@ private fun PluginDetailRouteWorkspace(
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun PluginDetailTopSummarySection(record: PluginInstallRecord) {
+private fun PluginDetailTopSummarySection(
+    record: PluginInstallRecord,
+    metadata: PluginDetailMetadataState,
+) {
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -194,6 +203,10 @@ private fun PluginDetailTopSummarySection(record: PluginInstallRecord) {
             ) {
                 assistBadge(stringResource(R.string.plugin_field_author), record.manifestSnapshot.author)
                 assistBadge(stringResource(R.string.plugin_field_source_label), sourceTypeLabel(record.source.sourceType))
+                metadata.governanceState?.let { governance ->
+                    assistBadge(stringResource(R.string.plugin_field_protocol), "v${governance.protocolVersion}")
+                    assistBadge("Runtime health", runtimeHealthLabel(governance.runtimeHealth.status))
+                }
             }
             Text(
                 text = record.manifestSnapshot.entrySummary,
@@ -268,7 +281,12 @@ private fun PluginDetailUnderstandSection(
                 title = stringResource(R.string.plugin_detail_governance_group_title),
                 items = buildGovernanceDisplayItems(governanceState).map { item ->
                     stringResource(item.labelRes) to stringResource(item.valueRes)
-                },
+                } + listOf(
+                    "Runtime health" to runtimeHealthLabel(governanceState.runtimeHealth.status),
+                    "Registration" to buildRegistrationSummaryText(governanceState),
+                    "Capability grants" to buildCapabilityGrantSummaryText(governanceState),
+                    "Diagnostics" to buildDiagnosticsSummaryText(governanceState),
+                ),
             )
         }
     }
@@ -282,6 +300,7 @@ private fun PluginDetailManageSection(
     onOpenConfig: () -> Unit,
     onEnable: () -> Unit,
     onDisable: () -> Unit,
+    onRecover: () -> Unit,
     onRequestUpgrade: () -> Unit,
     onUninstall: () -> Unit,
     onRestoreDefaults: () -> Unit,
@@ -294,7 +313,16 @@ private fun PluginDetailManageSection(
         title = stringResource(R.string.plugin_detail_manage_title),
         tag = PluginUiSpec.DetailManageTag,
     ) {
+        actionState.failureState?.let { failureState ->
+            PluginDetailFailureBanner(failureState = failureState)
+        }
         actionState.lastActionMessage?.let { message ->
+            detailHintCard(message.asText())
+        }
+        actionState.enableBlockedReason?.let { message ->
+            detailHintCard(message.asText())
+        }
+        actionState.updateBlockedReason?.let { message ->
             detailHintCard(message.asText())
         }
 
@@ -313,6 +341,12 @@ private fun PluginDetailManageSection(
             )
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            PluginDetailManageButton(
+                onClick = onRecover,
+                enabled = actionState.manageAvailability.canRecover,
+                modifier = Modifier.weight(1f).testTag("plugin-detail-recover-action"),
+                label = "Recover",
+            )
             PluginDetailManageButton(
                 onClick = onRequestUpgrade,
                 enabled = actionState.manageAvailability.canUpgrade,
@@ -511,6 +545,18 @@ private fun PluginDetailTechnicalMetadataSection(
                 },
             ),
         )
+        metadata.governanceState?.let { governance ->
+            PluginKeyValueSection(
+                title = stringResource(R.string.plugin_detail_runtime_health_group_title),
+                items = listOf(
+                    "Runtime health" to runtimeHealthLabel(governance.runtimeHealth.status),
+                    "Runtime session" to governance.runtimeSessionState,
+                    "Registration" to buildRegistrationSummaryText(governance),
+                    "Capability grants" to buildCapabilityGrantSummaryText(governance),
+                    "Diagnostics" to buildDiagnosticsSummaryText(governance),
+                ),
+            )
+        }
     }
 }
 
@@ -585,6 +631,40 @@ private fun detailHintCard(message: String) {
             style = MaterialTheme.typography.bodySmall,
             color = MonochromeUi.textSecondary,
         )
+    }
+}
+
+@Composable
+private fun PluginDetailFailureBanner(
+    failureState: com.astrbot.android.ui.viewmodel.PluginFailureUiState,
+) {
+    val palette = PluginUiSpec.failureBannerPalette(failureState.isSuspended)
+    Surface(
+        shape = PluginUiSpec.SectionShape,
+        color = palette.containerColor,
+        border = PluginUiSpec.CardBorder,
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text = failureState.statusMessage.asText(),
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.SemiBold,
+                color = palette.contentColor,
+            )
+            Text(
+                text = failureState.summaryMessage.asText(),
+                style = MaterialTheme.typography.bodySmall,
+                color = palette.contentColor,
+            )
+            Text(
+                text = failureState.recoveryMessage.asText(),
+                style = MaterialTheme.typography.bodySmall,
+                color = palette.contentColor,
+            )
+        }
     }
 }
 

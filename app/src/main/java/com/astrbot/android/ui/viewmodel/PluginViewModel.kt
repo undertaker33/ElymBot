@@ -36,6 +36,7 @@ import com.astrbot.android.model.plugin.PluginMessageSummary
 import com.astrbot.android.model.plugin.PluginPackageValidationIssue
 import com.astrbot.android.model.plugin.PluginPermissionGrant
 import com.astrbot.android.model.plugin.PluginConfigStorageBoundary
+import com.astrbot.android.model.plugin.PluginExecutionProtocolJson
 import com.astrbot.android.model.plugin.PluginSettingsField
 import com.astrbot.android.model.plugin.PluginSettingsSchema
 import com.astrbot.android.model.plugin.PluginStaticConfigField
@@ -71,6 +72,7 @@ import com.astrbot.android.runtime.plugin.compareVersions
 import com.astrbot.android.runtime.RuntimeLogRepository
 import com.astrbot.android.ui.screen.PluginLocalFilter
 import com.astrbot.android.ui.screen.buildPluginMarketVersionOptions
+import java.io.File
 import java.text.DateFormat
 import java.util.Date
 import java.util.Locale
@@ -81,6 +83,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import org.json.JSONObject
 
 data class PluginRepositorySourceCardUiState(
     val sourceId: String,
@@ -210,6 +213,7 @@ data class PluginDetailActionState(
     val updateBlockedReason: PluginActionFeedback? = null,
     val updateAvailability: PluginUpdateAvailability? = null,
     val manageAvailability: PluginDetailManageActionAvailability = PluginDetailManageActionAvailability(),
+    val mutationGate: PluginGovernanceMutationGate = PluginGovernanceMutationGate(),
     val lastActionMessage: PluginActionFeedback? = null,
     val failureState: PluginFailureUiState? = null,
     val governanceSummary: PluginGovernanceSummaryUiState? = null,
@@ -223,6 +227,11 @@ data class PluginDetailActionState(
     val isUpgradeActionEnabled: Boolean
         get() = manageAvailability.canUpgrade
 }
+
+data class PluginGovernanceMutationGate(
+    val isReadOnly: Boolean = false,
+    val blockedMessage: String = "",
+)
 
 data class PluginDetailManageActionAvailability(
     val canEnable: Boolean = false,
@@ -536,7 +545,7 @@ class PluginViewModel(
     }
 
     fun selectPlugin(pluginId: String) {
-        selectPluginForConfig(pluginId)
+        selectPluginForDetail(pluginId)
     }
 
     fun selectPluginForDetail(pluginId: String) {
@@ -560,20 +569,15 @@ class PluginViewModel(
             records = dependencies.records.value,
             requestedPluginId = pluginId,
         ) ?: return
-        val selectedRecord = dependencies.records.value.firstOrNull { it.pluginId == selectedId } ?: return
         selectedPluginId.value = selectedId
         showingDetail.value = true
         lastActionMessage.value = null
         hostWorkspaceSnapshot.value = PluginHostWorkspaceSnapshot()
         hostWorkspaceSchemaUiState.value = PluginSchemaUiState.None
         hostWorkspaceActionMessage.value = null
-        val runtimeSchemaState = executePluginEntry(
-            record = selectedRecord,
-            entryPoint = "plugin_config",
-        )
         loadConfigState(
             pluginId = selectedId,
-            runtimeSchemaState = runtimeSchemaState,
+            runtimeSchemaState = loadPackagedSettingsSchemaState(selectedId),
         )
     }
 
@@ -861,6 +865,10 @@ class PluginViewModel(
     }
 
     fun saveSelectedPluginConfig() {
+        selectedPluginMutationGate().takeIf { it.isReadOnly }?.let { gate ->
+            lastActionMessage.value = PluginActionFeedback.Text(gate.blockedMessage)
+            return
+        }
         staticConfigUiState.value?.let(::persistStaticConfig)
         (schemaUiState.value as? PluginSchemaUiState.Settings)?.let(::persistRuntimeConfig)
         lastActionMessage.value = PluginActionFeedback.Resource(R.string.common_saved)
@@ -991,6 +999,11 @@ class PluginViewModel(
             governanceSummary = governanceSummary,
             failureState = failureState,
         )
+        val mutationGate = buildPluginGovernanceMutationGate(
+            record = record,
+            governanceSummary = governanceSummary,
+            failureState = failureState,
+        )
         val manageAvailability = PluginDetailManageActionAvailability(
             canEnable = !record.enabled && enableBlockedReason == null,
             canDisable = record.enabled,
@@ -999,8 +1012,8 @@ class PluginViewModel(
             canUninstall = true,
             canViewLogs = governanceSummary?.hasLogEntry == true,
             canOpenConfig = true,
-            canRestoreDefaults = true,
-            canClearCache = true,
+            canRestoreDefaults = !mutationGate.isReadOnly,
+            canClearCache = !mutationGate.isReadOnly,
         )
         return PluginDetailActionState(
             compatibilityNotes = governanceSummary?.snapshot?.runtimeHealth?.detail
@@ -1014,6 +1027,7 @@ class PluginViewModel(
                 ?.let(PluginActionFeedback::Text),
             updateAvailability = updateAvailability,
             manageAvailability = manageAvailability,
+            mutationGate = mutationGate,
             lastActionMessage = actionMessage,
             failureState = failureState,
             governanceSummary = governanceSummary,
@@ -1215,16 +1229,17 @@ class PluginViewModel(
 
     private fun loadWorkspaceState(record: PluginInstallRecord) {
         hostWorkspaceSnapshot.value = dependencies.resolvePluginWorkspaceSnapshot(record.pluginId)
-        hostWorkspaceSchemaUiState.value = executePluginEntry(
-            record = record,
-            entryPoint = "plugin_workspace",
-        )
+        hostWorkspaceSchemaUiState.value = loadPackagedSettingsSchemaState(record.pluginId)
         hostWorkspaceActionMessage.value = null
         hostWorkspaceImportRunning.value = false
     }
 
     fun importWorkspaceFile(uri: String) {
         val pluginId = uiState.value.selectedPluginId ?: return
+        selectedPluginMutationGate().takeIf { it.isReadOnly }?.let { gate ->
+            hostWorkspaceActionMessage.value = PluginActionFeedback.Text(gate.blockedMessage)
+            return
+        }
         if (hostWorkspaceImportRunning.value) return
         viewModelScope.launch {
             hostWorkspaceImportRunning.value = true
@@ -1247,6 +1262,10 @@ class PluginViewModel(
 
     fun deleteWorkspaceFile(relativePath: String) {
         val pluginId = uiState.value.selectedPluginId ?: return
+        selectedPluginMutationGate().takeIf { it.isReadOnly }?.let { gate ->
+            hostWorkspaceActionMessage.value = PluginActionFeedback.Text(gate.blockedMessage)
+            return
+        }
         runCatching {
             dependencies.deletePluginWorkspaceFile(
                 pluginId = pluginId,
@@ -1264,6 +1283,10 @@ class PluginViewModel(
 
     fun restoreSelectedPluginDefaultConfig() {
         val selectedPluginId = uiState.value.selectedPluginId ?: return
+        selectedPluginMutationGate().takeIf { it.isReadOnly }?.let { gate ->
+            lastActionMessage.value = PluginActionFeedback.Text(gate.blockedMessage)
+            return
+        }
         val staticResetState = staticConfigUiState.value?.schema?.toUiState(emptyMap())
         if (staticResetState != null) {
             staticConfigUiState.value = staticResetState
@@ -1285,6 +1308,12 @@ class PluginViewModel(
 
     fun clearSelectedPluginCache() {
         val selected = uiState.value.selectedPlugin ?: return
+        selectedPluginMutationGate().takeIf { it.isReadOnly }?.let { gate ->
+            val feedback = PluginActionFeedback.Text(gate.blockedMessage)
+            hostWorkspaceActionMessage.value = feedback
+            lastActionMessage.value = feedback
+            return
+        }
         val pluginId = selected.pluginId
         val cacheFiles = hostWorkspaceSnapshot.value.files
             .map { it.relativePath }
@@ -1360,6 +1389,30 @@ class PluginViewModel(
         )
         staticConfigUiState.value = staticSchema?.toUiState(snapshot.coreValues)
         schemaUiState.value = runtimeSchemaState.withPersistedExtensionValues(snapshot.extensionValues)
+    }
+
+    private fun loadPackagedSettingsSchemaState(pluginId: String): PluginSchemaUiState {
+        val schemaPath = dependencies.resolvePluginSettingsSchemaPath(pluginId)
+            ?.takeIf { path -> path.isNotBlank() }
+            ?: return PluginSchemaUiState.None
+        return runCatching {
+            val schemaJson = JSONObject(File(schemaPath).readText())
+            val result = PluginExecutionProtocolJson.decodeResult(
+                JSONObject().apply {
+                    put("resultType", "settings_ui")
+                    put("schema", schemaJson)
+                },
+            )
+            when (result) {
+                is SettingsUiRequest -> PluginSchemaUiState.Settings(
+                    schema = result.schema,
+                    draftValues = result.schema.defaultDraftValues(),
+                )
+                else -> PluginSchemaUiState.None
+            }
+        }.getOrElse { error ->
+            PluginSchemaUiState.Error(error.message ?: "Plugin settings schema is invalid.")
+        }
     }
 
     private fun buildConfigStorageBoundary(
@@ -1674,6 +1727,58 @@ class PluginViewModel(
             return buildIncompatibleEnableMessage(record)
         }
         return null
+    }
+
+    private fun buildPluginGovernanceMutationGate(
+        record: PluginInstallRecord,
+        governanceSummary: PluginGovernanceSummaryUiState?,
+        failureState: PluginFailureUiState?,
+    ): PluginGovernanceMutationGate {
+        if (failureState?.isSuspended == true) {
+            return PluginGovernanceMutationGate(
+                isReadOnly = true,
+                blockedMessage = "This plugin is suspended until recovery completes. Configuration and workspace actions are read-only.",
+            )
+        }
+        val runtimeHealth = governanceSummary?.snapshot?.runtimeHealth
+        val compatibilityNotes = record.compatibilityState.notes.takeIf { it.isNotBlank() }.orEmpty()
+        if (
+            runtimeHealth?.status == com.astrbot.android.model.plugin.PluginRuntimeHealthStatus.UnsupportedProtocol ||
+            record.compatibilityState.status == PluginCompatibilityStatus.INCOMPATIBLE
+        ) {
+            val detail = runtimeHealth?.detail
+                ?.takeIf { it.isNotBlank() }
+                ?: compatibilityNotes
+            return PluginGovernanceMutationGate(
+                isReadOnly = true,
+                blockedMessage = if (detail.isNotBlank()) {
+                    "This plugin is unsupported on this host. $detail"
+                } else {
+                    "This plugin is unsupported on this host. Configuration and workspace actions are read-only."
+                },
+            )
+        }
+        if (runtimeHealth?.status == com.astrbot.android.model.plugin.PluginRuntimeHealthStatus.UpgradeRequired) {
+            val detail = runtimeHealth.detail
+            return PluginGovernanceMutationGate(
+                isReadOnly = true,
+                blockedMessage = if (detail.isNotBlank()) {
+                    "This plugin requires a host upgrade before management actions are available. $detail"
+                } else {
+                    "This plugin requires a host upgrade before management actions are available."
+                },
+            )
+        }
+        return PluginGovernanceMutationGate()
+    }
+
+    private fun selectedPluginMutationGate(): PluginGovernanceMutationGate {
+        val selected = uiState.value.selectedPlugin ?: return PluginGovernanceMutationGate()
+        return buildPluginGovernanceMutationGate(
+            record = selected,
+            governanceSummary = uiState.value.governanceByPluginId[selected.pluginId],
+            failureState = uiState.value.failureStatesByPluginId[selected.pluginId],
+        )
     }
 
     private fun buildIncompatibleEnableMessage(record: PluginInstallRecord): PluginActionFeedback.Resource {

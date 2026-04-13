@@ -436,6 +436,34 @@ private fun PluginLocalCard(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    PluginBadge(
+                        label = "Protocol v${card.protocolVersion}",
+                        palette = PluginBadgePalette(
+                            containerColor = MonochromeUi.cardAltBackground,
+                            contentColor = MonochromeUi.textPrimary,
+                        ),
+                    )
+                    PluginBadge(
+                        label = card.runtimeHealthLabel,
+                        palette = PluginBadgePalette(
+                            containerColor = MonochromeUi.cardAltBackground,
+                            contentColor = MonochromeUi.textPrimary,
+                        ),
+                    )
+                }
+                if (card.runtimeHealthDetail.isNotBlank()) {
+                    Text(
+                        text = card.runtimeHealthDetail,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MonochromeUi.textSecondary,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
             Icon(
                 imageVector = Icons.Outlined.ChevronRight,

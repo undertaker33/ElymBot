@@ -2,6 +2,9 @@ package com.astrbot.android.ui.screen
 
 import com.astrbot.android.R
 import com.astrbot.android.model.plugin.PluginGovernanceSnapshot
+import com.astrbot.android.model.plugin.PluginCapabilityGrantSnapshot
+import com.astrbot.android.model.plugin.PluginDiagnosticsSummary
+import com.astrbot.android.model.plugin.PluginRegistrationSummary
 import com.astrbot.android.model.plugin.PluginReviewState
 import com.astrbot.android.model.plugin.PluginRiskLevel
 import com.astrbot.android.model.plugin.PluginSettingsSchema
@@ -78,6 +81,48 @@ class PluginDetailPresentationTest {
             ),
             items,
         )
+    }
+
+    @Test
+    fun `detail governance helpers summarize registration capability grants and diagnostics`() {
+        val snapshot = PluginGovernanceSnapshot(
+            pluginId = "weather",
+            pluginVersion = "2.0.0",
+            protocolVersion = 2,
+            runtimeKind = "js_quickjs",
+            riskLevel = PluginRiskLevel.HIGH,
+            trustLevel = PluginTrustLevel.REPOSITORY_LISTED,
+            reviewState = PluginReviewState.LOCAL_CHECKS_PASSED,
+            capabilityGrants = listOf(
+                PluginCapabilityGrantSnapshot(
+                    permissionId = "workspace.write",
+                    title = "Workspace write",
+                    riskLevel = PluginRiskLevel.HIGH,
+                    required = true,
+                ),
+                PluginCapabilityGrantSnapshot(
+                    permissionId = "notifications.send",
+                    title = "Notifications",
+                    riskLevel = PluginRiskLevel.MEDIUM,
+                    required = false,
+                ),
+            ),
+            registrationSummary = PluginRegistrationSummary(
+                messageHandlerCount = 1,
+                commandCount = 2,
+                toolCount = 3,
+            ),
+            diagnosticsSummary = PluginDiagnosticsSummary(
+                bootstrapWarningCount = 1,
+                toolErrorCount = 2,
+                activeFailureCount = 1,
+                lastFailureSummary = "tool failed",
+            ),
+        )
+
+        assertEquals("Handlers 1, commands 2, tools 3", buildRegistrationSummaryText(snapshot))
+        assertEquals("Workspace write, Notifications", buildCapabilityGrantSummaryText(snapshot))
+        assertEquals("4 issues, last: tool failed", buildDiagnosticsSummaryText(snapshot))
     }
 
     @Test
@@ -163,6 +208,7 @@ class PluginDetailPresentationTest {
         assertFalse(source.contains("DetailOpenTriggersActionTag"))
         assertFalse(source.contains("DetailRetryActionTag"))
         assertFalse(source.contains("DetailCopyDiagnosticsActionTag"))
+        assertTrue(source.contains("canRecover"))
         assertTrue(source.contains("PluginDetailConfirmAction.ClearCache"))
         assertTrue(source.contains("PluginDetailConfirmAction.RestoreDefaults"))
     }
