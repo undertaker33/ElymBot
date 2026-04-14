@@ -88,6 +88,29 @@ class OneBotPayloadCodecTest {
     }
 
     @Test
+    fun `parse incoming event detects cq at mentions from string payload`() {
+        val payload = JSONObject(
+            """
+            {
+              "message_type": "group",
+              "self_id": "10001",
+              "user_id": "20002",
+              "group_id": "30003",
+              "message_id": "50005",
+              "message": "[CQ:at,qq=10001] [CQ:at,qq=all] hello"
+            }
+            """.trimIndent(),
+        )
+
+        val event = OneBotPayloadCodec.parseIncomingMessageEvent(payload)
+
+        requireNotNull(event)
+        assertEquals("hello", event.text)
+        assertTrue(event.mentionsSelf)
+        assertTrue(event.mentionsAll)
+    }
+
+    @Test
     fun `build reply payload returns structured array when decoration and attachments exist`() {
         val payload = OneBotPayloadCodec.buildReplyPayload(
             text = "正文",

@@ -10,6 +10,14 @@ enum class PluginLifecycleHookSurface(
     OnPluginLoaded("on_plugin_loaded"),
     OnPluginUnloaded("on_plugin_unloaded"),
     OnPluginError("on_plugin_error");
+
+    companion object {
+        fun fromWireValue(value: String): PluginLifecycleHookSurface? {
+            return entries.firstOrNull { candidate ->
+                candidate.wireValue.equals(value.trim(), ignoreCase = true)
+            }
+        }
+    }
 }
 
 data class PluginLifecycleMetadata(

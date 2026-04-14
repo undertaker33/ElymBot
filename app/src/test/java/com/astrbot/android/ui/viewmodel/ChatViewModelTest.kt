@@ -30,6 +30,7 @@ import com.astrbot.android.model.plugin.PluginSource
 import com.astrbot.android.model.plugin.PluginSourceType
 import com.astrbot.android.model.plugin.PluginTriggerSource
 import com.astrbot.android.model.plugin.TextResult
+import com.astrbot.android.runtime.plugin.AppChatLlmPipelineRuntime
 import com.astrbot.android.runtime.plugin.AppChatPluginRuntime
 import com.astrbot.android.runtime.plugin.DefaultAppChatPluginRuntime
 import com.astrbot.android.runtime.plugin.EngineBackedAppChatPluginRuntime
@@ -51,11 +52,15 @@ import com.astrbot.android.runtime.plugin.PluginDispatchSkipReason
 import com.astrbot.android.runtime.plugin.PluginFailureGuard
 import com.astrbot.android.runtime.plugin.PluginMessageEvent
 import com.astrbot.android.runtime.plugin.PluginCommandEvent
+import com.astrbot.android.runtime.plugin.PluginLlmResponse
+import com.astrbot.android.runtime.plugin.PluginMessageEventResult
+import com.astrbot.android.runtime.plugin.PluginProviderRequest
 import com.astrbot.android.runtime.plugin.PluginRuntimeDispatcher
 import com.astrbot.android.runtime.plugin.PluginRuntimeHandler
 import com.astrbot.android.runtime.plugin.PluginRuntimePlugin
 import com.astrbot.android.runtime.plugin.PluginV2ActiveRuntimeEntry
 import com.astrbot.android.runtime.plugin.PluginV2ActiveRuntimeStore
+import com.astrbot.android.runtime.plugin.PluginV2AfterSentView
 import com.astrbot.android.runtime.plugin.PluginV2BootstrapHostApi
 import com.astrbot.android.runtime.plugin.PluginV2BootstrapSummary
 import com.astrbot.android.runtime.plugin.PluginV2CallbackHandle
@@ -65,10 +70,18 @@ import com.astrbot.android.runtime.plugin.PluginV2CustomFilterRequest
 import com.astrbot.android.runtime.plugin.PluginV2DispatchEngine
 import com.astrbot.android.runtime.plugin.PluginV2DispatchEngineProvider
 import com.astrbot.android.runtime.plugin.PluginV2EventAwareCallbackHandle
+import com.astrbot.android.runtime.plugin.PluginV2EventResultCoordinator
+import com.astrbot.android.runtime.plugin.PluginV2HostLlmDeliveryRequest
+import com.astrbot.android.runtime.plugin.PluginV2HostLlmDeliveryResult
 import com.astrbot.android.runtime.plugin.PluginV2RegistryCompiler
 import com.astrbot.android.runtime.plugin.PluginV2RuntimeSession
 import com.astrbot.android.runtime.plugin.PluginV2RuntimeSessionState
+import com.astrbot.android.runtime.plugin.PluginV2InternalStage
+import com.astrbot.android.runtime.plugin.PluginV2LlmPipelineInput
+import com.astrbot.android.runtime.plugin.PluginV2LlmPipelineResult
+import com.astrbot.android.runtime.plugin.PluginV2LlmStageDispatchResult
 import com.astrbot.android.runtime.plugin.PluginErrorEventPayload
+import com.astrbot.android.runtime.plugin.LlmPipelineAdmission
 import com.astrbot.android.runtime.plugin.MessageHandlerRegistrationInput
 import com.astrbot.android.runtime.plugin.samplePluginV2InstallRecord
 import java.nio.file.Files
@@ -355,6 +368,89 @@ class ChatViewModelTest {
     }
 
     @Test
+    fun send_message_uses_v2_llm_delivery_pipeline_when_runtime_supports_it() = runTest(dispatcher) {
+        val deliveredRequests = CopyOnWriteArrayList<PluginV2HostLlmDeliveryRequest>()
+        val runtime = object : AppChatPluginRuntime, AppChatLlmPipelineRuntime {
+            override fun execute(
+                trigger: PluginTriggerSource,
+                contextFactory: (PluginRuntimePlugin) -> PluginExecutionContext,
+            ): PluginExecutionBatchResult {
+                return PluginExecutionBatchResult(
+                    trigger = trigger,
+                    outcomes = emptyList(),
+                    skipped = emptyList(),
+                )
+            }
+
+            override suspend fun runLlmPipeline(
+                input: PluginV2LlmPipelineInput,
+            ): PluginV2LlmPipelineResult {
+                error("runLlmPipeline should not be called by ChatViewModel directly")
+            }
+
+            override suspend fun deliverLlmPipeline(
+                request: PluginV2HostLlmDeliveryRequest,
+            ): PluginV2HostLlmDeliveryResult {
+                deliveredRequests += request
+                val pipelineResult = fakePipelineResult(
+                    input = request.pipelineInput,
+                    text = "pipeline reply",
+                )
+                val preparedReply = request.prepareReply(pipelineResult)
+                val sendResult = request.sendReply(preparedReply)
+                request.persistDeliveredReply(preparedReply, sendResult, pipelineResult)
+                val afterSentView = PluginV2EventResultCoordinator().buildAfterSentView(
+                    requestId = pipelineResult.admission.requestId,
+                    conversationId = pipelineResult.admission.conversationId,
+                    sendAttemptId = "host-send-1",
+                    platformAdapterType = request.platformAdapterType,
+                    platformInstanceKey = request.platformInstanceKey,
+                    sentAtEpochMs = 1L,
+                    deliveryStatus = PluginV2AfterSentView.DeliveryStatus.SUCCESS,
+                    deliveredEntries = preparedReply.deliveredEntries,
+                )
+                return PluginV2HostLlmDeliveryResult.Sent(
+                    pipelineResult = pipelineResult,
+                    preparedReply = preparedReply,
+                    sendResult = sendResult,
+                    afterSentView = afterSentView,
+                )
+            }
+
+            override suspend fun dispatchAfterMessageSent(
+                event: PluginMessageEvent,
+                afterSentView: PluginV2AfterSentView,
+            ): PluginV2LlmStageDispatchResult {
+                return PluginV2LlmStageDispatchResult(
+                    stage = PluginV2InternalStage.AfterMessageSent,
+                    invokedHandlerIds = emptyList(),
+                )
+            }
+        }
+        val deps = FakeChatDependencies(
+            sessions = listOf(defaultSession()),
+            bots = listOf(defaultBot(defaultProviderId = "provider-1")),
+            providers = listOf(defaultChatProvider("provider-1")),
+        )
+        val viewModel = ChatViewModel(
+            dependencies = deps,
+            appChatPluginRuntime = runtime,
+            ioDispatcher = dispatcher,
+        )
+        advanceUntilIdle()
+        deps.clearRecordedSignals()
+
+        viewModel.sendMessage("hello pipeline")
+        advanceUntilIdle()
+
+        assertEquals(1, deliveredRequests.size)
+        assertEquals(0, deps.sentChatRequests)
+        assertEquals("pipeline reply", deps.latestAssistantMessage()?.content)
+        assertEquals("hello pipeline", deliveredRequests.single().pipelineInput.event.rawText)
+        assertEquals("provider-1", deliveredRequests.single().pipelineInput.selectedProviderId)
+    }
+
+    @Test
     fun send_message_triggers_after_model_response_plugin_after_streaming_and_tts_updates() = runTest(dispatcher) {
         val deps = FakeChatDependencies(
             sessions = listOf(defaultSession()),
@@ -456,6 +552,7 @@ class ChatViewModelTest {
             appChatV2Engine(
                 onCommand = { event ->
                     v2CommandEvents += event
+                    event.replyText("v2 command reply")
                 },
             ),
         )
@@ -485,10 +582,53 @@ class ChatViewModelTest {
         viewModel.sendMessage("/unsupported app chat")
         advanceUntilIdle()
 
-        assertEquals(listOf(PluginTriggerSource.OnCommand), runtime.batches.map { it.trigger })
+        assertTrue(runtime.batches.isEmpty())
         assertEquals(1, v2CommandEvents.size)
         assertEquals("/unsupported app chat", v2CommandEvents.single().rawText)
         assertEquals(0, deps.sentChatRequests)
+        assertEquals("v2 command reply", deps.latestAssistantMessage()?.content)
+    }
+
+    @Test
+    fun send_message_unsupported_slash_command_with_only_noop_legacy_result_falls_back_to_model() = runTest(dispatcher) {
+        val v2CommandEvents = CopyOnWriteArrayList<PluginCommandEvent>()
+        PluginV2DispatchEngineProvider.setEngineOverrideForTests(
+            appChatV2Engine(
+                onCommand = { event ->
+                    v2CommandEvents += event
+                },
+            ),
+        )
+        val runtime = RecordingAppChatPluginRuntime(
+            plugins = listOf(
+                runtimePlugin(
+                    pluginId = "command-plugin",
+                    supportedTriggers = setOf(PluginTriggerSource.OnCommand),
+                ) {
+                    NoOp("legacy")
+                },
+            ),
+        )
+        val deps = FakeChatDependencies(
+            sessions = listOf(defaultSession()),
+            bots = listOf(defaultBot(defaultProviderId = "provider-1")),
+            providers = listOf(defaultChatProvider("provider-1")),
+        )
+        val viewModel = ChatViewModel(
+            dependencies = deps,
+            appChatPluginRuntime = runtime,
+            ioDispatcher = dispatcher,
+        )
+        advanceUntilIdle()
+        deps.clearRecordedSignals()
+
+        viewModel.sendMessage("/unsupported app chat")
+        advanceUntilIdle()
+
+        assertEquals(PluginTriggerSource.OnCommand, runtime.batches.firstOrNull()?.trigger)
+        assertEquals(1, v2CommandEvents.size)
+        assertEquals(1, deps.sentChatRequests)
+        assertEquals("model reply", deps.latestAssistantMessage()?.content)
     }
 
     @Test
@@ -1252,6 +1392,59 @@ class ChatViewModelTest {
     private data class AppChatV2RuntimeFixture(
         val entry: PluginV2ActiveRuntimeEntry,
     )
+
+    private fun fakePipelineResult(
+        input: PluginV2LlmPipelineInput,
+        text: String,
+    ): PluginV2LlmPipelineResult {
+        val admission = LlmPipelineAdmission(
+            requestId = "req-test",
+            conversationId = input.event.conversationId,
+            messageIds = input.messageIds,
+            llmInputSnapshot = input.event.workingText,
+            routingTarget = input.routingTarget,
+            streamingMode = input.streamingMode,
+        )
+        val finalRequest = PluginProviderRequest(
+            requestId = admission.requestId,
+            availableProviderIds = input.availableProviderIds,
+            availableModelIdsByProvider = input.availableModelIdsByProvider,
+            conversationId = admission.conversationId,
+            messageIds = admission.messageIds,
+            llmInputSnapshot = admission.llmInputSnapshot,
+            selectedProviderId = input.selectedProviderId,
+            selectedModelId = input.selectedModelId,
+            systemPrompt = input.systemPrompt,
+            messages = input.messages,
+            temperature = input.temperature,
+            topP = input.topP,
+            maxTokens = input.maxTokens,
+            streamingEnabled = input.streamingEnabled,
+            metadata = input.metadata,
+        )
+        val finalResponse = PluginLlmResponse(
+            requestId = admission.requestId,
+            providerId = finalRequest.selectedProviderId,
+            modelId = finalRequest.selectedModelId,
+            text = text,
+        )
+        val finalResult = PluginMessageEventResult(
+            requestId = admission.requestId,
+            conversationId = admission.conversationId,
+            text = text,
+        )
+        return PluginV2LlmPipelineResult(
+            admission = admission,
+            finalRequest = finalRequest,
+            finalResponse = finalResponse,
+            sendableResult = finalResult,
+            hookInvocationTrace = emptyList(),
+            decoratingRunResult = PluginV2EventResultCoordinator.DecoratingRunResult(
+                finalResult = finalResult,
+                appliedHandlerIds = emptyList(),
+            ),
+        )
+    }
 
     private fun runtimePlugin(
         pluginId: String,

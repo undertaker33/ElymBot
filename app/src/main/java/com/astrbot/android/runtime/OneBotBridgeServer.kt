@@ -57,6 +57,8 @@ import com.astrbot.android.runtime.plugin.PluginProviderMessageDto
 import com.astrbot.android.runtime.plugin.PluginProviderMessagePartDto
 import com.astrbot.android.runtime.plugin.PluginProviderMessageRole
 import com.astrbot.android.runtime.plugin.PluginV2AfterSentView
+import com.astrbot.android.runtime.plugin.PluginV2CommandResponse
+import com.astrbot.android.runtime.plugin.PluginV2CommandResponseAttachment
 import com.astrbot.android.runtime.plugin.PluginExecutionEngine
 import com.astrbot.android.runtime.plugin.PluginFailureGuard
 import com.astrbot.android.runtime.plugin.PluginV2ActiveRuntimeStoreProvider
@@ -443,6 +445,31 @@ object OneBotBridgeServer {
                     }
                 return@lock
             }
+            if (event.text.isBlank() && llmEvent.workingText.isBlank()) {
+                llmEvent.workingText = buildLlmInputSnapshotFallback(
+                    finalPromptContent = finalPromptContent,
+                    attachments = event.attachments,
+                )
+            }
+            if (shouldExecuteLegacyQqPluginsDuringLlmDispatch()) {
+                executeLegacyQqPlugins(
+                    trigger = PluginTriggerSource.BeforeSendMessage,
+                    event = event,
+                    contextFactory = { plugin ->
+                        buildQqPluginContext(
+                            plugin = plugin,
+                            trigger = PluginTriggerSource.BeforeSendMessage,
+                            session = ConversationRepository.session(sessionId),
+                            message = userMessage,
+                            provider = provider,
+                            bot = bot,
+                            persona = persona,
+                            config = config,
+                            event = event,
+                        )
+                    },
+                )
+            }
 
             val currentSession = ConversationRepository.session(sessionId)
             val contextWindow = persona?.maxContextMessages ?: currentSession.maxContextMessages
@@ -543,7 +570,20 @@ object OneBotBridgeServer {
                             )
                         },
                         sendReply = { preparedReply ->
-                            if (streamingMode == PluginV2StreamingMode.PSEUDO_STREAM && preparedReply.attachments.isEmpty()) {
+                            (
+                                if (
+                                preparedReply.attachments.size > 1 &&
+                                preparedReply.attachments.all { attachment -> attachment.type == "audio" }
+                            ) {
+                                sendStreamingVoiceReplyWithOutcome(
+                                    event = event,
+                                    attachments = preparedReply.attachments,
+                                    config = config,
+                                )
+                            } else if (
+                                streamingMode != PluginV2StreamingMode.NON_STREAM &&
+                                preparedReply.attachments.isEmpty()
+                            ) {
                                 sendPseudoStreamingReplyWithOutcome(
                                     event = event,
                                     response = preparedReply.text,
@@ -555,7 +595,8 @@ object OneBotBridgeServer {
                                     text = preparedReply.text,
                                     attachments = preparedReply.attachments,
                                 )
-                            }.toHostSendResult()
+                            }
+                            ).toHostSendResult()
                         },
                         persistDeliveredReply = { preparedReply, _, _ ->
                             ConversationRepository.appendMessage(
@@ -578,6 +619,32 @@ object OneBotBridgeServer {
                 RuntimeLogRepository.append(
                     "QQ llm result suppressed: requestId=${deliveryResult.pipelineResult.admission.requestId} session=$sessionId",
                 )
+            } else if (
+                deliveryResult is PluginV2HostLlmDeliveryResult.Sent &&
+                shouldExecuteLegacyQqPluginsDuringLlmDispatch()
+            ) {
+                ConversationRepository.session(sessionId)
+                    .messages
+                    .lastOrNull { message -> message.role == "assistant" }
+                    ?.let { assistantMessage ->
+                        executeLegacyQqPlugins(
+                            trigger = PluginTriggerSource.AfterModelResponse,
+                            event = event,
+                            contextFactory = { plugin ->
+                                buildQqPluginContext(
+                                    plugin = plugin,
+                                    trigger = PluginTriggerSource.AfterModelResponse,
+                                    session = ConversationRepository.session(sessionId),
+                                    message = assistantMessage,
+                                    provider = provider,
+                                    bot = bot,
+                                    persona = persona,
+                                    config = config,
+                                    event = event,
+                                )
+                            },
+                        )
+                    }
             }
         }
     }
@@ -612,6 +679,10 @@ object OneBotBridgeServer {
             hasExplicitAtTrigger = event.mentionsSelf || event.mentionsAll,
         ),
     )
+
+    private fun shouldExecuteLegacyQqPluginsDuringLlmDispatch(): Boolean {
+        return appChatPluginRuntime === DefaultAppChatPluginRuntime
+    }
 
     private fun buildRateLimitSourceKey(bot: BotProfile, event: IncomingMessageEvent): String {
         return listOf(bot.id, event.messageType.wireValue, event.groupId, event.userId)
@@ -775,6 +846,26 @@ object OneBotBridgeServer {
             MessageType.GroupMessage -> "${event.senderName.ifBlank { event.userId }}: $textContent".trim()
             else -> textContent
         }
+    }
+
+    private fun buildLlmInputSnapshotFallback(
+        finalPromptContent: String,
+        attachments: List<ConversationAttachment>,
+    ): String {
+        if (finalPromptContent.isNotBlank()) {
+            return finalPromptContent
+        }
+        if (attachments.isEmpty()) {
+            return "[empty]"
+        }
+        val attachmentSummary = attachments
+            .groupingBy { attachment -> attachment.type.ifBlank { "attachment" } }
+            .eachCount()
+            .entries
+            .joinToString(separator = ", ") { (type, count) ->
+                if (count == 1) type else "$count x $type"
+            }
+        return "attachment: $attachmentSummary"
     }
 
     private fun resolveLlmStreamingMode(
@@ -1165,6 +1256,13 @@ object OneBotBridgeServer {
             event = event,
             conversationId = session.pluginConversationId(),
         )
+        dispatchResult.commandResponse?.let { commandResponse ->
+            consumeQqV2CommandResponse(
+                event = event,
+                response = commandResponse,
+            )
+            return true
+        }
         if (dispatchResult.terminatedByCustomFilterFailure || dispatchResult.propagationStopped) {
             dispatchResult.userVisibleFailureMessage
                 ?.takeIf { message -> message.isNotBlank() }
@@ -1231,6 +1329,60 @@ object OneBotBridgeServer {
             )
         }
         return true
+    }
+
+    private fun consumeQqV2CommandResponse(
+        event: IncomingMessageEvent,
+        response: PluginV2CommandResponse,
+    ) {
+        val attachments = response.attachments.mapIndexedNotNull { index, attachment ->
+            resolveQqV2CommandAttachment(
+                response = response,
+                attachment = attachment,
+            )?.let { resolvedSource ->
+                ConversationAttachment(
+                    id = "qq-v2-command-$index-${resolvedSource.hashCode()}",
+                    type = if (attachment.mimeType.startsWith("audio/")) "audio" else "image",
+                    mimeType = attachment.mimeType.ifBlank { "image/jpeg" },
+                    fileName = attachment.label.ifBlank { resolvedSource.substringAfterLast('/', missingDelimiterValue = "attachment-$index") },
+                    remoteUrl = resolvedSource,
+                )
+            }
+        }
+        sendReply(
+            event = event,
+            text = response.text,
+            attachments = attachments,
+        )
+        RuntimeLogRepository.append(
+            "QQ v2 command handled: plugin=${response.pluginId} textLength=${response.text.length} attachments=${attachments.size}",
+        )
+    }
+
+    private fun resolveQqV2CommandAttachment(
+        response: PluginV2CommandResponse,
+        attachment: PluginV2CommandResponseAttachment,
+    ): String? {
+        val source = attachment.source.trim()
+        if (source.isBlank()) {
+            return null
+        }
+        if (source.startsWith("http://") || source.startsWith("https://")) {
+            return source
+        }
+        if (source.startsWith("plugin://package/")) {
+            val relativePath = source.removePrefix("plugin://package/").trim()
+            if (relativePath.isBlank()) {
+                return null
+            }
+            return File(response.extractedDir, relativePath).absolutePath
+        }
+        val sourceFile = File(source.toString())
+        return when {
+            sourceFile.isAbsolute -> sourceFile.absolutePath
+            response.extractedDir.isNotBlank() -> File(response.extractedDir, source).absolutePath
+            else -> source
+        }
     }
 
     private fun dispatchQqV2MessageIngress(
@@ -1549,15 +1701,37 @@ object OneBotBridgeServer {
         attachments: List<ConversationAttachment>,
         config: com.astrbot.android.model.ConfigProfile,
     ) {
+        sendStreamingVoiceReplyWithOutcome(
+            event = event,
+            attachments = attachments,
+            config = config,
+        )
+    }
+
+    private suspend fun sendStreamingVoiceReplyWithOutcome(
+        event: IncomingMessageEvent,
+        attachments: List<ConversationAttachment>,
+        config: com.astrbot.android.model.ConfigProfile,
+    ): OneBotSendResult {
         RuntimeLogRepository.append(
             "QQ voice streaming started: target=${event.targetId} segments=${attachments.size}",
         )
+        val receiptIds = mutableListOf<String>()
         attachments.forEachIndexed { index, attachment ->
-            sendReply(event = event, text = "", attachments = listOf(attachment))
+            val sendResult = sendReplyWithOutcome(
+                event = event,
+                text = "",
+                attachments = listOf(attachment),
+            )
+            if (!sendResult.success) {
+                return sendResult
+            }
+            receiptIds += sendResult.receiptIds
             if (index < attachments.lastIndex) {
                 delay(streamingDelayMs(config))
             }
         }
+        return OneBotSendResult.success(receiptIds)
     }
 
     private fun streamingDelayMs(config: com.astrbot.android.model.ConfigProfile): Long {

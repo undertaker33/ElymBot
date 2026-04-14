@@ -28,6 +28,7 @@ import com.astrbot.android.model.plugin.PluginConfigStorageBoundary
 import com.astrbot.android.model.plugin.PluginConfigStoreSnapshot
 import com.astrbot.android.model.plugin.PluginFailureState
 import com.astrbot.android.model.plugin.PluginInstallRecord
+import com.astrbot.android.model.plugin.PluginPackageContractJson
 import com.astrbot.android.model.plugin.PluginPackageValidationIssue
 import com.astrbot.android.model.plugin.PluginPermissionDeclaration
 import com.astrbot.android.model.plugin.PluginRepositorySource
@@ -41,10 +42,13 @@ import com.astrbot.android.model.plugin.PluginSourceType
 import com.astrbot.android.model.plugin.PluginUpdateAvailability
 import com.astrbot.android.model.plugin.PluginUninstallPolicy
 import com.astrbot.android.model.plugin.resolvePluginPackageSnapshotFile
+import com.astrbot.android.model.plugin.toSnapshot as toPackageContractSnapshot
 import com.astrbot.android.runtime.plugin.PluginPackageValidationResult
 import com.astrbot.android.runtime.plugin.PluginPackageValidator
 import com.astrbot.android.runtime.plugin.compareVersions
+import com.astrbot.android.runtime.plugin.normalizeArchiveEntryName
 import java.io.File
+import java.util.zip.ZipInputStream
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -140,14 +144,14 @@ object PluginRepository : PluginInstallStore, PluginCatalogSyncStore {
         _records.value = runBlocking(Dispatchers.IO) {
             dao.listPluginInstallAggregates()
                 .map(PluginInstallAggregate::toInstallRecord)
-                .map(::projectInstallRecordForHost)
+                .map(::repairAndProjectInstallRecordForHost)
         }
         refreshCatalogState()
         repositoryScope.launch {
             dao.observePluginInstallAggregates().collect { aggregates ->
                 _records.value = aggregates
                     .map(PluginInstallAggregate::toInstallRecord)
-                    .map(::projectInstallRecordForHost)
+                    .map(::repairAndProjectInstallRecordForHost)
             }
         }
     }
@@ -156,7 +160,9 @@ object PluginRepository : PluginInstallStore, PluginCatalogSyncStore {
         requireInitialized()
         _records.value.firstOrNull { record -> record.pluginId == pluginId }?.let { return it }
         return runBlocking(Dispatchers.IO) {
-            requireDao().getPluginInstallAggregate(pluginId)?.toInstallRecord()?.let(::projectInstallRecordForHost)
+            requireDao().getPluginInstallAggregate(pluginId)
+                ?.toInstallRecord()
+                ?.let(::repairAndProjectInstallRecordForHost)
         }?.also { persistedRecord ->
             _records.value = _records.value
                 .filterNot { current -> current.pluginId == persistedRecord.pluginId }
@@ -539,6 +545,87 @@ object PluginRepository : PluginInstallStore, PluginCatalogSyncStore {
             localPackagePath = record.localPackagePath,
             extractedDir = record.extractedDir,
         )
+    }
+
+    private fun repairAndProjectInstallRecordForHost(record: PluginInstallRecord): PluginInstallRecord {
+        val repairedRecord = recoverMissingPackageContractSnapshot(record)
+        if (repairedRecord != record) {
+            persistRecoveredPackageContractSnapshot(repairedRecord)
+        }
+        return projectInstallRecordForHost(repairedRecord)
+    }
+
+    private fun persistRecoveredPackageContractSnapshot(record: PluginInstallRecord) {
+        runCatching {
+            runBlocking(Dispatchers.IO) {
+                requireDao().upsertRecord(record.toWriteModel())
+            }
+        }
+    }
+
+    private fun recoverMissingPackageContractSnapshot(record: PluginInstallRecord): PluginInstallRecord {
+        if (record.packageContractSnapshot != null) {
+            return record
+        }
+        if (record.manifestSnapshot.protocolVersion != SUPPORTED_PROTOCOL_VERSION) {
+            return record
+        }
+        val recoveredSnapshot = loadPackageContractSnapshotFromExtractedDir(record)
+            ?: loadPackageContractSnapshotFromPackage(record)
+            ?: return record
+        return PluginInstallRecord.restoreFromPersistedState(
+            manifestSnapshot = record.manifestSnapshot,
+            source = record.source,
+            packageContractSnapshot = recoveredSnapshot,
+            permissionSnapshot = record.permissionSnapshot,
+            compatibilityState = record.compatibilityState,
+            uninstallPolicy = record.uninstallPolicy,
+            enabled = record.enabled,
+            failureState = record.failureState,
+            catalogSourceId = record.catalogSourceId,
+            installedPackageUrl = record.installedPackageUrl,
+            lastCatalogCheckAtEpochMillis = record.lastCatalogCheckAtEpochMillis,
+            installedAt = record.installedAt,
+            lastUpdatedAt = record.lastUpdatedAt,
+            localPackagePath = record.localPackagePath,
+            extractedDir = record.extractedDir,
+        )
+    }
+
+    private fun loadPackageContractSnapshotFromExtractedDir(
+        record: PluginInstallRecord,
+    ): com.astrbot.android.model.plugin.PluginPackageContractSnapshot? {
+        val extractedDir = record.extractedDir.takeIf { it.isNotBlank() }?.let(::File) ?: return null
+        val contractFile = File(extractedDir, "android-plugin.json")
+        if (!contractFile.isFile) {
+            return null
+        }
+        return decodePackageContractSnapshot(contractFile.readText())
+    }
+
+    private fun loadPackageContractSnapshotFromPackage(
+        record: PluginInstallRecord,
+    ): com.astrbot.android.model.plugin.PluginPackageContractSnapshot? {
+        val packageFile = record.localPackagePath.takeIf { it.isNotBlank() }?.let(::File) ?: return null
+        if (!packageFile.isFile) {
+            return null
+        }
+        return ZipInputStream(packageFile.inputStream().buffered()).use { input ->
+            var entry = input.nextEntry
+            while (entry != null) {
+                if (!entry.isDirectory && normalizeArchiveEntryName(entry.name) == "android-plugin.json") {
+                    return@use decodePackageContractSnapshot(input.readBytes().toString(Charsets.UTF_8))
+                }
+                entry = input.nextEntry
+            }
+            null
+        }
+    }
+
+    private fun decodePackageContractSnapshot(rawJson: String): com.astrbot.android.model.plugin.PluginPackageContractSnapshot? {
+        return runCatching {
+            PluginPackageContractJson.decode(JSONObject(rawJson)).toPackageContractSnapshot()
+        }.getOrNull()
     }
 
     private fun projectCompatibilityState(

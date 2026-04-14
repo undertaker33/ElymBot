@@ -209,6 +209,50 @@ class PluginV2DispatchEngineTest {
     }
 
     @Test
+    fun dispatch_message_exposes_command_reply_payload_written_by_v2_handler() = runBlocking {
+        val logBus = InMemoryPluginRuntimeLogBus(clock = { 150L })
+        val fixture = pluginFixture(
+            pluginId = "com.example.v2.dispatch.command.reply",
+            logBus = logBus,
+        ) { hostApi, _ ->
+            hostApi.registerCommandHandler(
+                CommandHandlerRegistrationInput(
+                    base = BaseHandlerRegistrationInput(
+                        registrationKey = "command.reply",
+                        priority = 60,
+                    ),
+                    command = "echo",
+                    handler = EventAwareTestHandle(
+                        onEvent = { event ->
+                            event as PluginCommandEvent
+                            val replyText = PluginCommandEvent::class.java.methods.firstOrNull { method ->
+                                method.name == "replyText" &&
+                                    method.parameterTypes.contentEquals(arrayOf(String::class.java))
+                            } ?: error("replyText method missing")
+                            replyText.invoke(event, "hello from v2 command")
+                        },
+                    ),
+                ),
+            )
+        }
+
+        val engine = PluginV2DispatchEngine(
+            logBus = logBus,
+            clock = { 150L },
+        )
+        val result = engine.dispatchMessage(
+            event = sampleMessageEvent(rawText = "/echo from-test"),
+            snapshot = snapshotOf(fixture),
+        )
+
+        val commandResponse = result.javaClass.methods
+            .firstOrNull { method -> method.name == "getCommandResponse" }
+            ?.invoke(result)
+        assertNotNull(commandResponse)
+        assertEquals("hello from v2 command", readProperty(checkNotNull(commandResponse), "text"))
+    }
+
+    @Test
     fun dispatch_message_stops_event_after_custom_filter_failure_without_emitting_plugin_error() = runBlocking {
         val logBus = InMemoryPluginRuntimeLogBus(clock = { 200L })
         val callbackOrder = CopyOnWriteArrayList<String>()

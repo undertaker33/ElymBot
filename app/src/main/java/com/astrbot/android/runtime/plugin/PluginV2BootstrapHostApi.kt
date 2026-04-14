@@ -248,12 +248,17 @@ class PluginV2BootstrapHostApi(
         descriptor: LifecycleHandlerRegistrationInput,
     ): LifecycleHandlerRegistrationInput {
         rejectFiltersIfPresent(descriptor.declaredFilters)
-        return descriptor.copy(
-            registrationKey = normalizeRegistrationKey(descriptor.registrationKey),
-            hook = requireTrimmedValue(
+        val lifecycleHook = PluginLifecycleHookSurface.fromWireValue(
+            requireTrimmedValue(
                 value = descriptor.hook,
                 fieldName = "hook",
             ),
+        ) ?: throw IllegalArgumentException(
+            "Unsupported lifecycle hook: ${descriptor.hook}",
+        )
+        return descriptor.copy(
+            registrationKey = normalizeRegistrationKey(descriptor.registrationKey),
+            hook = lifecycleHook.wireValue,
             metadata = normalizeMetadata(descriptor.metadata),
         )
     }

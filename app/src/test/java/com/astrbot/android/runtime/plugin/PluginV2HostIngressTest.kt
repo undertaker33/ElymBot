@@ -1,9 +1,14 @@
 package com.astrbot.android.runtime.plugin
 
 import com.astrbot.android.data.BotRepository
+import com.astrbot.android.data.ChatCompletionService
 import com.astrbot.android.data.ConfigRepository
 import com.astrbot.android.data.ConversationRepository
 import com.astrbot.android.data.ProviderRepository
+import com.astrbot.android.data.http.AstrBotHttpClient
+import com.astrbot.android.data.http.HttpRequestSpec
+import com.astrbot.android.data.http.HttpResponsePayload
+import com.astrbot.android.data.http.MultipartPartSpec
 import com.astrbot.android.model.BotProfile
 import com.astrbot.android.model.ConfigProfile
 import com.astrbot.android.model.FeatureSupportState
@@ -328,6 +333,125 @@ class PluginV2HostIngressTest {
         } finally {
             PluginRuntimeRegistry.reset()
             PluginV2DispatchEngineProvider.setEngineOverrideForTests(null)
+        }
+    }
+
+    @Test
+    fun onebot_slash_command_consumes_v2_command_reply_without_legacy_unsupported_fallback() = runBlocking {
+        val replies = CopyOnWriteArrayList<String>()
+        withOneBotState(
+            bot = defaultBot(),
+            config = defaultConfig(textStreamingEnabled = false),
+            providers = listOf(defaultChatProvider()),
+        ) {
+            OneBotBridgeServer.setReplySenderOverrideForTests { _, text, _ ->
+                replies += text
+                OneBotSendResult.success(receiptIds = listOf("receipt-v2-command"))
+            }
+            PluginV2DispatchEngineProvider.setEngineOverrideForTests(
+                v2EngineWithHandlers(
+                    onCommand = { event ->
+                        val replyText = PluginCommandEvent::class.java.methods.firstOrNull { method ->
+                            method.name == "replyText" &&
+                                method.parameterTypes.contentEquals(arrayOf(String::class.java))
+                        } ?: error("replyText method missing")
+                        replyText.invoke(event, "v2 command reply")
+                    },
+                ),
+            )
+            RuntimeLogRepository.clear()
+
+            val handled = invokeHandlePluginCommand(
+                event = oneBotEvent(
+                    messageId = "msg-command-v2-reply",
+                    text = "/echo hello",
+                ),
+                bot = defaultBot(),
+                config = defaultConfig(textStreamingEnabled = false),
+                sessionId = "qq-session",
+                session = ConversationSession(
+                    id = "qq-session",
+                    title = "QQ Session",
+                    botId = defaultBot().id,
+                    personaId = "",
+                    providerId = "",
+                    platformId = "qq",
+                    messageType = MessageType.GroupMessage,
+                    originSessionId = "group:30003",
+                    maxContextMessages = 12,
+                    messages = emptyList(),
+                ),
+            )
+
+            assertTrue(handled)
+            assertEquals(listOf("v2 command reply"), replies.toList())
+            val logs = RuntimeLogRepository.logs.value
+            assertTrue(logs.none { it.contains("Bot command unsupported after plugin fallback") })
+        }
+    }
+
+    @Test
+    fun onebot_slash_command_consumes_v2_command_attachment_reply_from_plugin_assets() = runBlocking {
+        val replyAttachments = CopyOnWriteArrayList<List<ConversationAttachment>>()
+        withOneBotState(
+            bot = defaultBot(),
+            config = defaultConfig(textStreamingEnabled = false),
+            providers = listOf(defaultChatProvider()),
+        ) {
+            OneBotBridgeServer.setReplySenderOverrideForTests { _, _, attachments ->
+                replyAttachments += attachments
+                OneBotSendResult.success(receiptIds = listOf("receipt-v2-command-attachment"))
+            }
+            PluginV2DispatchEngineProvider.setEngineOverrideForTests(
+                v2EngineWithHandlers(
+                    onCommand = { event ->
+                        val replyResult = PluginCommandEvent::class.java.methods.firstOrNull { method ->
+                            method.name == "replyResult" &&
+                                method.parameterTypes.size == 1
+                        } ?: error("replyResult method missing")
+                        replyResult.invoke(
+                            event,
+                            linkedMapOf(
+                                "text" to "preview",
+                                "attachments" to listOf(
+                                    linkedMapOf(
+                                        "assetPath" to "resources/memes/happy/demo.jpg",
+                                        "mimeType" to "image/jpeg",
+                                        "label" to "happy",
+                                    ),
+                                ),
+                            ),
+                        )
+                    },
+                ),
+            )
+
+            val handled = invokeHandlePluginCommand(
+                event = oneBotEvent(
+                    messageId = "msg-command-v2-attachment",
+                    text = "/echo happy",
+                ),
+                bot = defaultBot(),
+                config = defaultConfig(textStreamingEnabled = false),
+                sessionId = "qq-session",
+                session = ConversationSession(
+                    id = "qq-session",
+                    title = "QQ Session",
+                    botId = defaultBot().id,
+                    personaId = "",
+                    providerId = "",
+                    platformId = "qq",
+                    messageType = MessageType.GroupMessage,
+                    originSessionId = "group:30003",
+                    maxContextMessages = 12,
+                    messages = emptyList(),
+                ),
+            )
+
+            assertTrue(handled)
+            assertEquals(1, replyAttachments.size)
+            assertEquals(1, replyAttachments.single().size)
+            assertTrue(replyAttachments.single().single().remoteUrl.replace('\\', '/').endsWith("/resources/memes/happy/demo.jpg"))
         }
     }
 
@@ -715,13 +839,14 @@ class PluginV2HostIngressTest {
     fun onebot_pseudo_streaming_sends_aggregated_response_as_host_pseudo_segments() = runBlocking {
         val sentTexts = CopyOnWriteArrayList<String>()
         val capturedMode = AtomicReference<PluginV2StreamingMode>()
+        val streamedText = "第一句来了，这里稍微长一点。第二句继续补充，方便观察分段。第三句收尾。"
         val runtime = RecordingAppChatPluginRuntime(
             preSend = { input ->
                 capturedMode.set(input.streamingMode)
                 buildPipelineResult(
                     input = input,
                     shouldSend = true,
-                    text = "First pseudo segment! Second pseudo segment?",
+                    text = streamedText,
                 )
             },
         )
@@ -746,7 +871,150 @@ class PluginV2HostIngressTest {
 
             assertEquals(PluginV2StreamingMode.PSEUDO_STREAM, capturedMode.get())
             assertTrue(sentTexts.size > 1)
-            assertFalse(sentTexts.any { text -> text == "First pseudo segment! Second pseudo segment?" })
+            assertFalse(sentTexts.any { text -> text == streamedText })
+            assertEquals(1, runtime.afterSentCalls.get())
+        }
+    }
+
+    @Test
+    fun onebot_native_streaming_still_sends_host_segments_when_streaming_is_enabled() = runBlocking {
+        val sentTexts = CopyOnWriteArrayList<String>()
+        val capturedMode = AtomicReference<PluginV2StreamingMode>()
+        val streamedText = "第一句来了，这里稍微长一点。第二句继续补充，方便观察分段。第三句收尾。"
+        val runtime = RecordingAppChatPluginRuntime(
+            preSend = { input ->
+                capturedMode.set(input.streamingMode)
+                buildPipelineResult(
+                    input = input,
+                    shouldSend = true,
+                    text = streamedText,
+                )
+            },
+        )
+        withOneBotState(
+            bot = defaultBot(),
+            config = defaultConfig(textStreamingEnabled = true),
+            providers = listOf(defaultChatProvider()),
+        ) {
+            OneBotBridgeServer.setAppChatPluginRuntimeOverrideForTests(runtime)
+            OneBotBridgeServer.setReplySenderOverrideForTests { _, text, _ ->
+                sentTexts += text
+                OneBotSendResult.success(receiptIds = listOf("receipt-${sentTexts.size}"))
+            }
+            PluginV2DispatchEngineProvider.setEngineOverrideForTests(v2EngineWithHandlers())
+
+            invokeHandlePayload(oneBotMessagePayload(messageId = "msg-native-stream", text = "astrbot hello native stream"))
+
+            assertEquals(PluginV2StreamingMode.NATIVE_STREAM, capturedMode.get())
+            assertTrue(sentTexts.size > 1)
+            assertFalse(sentTexts.any { text -> text == streamedText })
+            assertEquals(1, runtime.afterSentCalls.get())
+        }
+    }
+
+    @Test
+    fun onebot_voice_streaming_sends_audio_segments_separately() = runBlocking {
+        val sentAttachmentCounts = CopyOnWriteArrayList<Int>()
+        val sentTexts = CopyOnWriteArrayList<String>()
+        val runtime = RecordingAppChatPluginRuntime(
+            preSend = { input ->
+                buildPipelineResult(
+                    input = input,
+                    shouldSend = true,
+                    text = "First voice segment! Second voice segment?",
+                )
+            },
+        )
+        val fakeHttpClient = object : AstrBotHttpClient {
+            override fun execute(requestSpec: HttpRequestSpec): HttpResponsePayload {
+                throw UnsupportedOperationException("HTTP text requests are not expected in this test")
+            }
+
+            override fun executeBytes(requestSpec: HttpRequestSpec): ByteArray {
+                return byteArrayOf(1, 2, 3, 4)
+            }
+
+            override suspend fun executeStream(
+                requestSpec: HttpRequestSpec,
+                onLine: suspend (String) -> Unit,
+            ) {
+                throw UnsupportedOperationException("HTTP streaming requests are not expected in this test")
+            }
+
+            override fun executeMultipart(
+                requestSpec: HttpRequestSpec,
+                parts: List<MultipartPartSpec>,
+            ): HttpResponsePayload {
+                throw UnsupportedOperationException("Multipart requests are not expected in this test")
+            }
+        }
+        ChatCompletionService.setHttpClientOverrideForTests(fakeHttpClient)
+        try {
+            withOneBotState(
+                bot = defaultBot(),
+                config = defaultConfig(
+                    textStreamingEnabled = false,
+                    ttsEnabled = true,
+                    alwaysTtsEnabled = true,
+                    defaultTtsProviderId = "provider-tts",
+                    voiceStreamingEnabled = true,
+                    ttsVoiceId = "voice-1",
+                ),
+                providers = listOf(
+                    defaultChatProvider(),
+                    defaultTtsProvider(),
+                ),
+            ) {
+                OneBotBridgeServer.setAppChatPluginRuntimeOverrideForTests(runtime)
+                OneBotBridgeServer.setReplySenderOverrideForTests { _, text, attachments ->
+                    sentTexts += text
+                    sentAttachmentCounts += attachments.size
+                    OneBotSendResult.success(receiptIds = listOf("receipt-${sentAttachmentCounts.size}"))
+                }
+                PluginV2DispatchEngineProvider.setEngineOverrideForTests(v2EngineWithHandlers())
+
+                invokeHandlePayload(oneBotMessagePayload(messageId = "msg-voice-stream", text = "astrbot hello voice stream"))
+
+                assertTrue(sentAttachmentCounts.size > 1)
+                assertTrue(sentAttachmentCounts.all { count -> count == 1 })
+                assertTrue(sentTexts.all(String::isEmpty))
+                assertEquals(1, runtime.afterSentCalls.get())
+            }
+        } finally {
+            ChatCompletionService.setHttpClientOverrideForTests(null)
+        }
+    }
+
+    @Test
+    fun onebot_attachment_only_message_uses_non_blank_llm_input_snapshot() = runBlocking {
+        val capturedWorkingText = AtomicReference<String>()
+        val sentTexts = CopyOnWriteArrayList<String>()
+        val runtime = RecordingAppChatPluginRuntime(
+            preSend = { input ->
+                capturedWorkingText.set(input.event.workingText)
+                buildPipelineResult(
+                    input = input,
+                    shouldSend = true,
+                    text = "image handled",
+                )
+            },
+        )
+        withOneBotState(
+            bot = defaultBot(),
+            config = defaultConfig(textStreamingEnabled = false),
+            providers = listOf(defaultChatProvider()),
+        ) {
+            OneBotBridgeServer.setAppChatPluginRuntimeOverrideForTests(runtime)
+            OneBotBridgeServer.setReplySenderOverrideForTests { _, text, _ ->
+                sentTexts += text
+                OneBotSendResult.success(receiptIds = listOf("receipt-image"))
+            }
+            PluginV2DispatchEngineProvider.setEngineOverrideForTests(v2EngineWithHandlers())
+
+            invokeHandlePayload(oneBotImagePayload(messageId = "msg-image-only"))
+
+            assertTrue(capturedWorkingText.get().isNotBlank())
+            assertEquals(listOf("image handled"), sentTexts.toList())
             assertEquals(1, runtime.afterSentCalls.get())
         }
     }
@@ -977,6 +1245,21 @@ class PluginV2HostIngressTest {
         """.trimIndent()
     }
 
+    private fun oneBotImagePayload(messageId: String): String {
+        return """
+            {
+              "post_type": "message",
+              "message_type": "private",
+              "self_id": "10001",
+              "user_id": "20002",
+              "message_id": "$messageId",
+              "message": [
+                { "type": "image", "data": { "file": "image.jpg", "url": "https://example.com/image.jpg" } }
+              ]
+            }
+        """.trimIndent()
+    }
+
     private fun defaultBot(): BotProfile {
         return BotProfile(
             id = "qq-main",
@@ -991,6 +1274,11 @@ class PluginV2HostIngressTest {
     private fun defaultConfig(
         textStreamingEnabled: Boolean,
         sessionIsolationEnabled: Boolean = false,
+        ttsEnabled: Boolean = false,
+        alwaysTtsEnabled: Boolean = false,
+        defaultTtsProviderId: String = "",
+        voiceStreamingEnabled: Boolean = false,
+        ttsVoiceId: String = "",
     ): ConfigProfile {
         return ConfigProfile(
             id = "config-qq",
@@ -999,6 +1287,11 @@ class PluginV2HostIngressTest {
             keywordDetectionEnabled = false,
             textStreamingEnabled = textStreamingEnabled,
             sessionIsolationEnabled = sessionIsolationEnabled,
+            ttsEnabled = ttsEnabled,
+            alwaysTtsEnabled = alwaysTtsEnabled,
+            defaultTtsProviderId = defaultTtsProviderId,
+            voiceStreamingEnabled = voiceStreamingEnabled,
+            ttsVoiceId = ttsVoiceId,
         )
     }
 
@@ -1016,6 +1309,19 @@ class PluginV2HostIngressTest {
             capabilities = setOf(ProviderCapability.CHAT),
             enabled = true,
             nativeStreamingRuleSupport = nativeStreamingRuleSupport,
+        )
+    }
+
+    private fun defaultTtsProvider(): ProviderProfile {
+        return ProviderProfile(
+            id = "provider-tts",
+            name = "Test TTS",
+            baseUrl = "https://example.com",
+            model = "tts-1",
+            providerType = ProviderType.OPENAI_TTS,
+            apiKey = "test-key",
+            capabilities = setOf(ProviderCapability.TTS),
+            enabled = true,
         )
     }
 

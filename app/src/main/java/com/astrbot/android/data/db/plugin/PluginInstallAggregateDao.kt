@@ -31,7 +31,7 @@ abstract class PluginInstallAggregateDao {
     protected abstract suspend fun upsertManifestSnapshots(entities: List<PluginManifestSnapshotEntity>)
 
     @Upsert
-    protected open suspend fun upsertPackageContractSnapshots(entities: List<PluginPackageContractSnapshotEntity>) = Unit
+    protected abstract suspend fun upsertPackageContractSnapshots(entities: List<PluginPackageContractSnapshotEntity>)
 
     @Upsert
     protected abstract suspend fun upsertManifestPermissions(entities: List<PluginManifestPermissionEntity>)
@@ -43,7 +43,7 @@ abstract class PluginInstallAggregateDao {
     protected abstract suspend fun deleteManifestPermissions(pluginId: String)
 
     @Query("DELETE FROM plugin_package_contract_snapshots WHERE pluginId = :pluginId")
-    protected open suspend fun deletePackageContractSnapshots(pluginId: String) = Unit
+    protected abstract suspend fun deletePackageContractSnapshots(pluginId: String)
 
     @Query("DELETE FROM plugin_permission_snapshots WHERE pluginId = :pluginId")
     protected abstract suspend fun deletePermissionSnapshots(pluginId: String)

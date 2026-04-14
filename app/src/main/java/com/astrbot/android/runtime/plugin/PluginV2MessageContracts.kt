@@ -11,6 +11,8 @@ enum class PluginMessageStage {
 
 typealias AllowedValue = Any?
 
+internal const val HOST_SKIP_COMMAND_STAGE_EXTRA_KEY = "__host_skip_command_stage"
+
 sealed interface PluginErrorEventPayload
 
 data class PluginRawPayloadRef(
@@ -24,6 +26,36 @@ internal class MessagePropagationState {
         stopped = true
     }
 }
+
+internal data class PluginV2PendingCommandAttachment(
+    val source: String,
+    val mimeType: String = "",
+    val label: String = "",
+)
+
+internal data class PluginV2PendingCommandResponse(
+    val text: String = "",
+    val attachments: List<PluginV2PendingCommandAttachment> = emptyList(),
+) {
+    init {
+        require(text.isNotBlank() || attachments.isNotEmpty()) {
+            "command reply must include text or attachments."
+        }
+    }
+}
+
+data class PluginV2CommandResponseAttachment(
+    val source: String,
+    val mimeType: String = "",
+    val label: String = "",
+)
+
+data class PluginV2CommandResponse(
+    val pluginId: String,
+    val extractedDir: String,
+    val text: String = "",
+    val attachments: List<PluginV2CommandResponseAttachment> = emptyList(),
+)
 
 class PluginMessageEvent(
     val eventId: String,
@@ -97,10 +129,31 @@ class PluginCommandEvent(
         get() = propagationStopped.stopped
 
     internal val propagationStopped: MessagePropagationState = baseEvent.propagationStopped
+    internal var pendingCommandReply: PluginV2PendingCommandResponse? = null
 
     fun stopPropagation() {
         propagationStopped.stop()
     }
+
+    fun replyResult(payload: Any?): Boolean {
+        pendingCommandReply = PluginV2CommandReplyParser.parse(payload)
+        return true
+    }
+
+    fun sendResult(payload: Any?): Boolean = replyResult(payload)
+
+    fun reply(payload: Any?): Boolean = replyResult(payload)
+
+    fun respond(payload: Any?): Boolean = replyResult(payload)
+
+    fun replyText(text: String): Boolean {
+        pendingCommandReply = PluginV2PendingCommandResponse(text = text.trim())
+        return true
+    }
+
+    fun sendText(text: String): Boolean = replyText(text)
+
+    fun respondText(text: String): Boolean = replyText(text)
 }
 
 class PluginRegexEvent(
@@ -184,6 +237,67 @@ object PluginV2ValueSanitizer {
 
             else -> throw IllegalArgumentException(
                 "$path contains unsupported value type: ${value::class.java.name}",
+            )
+        }
+    }
+}
+
+private object PluginV2CommandReplyParser {
+    fun parse(payload: Any?): PluginV2PendingCommandResponse {
+        val sanitizedPayload = PluginV2ValueSanitizer.requireAllowed(payload, "commandReply")
+        return when (sanitizedPayload) {
+            is String -> PluginV2PendingCommandResponse(
+                text = sanitizedPayload.trim(),
+            )
+
+            is Map<*, *> -> parseMap(sanitizedPayload)
+
+            else -> throw IllegalArgumentException(
+                "commandReply must be a string or object payload.",
+            )
+        }
+    }
+
+    private fun parseMap(payload: Map<*, *>): PluginV2PendingCommandResponse {
+        val text = (payload["text"] as? String).orEmpty().trim()
+        val attachments = parseAttachments(payload["attachments"])
+        return PluginV2PendingCommandResponse(
+            text = text,
+            attachments = attachments,
+        )
+    }
+
+    private fun parseAttachments(value: Any?): List<PluginV2PendingCommandAttachment> {
+        if (value == null) {
+            return emptyList()
+        }
+        require(value is List<*>) {
+            "commandReply.attachments must be a list."
+        }
+        return value.mapIndexed { index, item ->
+            require(item is Map<*, *>) {
+                "commandReply.attachments[$index] must be an object."
+            }
+            val source = listOf(
+                item["source"] as? String,
+                item["uri"] as? String,
+                item["assetPath"] as? String,
+                item["path"] as? String,
+            ).firstOrNull { candidate -> !candidate.isNullOrBlank() }
+                ?.trim()
+                ?: throw IllegalArgumentException(
+                    "commandReply.attachments[$index] requires source/uri/assetPath/path.",
+                )
+            PluginV2PendingCommandAttachment(
+                source = source,
+                mimeType = (item["mimeType"] as? String).orEmpty().trim(),
+                label = listOf(
+                    item["label"] as? String,
+                    item["altText"] as? String,
+                    item["fileName"] as? String,
+                ).firstOrNull { candidate -> !candidate.isNullOrBlank() }
+                    ?.trim()
+                    .orEmpty(),
             )
         }
     }

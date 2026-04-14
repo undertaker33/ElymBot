@@ -142,6 +142,7 @@ class PluginV2MessageContractsTest {
                 "workingTextSnapshot",
                 "normalizedMentionsSnapshot",
                 "extrasSnapshot",
+                "pendingCommandReply",
                 "stage",
                 "propagationStopped",
             ),
@@ -195,6 +196,15 @@ class PluginV2MessageContractsTest {
         assertEquals("/astrbot help", regexEvent.matchedText)
         assertEquals(listOf("/astrbot", "help"), regexEvent.groups)
         assertEquals(mapOf("command" to "help"), regexEvent.namedGroups)
+
+        val commandMethods = PluginCommandEvent::class.java.methods.map { method -> method.name }.toSet()
+        assertTrue(commandMethods.contains("replyResult"))
+        assertTrue(commandMethods.contains("replyText"))
+        assertTrue(commandMethods.contains("sendResult"))
+        assertTrue(commandMethods.contains("reply"))
+        assertTrue(commandMethods.contains("respond"))
+        assertTrue(commandMethods.contains("sendText"))
+        assertTrue(commandMethods.contains("respondText"))
 
         assertFalse(PluginCommandEvent::class.java.methods.any { it.name == "setWorkingText" })
         assertFalse(PluginRegexEvent::class.java.methods.any { it.name == "setWorkingText" })

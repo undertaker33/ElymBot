@@ -12,12 +12,15 @@ import com.astrbot.android.di.ChatViewModelDependencies
 import com.astrbot.android.di.DefaultChatViewModelDependencies
 import com.astrbot.android.model.BotProfile
 import com.astrbot.android.model.ConfigProfile
+import com.astrbot.android.model.PersonaProfile
+import com.astrbot.android.model.PersonaToolEnablementSnapshot
 import com.astrbot.android.model.ProviderCapability
 import com.astrbot.android.model.ProviderProfile
 import com.astrbot.android.model.chat.ConversationAttachment
 import com.astrbot.android.model.chat.ConversationMessage
 import com.astrbot.android.model.chat.ConversationSession
 import com.astrbot.android.model.chat.MessageSessionRef
+import com.astrbot.android.model.plugin.PluginV2StreamingMode
 import com.astrbot.android.model.plugin.ErrorResult
 import com.astrbot.android.model.plugin.ExternalPluginHostActionPolicy
 import com.astrbot.android.model.plugin.ExternalPluginMediaSourceResolver
@@ -36,16 +39,34 @@ import com.astrbot.android.model.plugin.PluginTriggerMetadata
 import com.astrbot.android.model.plugin.PluginTriggerSource
 import com.astrbot.android.model.plugin.TextResult
 import com.astrbot.android.model.hasNativeStreamingSupport
+import com.astrbot.android.runtime.plugin.AppChatLlmPipelineRuntime
 import com.astrbot.android.runtime.plugin.AppChatPluginRuntime
 import com.astrbot.android.runtime.plugin.DefaultAppChatPluginRuntime
 import com.astrbot.android.runtime.plugin.DefaultPluginHostCapabilityGateway
 import com.astrbot.android.runtime.plugin.ExternalPluginHostActionExecutor
+import com.astrbot.android.runtime.plugin.HOST_SKIP_COMMAND_STAGE_EXTRA_KEY
 import com.astrbot.android.runtime.plugin.PluginDispatchSkipReason
 import com.astrbot.android.runtime.plugin.PluginExecutionHostApi
+import com.astrbot.android.runtime.plugin.PluginLlmResponse
 import com.astrbot.android.runtime.plugin.PluginMessageEvent
+import com.astrbot.android.runtime.plugin.PluginMessageEventResult
+import com.astrbot.android.runtime.plugin.PluginProviderMessageDto
+import com.astrbot.android.runtime.plugin.PluginProviderMessagePartDto
+import com.astrbot.android.runtime.plugin.PluginProviderMessageRole
+import com.astrbot.android.runtime.plugin.PluginProviderRequest
 import com.astrbot.android.runtime.plugin.PluginRuntimePlugin
+import com.astrbot.android.runtime.plugin.PluginV2AfterSentView
+import com.astrbot.android.runtime.plugin.PluginV2CommandResponse
+import com.astrbot.android.runtime.plugin.PluginV2CommandResponseAttachment
 import com.astrbot.android.runtime.plugin.PluginV2DispatchEngineProvider
+import com.astrbot.android.runtime.plugin.PluginV2HostLlmDeliveryRequest
+import com.astrbot.android.runtime.plugin.PluginV2HostLlmDeliveryResult
+import com.astrbot.android.runtime.plugin.PluginV2HostPreparedReply
+import com.astrbot.android.runtime.plugin.PluginV2HostSendResult
+import com.astrbot.android.runtime.plugin.PluginV2LlmPipelineInput
 import com.astrbot.android.runtime.plugin.PluginV2MessageDispatchResult
+import com.astrbot.android.runtime.plugin.PluginV2ProviderInvocationResult
+import com.astrbot.android.runtime.plugin.PluginV2ProviderStreamChunk
 import com.astrbot.android.runtime.botcommand.BotCommandContext
 import com.astrbot.android.runtime.botcommand.BotCommandParser
 import com.astrbot.android.runtime.botcommand.BotCommandRouter
@@ -60,9 +81,11 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
-import kotlin.coroutines.CoroutineContext
+import java.io.File
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
+import java.util.Locale
+import kotlin.coroutines.CoroutineContext
 
 data class ChatUiState(
     val selectedBotId: String = "qq-main",
@@ -279,6 +302,7 @@ class ChatViewModel(
         val sessionId = _uiState.value.selectedSessionId
         val content = input.trim()
         if ((content.isBlank() && attachments.isEmpty()) || _uiState.value.isSending) return
+        val unsupportedSlashCommand = attachments.isEmpty() && isUnsupportedPluginCommand(content)
 
         if (attachments.isEmpty() && handleSessionCommand(sessionId, content)) {
             return
@@ -377,27 +401,54 @@ class ChatViewModel(
                         sessionId,
                         finalUserContent.ifBlank { attachments.firstOrNull()?.fileName ?: "Image" },
                     )
-                    dependencies.session(sessionId)
+                    val userMessage = dependencies.session(sessionId)
                         .messages
                         .firstOrNull { it.id == userMessageId }
-                        ?.let { userMessage ->
-                            val consumedByPlugin = dispatchAppChatPlugins(
-                                trigger = PluginTriggerSource.BeforeSendMessage,
-                                session = dependencies.session(sessionId),
-                                message = userMessage,
-                                provider = provider,
-                                bot = botSnapshot,
-                                personaId = personaIdSnapshot,
-                                config = config,
-                            )
-                            if (consumedByPlugin) {
-                                return@sessionLock
-                            }
-                        }
+                        ?: return@sessionLock
+                    val consumedByPlugin = dispatchAppChatPlugins(
+                        trigger = PluginTriggerSource.BeforeSendMessage,
+                        session = dependencies.session(sessionId),
+                        message = userMessage,
+                        provider = provider,
+                        bot = botSnapshot,
+                        personaId = personaIdSnapshot,
+                        config = config,
+                        suppressV2CommandStage = unsupportedSlashCommand,
+                    )
+                    if (consumedByPlugin) {
+                        return@sessionLock
+                    }
 
                     val currentSession = dependencies.session(sessionId)
                     val contextWindow = personaSnapshot?.maxContextMessages ?: currentSession.maxContextMessages
                     val scopedSession = currentSession.copy(maxContextMessages = contextWindow)
+                    val llmAssistantMessage = deliverAppChatLlmPipelineIfSupported(
+                        sessionId = sessionId,
+                        session = currentSession,
+                        scopedSession = scopedSession,
+                        userMessage = userMessage,
+                        provider = provider,
+                        bot = botSnapshot,
+                        persona = personaSnapshot,
+                        personaId = personaIdSnapshot,
+                        config = config,
+                        wantsTts = wantsTts,
+                        ttsProvider = ttsProvider,
+                    )
+                    if (llmAssistantMessage != null) {
+                        assistantMessageId = llmAssistantMessage.id
+                        dispatchAppChatPlugins(
+                            trigger = PluginTriggerSource.AfterModelResponse,
+                            session = dependencies.session(sessionId),
+                            message = llmAssistantMessage,
+                            provider = provider,
+                            bot = botSnapshot,
+                            personaId = personaIdSnapshot,
+                            config = config,
+                        )
+                        return@sessionLock
+                    }
+
                     assistantMessageId = dependencies.appendMessage(
                         sessionId = sessionId,
                         role = "assistant",
@@ -492,6 +543,273 @@ class ChatViewModel(
                 _uiState.value = _uiState.value.copy(isSending = false)
             }
         }
+    }
+
+    private suspend fun deliverAppChatLlmPipelineIfSupported(
+        sessionId: String,
+        session: ConversationSession,
+        scopedSession: ConversationSession,
+        userMessage: ConversationMessage,
+        provider: ProviderProfile,
+        bot: BotProfile?,
+        persona: PersonaProfile?,
+        personaId: String,
+        config: ConfigProfile?,
+        wantsTts: Boolean,
+        ttsProvider: ProviderProfile?,
+    ): ConversationMessage? {
+        val llmRuntime = appChatPluginRuntime as? AppChatLlmPipelineRuntime ?: return null
+        val availableChatProviders = providers.value.filter { profile ->
+            profile.enabled && ProviderCapability.CHAT in profile.capabilities
+        }
+        val streamingMode = resolveAppChatStreamingMode(config, provider)
+        val llmEvent = buildAppChatPluginMessageEvent(
+            trigger = PluginTriggerSource.BeforeSendMessage,
+            session = session,
+            message = userMessage,
+            provider = provider,
+            bot = bot,
+            personaId = personaId,
+            config = config,
+        )
+        var persistedAssistantMessageId: String? = null
+        val deliveryResult = llmRuntime.deliverLlmPipeline(
+            request = PluginV2HostLlmDeliveryRequest(
+                pipelineInput = PluginV2LlmPipelineInput(
+                    event = llmEvent,
+                    messageIds = listOf(userMessage.id),
+                    streamingMode = streamingMode,
+                    availableProviderIds = availableChatProviders.map { profile -> profile.id },
+                    availableModelIdsByProvider = availableChatProviders.associate { profile ->
+                        profile.id to listOf(profile.model).filter { modelId -> modelId.isNotBlank() }
+                    },
+                    selectedProviderId = provider.id,
+                    selectedModelId = provider.model,
+                    systemPrompt = buildSystemPrompt(persona?.systemPrompt),
+                    messages = scopedSession.messages
+                        .takeLast(scopedSession.maxContextMessages)
+                        .toPluginProviderMessages(),
+                    personaToolEnablementSnapshot = persona?.let { activePersona ->
+                        PersonaToolEnablementSnapshot(
+                            personaId = activePersona.id,
+                            enabled = activePersona.enabled,
+                            enabledTools = activePersona.enabledTools.toSet(),
+                        )
+                    },
+                    invokeProvider = { request, mode ->
+                        invokeProviderForAppChatPipeline(
+                            request = request,
+                            mode = mode,
+                            config = config,
+                            availableProviders = availableChatProviders,
+                        )
+                    },
+                ),
+                conversationId = llmEvent.conversationId,
+                platformAdapterType = APP_CHAT_PLATFORM_ADAPTER_TYPE,
+                platformInstanceKey = bot?.id ?: session.botId,
+                prepareReply = { pipelineResult ->
+                    prepareAppChatPipelineReply(
+                        pipelineResult = pipelineResult,
+                        wantsTts = wantsTts,
+                        ttsProvider = ttsProvider,
+                        config = config,
+                    )
+                },
+                sendReply = {
+                    PluginV2HostSendResult(success = true)
+                },
+                persistDeliveredReply = { preparedReply, _, _ ->
+                    persistedAssistantMessageId = persistAppChatPreparedReply(
+                        sessionId = sessionId,
+                        preparedReply = preparedReply,
+                        streamingMode = streamingMode,
+                    )
+                },
+            ),
+        )
+        return when (deliveryResult) {
+            is PluginV2HostLlmDeliveryResult.Sent -> {
+                persistedAssistantMessageId
+                    ?.let { messageId ->
+                        dependencies.session(sessionId).messages.firstOrNull { message -> message.id == messageId }
+                    }
+            }
+
+            is PluginV2HostLlmDeliveryResult.Suppressed -> {
+                dependencies.log(
+                    "App chat llm result suppressed: requestId=${deliveryResult.pipelineResult.admission.requestId} session=$sessionId",
+                )
+                null
+            }
+
+            is PluginV2HostLlmDeliveryResult.SendFailed -> error(
+                "App chat llm delivery failed: ${deliveryResult.sendResult.errorSummary.ifBlank { "send_failed" }}",
+            )
+        }
+    }
+
+    private suspend fun prepareAppChatPipelineReply(
+        pipelineResult: com.astrbot.android.runtime.plugin.PluginV2LlmPipelineResult,
+        wantsTts: Boolean,
+        ttsProvider: ProviderProfile?,
+        config: ConfigProfile?,
+    ): PluginV2HostPreparedReply {
+        val sendableResult = pipelineResult.sendableResult
+        val attachments = if (wantsTts && ttsProvider != null && config != null) {
+            buildAppChatVoiceReplyAttachments(
+                response = sendableResult.text,
+                provider = ttsProvider,
+                voiceId = config.ttsVoiceId,
+                voiceStreamingEnabled = config.voiceStreamingEnabled,
+                readBracketedContent = config.ttsReadBracketedContent,
+            )
+        } else {
+            sendableResult.attachments.toConversationAttachments()
+        }
+        return PluginV2HostPreparedReply(
+            text = sendableResult.text,
+            attachments = attachments,
+            deliveredEntries = listOf(
+                PluginV2AfterSentView.DeliveredEntry(
+                    entryId = pipelineResult.admission.messageIds.firstOrNull().orEmpty().ifBlank { "assistant" },
+                    entryType = "assistant",
+                    textPreview = sendableResult.text.take(160),
+                    attachmentCount = attachments.size,
+                ),
+            ),
+        )
+    }
+
+    private suspend fun persistAppChatPreparedReply(
+        sessionId: String,
+        preparedReply: PluginV2HostPreparedReply,
+        streamingMode: PluginV2StreamingMode,
+    ): String {
+        val shouldPseudoStream = streamingMode != PluginV2StreamingMode.NON_STREAM &&
+            preparedReply.attachments.isEmpty() &&
+            preparedReply.text.isNotBlank()
+        val messageId = dependencies.appendMessage(
+            sessionId = sessionId,
+            role = "assistant",
+            content = if (shouldPseudoStream) "" else preparedReply.text,
+            attachments = if (shouldPseudoStream) emptyList() else preparedReply.attachments,
+        )
+        if (shouldPseudoStream) {
+            emitPseudoStreamingResponse(
+                sessionId = sessionId,
+                messageId = messageId,
+                response = preparedReply.text,
+            )
+        }
+        return messageId
+    }
+
+    private suspend fun invokeProviderForAppChatPipeline(
+        request: PluginProviderRequest,
+        mode: PluginV2StreamingMode,
+        config: ConfigProfile?,
+        availableProviders: List<ProviderProfile>,
+    ): PluginV2ProviderInvocationResult {
+        val resolvedProvider = availableProviders.firstOrNull { profile ->
+            profile.id == request.selectedProviderId &&
+                profile.enabled &&
+                ProviderCapability.CHAT in profile.capabilities
+        } ?: error("Selected provider is unavailable: ${request.selectedProviderId}")
+
+        val messages = request.messages.toConversationMessages(request.requestId)
+        return if (mode != PluginV2StreamingMode.NATIVE_STREAM || !request.streamingEnabled || config == null) {
+            val text = withContext(ioDispatcher) {
+                dependencies.sendConfiguredChat(
+                    provider = resolvedProvider,
+                    messages = messages,
+                    systemPrompt = request.systemPrompt,
+                    config = config,
+                    availableProviders = availableProviders,
+                )
+            }
+            PluginV2ProviderInvocationResult.NonStreaming(
+                response = PluginLlmResponse(
+                    requestId = request.requestId,
+                    providerId = resolvedProvider.id,
+                    modelId = request.selectedModelId.ifBlank { resolvedProvider.model },
+                    text = text,
+                ),
+            )
+        } else {
+            val chunks = mutableListOf<PluginV2ProviderStreamChunk>()
+            val aggregatedText = withContext(ioDispatcher) {
+                dependencies.sendConfiguredChatStream(
+                    provider = resolvedProvider,
+                    messages = messages,
+                    systemPrompt = request.systemPrompt,
+                    config = config,
+                    availableProviders = availableProviders,
+                ) { delta ->
+                    if (delta.isNotBlank()) {
+                        chunks += PluginV2ProviderStreamChunk(deltaText = delta)
+                    }
+                }
+            }
+            chunks += PluginV2ProviderStreamChunk(
+                deltaText = "",
+                isCompletion = true,
+                finishReason = "stop",
+            )
+            if (aggregatedText.isNotBlank() && chunks.size == 1) {
+                chunks.add(
+                    0,
+                    PluginV2ProviderStreamChunk(deltaText = aggregatedText),
+                )
+            }
+            PluginV2ProviderInvocationResult.Streaming(
+                events = chunks.toList(),
+            )
+        }
+    }
+
+    private suspend fun buildAppChatVoiceReplyAttachments(
+        response: String,
+        provider: ProviderProfile,
+        voiceId: String,
+        voiceStreamingEnabled: Boolean,
+        readBracketedContent: Boolean,
+    ): List<ConversationAttachment> {
+        if (!voiceStreamingEnabled) {
+            return synthesizeSingleVoiceReply(
+                provider = provider,
+                text = response,
+                voiceId = voiceId,
+                readBracketedContent = readBracketedContent,
+            )?.let(::listOf) ?: emptyList()
+        }
+
+        val segments = StreamingResponseSegmenter.splitForVoiceStreaming(response)
+        if (segments.size <= 1) {
+            return synthesizeSingleVoiceReply(
+                provider = provider,
+                text = response,
+                voiceId = voiceId,
+                readBracketedContent = readBracketedContent,
+            )?.let(::listOf) ?: emptyList()
+        }
+
+        val streamedAttachments = mutableListOf<ConversationAttachment>()
+        for (segment in segments) {
+            val attachment = synthesizeSingleVoiceReply(
+                provider = provider,
+                text = segment,
+                voiceId = voiceId,
+                readBracketedContent = readBracketedContent,
+            ) ?: return synthesizeSingleVoiceReply(
+                provider = provider,
+                text = response,
+                voiceId = voiceId,
+                readBracketedContent = readBracketedContent,
+            )?.let(::listOf) ?: emptyList()
+            streamedAttachments += attachment
+        }
+        return streamedAttachments.toList()
     }
 
 
@@ -693,6 +1011,23 @@ class ChatViewModel(
             personaId = personaId,
             config = config,
         )
+        dependencies.log(
+            "App chat v2 command dispatch finished: command=${content.substringBefore(' ')} session=${session.id} " +
+                "hasResponse=${v2DispatchResult.commandResponse != null} " +
+                "terminal=${v2DispatchResult.isTerminal()} " +
+                "stopped=${v2DispatchResult.propagationStopped}",
+        )
+        v2DispatchResult.commandResponse?.let { commandResponse ->
+            consumeAppChatV2CommandResponse(
+                sessionId = session.id,
+                response = commandResponse,
+            )
+            dependencies.log(
+                "App chat v2 command response consumed: command=${content.substringBefore(' ')} " +
+                    "plugin=${commandResponse.pluginId} attachments=${commandResponse.attachments.size}",
+            )
+            return true
+        }
         if (v2DispatchResult.isTerminal()) {
             appendV2UserVisibleFailure(session.id, v2DispatchResult)
             return true
@@ -747,6 +1082,7 @@ class ChatViewModel(
             }
             return false
         }
+        var handled = false
         batch.outcomes.forEach { outcome ->
             val consumption = consumePluginCommandResult(
                 pluginId = outcome.pluginId,
@@ -755,6 +1091,7 @@ class ChatViewModel(
                 extractedDir = outcome.installState.extractedDir,
             )
             if (consumption.handled) {
+                handled = true
                 dependencies.appendMessage(
                     sessionId = session.id,
                     role = "assistant",
@@ -766,7 +1103,7 @@ class ChatViewModel(
                 "App chat plugin command handled: plugin=${outcome.pluginId} result=${outcome.result::class.simpleName.orEmpty()} handled=${consumption.handled}",
             )
         }
-        return true
+        return handled
     }
 
     private fun dispatchAppChatPlugins(
@@ -777,6 +1114,7 @@ class ChatViewModel(
         bot: BotProfile?,
         personaId: String,
         config: ConfigProfile?,
+        suppressV2CommandStage: Boolean = false,
     ): Boolean {
         if (trigger.isV2MessageIngressTrigger()) {
             val v2DispatchResult = dispatchAppChatV2MessageIngress(
@@ -787,6 +1125,7 @@ class ChatViewModel(
                 bot = bot,
                 personaId = personaId,
                 config = config,
+                suppressCommandStage = suppressV2CommandStage,
             )
             if (v2DispatchResult.isTerminal()) {
                 appendV2UserVisibleFailure(session.id, v2DispatchResult)
@@ -860,6 +1199,7 @@ class ChatViewModel(
         bot: BotProfile?,
         personaId: String,
         config: ConfigProfile?,
+        suppressCommandStage: Boolean = false,
     ): PluginV2MessageDispatchResult {
         return runCatching {
             runBlocking {
@@ -872,6 +1212,7 @@ class ChatViewModel(
                         bot = bot,
                         personaId = personaId,
                         config = config,
+                        suppressCommandStage = suppressCommandStage,
                     ),
                 )
             }
@@ -897,6 +1238,7 @@ class ChatViewModel(
         bot: BotProfile?,
         personaId: String,
         config: ConfigProfile?,
+        suppressCommandStage: Boolean = false,
     ): PluginMessageEvent {
         val rawText = message.content.take(500)
         return PluginMessageEvent(
@@ -923,8 +1265,16 @@ class ChatViewModel(
                 put("personaId", personaId)
                 put("streamingEnabled", config?.textStreamingEnabled == true)
                 put("ttsEnabled", config?.ttsEnabled == true)
+                if (suppressCommandStage) {
+                    put(HOST_SKIP_COMMAND_STAGE_EXTRA_KEY, true)
+                }
             },
         )
+    }
+
+    private fun isUnsupportedPluginCommand(content: String): Boolean {
+        val parsedCommand = BotCommandParser.parse(content) ?: return false
+        return !BotCommandRouter.supports(parsedCommand.name)
     }
 
     private fun appendV2UserVisibleFailure(
@@ -940,6 +1290,63 @@ class ChatViewModel(
                     content = message,
                 )
             }
+    }
+
+    private fun consumeAppChatV2CommandResponse(
+        sessionId: String,
+        response: PluginV2CommandResponse,
+    ) {
+        val attachments = response.attachments.mapIndexedNotNull { index, attachment ->
+            resolveAppChatV2CommandAttachment(
+                response = response,
+                attachment = attachment,
+            )?.let { resolvedSource ->
+                ConversationAttachment(
+                    id = "app-chat-v2-command-$index-${resolvedSource.hashCode()}",
+                    type = if (attachment.mimeType.startsWith("audio/")) "audio" else "image",
+                    mimeType = attachment.mimeType.ifBlank { "image/jpeg" },
+                    fileName = attachment.label.ifBlank {
+                        resolvedSource.substringAfterLast('/', missingDelimiterValue = "attachment-$index")
+                    },
+                    remoteUrl = resolvedSource,
+                )
+            }
+        }
+        dependencies.appendMessage(
+            sessionId = sessionId,
+            role = "assistant",
+            content = response.text,
+            attachments = attachments,
+        )
+        dependencies.log(
+            "App chat v2 command handled: plugin=${response.pluginId} textLength=${response.text.length} attachments=${attachments.size}",
+        )
+    }
+
+    private fun resolveAppChatV2CommandAttachment(
+        response: PluginV2CommandResponse,
+        attachment: PluginV2CommandResponseAttachment,
+    ): String? {
+        val source = attachment.source.trim()
+        if (source.isBlank()) {
+            return null
+        }
+        if (source.startsWith("http://") || source.startsWith("https://")) {
+            return source
+        }
+        if (source.startsWith("plugin://package/")) {
+            val relativePath = source.removePrefix("plugin://package/").trim()
+            if (relativePath.isBlank()) {
+                return null
+            }
+            return File(response.extractedDir, relativePath).absolutePath
+        }
+        val sourceFile = File(source)
+        return when {
+            sourceFile.isAbsolute -> sourceFile.absolutePath
+            response.extractedDir.isNotBlank() -> File(response.extractedDir, source).absolutePath
+            else -> source
+        }
     }
 
     private fun PluginV2MessageDispatchResult.isTerminal(): Boolean {
@@ -1313,6 +1720,87 @@ class ChatViewModel(
                 error.rethrowIfCancellation()
                 dependencies.log("Chat TTS failed: ${error.message ?: error.javaClass.simpleName}")
             }.getOrNull()
+        }
+    }
+
+    private fun resolveAppChatStreamingMode(
+        config: ConfigProfile?,
+        provider: ProviderProfile,
+    ): PluginV2StreamingMode {
+        return when {
+            config?.textStreamingEnabled != true -> PluginV2StreamingMode.NON_STREAM
+            provider.hasNativeStreamingSupport() -> PluginV2StreamingMode.NATIVE_STREAM
+            else -> PluginV2StreamingMode.PSEUDO_STREAM
+        }
+    }
+
+    private fun List<ConversationMessage>.toPluginProviderMessages(): List<PluginProviderMessageDto> {
+        return map { message ->
+            val role = when (message.role.lowercase(Locale.US)) {
+                "system" -> PluginProviderMessageRole.SYSTEM
+                "assistant" -> PluginProviderMessageRole.ASSISTANT
+                else -> PluginProviderMessageRole.USER
+            }
+            val parts = mutableListOf<PluginProviderMessagePartDto>()
+            message.content.takeIf { content -> content.isNotBlank() }?.let { content ->
+                parts += PluginProviderMessagePartDto.TextPart(content)
+            }
+            message.attachments.forEach { attachment ->
+                val uri = attachment.remoteUrl.ifBlank {
+                    attachment.base64Data.takeIf(String::isNotBlank)?.let { base64 ->
+                        "data:${attachment.mimeType};base64,$base64"
+                    } ?: "attachment://${attachment.id}"
+                }
+                parts += PluginProviderMessagePartDto.MediaRefPart(
+                    uri = uri,
+                    mimeType = attachment.mimeType.ifBlank { "application/octet-stream" },
+                )
+            }
+            if (parts.isEmpty()) {
+                parts += PluginProviderMessagePartDto.TextPart("[empty]")
+            }
+            PluginProviderMessageDto(
+                role = role,
+                parts = parts,
+            )
+        }
+    }
+
+    private fun List<PluginProviderMessageDto>.toConversationMessages(
+        requestId: String,
+    ): List<ConversationMessage> {
+        return mapIndexed { index, message ->
+            val text = message.parts
+                .filterIsInstance<PluginProviderMessagePartDto.TextPart>()
+                .joinToString(separator = "\n") { part -> part.text }
+            val attachments = message.parts
+                .filterIsInstance<PluginProviderMessagePartDto.MediaRefPart>()
+                .mapIndexed { attachmentIndex, part ->
+                    ConversationAttachment(
+                        id = "$requestId-$index-$attachmentIndex",
+                        type = if (part.mimeType.startsWith("audio/")) "audio" else "image",
+                        mimeType = part.mimeType,
+                        remoteUrl = part.uri,
+                    )
+                }
+            ConversationMessage(
+                id = "$requestId-$index",
+                role = message.role.wireValue,
+                content = text,
+                timestamp = System.currentTimeMillis(),
+                attachments = attachments,
+            )
+        }
+    }
+
+    private fun List<PluginMessageEventResult.Attachment>.toConversationAttachments(): List<ConversationAttachment> {
+        return mapIndexed { index, attachment ->
+            ConversationAttachment(
+                id = "llm-result-$index-${attachment.uri.hashCode()}",
+                type = if (attachment.mimeType.startsWith("audio/")) "audio" else "image",
+                mimeType = attachment.mimeType.ifBlank { "application/octet-stream" },
+                remoteUrl = attachment.uri,
+            )
         }
     }
 

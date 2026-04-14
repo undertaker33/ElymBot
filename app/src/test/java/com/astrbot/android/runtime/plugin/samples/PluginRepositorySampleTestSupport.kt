@@ -12,6 +12,7 @@ import com.astrbot.android.data.db.PluginInstallRecordEntity
 import com.astrbot.android.data.db.PluginInstallWriteModel
 import com.astrbot.android.data.db.PluginManifestPermissionEntity
 import com.astrbot.android.data.db.PluginManifestSnapshotEntity
+import com.astrbot.android.data.db.PluginPackageContractSnapshotEntity
 import com.astrbot.android.data.db.PluginPermissionSnapshotEntity
 import com.astrbot.android.model.plugin.PluginCatalogEntryRecord
 import com.astrbot.android.model.plugin.PluginInstallRecord
@@ -131,6 +132,7 @@ private class InMemoryPluginInstallAggregateDao : PluginInstallAggregateDao() {
         aggregates[writeModel.record.pluginId] = PluginInstallAggregate(
             record = writeModel.record,
             manifestSnapshots = listOf(writeModel.manifestSnapshot),
+            packageContractSnapshots = listOfNotNull(writeModel.packageContractSnapshot),
             manifestPermissions = writeModel.manifestPermissions,
             permissionSnapshots = writeModel.permissionSnapshots,
         )
@@ -141,11 +143,15 @@ private class InMemoryPluginInstallAggregateDao : PluginInstallAggregateDao() {
 
     override suspend fun upsertManifestSnapshots(entities: List<PluginManifestSnapshotEntity>) = Unit
 
+    override suspend fun upsertPackageContractSnapshots(entities: List<PluginPackageContractSnapshotEntity>) = Unit
+
     override suspend fun upsertManifestPermissions(entities: List<PluginManifestPermissionEntity>) = Unit
 
     override suspend fun upsertPermissionSnapshots(entities: List<PluginPermissionSnapshotEntity>) = Unit
 
     override suspend fun deleteManifestPermissions(pluginId: String) = Unit
+
+    override suspend fun deletePackageContractSnapshots(pluginId: String) = Unit
 
     override suspend fun deletePermissionSnapshots(pluginId: String) = Unit
 

@@ -46,6 +46,8 @@ class PluginV2RuntimeSession(
     var compiledRegistry: PluginV2CompiledRegistry? = null
         private set
 
+    private var callbackRuntimeSession: ExternalPluginBootstrapSession? = null
+
     init {
         require(sessionInstanceId.isNotBlank()) { "sessionInstanceId must not be blank." }
         packageContractSnapshot = requireNotNull(installRecord.packageContractSnapshot) {
@@ -91,6 +93,19 @@ class PluginV2RuntimeSession(
         this.compiledRegistry = compiledRegistry
     }
 
+    internal fun attachCallbackRuntimeSession(
+        callbackRuntimeSession: ExternalPluginBootstrapSession,
+    ) {
+        check(state == PluginV2RuntimeSessionState.BootstrapRunning) {
+            "Callback runtime session attachment requires BootstrapRunning state."
+        }
+        val existingSession = this.callbackRuntimeSession
+        check(existingSession == null || existingSession === callbackRuntimeSession) {
+            "Callback runtime session replacement is not allowed for pluginId=$pluginId."
+        }
+        this.callbackRuntimeSession = callbackRuntimeSession
+    }
+
     internal fun allocateCallbackToken(): PluginV2CallbackToken {
         return allocateCallbackToken(NoOpPluginV2CallbackHandle)
     }
@@ -132,6 +147,9 @@ class PluginV2RuntimeSession(
     }
 
     fun dispose() {
+        val runtimeSessionToDispose = callbackRuntimeSession
+        callbackRuntimeSession = null
+        runtimeSessionToDispose?.dispose()
         callbackHandles.clear()
         rawRegistry = null
         compiledRegistry = null

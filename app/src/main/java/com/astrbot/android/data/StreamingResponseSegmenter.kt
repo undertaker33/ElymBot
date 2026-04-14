@@ -13,10 +13,10 @@ object StreamingResponseSegmenter {
     private const val VOICE_TARGET_SEGMENT_LENGTH = 22
     private const val VOICE_HARD_SEGMENT_LENGTH = 36
 
-    private val strongBoundaries = setOf('。', '！', '？', '!', '?', '~', '…', '\n')
-    private val softBoundaries = setOf('，', '、', '；', '：', ',', ';', ':')
-    private val openingWrappers = setOf('（', '(', '【', '[', '《', '「', '『', '“', '‘', '{')
-    private val closingWrappers = setOf('）', ')', '】', ']', '》', '」', '』', '”', '’', '}')
+    private val strongBoundaries = setOf('\u3002', '\uFF01', '\uFF1F', '!', '?', '~', '\u2026', '\n')
+    private val softBoundaries = setOf('\uFF0C', '\u3001', '\uFF1B', '\uFF1A', ',', ';', ':')
+    private val openingWrappers = setOf('\u201C', '(', '\u300C', '[', '\u300E', '\u3010', '\uFF08', '\u2018', '\u300A', '{')
+    private val closingWrappers = setOf('\u201D', ')', '\u300D', ']', '\u300F', '\u3011', '\uFF09', '\u2019', '\u300B', '}')
     private val boundarySuffixChars = strongBoundaries + softBoundaries + closingWrappers
 
     data class DrainResult(
@@ -222,7 +222,7 @@ object StreamingResponseSegmenter {
         val segmentLength = boundary.endExclusive - start
         val remainingLength = totalLength - boundary.endExclusive
         val targetLength = when (boundary.type) {
-            BoundaryType.STRONG -> config.targetSegmentLength
+            BoundaryType.STRONG -> config.minSegmentLength
             BoundaryType.SOFT -> config.targetSegmentLength - 8
             BoundaryType.SPACE -> config.targetSegmentLength
         }

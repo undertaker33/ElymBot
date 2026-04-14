@@ -90,6 +90,44 @@ class PluginV2RuntimeLoaderTest {
     }
 
     @Test
+    fun reload_failure_evicts_previous_active_entry_and_disposes_old_session() = runTest {
+        val rootDir = createTempDir("plugin-v2-loader-reload-failed")
+        createBootstrapFile(rootDir)
+        val initialRecord = samplePluginV2InstallRecord(
+            pluginId = "com.astrbot.samples.loader_reload_failed",
+            version = "1.0.0",
+        ).withBootstrapRoot(rootDir)
+        val upgradedRecord = samplePluginV2InstallRecord(
+            pluginId = initialRecord.pluginId,
+            version = "1.1.0",
+        ).withBootstrapRoot(rootDir)
+
+        val executor = RecordingPluginV2RuntimeLoaderScriptExecutor(
+            bootstrapSessions = listOf(
+                BootstrappingSession(registrations = 1),
+                BootstrappingSession(executeFailure = IllegalStateException("bootstrap exploded")),
+            ),
+        )
+        val loader = newLoader(executor)
+
+        val firstLoad = loader.load(initialRecord)
+        val firstEntry = loaderStore(loader).snapshot().activeRuntimeEntriesByPluginId[initialRecord.pluginId]!!
+        val firstSession = firstEntry.session
+
+        val reloadResult = loader.reload(upgradedRecord)
+        val snapshotAfterFailure = loaderStore(loader).snapshot()
+
+        assertEquals(PluginV2RuntimeLoadStatus.Loaded, firstLoad.status)
+        assertEquals(PluginV2RuntimeLoadStatus.Failed, reloadResult.status)
+        assertEquals(firstSession.sessionInstanceId, reloadResult.previousSessionInstanceId)
+        assertEquals(PluginV2RuntimeSessionState.Disposed, firstSession.state)
+        assertFalse(snapshotAfterFailure.activeRuntimeEntriesByPluginId.containsKey(initialRecord.pluginId))
+        assertFalse(snapshotAfterFailure.activeSessionsByPluginId.containsKey(initialRecord.pluginId))
+        assertNull(snapshotAfterFailure.lastBootstrapSummariesByPluginId[initialRecord.pluginId])
+        assertNull(snapshotAfterFailure.diagnosticsByPluginId[initialRecord.pluginId])
+    }
+
+    @Test
     fun unload_removes_active_snapshot_and_disposes_session() = runTest {
         val rootDir = createTempDir("plugin-v2-loader-unload")
         createBootstrapFile(rootDir)
@@ -113,6 +151,30 @@ class PluginV2RuntimeLoaderTest {
         assertEquals(entry.session.sessionInstanceId, unloadResult.sessionInstanceId)
         assertFalse(loaderStore(loader).snapshot().activeRuntimeEntriesByPluginId.containsKey(record.pluginId))
         assertEquals(PluginV2RuntimeSessionState.Disposed, entry.session.state)
+    }
+
+    @Test
+    fun load_keeps_bootstrap_session_alive_until_runtime_is_unloaded() = runTest {
+        val rootDir = createTempDir("plugin-v2-loader-bootstrap-lifecycle")
+        createBootstrapFile(rootDir)
+        val record = samplePluginV2InstallRecord(
+            pluginId = "com.astrbot.samples.loader_bootstrap_lifecycle",
+        ).withBootstrapRoot(rootDir)
+        val bootstrapSession = BootstrappingSession(registrations = 1)
+        val loader = newLoader(
+            RecordingPluginV2RuntimeLoaderScriptExecutor(
+                bootstrapSessions = listOf(bootstrapSession),
+            ),
+        )
+
+        val loadResult = loader.load(record)
+
+        assertEquals(PluginV2RuntimeLoadStatus.Loaded, loadResult.status)
+        assertFalse(bootstrapSession.disposed)
+
+        loader.unload(record.pluginId)
+
+        assertTrue(bootstrapSession.disposed)
     }
 
     @Test
@@ -378,6 +440,7 @@ private class BootstrappingSession(
     private val registrations: Int = 1,
     private val commandRegistrations: List<CommandHandlerRegistrationInput> = emptyList(),
     private val lifecycleRegistrations: List<LifecycleHandlerRegistrationInput> = emptyList(),
+    private val executeFailure: Exception? = null,
 ) : ExternalPluginBootstrapSession {
     private val globals = LinkedHashMap<String, Any?>()
     private val handleCounter = AtomicInteger(0)
@@ -397,6 +460,7 @@ private class BootstrappingSession(
     }
 
     override fun executeBootstrap() {
+        executeFailure?.let { throw it }
         val hostApi = globals["__astrbotBootstrapHostApi"] as? PluginV2BootstrapHostApi
             ?: error("Missing bootstrap host api global.")
         repeat(registrations) {
