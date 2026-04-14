@@ -1,5 +1,6 @@
 package com.astrbot.android.runtime.plugin
 
+import android.util.Log
 import com.astrbot.android.model.plugin.PluginRuntimeLogCategory
 import com.astrbot.android.model.plugin.PluginRuntimeLogLevel
 import com.astrbot.android.model.plugin.PluginRuntimeLogRecord
@@ -75,6 +76,10 @@ class InMemoryPluginRuntimeLogBus(
     private val capacity: Int = 200,
     private val clock: () -> Long = System::currentTimeMillis,
 ) : PluginRuntimeLogBus {
+    private companion object {
+        private const val LOG_TAG = "AstrBotPluginRuntime"
+    }
+
     private val buffer = ArrayDeque<PluginRuntimeLogRecord>()
     private val state = MutableStateFlow<List<PluginRuntimeLogRecord>>(emptyList())
 
@@ -97,6 +102,7 @@ class InMemoryPluginRuntimeLogBus(
             }
             buffer.addLast(record)
             state.value = buffer.reversed()
+            mirrorToLogcat(record)
         }
     }
 
@@ -162,6 +168,37 @@ class InMemoryPluginRuntimeLogBus(
         val retained = buffer.filterNot { record -> record.pluginId == pluginId }
         buffer.clear()
         buffer.addAll(retained)
+    }
+
+    private fun mirrorToLogcat(record: PluginRuntimeLogRecord) {
+        val metadataSummary = record.metadata.entries.joinToString(separator = ",") { (key, value) ->
+            "$key=$value"
+        }
+        val line = buildString {
+            append("pluginId=")
+            append(record.pluginId)
+            append(" version=")
+            append(record.pluginVersion)
+            append(" category=")
+            append(record.category.name)
+            append(" code=")
+            append(record.code)
+            append(" message=")
+            append(record.message)
+            if (metadataSummary.isNotBlank()) {
+                append(" metadata=")
+                append(metadataSummary)
+            }
+        }
+        try {
+            when (record.level) {
+                PluginRuntimeLogLevel.Error -> Log.e(LOG_TAG, line)
+                PluginRuntimeLogLevel.Warning -> Log.w(LOG_TAG, line)
+                else -> Log.i(LOG_TAG, line)
+            }
+        } catch (_: RuntimeException) {
+            // Pure JVM unit tests do not provide a real android.util.Log backend.
+        }
     }
 }
 

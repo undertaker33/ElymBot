@@ -85,6 +85,7 @@ class PluginV2RuntimeHandle internal constructor(
     @Volatile
     private var disposed: Boolean = false
     private var bootstrapInFlight: Boolean = false
+    private var bootstrapSessionTransferredToRuntime: Boolean = false
 
     val liveHandleCount: Int
         get() = bootstrapSession.liveHandleCount
@@ -132,6 +133,22 @@ class PluginV2RuntimeHandle internal constructor(
         failure?.let { throw it }
     }
 
+    fun transferBootstrapSessionOwnershipToRuntime() {
+        synchronized(lifecycleMonitor) {
+            check(!disposed) {
+                "Bootstrap session has already been disposed: ${session.pluginId}"
+            }
+            check(!bootstrapInFlight) {
+                "Bootstrap session cannot transfer ownership while bootstrap is running: ${session.pluginId}"
+            }
+            check(!bootstrapSessionTransferredToRuntime) {
+                "Bootstrap session ownership was already transferred: ${session.pluginId}"
+            }
+            session.attachCallbackRuntimeSession(bootstrapSession)
+            bootstrapSessionTransferredToRuntime = true
+        }
+    }
+
     fun dispose() {
         synchronized(lifecycleMonitor) {
             if (disposed) {
@@ -151,7 +168,9 @@ class PluginV2RuntimeHandle internal constructor(
             disposed = true
         }
         try {
-            bootstrapSession.dispose()
+            if (!bootstrapSessionTransferredToRuntime) {
+                bootstrapSession.dispose()
+            }
         } finally {
             session.dispose()
         }

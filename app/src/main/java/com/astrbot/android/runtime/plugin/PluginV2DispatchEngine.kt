@@ -46,6 +46,7 @@ data class PluginV2MessageDispatchResult(
     val propagationStopped: Boolean = false,
     val terminatedByCustomFilterFailure: Boolean = false,
     val userVisibleFailureMessage: String? = null,
+    val commandResponse: PluginV2CommandResponse? = null,
 )
 
 object PluginV2DispatchEngineProvider {
@@ -325,30 +326,39 @@ class PluginV2DispatchEngine(
             return result
         }
 
-        val commandResolution = PluginV2CommandResolver(
-            snapshot.compiledRegistriesByPluginId.values.map { it.handlerRegistry },
-        ).resolve(commandStageWorkingText(event.workingText))
-        if (commandResolution == null) {
+        if (event.extras[HOST_SKIP_COMMAND_STAGE_EXTRA_KEY] == true) {
             publishStageSkipped(
                 sessions = activeSessions,
                 stage = PluginMessageStage.Command,
                 event = event,
-                reason = "command_not_matched",
+                reason = "command_stage_suppressed",
             )
         } else {
-            dispatchStage(
-                stage = PluginMessageStage.Command,
-                candidates = buildCommandCandidates(snapshot, event, commandResolution),
-                event = event,
-            )?.let { result ->
-                publishDispatchLifecycle(
-                    code = "message_dispatch_completed",
+            val commandResolution = PluginV2CommandResolver(
+                snapshot.compiledRegistriesByPluginId.values.map { it.handlerRegistry },
+            ).resolve(commandStageWorkingText(event.workingText))
+            if (commandResolution == null) {
+                publishStageSkipped(
                     sessions = activeSessions,
                     stage = PluginMessageStage.Command,
                     event = event,
-                    succeeded = result.userVisibleFailureMessage == null,
+                    reason = "command_not_matched",
                 )
-                return result
+            } else {
+                dispatchStage(
+                    stage = PluginMessageStage.Command,
+                    candidates = buildCommandCandidates(snapshot, event, commandResolution),
+                    event = event,
+                )?.let { result ->
+                    publishDispatchLifecycle(
+                        code = "message_dispatch_completed",
+                        sessions = activeSessions,
+                        stage = PluginMessageStage.Command,
+                        event = event,
+                        succeeded = result.userVisibleFailureMessage == null,
+                    )
+                    return result
+                }
             }
         }
 
@@ -409,6 +419,24 @@ class PluginV2DispatchEngine(
             when (val filterResult = filterEvaluator.evaluate(candidate.session, candidate.descriptor, stageEvent)) {
                 is PluginV2FilterEvaluationResult.Pass -> {
                     invokeHandler(candidate.session, candidate.descriptor, stageEvent)
+                    if (stageEvent is PluginCommandEvent && stageEvent.pendingCommandReply != null) {
+                        val pendingReply = checkNotNull(stageEvent.pendingCommandReply)
+                        return PluginV2MessageDispatchResult(
+                            propagationStopped = event.isPropagationStopped,
+                            commandResponse = PluginV2CommandResponse(
+                                pluginId = candidate.session.pluginId,
+                                extractedDir = candidate.session.installRecord.extractedDir,
+                                text = pendingReply.text,
+                                attachments = pendingReply.attachments.map { attachment ->
+                                    PluginV2CommandResponseAttachment(
+                                        source = attachment.source,
+                                        mimeType = attachment.mimeType,
+                                        label = attachment.label,
+                                    )
+                                },
+                            ),
+                        )
+                    }
                 }
 
                 is PluginV2FilterEvaluationResult.Reject -> continue

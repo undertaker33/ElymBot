@@ -200,6 +200,9 @@ class PluginV2RuntimeLoader(
         val handle = try {
             sessionFactory.createSession(record)
         } catch (error: Exception) {
+            if (replaceExisting) {
+                deactivatePreviousRuntime(currentEntry)
+            }
             publishLifecycleFailure(
                 pluginId = pluginId,
                 pluginVersion = record.installedVersion,
@@ -253,6 +256,7 @@ class PluginV2RuntimeLoader(
                 )
             }
             handle.session.attachCompiledRegistry(compiledRegistry)
+            handle.transferBootstrapSessionOwnershipToRuntime()
             handle.session.transitionTo(PluginV2RuntimeSessionState.Active)
 
             val canonicalDiagnostics = loadDiagnostics
@@ -271,7 +275,6 @@ class PluginV2RuntimeLoader(
                 callbackTokens = handle.session.snapshotCallbackTokens(),
             )
             store.commitLoadedRuntime(entry)
-            handle.bootstrapSession.dispose()
             if (replaceExisting) {
                 previousSession?.dispose()
             }
@@ -296,6 +299,9 @@ class PluginV2RuntimeLoader(
                 diagnostics = canonicalDiagnostics,
             )
         } catch (error: Exception) {
+            if (replaceExisting) {
+                deactivatePreviousRuntime(currentEntry)
+            }
             publishLifecycleFailure(
                 pluginId = pluginId,
                 pluginVersion = record.installedVersion,
@@ -312,6 +318,31 @@ class PluginV2RuntimeLoader(
                 reason = error.message ?: "Plugin v2 runtime $operation failed.",
             )
         }
+    }
+
+    private suspend fun deactivatePreviousRuntime(
+        currentEntry: PluginV2ActiveRuntimeEntry?,
+    ) {
+        if (currentEntry == null) {
+            return
+        }
+        store.unload(currentEntry.pluginId)
+        currentEntry.session.dispose()
+        lifecycleManager.onPluginUnloaded(
+            pluginId = currentEntry.pluginId,
+            pluginVersion = currentEntry.session.installRecord.installedVersion,
+            sessionInstanceId = currentEntry.session.sessionInstanceId,
+        )
+        publishLifecycleLog(
+            pluginId = currentEntry.pluginId,
+            pluginVersion = currentEntry.session.installRecord.installedVersion,
+            code = "runtime_unloaded",
+            message = "Plugin v2 runtime unloaded after failed reload.",
+            metadata = mapOf(
+                "sessionInstanceId" to currentEntry.session.sessionInstanceId,
+                "reason" to "reload_failed",
+            ),
+        )
     }
 
     private fun isEligibleForLoad(record: PluginInstallRecord): Boolean {

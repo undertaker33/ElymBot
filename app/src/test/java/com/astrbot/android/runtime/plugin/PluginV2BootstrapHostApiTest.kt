@@ -249,6 +249,31 @@ class PluginV2BootstrapHostApiTest {
     }
 
     @Test
+    fun registerLifecycleHandler_rejects_hook_outside_phase3_baseline() {
+        val logBus = InMemoryPluginRuntimeLogBus(clock = { 600L })
+        val hostApi = PluginV2BootstrapHostApi(
+            session = bootstrapRunningSession(sessionInstanceId = "session-lifecycle-invalid"),
+            logBus = logBus,
+            clock = { 600L },
+        )
+
+        val failure = runCatching {
+            hostApi.registerLifecycleHandler(
+                LifecycleHandlerRegistrationInput(
+                    registrationKey = "lifecycle.invalid",
+                    hook = "bootstrap_ready",
+                    handler = PluginV2CallbackHandle {},
+                ),
+            )
+        }.exceptionOrNull()
+
+        assertTrue(failure is IllegalArgumentException)
+        assertTrue(failure?.message?.contains("Unsupported lifecycle hook") == true)
+        assertEquals(1, logBus.snapshot().size)
+        assertEquals("bootstrap_registration_rejected", logBus.snapshot().single().code)
+    }
+
+    @Test
     fun lifecycle_and_hook_registrations_reject_declared_filters() {
         val logBus = InMemoryPluginRuntimeLogBus(clock = { 456L })
         val hostApi = PluginV2BootstrapHostApi(
@@ -263,7 +288,7 @@ class PluginV2BootstrapHostApiTest {
                 hostApi.registerLifecycleHandler(
                     LifecycleHandlerRegistrationInput(
                         registrationKey = "lifecycle.ready",
-                        hook = "bootstrap_ready",
+                        hook = PluginLifecycleHookSurface.OnPluginLoaded.wireValue,
                         declaredFilters = forbiddenFilters,
                         handler = PluginV2CallbackHandle {},
                     ),
@@ -273,7 +298,7 @@ class PluginV2BootstrapHostApiTest {
                 hostApi.registerLlmHook(
                     LlmHookRegistrationInput(
                         registrationKey = "llm.before_call",
-                        hook = "before_model_call",
+                        hook = PluginV2LlmHookSurface.OnLlmRequest.wireValue,
                         declaredFilters = forbiddenFilters,
                         handler = PluginV2CallbackHandle {},
                     ),

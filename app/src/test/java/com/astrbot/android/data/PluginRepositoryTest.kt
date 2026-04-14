@@ -119,6 +119,51 @@ class PluginRepositoryTest {
     }
 
     @Test
+    fun repository_recovers_missing_v2_package_contract_snapshot_from_extracted_dir() {
+        val tempDir = Files.createTempDirectory("plugin-contract-recovery").toFile()
+        try {
+            val dao = InMemoryPluginInstallAggregateDao()
+            File(tempDir, "android-plugin.json").writeText(
+                """
+                {
+                  "protocolVersion": 2,
+                  "runtime": {
+                    "kind": "js_quickjs",
+                    "bootstrap": "runtime/bootstrap.js",
+                    "apiVersion": 1
+                  },
+                  "config": {
+                    "staticSchema": "schemas/static.schema.json",
+                    "settingsSchema": "schemas/settings.schema.json"
+                  }
+                }
+                """.trimIndent(),
+            )
+            val brokenRecord = sampleRecord(
+                version = "2.0.1",
+                enabled = true,
+                extractedDir = tempDir.absolutePath,
+                packageContractSnapshot = null,
+            )
+            dao.seed(brokenRecord)
+            resetPluginRepositoryForTest(dao = dao, initialized = true)
+
+            val recovered = PluginRepository.findByPluginId(brokenRecord.pluginId)
+            val persisted = runBlocking { dao.getPluginInstallAggregate(brokenRecord.pluginId) }!!.toInstallRecord()
+
+            assertEquals("runtime/bootstrap.js", recovered?.packageContractSnapshot?.runtime?.bootstrap)
+            assertEquals(
+                "schemas/static.schema.json",
+                recovered?.packageContractSnapshot?.config?.staticSchema,
+            )
+            assertEquals(recovered?.packageContractSnapshot, persisted.packageContractSnapshot)
+        } finally {
+            resetPluginRepositoryForTest(initialized = false)
+            tempDir.deleteRecursively()
+        }
+    }
+
+    @Test
     fun repository_upsert_persists_record_through_store_and_updates_cache() {
         val dao = InMemoryPluginInstallAggregateDao()
         val record = sampleRecord(version = "2.0.0", enabled = true, installedAt = 333L, lastUpdatedAt = 444L)

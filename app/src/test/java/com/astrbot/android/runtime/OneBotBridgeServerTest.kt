@@ -15,6 +15,7 @@ import com.astrbot.android.model.ConfigProfile
 import com.astrbot.android.model.ProviderCapability
 import com.astrbot.android.model.ProviderProfile
 import com.astrbot.android.model.ProviderType
+import com.astrbot.android.model.chat.ConversationAttachment
 import com.astrbot.android.model.chat.MessageType
 import com.astrbot.android.model.plugin.NoOp
 import com.astrbot.android.model.plugin.PluginExecutionContext
@@ -22,15 +23,27 @@ import com.astrbot.android.model.plugin.PluginTriggerSource
 import com.astrbot.android.runtime.plugin.ExternalPluginBridgeRuntime
 import com.astrbot.android.runtime.plugin.ExternalPluginRuntimeCatalog
 import com.astrbot.android.runtime.plugin.DefaultAppChatPluginRuntime
+import com.astrbot.android.runtime.plugin.InMemoryPluginRuntimeLogBus
 import com.astrbot.android.runtime.plugin.InMemoryPluginFailureStateStore
 import com.astrbot.android.runtime.plugin.InMemoryPluginScopedFailureStateStore
+import com.astrbot.android.runtime.plugin.PluginV2ActiveRuntimeStore
+import com.astrbot.android.runtime.plugin.PluginV2ActiveRuntimeStoreProvider
 import com.astrbot.android.runtime.plugin.PluginRuntimeFailureStateStoreProvider
 import com.astrbot.android.runtime.plugin.PluginRuntimeScopedFailureStateStoreProvider
 import com.astrbot.android.runtime.plugin.PluginRuntimeRegistry
+import com.astrbot.android.runtime.plugin.PluginV2QuickJsTestGate
+import com.astrbot.android.runtime.plugin.PluginV2RegistryCompiler
+import com.astrbot.android.runtime.plugin.PluginV2RuntimeLoadStatus
+import com.astrbot.android.runtime.plugin.PluginV2RuntimeLoader
+import com.astrbot.android.runtime.plugin.PluginV2RuntimeSessionFactory
+import com.astrbot.android.runtime.plugin.PluginV2LifecycleManager
+import com.astrbot.android.runtime.plugin.QuickJsExternalPluginScriptExecutor
 import com.astrbot.android.runtime.plugin.RecordingExternalPluginScriptExecutor
 import com.astrbot.android.runtime.plugin.createQuickJsExternalPluginInstallRecord
 import com.astrbot.android.runtime.plugin.executionContextFor
 import com.astrbot.android.runtime.plugin.runtimePlugin
+import com.astrbot.android.runtime.plugin.samplePluginV2InstallRecord
+import java.io.File
 import java.nio.file.Files
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
@@ -546,6 +559,89 @@ class OneBotBridgeServerTest {
     }
 
     @Test
+    fun `real external meme plugin decorates onebot qq reply with attachment`() = runTest {
+        PluginV2QuickJsTestGate.assumeAvailable()
+
+        val pluginRoot = File("C:/Users/93445/Desktop/Astrbot/Plugin/Astrbot_Android_plugin_memes")
+        require(pluginRoot.isDirectory) {
+            "Missing external meme plugin fixture: ${pluginRoot.absolutePath}"
+        }
+
+        val workingRoot = Files.createTempDirectory("onebot-external-meme-v2").toFile()
+        try {
+            pluginRoot.copyRecursively(workingRoot, overwrite = true)
+            val record = samplePluginV2InstallRecord(
+                pluginId = "io.github.astrbot.android.meme_manager",
+            ).copyForFixture(workingRoot.absolutePath)
+            val logBus = InMemoryPluginRuntimeLogBus(capacity = 256, clock = { 1L })
+            val store = PluginV2ActiveRuntimeStore(logBus = logBus, clock = { 1L })
+            val loader = PluginV2RuntimeLoader(
+                sessionFactory = PluginV2RuntimeSessionFactory(
+                    scriptExecutor = QuickJsExternalPluginScriptExecutor(initializeQuickJs = {}),
+                ),
+                store = store,
+                compiler = PluginV2RegistryCompiler(logBus = logBus, clock = { 1L }),
+                logBus = logBus,
+                lifecycleManager = PluginV2LifecycleManager(store = store, logBus = logBus, clock = { 1L }),
+                clock = { 1L },
+            )
+
+            withOneBotState(
+                bot = defaultBot(),
+                config = defaultConfig(),
+                providers = listOf(defaultChatProvider()),
+            ) {
+                RuntimeLogRepository.clear()
+                PluginV2ActiveRuntimeStoreProvider.setStoreOverrideForTests(store)
+                val sentAttachments = CopyOnWriteArrayList<List<ConversationAttachment>>()
+                OneBotBridgeServer.setReplySenderOverrideForTests { _, _, attachments ->
+                    sentAttachments += attachments
+                    OneBotSendResult.success(listOf("meme-receipt"))
+                }
+                ChatCompletionService.setHttpClientOverrideForTests(
+                    FakeHttpClient(
+                        onExecute = { request ->
+                            HttpResponsePayload(
+                                code = 200,
+                                body = """{"choices":[{"message":{"content":"收到，这就给你安排一个开心回复。"}}]}""",
+                                headers = emptyMap(),
+                                url = request.url,
+                            )
+                        },
+                    ),
+                )
+
+                val loadResult = loader.load(record)
+                assertEquals(PluginV2RuntimeLoadStatus.Loaded, loadResult.status)
+
+                invokeHandlePayload(
+                    """
+                    {
+                      "post_type": "message",
+                      "message_type": "private",
+                      "self_id": "10001",
+                      "user_id": "934457024",
+                      "message_id": "message-external-meme-onebot",
+                      "raw_message": "今天真开心 [happy]"
+                    }
+                    """.trimIndent(),
+                )
+
+                assertTrue(sentAttachments.isNotEmpty())
+                assertEquals(1, sentAttachments.last().size)
+                assertTrue(
+                    sentAttachments.last().single().remoteUrl.replace('\\', '/').contains("/memes/happy/"),
+                )
+                val logs = RuntimeLogRepository.logs.value
+                assertTrue(logs.any { it.contains("QQ v2 reply delivered: plugin=io.github.astrbot.android.meme_manager") })
+            }
+        } finally {
+            PluginV2ActiveRuntimeStoreProvider.setStoreOverrideForTests(null)
+            workingRoot.deleteRecursively()
+        }
+    }
+
+    @Test
     fun `unsupported qq slash command still falls back when plugin returns noop`() = runTest {
         val extractedDir = Files.createTempDirectory("onebot-qq-command-noop").toFile()
         try {
@@ -633,6 +729,9 @@ class OneBotBridgeServerTest {
             PluginRuntimeScopedFailureStateStoreProvider.setStoreOverrideForTests(
                 InMemoryPluginScopedFailureStateStore(),
             )
+            OneBotBridgeServer.setReplySenderOverrideForTests { _, _, _ ->
+                OneBotSendResult.success(listOf("test-receipt"))
+            }
             BotRepository.restoreProfiles(listOf(bot), bot.id)
             ConfigRepository.restoreProfiles(listOf(config), config.id)
             ProviderRepository.restoreProfiles(providers)
@@ -640,6 +739,7 @@ class OneBotBridgeServerTest {
             block()
         } finally {
             ChatCompletionService.setHttpClientOverrideForTests(null)
+            OneBotBridgeServer.setReplySenderOverrideForTests(null)
             PluginRuntimeRegistry.reset()
             PluginRuntimeFailureStateStoreProvider.setStoreOverrideForTests(null)
             PluginRuntimeScopedFailureStateStoreProvider.setStoreOverrideForTests(null)
@@ -648,6 +748,33 @@ class OneBotBridgeServerTest {
             ProviderRepository.restoreProfiles(providerSnapshot)
             ConversationRepository.restoreSessions(sessionSnapshot)
         }
+    }
+
+    private fun com.astrbot.android.model.plugin.PluginInstallRecord.copyForFixture(
+        extractedDir: String,
+    ): com.astrbot.android.model.plugin.PluginInstallRecord {
+        val contractSnapshot = requireNotNull(packageContractSnapshot)
+        return com.astrbot.android.model.plugin.PluginInstallRecord.restoreFromPersistedState(
+            manifestSnapshot = manifestSnapshot,
+            source = source,
+            packageContractSnapshot = contractSnapshot.copy(
+                runtime = contractSnapshot.runtime.copy(
+                    bootstrap = "runtime/bootstrap.js",
+                ),
+            ),
+            permissionSnapshot = permissionSnapshot,
+            compatibilityState = compatibilityState,
+            uninstallPolicy = uninstallPolicy,
+            enabled = enabled,
+            failureState = failureState,
+            catalogSourceId = catalogSourceId,
+            installedPackageUrl = installedPackageUrl,
+            lastCatalogCheckAtEpochMillis = lastCatalogCheckAtEpochMillis,
+            installedAt = installedAt,
+            lastUpdatedAt = lastUpdatedAt,
+            localPackagePath = localPackagePath,
+            extractedDir = extractedDir,
+        )
     }
 
     private suspend fun invokeHandlePayload(payload: String) {

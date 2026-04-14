@@ -1,6 +1,7 @@
 package com.astrbot.android.di
 
 import android.app.Application
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import com.astrbot.android.AppStrings
@@ -86,6 +87,7 @@ class AstrBotAppContainer(
 
     fun bootstrap() {
         if (!bootstrapped.compareAndSet(false, true)) return
+        Log.i("AstrBotRuntime", "AstrBotAppContainer.bootstrap entered")
 
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
             RuntimeLogRepository.append(
@@ -134,6 +136,7 @@ class AstrBotAppContainer(
         }
         ContainerRuntimeInstaller.warmUpAsync(application, appScope)
         RuntimeLogRepository.append("App started")
+        Log.i("AstrBotRuntime", "AstrBotAppContainer.bootstrap completed")
     }
 }
 

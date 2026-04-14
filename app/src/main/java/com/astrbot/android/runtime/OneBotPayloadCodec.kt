@@ -10,6 +10,9 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 internal object OneBotPayloadCodec {
+    private val cqAtRegex = Regex("""\[CQ:at,qq=([^,\]]+)(?:,[^\]]*)?]""", RegexOption.IGNORE_CASE)
+    private val cqCodeRegex = Regex("""\[CQ:[^\]]+]""", RegexOption.IGNORE_CASE)
+
     fun parseIncomingMessageEvent(json: JSONObject): IncomingMessageEvent? {
         val messageType = when (json.optString("message_type")) {
             "private" -> MessageType.FriendMessage
@@ -174,10 +177,17 @@ internal object OneBotPayloadCodec {
         }
 
         if (rawMessage is String) {
+            val mentionsSelf = cqAtRegex.containsMatchIn(rawMessage) &&
+                cqAtRegex.findAll(rawMessage).any { match ->
+                    match.groupValues.getOrNull(1).orEmpty() == selfId
+                }
+            val mentionsAll = cqAtRegex.findAll(rawMessage).any { match ->
+                match.groupValues.getOrNull(1).orEmpty().equals("all", ignoreCase = true)
+            }
             return ParsedMessage(
-                text = rawMessage.trim(),
-                mentionsSelf = false,
-                mentionsAll = false,
+                text = cqCodeRegex.replace(rawMessage, " ").trim(),
+                mentionsSelf = mentionsSelf,
+                mentionsAll = mentionsAll,
                 attachments = emptyList(),
             )
         }
