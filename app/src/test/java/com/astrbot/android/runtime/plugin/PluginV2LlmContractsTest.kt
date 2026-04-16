@@ -473,6 +473,98 @@ class PluginV2LlmContractsTest {
     }
 
     @Test
+    fun provider_request_preserves_host_tool_round_order_across_construction_and_reset() {
+        val user = PluginProviderMessageDto(
+            role = PluginProviderMessageRole.USER,
+            parts = listOf(PluginProviderMessagePartDto.TextPart("search")),
+        )
+        val firstAssistant = PluginProviderMessageDto(
+            role = PluginProviderMessageRole.ASSISTANT,
+            parts = emptyList(),
+            toolCalls = listOf(
+                PluginProviderAssistantToolCall(
+                    id = "call-1",
+                    toolName = "web_search",
+                    arguments = mapOf("query" to "异环 开服时间"),
+                ),
+            ),
+        )
+        val firstTool = PluginProviderMessageDto(
+            role = PluginProviderMessageRole.TOOL,
+            parts = listOf(PluginProviderMessagePartDto.TextPart("first result")),
+            name = "web_search",
+            metadata = mapOf("__host" to mapOf("toolCallId" to "call-1")),
+        )
+        val secondAssistant = PluginProviderMessageDto(
+            role = PluginProviderMessageRole.ASSISTANT,
+            parts = emptyList(),
+            toolCalls = listOf(
+                PluginProviderAssistantToolCall(
+                    id = "call-2",
+                    toolName = "web_search",
+                    arguments = mapOf("query" to "异环游戏 上线时间"),
+                ),
+            ),
+        )
+        val secondTool = PluginProviderMessageDto(
+            role = PluginProviderMessageRole.TOOL,
+            parts = listOf(PluginProviderMessagePartDto.TextPart("second result")),
+            name = "web_search",
+            metadata = mapOf("__host" to mapOf("toolCallId" to "call-2")),
+        )
+        val orderedMessages = listOf(user, firstAssistant, firstTool, secondAssistant, secondTool)
+
+        val request = PluginProviderRequest(
+            requestId = "req-tool-order",
+            availableProviderIds = listOf("openai"),
+            availableModelIdsByProvider = mapOf("openai" to listOf("gpt-4.1")),
+            conversationId = "conv-tool-order",
+            messageIds = listOf("msg-tool-order"),
+            llmInputSnapshot = "search",
+            selectedProviderId = "openai",
+            selectedModelId = "gpt-4.1",
+            messages = orderedMessages,
+            allowHostToolMessages = true,
+        )
+
+        assertEquals(
+            listOf(
+                PluginProviderMessageRole.USER,
+                PluginProviderMessageRole.ASSISTANT,
+                PluginProviderMessageRole.TOOL,
+                PluginProviderMessageRole.ASSISTANT,
+                PluginProviderMessageRole.TOOL,
+            ),
+            request.messages.map { it.role },
+        )
+        assertEquals(
+            listOf(null, null, "call-1", null, "call-2"),
+            request.messages.map { message ->
+                ((message.metadata?.get("__host") as? Map<*, *>)?.get("toolCallId") as? String)
+            },
+        )
+
+        request.messages = orderedMessages
+
+        assertEquals(
+            listOf(
+                PluginProviderMessageRole.USER,
+                PluginProviderMessageRole.ASSISTANT,
+                PluginProviderMessageRole.TOOL,
+                PluginProviderMessageRole.ASSISTANT,
+                PluginProviderMessageRole.TOOL,
+            ),
+            request.messages.map { it.role },
+        )
+        assertEquals(
+            listOf(null, null, "call-1", null, "call-2"),
+            request.messages.map { message ->
+                ((message.metadata?.get("__host") as? Map<*, *>)?.get("toolCallId") as? String)
+            },
+        )
+    }
+
+    @Test
     fun llm_response_carries_tool_calls() {
         val response = PluginLlmResponse(
             requestId = "req-tc-1",

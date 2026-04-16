@@ -66,6 +66,7 @@ data class ToolSourceInvokeRequest(
     val args: PluginToolArgs,
     val timeoutMs: Long,
     val cancellationToken: String? = null,
+    val configProfileId: String? = null,
 )
 
 data class ToolSourceInvokeResult(

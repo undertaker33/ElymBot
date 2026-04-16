@@ -1021,6 +1021,59 @@ class ChatViewModelTest {
         assertEquals("", viewModel.uiState.value.error)
     }
 
+    @Test
+    fun init_selects_app_session_when_qq_sessions_present() = runTest(dispatcher) {
+        val qqSession = ConversationSession(
+            id = "qq-bot123-private-934457024",
+            title = "QQ Friend",
+            botId = "qq-main",
+            providerId = "",
+            personaId = "",
+            maxContextMessages = 12,
+            messages = emptyList(),
+        )
+        val appSession = defaultSession(id = "my-app-session")
+        val deps = FakeChatDependencies(
+            sessions = listOf(qqSession, appSession),
+            bots = listOf(defaultBot()),
+            providers = emptyList(),
+        )
+
+        val viewModel = ChatViewModel(deps)
+        advanceUntilIdle()
+
+        assertEquals("my-app-session", viewModel.uiState.value.selectedSessionId)
+    }
+
+    @Test
+    fun delete_session_falls_back_to_app_session_not_qq() = runTest(dispatcher) {
+        val qqSession = ConversationSession(
+            id = "qq-bot123-group-111222",
+            title = "QQ Group",
+            botId = "qq-main",
+            providerId = "",
+            personaId = "",
+            maxContextMessages = 12,
+            messages = emptyList(),
+        )
+        val appSession1 = defaultSession(id = "app-1")
+        val appSession2 = defaultSession(id = "app-2")
+        val deps = FakeChatDependencies(
+            sessions = listOf(appSession1, qqSession, appSession2),
+            bots = listOf(defaultBot()),
+            providers = emptyList(),
+        )
+        val viewModel = ChatViewModel(deps)
+        advanceUntilIdle()
+        assertEquals("app-1", viewModel.uiState.value.selectedSessionId)
+
+        viewModel.deleteSession("app-1")
+        advanceUntilIdle()
+
+        // Should fall back to another app session, not the QQ session
+        assertEquals("app-2", viewModel.uiState.value.selectedSessionId)
+    }
+
     private class FakeChatDependencies(
         sessions: List<ConversationSession>,
         bots: List<BotProfile>,

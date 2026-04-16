@@ -54,6 +54,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -205,6 +206,55 @@ class OneBotBridgeServerTest {
             }
         } finally {
             extractedDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `qq auto reply failure persists assistant closure and sends short notice`() = runTest {
+        withOneBotState(
+            bot = defaultBot(),
+            config = defaultConfig(),
+            providers = listOf(defaultChatProvider()),
+        ) {
+            val sentReplies = CopyOnWriteArrayList<String>()
+            OneBotBridgeServer.setReplySenderOverrideForTests { _, text, _ ->
+                sentReplies += text
+                OneBotSendResult.success(listOf("failure-notice"))
+            }
+            ChatCompletionService.setHttpClientOverrideForTests(
+                FakeHttpClient(
+                    onExecute = { request ->
+                        HttpResponsePayload(
+                            code = 400,
+                            body = """{"error":{"message":"Messages with role 'tool' must be a response to a preceding message with 'tool_calls'"}}""",
+                            headers = emptyMap(),
+                            url = request.url,
+                        )
+                    },
+                ),
+            )
+
+            invokeHandlePayload(
+                """
+                {
+                  "post_type": "message",
+                  "message_type": "private",
+                  "self_id": "10001",
+                  "user_id": "20002",
+                  "message_id": "message-auto-reply-failure",
+                  "raw_message": "search web"
+                }
+                """.trimIndent(),
+            )
+
+            val messages = ConversationRepository.session("qq-qq-main-private-20002").messages
+            assertEquals("search web", messages.first { it.role == "user" }.content)
+            val assistantFailure = messages.last { it.role == "assistant" }
+            assertEquals("工具调用失败：本轮自动回复未完成，请稍后再试。", assistantFailure.content)
+
+            assertEquals(listOf("工具调用失败：本轮自动回复未完成，请稍后再试。"), sentReplies.toList())
+            assertFalse(sentReplies.single().contains("tool_calls"))
+            assertTrue(RuntimeLogRepository.logs.value.any { it.contains("tool_calls") })
         }
     }
 

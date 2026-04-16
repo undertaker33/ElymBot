@@ -40,9 +40,20 @@ internal object ScheduledTaskRuntimeExecutor {
             return
         }
 
+        require(context.platform.isNotBlank()) { "Scheduled task missing platform for job=${context.jobId}" }
+        require(context.conversationId.isNotBlank() || context.sessionId.isNotBlank()) {
+            "Scheduled task missing conversation target for job=${context.jobId}"
+        }
+        require(context.botId.isNotBlank()) { "Scheduled task missing bot target for job=${context.jobId}" }
+        require(context.configProfileId.isNotBlank()) { "Scheduled task missing config profile for job=${context.jobId}" }
+        require(context.providerId.isNotBlank()) { "Scheduled task missing provider target for job=${context.jobId}" }
+
         val platform = resolvePlatform(context.platform)
         val conversationId = resolveConversationId(context)
         val bot = resolveBot(context.botId)
+        require(bot.configProfileId == context.configProfileId) {
+            "Scheduled task config mismatch for job=${context.jobId}: bot=${bot.id} config=${bot.configProfileId} payload=${context.configProfileId}"
+        }
 
         val userMessageId = ConversationRepository.appendMessage(
             sessionId = conversationId,
@@ -166,6 +177,7 @@ internal object ScheduledTaskRuntimeExecutor {
                             text = result.text,
                             toolCalls = result.toolCalls.map { tc ->
                                 PluginLlmToolCall(
+                                    toolCallId = tc.id,
                                     toolName = tc.name,
                                     arguments = parseToolCallArguments(tc.arguments),
                                 )
@@ -195,6 +207,7 @@ internal object ScheduledTaskRuntimeExecutor {
                         } else {
                             PluginLlmToolCallDelta(
                                 index = index,
+                                toolCallId = toolCall.id,
                                 toolName = normalizedName,
                                 arguments = parseToolCallArguments(toolCall.arguments),
                             )
@@ -221,6 +234,9 @@ internal object ScheduledTaskRuntimeExecutor {
             callbacks = callbacks,
             userMessage = userMessage,
         )
+        if (deliveryResult is com.astrbot.android.runtime.plugin.PluginV2HostLlmDeliveryResult.SendFailed) {
+            error(deliveryResult.sendResult.errorSummary.ifBlank { "scheduled_task_send_failed" })
+        }
         RuntimeLogRepository.append(
             "CronJobBridge: job=${context.jobId} completed with ${deliveryResult::class.simpleName.orEmpty()} conversation=$conversationId",
         )
@@ -236,7 +252,7 @@ internal object ScheduledTaskRuntimeExecutor {
     private fun resolveConversationId(context: CronJobExecutionContext): String {
         return context.conversationId.takeIf { it.isNotBlank() }
             ?: context.sessionId.takeIf { it.isNotBlank() }
-            ?: "cron:${context.jobId}"
+            ?: error("Scheduled task missing conversation target for job=${context.jobId}")
     }
 
     private fun resolveMessageType(platform: RuntimePlatform, conversationId: String): MessageType {
@@ -251,7 +267,7 @@ internal object ScheduledTaskRuntimeExecutor {
     private fun resolveBot(botId: String): com.astrbot.android.model.BotProfile {
         val snapshot = BotRepository.snapshotProfiles()
         return snapshot.firstOrNull { it.id == botId && it.autoReplyEnabled }
-            ?: BotRepository.botProfile.value
+            ?: error("Scheduled task bot not found or auto reply disabled: $botId")
     }
 
     private fun parseToolCallArguments(json: String): Map<String, Any?> {

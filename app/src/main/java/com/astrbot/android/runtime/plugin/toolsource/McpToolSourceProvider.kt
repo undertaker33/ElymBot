@@ -29,7 +29,7 @@ class McpToolSourceProvider : FutureToolSourceProvider {
         val activeServers = configProfile.mcpServers.filter { it.active }
         return activeServers.flatMap { server ->
             runCatching {
-                val tools = sessionManager.discoverTools(server)
+                val tools = sessionManager.discoverTools(context.configProfileId, server)
                 buildBindingsForServer(server, tools)
             }.onFailure { error ->
                 RuntimeLogRepository.append(
@@ -55,7 +55,7 @@ class McpToolSourceProvider : FutureToolSourceProvider {
             )
         } else {
             runCatching {
-                sessionManager.discoverTools(server)
+                sessionManager.discoverTools(context.configProfileId, server)
             }.fold(
                 onSuccess = {
                     ToolSourceAvailability(
@@ -80,8 +80,20 @@ class McpToolSourceProvider : FutureToolSourceProvider {
     override suspend fun invoke(
         request: ToolSourceInvokeRequest,
     ): ToolSourceInvokeResult {
+        val configProfileId = request.configProfileId?.takeIf { it.isNotBlank() }
+            ?: extractConfigProfileId(request)
+            ?: return ToolSourceInvokeResult(
+                result = PluginToolResult(
+                    toolCallId = request.args.toolCallId,
+                    requestId = request.args.requestId,
+                    toolId = request.args.toolId,
+                    status = PluginToolResultStatus.ERROR,
+                    errorCode = "mcp_config_profile_missing",
+                    text = "Missing configProfileId for MCP tool invocation.",
+                ),
+            )
         val ownerId = request.identity.ownerId
-        val server = resolveServerByOwnerId(ownerId)
+        val server = resolveServerByOwnerId(configProfileId, ownerId)
             ?: return ToolSourceInvokeResult(
                 result = PluginToolResult(
                     toolCallId = request.args.toolCallId,
@@ -97,6 +109,7 @@ class McpToolSourceProvider : FutureToolSourceProvider {
         val actualToolName = decodeToolName(server.serverId, encodedToolName)
         return runCatching {
             val output = sessionManager.callTool(
+                configProfileId = configProfileId,
                 server = server,
                 toolName = actualToolName,
                 arguments = request.args.payload,
@@ -156,24 +169,48 @@ class McpToolSourceProvider : FutureToolSourceProvider {
         }
     }
 
-    private fun resolveServerByOwnerId(ownerId: String): McpServerEntry? {
-        return ConfigRepository.profiles.value
-            .asSequence()
-            .flatMap { profile -> profile.mcpServers.asSequence() }
+    private fun resolveServerByOwnerId(configProfileId: String?, ownerId: String): McpServerEntry? {
+        val resolvedConfigId = configProfileId?.takeIf { it.isNotBlank() } ?: return null
+        return ConfigRepository.resolve(resolvedConfigId)
+            .mcpServers
             .firstOrNull { server -> "mcp.${server.serverId}" == ownerId && server.active }
     }
 
     private fun encodeToolName(serverId: String, toolName: String): String {
-        return "${serverId}__${toolName}"
+        return "mcp_${encodeSegment(serverId)}_${encodeSegment(toolName)}"
     }
 
     private fun decodeToolName(serverId: String, encodedToolName: String): String {
-        val prefix = "${serverId}__"
-        return if (encodedToolName.startsWith(prefix)) {
+        val prefix = "mcp_${encodeSegment(serverId)}_"
+        val encodedSegment = if (encodedToolName.startsWith(prefix)) {
             encodedToolName.removePrefix(prefix)
         } else {
-            encodedToolName
+            return encodedToolName
         }
+        return decodeSegment(encodedSegment)
+    }
+
+    private fun encodeSegment(raw: String): String {
+        return raw.toByteArray(Charsets.UTF_8).joinToString(separator = "") { byte ->
+            "%02x".format(byte.toInt() and 0xff)
+        }
+    }
+
+    private fun decodeSegment(encoded: String): String {
+        require(encoded.length % 2 == 0) { "Invalid MCP encoded tool segment." }
+        val bytes = ByteArray(encoded.length / 2)
+        var cursor = 0
+        while (cursor < encoded.length) {
+            bytes[cursor / 2] = encoded.substring(cursor, cursor + 2).toInt(16).toByte()
+            cursor += 2
+        }
+        return bytes.toString(Charsets.UTF_8)
+    }
+
+    private fun extractConfigProfileId(request: ToolSourceInvokeRequest): String? {
+        val hostMetadata = request.args.metadata?.get("__host") as? Map<*, *> ?: return null
+        val eventExtras = hostMetadata["eventExtras"] as? Map<*, *> ?: return null
+        return (eventExtras["configProfileId"] as? String)?.trim()?.takeIf { it.isNotBlank() }
     }
 
     private companion object {

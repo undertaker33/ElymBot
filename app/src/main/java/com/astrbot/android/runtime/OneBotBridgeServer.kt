@@ -13,6 +13,7 @@ import com.astrbot.android.data.StreamingResponseSegmenter
 import com.astrbot.android.data.plugin.PluginStoragePaths
 import com.astrbot.android.model.BotProfile
 import com.astrbot.android.model.chat.ConversationAttachment
+import com.astrbot.android.model.chat.ConversationToolCall
 import com.astrbot.android.model.PersonaProfile
 import com.astrbot.android.model.PersonaToolEnablementSnapshot
 import com.astrbot.android.model.ProviderCapability
@@ -152,6 +153,7 @@ object OneBotBridgeServer {
     private const val AUTH_TOKEN = "astrbot_android_bridge"
     private const val MAX_RECENT_MESSAGE_IDS = 512
     private const val ONE_BOT_PLATFORM_ADAPTER_TYPE = "onebot"
+    internal const val AUTO_REPLY_FAILURE_NOTICE = "工具调用失败：本轮自动回复未完成，请稍后再试。"
     internal const val KEYWORD_BLOCK_NOTICE = "你的消息或者大模型的响应中包含不适当的内容，已被屏蔽。"
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -545,11 +547,11 @@ object OneBotBridgeServer {
                 )
             }
 
-            val currentSession = ConversationRepository.session(sessionId)
             val runtimeContext = RuntimeContextResolver.resolve(
                 event = RuntimeIngressEvent(
                     platform = RuntimePlatform.QQ_ONEBOT,
                     conversationId = session.pluginConversationId(),
+                    repositorySessionId = sessionId,
                     messageId = userMessage.id,
                     sender = SenderInfo(
                         userId = event.userId,
@@ -702,7 +704,12 @@ object OneBotBridgeServer {
             }.getOrElse { error ->
                 val details = error.message ?: error.javaClass.simpleName
                 RuntimeLogRepository.append("Auto reply failed: $details")
-                sendFailureNoticeIfNeeded(event, "Auto reply failed: $details")
+                ConversationRepository.appendMessage(
+                    sessionId = sessionId,
+                    role = "assistant",
+                    content = AUTO_REPLY_FAILURE_NOTICE,
+                )
+                sendFailureNoticeIfNeeded(event, AUTO_REPLY_FAILURE_NOTICE)
                 return@lock
             }
 
@@ -1018,6 +1025,7 @@ object OneBotBridgeServer {
                     text = result.text,
                     toolCalls = result.toolCalls.map { tc ->
                         PluginLlmToolCall(
+                            toolCallId = tc.id,
                             toolName = tc.name,
                             arguments = parseToolCallArguments(tc.arguments),
                         )
@@ -1047,6 +1055,7 @@ object OneBotBridgeServer {
                 } else {
                     PluginLlmToolCallDelta(
                         index = index,
+                        toolCallId = toolCall.id,
                         toolName = normalizedName,
                         arguments = parseToolCallArguments(toolCall.arguments),
                     )
@@ -1087,6 +1096,7 @@ object OneBotBridgeServer {
             val role = when (message.role.lowercase(Locale.US)) {
                 "system" -> PluginProviderMessageRole.SYSTEM
                 "assistant" -> PluginProviderMessageRole.ASSISTANT
+                "tool" -> PluginProviderMessageRole.TOOL
                 else -> PluginProviderMessageRole.USER
             }
             val parts = mutableListOf<PluginProviderMessagePartDto>()
@@ -1107,9 +1117,21 @@ object OneBotBridgeServer {
             if (parts.isEmpty()) {
                 parts += PluginProviderMessagePartDto.TextPart("[empty]")
             }
+            val toolName: String? = if (role == PluginProviderMessageRole.TOOL) {
+                message.toolCallId.ifBlank { "tool" }
+            } else {
+                null
+            }
+            val toolMeta: Map<String, Any?>? = if (role == PluginProviderMessageRole.TOOL) {
+                mapOf("__host" to mapOf("toolCallId" to message.toolCallId))
+            } else {
+                null
+            }
             PluginProviderMessageDto(
                 role = role,
                 parts = parts,
+                name = toolName,
+                metadata = toolMeta,
             )
         }
     }
@@ -1142,6 +1164,14 @@ object OneBotBridgeServer {
                 content = text,
                 timestamp = System.currentTimeMillis(),
                 attachments = attachments,
+                toolCallId = toolCallId.orEmpty(),
+                assistantToolCalls = message.toolCalls.map { toolCall ->
+                    ConversationToolCall(
+                        id = toolCall.normalizedId,
+                        name = toolCall.normalizedToolName,
+                        arguments = com.astrbot.android.model.plugin.PluginExecutionProtocolJson.canonicalJson(toolCall.normalizedArguments),
+                    )
+                },
             )
         }
     }

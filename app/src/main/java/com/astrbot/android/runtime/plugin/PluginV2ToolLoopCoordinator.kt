@@ -4,6 +4,7 @@ import com.astrbot.android.model.plugin.PluginExecutionProtocolJson
 import com.astrbot.android.model.plugin.PluginRuntimeLogLevel
 import com.astrbot.android.model.plugin.PluginV2ToolDiagnosticCodes
 import java.util.Collections
+import java.util.LinkedHashMap
 import kotlin.coroutines.cancellation.CancellationException
 
 internal fun interface PluginV2ToolExecutor {
@@ -38,19 +39,27 @@ internal class PluginV2ToolLoopCoordinator(
     suspend fun runToolLoop(
         event: PluginMessageEvent,
         baseRequest: PluginProviderRequest,
+        assistantText: String,
         toolCalls: List<PluginLlmToolCall>,
         snapshot: PluginV2ActiveRuntimeSnapshot,
     ): PluginV2ToolLoopRunResult {
         var nextRequest = baseRequest
         val executedToolNames = mutableListOf<String>()
         val executedToolCallIds = mutableListOf<String>()
+        val assistantToolCalls = mutableListOf<PluginProviderAssistantToolCall>()
+        val toolMessages = mutableListOf<PluginProviderMessageDto>()
 
         toolCalls.forEach { toolCall ->
             val toolName = toolCall.normalizedToolName
-            val toolCallId = toolCallIdFactory()
+            val toolCallId = toolCall.normalizedToolCallId ?: toolCallIdFactory()
             val descriptor = resolveToolDescriptorByName(
                 toolName = toolName,
                 snapshot = snapshot,
+            )
+            assistantToolCalls += PluginProviderAssistantToolCall(
+                id = toolCallId,
+                toolName = toolName,
+                arguments = toolCall.normalizedArguments,
             )
             if (descriptor == null) {
                 // Unknown tool call: no lifecycle payload can be emitted without a real descriptor.
@@ -79,8 +88,7 @@ internal class PluginV2ToolLoopCoordinator(
                         "errorCode" to errorResult.errorCode.orEmpty(),
                     ),
                 )
-                nextRequest = reinjectToolResult(
-                    request = nextRequest,
+                toolMessages += buildToolResultMessage(
                     descriptorName = toolName,
                     result = errorResult,
                 )
@@ -222,8 +230,7 @@ internal class PluginV2ToolLoopCoordinator(
             executedToolNames += toolName
             executedToolCallIds += frozenArgs.toolCallId
 
-            nextRequest = reinjectToolResult(
-                request = nextRequest,
+            toolMessages += buildToolResultMessage(
                 descriptorName = descriptor.name,
                 result = frozenResult,
             )
@@ -237,6 +244,15 @@ internal class PluginV2ToolLoopCoordinator(
             )
         }
 
+        if (assistantToolCalls.isNotEmpty()) {
+            nextRequest = reinjectToolRound(
+                request = nextRequest,
+                assistantText = assistantText,
+                assistantToolCalls = assistantToolCalls,
+                toolMessages = toolMessages,
+            )
+        }
+
         return PluginV2ToolLoopRunResult(
             nextRequest = nextRequest,
             executedToolNames = executedToolNames.toList(),
@@ -244,11 +260,10 @@ internal class PluginV2ToolLoopCoordinator(
         )
     }
 
-    private fun reinjectToolResult(
-        request: PluginProviderRequest,
+    private fun buildToolResultMessage(
         descriptorName: String,
         result: PluginToolResult,
-    ): PluginProviderRequest {
+    ): PluginProviderMessageDto {
         val parts = buildList<PluginProviderMessagePartDto> {
             result.text?.takeIf { it.isNotEmpty() }?.let { text ->
                 add(PluginProviderMessagePartDto.TextPart(text))
@@ -261,7 +276,7 @@ internal class PluginV2ToolLoopCoordinator(
             }
         }
 
-        val toolMessage = PluginProviderMessageDto(
+        return PluginProviderMessageDto(
             role = PluginProviderMessageRole.TOOL,
             name = descriptorName,
             parts = parts,
@@ -271,7 +286,24 @@ internal class PluginV2ToolLoopCoordinator(
                 ),
             ),
         )
+    }
 
+    private fun reinjectToolRound(
+        request: PluginProviderRequest,
+        assistantText: String,
+        assistantToolCalls: List<PluginProviderAssistantToolCall>,
+        toolMessages: List<PluginProviderMessageDto>,
+    ): PluginProviderRequest {
+        val assistantTextParts = buildList<PluginProviderMessagePartDto> {
+            assistantText.takeIf { it.isNotBlank() }?.let { text ->
+                add(PluginProviderMessagePartDto.TextPart(text))
+            }
+        }
+        val assistantMessage = PluginProviderMessageDto(
+            role = PluginProviderMessageRole.ASSISTANT,
+            parts = assistantTextParts,
+            toolCalls = assistantToolCalls,
+        )
         return PluginProviderRequest(
             requestId = request.requestId,
             availableProviderIds = request.availableProviderIds,
@@ -282,13 +314,14 @@ internal class PluginV2ToolLoopCoordinator(
             selectedProviderId = request.selectedProviderId,
             selectedModelId = request.selectedModelId,
             systemPrompt = request.systemPrompt,
-            messages = request.messages + toolMessage,
+            messages = request.messages + assistantMessage + toolMessages,
             temperature = request.temperature,
             topP = request.topP,
             maxTokens = request.maxTokens,
             streamingEnabled = request.streamingEnabled,
             metadata = request.metadata,
             allowHostToolMessages = true,
+            tools = request.tools,
         )
     }
 

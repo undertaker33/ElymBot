@@ -3,6 +3,7 @@ package com.astrbot.android.runtime
 import com.astrbot.android.model.NapCatRuntimeState
 import com.astrbot.android.model.RuntimeStatus
 import java.io.File
+import kotlin.io.path.createTempDirectory
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -10,7 +11,7 @@ import org.junit.Test
 class ContainerBridgeRuntimeSupportTest {
     @Test
     fun `load progress snapshot localizes labels and installer cache state`() {
-        val root = createTempDir(prefix = "bridge-runtime")
+        val root = createTempDirectory(prefix = "bridge-runtime").toFile()
         val runDir = File(root, "runtime/run").apply { mkdirs() }
         runDir.resolve("napcat_progress").writeText("48")
         runDir.resolve("napcat_progress_label").writeText("download-installer")
@@ -71,7 +72,7 @@ class ContainerBridgeRuntimeSupportTest {
 
     @Test
     fun `runtime activity timestamp uses newest progress or log file`() {
-        val root = createTempDir(prefix = "bridge-activity")
+        val root = createTempDirectory(prefix = "bridge-activity").toFile()
         val logsDir = File(root, "runtime/logs").apply { mkdirs() }
         val runDir = File(root, "runtime/run").apply { mkdirs() }
         val logFile = logsDir.resolve("napcat.log").apply {

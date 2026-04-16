@@ -9,6 +9,7 @@ import com.astrbot.android.runtime.plugin.PluginLlmToolCall
 import com.astrbot.android.runtime.plugin.PluginLlmResponse
 import com.astrbot.android.runtime.plugin.PluginLlmUsageSnapshot
 import com.astrbot.android.runtime.plugin.PluginMessageEventResult
+import com.astrbot.android.runtime.plugin.PluginProviderAssistantToolCall
 import com.astrbot.android.runtime.plugin.PluginProviderMessageDto
 import com.astrbot.android.runtime.plugin.PluginProviderMessagePartDto
 import com.astrbot.android.runtime.plugin.PluginProviderMessageRole
@@ -917,6 +918,12 @@ object PluginExecutionProtocolJson {
                     message.parts.forEach { put(encodePluginProviderMessagePartDto(it)) }
                 },
             )
+            put(
+                "toolCalls",
+                JSONArray().apply {
+                    message.toolCalls.forEach { put(encodePluginProviderAssistantToolCall(it)) }
+                },
+            )
             put("metadata", message.metadata?.let(::encodeJsonLikeObject) ?: JSONObject.NULL)
         }
     }
@@ -928,6 +935,31 @@ object PluginExecutionProtocolJson {
             parts = decodeProviderMessageParts(readRequiredArray(json, "parts", "parts"), "parts"),
             name = readOptionalString(json, "name"),
             metadata = decodeJsonLikeObject(readOptionalObject(json, "metadata"), "metadata"),
+            toolCalls = readOptionalArray(json, "toolCalls")?.let { array ->
+                buildList {
+                    for (index in 0 until array.length()) {
+                        val item = array.optJSONObject(index)
+                            ?: throw IllegalArgumentException("toolCalls[$index] must be an object")
+                        add(decodePluginProviderAssistantToolCall(item))
+                    }
+                }
+            } ?: emptyList(),
+        )
+    }
+
+    private fun encodePluginProviderAssistantToolCall(call: PluginProviderAssistantToolCall): JSONObject {
+        return JSONObject().apply {
+            put("id", call.normalizedId)
+            put("toolName", call.normalizedToolName)
+            put("arguments", encodeJsonLikeObject(call.normalizedArguments))
+        }
+    }
+
+    private fun decodePluginProviderAssistantToolCall(json: JSONObject): PluginProviderAssistantToolCall {
+        return PluginProviderAssistantToolCall(
+            id = readRequiredString(json, "id", "id"),
+            toolName = readRequiredString(json, "toolName", "toolName"),
+            arguments = decodeJsonLikeObject(readOptionalObject(json, "arguments"), "arguments") ?: emptyMap(),
         )
     }
 
@@ -1029,6 +1061,7 @@ object PluginExecutionProtocolJson {
 
     private fun encodePluginLlmToolCall(call: PluginLlmToolCall): JSONObject {
         return JSONObject().apply {
+            put("toolCallId", call.normalizedToolCallId?.let(::encodeJsonLikeValue) ?: JSONObject.NULL)
             put("toolName", call.normalizedToolName)
             put("arguments", encodeJsonLikeObject(call.normalizedArguments))
             put("metadata", call.normalizedMetadata?.let(::encodeJsonLikeObject) ?: JSONObject.NULL)
@@ -1040,6 +1073,7 @@ object PluginExecutionProtocolJson {
         val arguments = decodeJsonLikeObject(readOptionalObject(json, "arguments"), "arguments") ?: emptyMap()
         val metadata = decodeJsonLikeObject(readOptionalObject(json, "metadata"), "metadata")
         return PluginLlmToolCall(
+            toolCallId = readOptionalString(json, "toolCallId"),
             toolName = toolName,
             arguments = arguments,
             metadata = metadata,

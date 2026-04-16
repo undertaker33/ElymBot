@@ -124,7 +124,7 @@ fun ChatScreen(
     }
     val chatProviders = providers.filter { it.enabled && ProviderCapability.CHAT in it.capabilities }
 
-    var showQqConversations by remember { mutableStateOf(true) }
+    var showQqConversations by remember { mutableStateOf(false) }
     val visibleSessions = sessions.filter { session -> showQqConversations || !session.isQqConversation() }
 
     var input by remember(uiState.selectedSessionId) { mutableStateOf("") }
@@ -613,7 +613,7 @@ internal fun ChatDrawerContent(
     val uiState by chatViewModel.uiState.collectAsState()
     val scope = rememberCoroutineScope()
 
-    var showQqConversations by remember { mutableStateOf(true) }
+    var showQqConversations by remember { mutableStateOf(false) }
     val visibleSessions = sessions.filter { session -> showQqConversations || !session.isQqConversation() }
     var selectedSessionIds by remember { mutableStateOf(emptySet<String>()) }
     var showDeleteConfirm by remember { mutableStateOf(false) }

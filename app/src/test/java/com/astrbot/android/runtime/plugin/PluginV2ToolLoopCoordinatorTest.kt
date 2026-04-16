@@ -116,6 +116,211 @@ class PluginV2ToolLoopCoordinatorTest {
     }
 
     @Test
+    fun web_search_tool_round_reinjects_empty_assistant_tool_calls_before_tool_result() = runBlocking {
+        val logBus = InMemoryPluginRuntimeLogBus(clock = { 1L })
+        val seenRequests = CopyOnWriteArrayList<PluginProviderRequest>()
+        val providerCalls = AtomicInteger(0)
+
+        val coordinator = PluginV2LlmPipelineCoordinator(
+            dispatchEngine = PluginV2DispatchEngine(logBus = logBus, clock = { 1L }),
+            toolExecutor = PluginV2ToolExecutor { args ->
+                PluginToolResult(
+                    toolCallId = args.toolCallId,
+                    requestId = args.requestId,
+                    toolId = args.toolId,
+                    status = PluginToolResultStatus.SUCCESS,
+                    text = "web search result",
+                )
+            },
+            logBus = logBus,
+            clock = { 1L },
+            requestIdFactory = { "req-web-search-loop" },
+        )
+
+        coordinator.runPreSendStages(
+            input = pipelineInput(
+                event = sampleMessageEvent(rawText = "search AstrBot news"),
+                streamingMode = PluginV2StreamingMode.NON_STREAM,
+            ) { request, _ ->
+                seenRequests += request
+                when (providerCalls.incrementAndGet()) {
+                    1 -> PluginV2ProviderInvocationResult.NonStreaming(
+                        PluginLlmResponse(
+                            requestId = request.requestId,
+                            providerId = request.selectedProviderId,
+                            modelId = request.selectedModelId,
+                            text = "",
+                            toolCalls = listOf(
+                                PluginLlmToolCall(
+                                    toolCallId = "call_web_search",
+                                    toolName = "web_search",
+                                    arguments = linkedMapOf("query" to "AstrBot"),
+                                ),
+                            ),
+                        ),
+                    )
+
+                    else -> PluginV2ProviderInvocationResult.NonStreaming(
+                        PluginLlmResponse(
+                            requestId = request.requestId,
+                            providerId = request.selectedProviderId,
+                            modelId = request.selectedModelId,
+                            text = "final answer",
+                        ),
+                    )
+                }
+            },
+            snapshot = snapshotOf(
+                llmFixture(
+                    pluginId = "com.example.tool.loop.web.search",
+                    logBus = logBus,
+                ) { hostApi ->
+                    hostApi.registerTool(
+                        descriptor = PluginToolDescriptor(
+                            pluginId = "com.example.tool.loop.web.search",
+                            name = "web_search",
+                            description = "search the web",
+                            visibility = PluginToolVisibility.LLM_VISIBLE,
+                            sourceKind = PluginToolSourceKind.PLUGIN_V2,
+                            inputSchema = linkedMapOf("type" to "object"),
+                        ),
+                        handler = PluginV2CallbackHandle {},
+                    )
+                },
+            ),
+        )
+
+        val second = seenRequests[1]
+        val assistant = second.messages[second.messages.size - 2]
+        assertEquals(PluginProviderMessageRole.ASSISTANT, assistant.role)
+        assertTrue(assistant.parts.isEmpty())
+        assertEquals(listOf("call_web_search"), assistant.toolCalls.map { it.normalizedId })
+        assertEquals(listOf("web_search"), assistant.toolCalls.map { it.normalizedToolName })
+
+        val tool = second.messages.last()
+        assertEquals(PluginProviderMessageRole.TOOL, tool.role)
+        assertEquals("web_search", tool.name)
+        val hostMetadata = tool.metadata?.get("__host") as? Map<*, *>
+        assertEquals("call_web_search", hostMetadata?.get("toolCallId"))
+        assertEquals(
+            "web search result",
+            tool.parts.filterIsInstance<PluginProviderMessagePartDto.TextPart>().single().text,
+        )
+    }
+
+    @Test
+    fun repeated_web_search_tool_rounds_preserve_assistant_tool_adjacency_across_reinjection() = runBlocking {
+        val logBus = InMemoryPluginRuntimeLogBus(clock = { 1L })
+        val seenRequests = CopyOnWriteArrayList<PluginProviderRequest>()
+        val providerCalls = AtomicInteger(0)
+
+        val coordinator = PluginV2LlmPipelineCoordinator(
+            dispatchEngine = PluginV2DispatchEngine(logBus = logBus, clock = { 1L }),
+            toolExecutor = PluginV2ToolExecutor { args ->
+                PluginToolResult(
+                    toolCallId = args.toolCallId,
+                    requestId = args.requestId,
+                    toolId = args.toolId,
+                    status = PluginToolResultStatus.SUCCESS,
+                    text = "result for ${args.payload["query"]}",
+                )
+            },
+            logBus = logBus,
+            clock = { 1L },
+            requestIdFactory = { "req-web-search-multi-round" },
+        )
+
+        val result = coordinator.runPreSendStages(
+            input = pipelineInput(
+                event = sampleMessageEvent(rawText = "search 异环"),
+                streamingMode = PluginV2StreamingMode.NON_STREAM,
+            ) { request, _ ->
+                seenRequests += request
+                when (providerCalls.incrementAndGet()) {
+                    1 -> PluginV2ProviderInvocationResult.NonStreaming(
+                        PluginLlmResponse(
+                            requestId = request.requestId,
+                            providerId = request.selectedProviderId,
+                            modelId = request.selectedModelId,
+                            text = "",
+                            toolCalls = listOf(
+                                PluginLlmToolCall(
+                                    toolCallId = "call_web_search_1",
+                                    toolName = "web_search",
+                                    arguments = linkedMapOf("query" to "异环 开服时间 游戏 上线"),
+                                ),
+                            ),
+                        ),
+                    )
+
+                    2 -> PluginV2ProviderInvocationResult.NonStreaming(
+                        PluginLlmResponse(
+                            requestId = request.requestId,
+                            providerId = request.selectedProviderId,
+                            modelId = request.selectedModelId,
+                            text = "",
+                            toolCalls = listOf(
+                                PluginLlmToolCall(
+                                    toolCallId = "call_web_search_2",
+                                    toolName = "web_search",
+                                    arguments = linkedMapOf("query" to "异环游戏 什么时候开服 上线时间"),
+                                ),
+                            ),
+                        ),
+                    )
+
+                    else -> PluginV2ProviderInvocationResult.NonStreaming(
+                        PluginLlmResponse(
+                            requestId = request.requestId,
+                            providerId = request.selectedProviderId,
+                            modelId = request.selectedModelId,
+                            text = "final answer",
+                            toolCalls = emptyList(),
+                        ),
+                    )
+                }
+            },
+            snapshot = snapshotOf(
+                llmFixture(
+                    pluginId = "com.example.tool.loop.web.search.multi",
+                    logBus = logBus,
+                ) { hostApi ->
+                    hostApi.registerTool(
+                        descriptor = PluginToolDescriptor(
+                            pluginId = "com.example.tool.loop.web.search.multi",
+                            name = "web_search",
+                            description = "search the web",
+                            visibility = PluginToolVisibility.LLM_VISIBLE,
+                            sourceKind = PluginToolSourceKind.PLUGIN_V2,
+                            inputSchema = linkedMapOf("type" to "object"),
+                        ),
+                        handler = PluginV2CallbackHandle {},
+                    )
+                },
+            ),
+        )
+
+        assertEquals("final answer", result.sendableResult.text)
+        assertEquals(3, seenRequests.size)
+        assertEquals(
+            listOf(
+                PluginProviderMessageRole.USER,
+                PluginProviderMessageRole.ASSISTANT,
+                PluginProviderMessageRole.TOOL,
+                PluginProviderMessageRole.ASSISTANT,
+                PluginProviderMessageRole.TOOL,
+            ),
+            seenRequests[2].messages.map { it.role },
+        )
+        assertEquals(
+            listOf(null, null, "call_web_search_1", null, "call_web_search_2"),
+            seenRequests[2].messages.map { message ->
+                ((message.metadata?.get("__host") as? Map<*, *>)?.get("toolCallId") as? String)
+            },
+        )
+    }
+
+    @Test
     fun tool_loop_resolves_descriptor_from_centralized_registry_not_raw_registry_scan() = runBlocking {
         val logBus = InMemoryPluginRuntimeLogBus(clock = { 1L })
         val executedToolIds = CopyOnWriteArrayList<String>()
@@ -613,6 +818,10 @@ class PluginV2ToolLoopCoordinatorTest {
 
         assertTrue(seenRequests.size >= 2)
         val second = seenRequests[1]
+        val assistantMessage = second.messages[second.messages.size - 2]
+        assertEquals(PluginProviderMessageRole.ASSISTANT, assistantMessage.role)
+        assertEquals(1, assistantMessage.toolCalls.size)
+        assertEquals("alpha", assistantMessage.toolCalls.single().normalizedToolName)
         val lastMessage = second.messages.last()
         assertEquals(PluginProviderMessageRole.TOOL, lastMessage.role)
         assertEquals("alpha", lastMessage.name)
@@ -620,10 +829,183 @@ class PluginV2ToolLoopCoordinatorTest {
         assertNotNull(hostMetadata)
         val toolCallId = hostMetadata?.get("toolCallId") as? String
         assertTrue(!toolCallId.isNullOrBlank())
+        assertEquals(toolCallId, assistantMessage.toolCalls.single().normalizedId)
         val parts = lastMessage.parts.filterIsInstance<PluginProviderMessagePartDto.TextPart>()
         assertEquals(2, parts.size)
         assertEquals("tool-text", parts[0].text)
         assertEquals("{\"ok\":true}", parts[1].text)
+    }
+
+    @Test
+    fun multiple_tool_results_are_reinjected_after_single_assistant_tool_call_round_with_original_ids() = runBlocking {
+        val logBus = InMemoryPluginRuntimeLogBus(clock = { 1L })
+        val providerCalls = AtomicInteger(0)
+        val seenRequests = CopyOnWriteArrayList<PluginProviderRequest>()
+
+        val coordinator = PluginV2LlmPipelineCoordinator(
+            dispatchEngine = PluginV2DispatchEngine(logBus = logBus, clock = { 1L }),
+            toolExecutor = PluginV2ToolExecutor { args ->
+                PluginToolResult(
+                    toolCallId = args.toolCallId,
+                    requestId = args.requestId,
+                    toolId = args.toolId,
+                    status = PluginToolResultStatus.SUCCESS,
+                    text = "result-${args.toolId.substringAfterLast(':')}",
+                )
+            },
+            logBus = logBus,
+            clock = { 1L },
+            requestIdFactory = { "req-tool-loop-original-id" },
+        )
+
+        coordinator.runPreSendStages(
+            input = pipelineInput(
+                event = sampleMessageEvent(rawText = "hello reinject order"),
+                streamingMode = PluginV2StreamingMode.NON_STREAM,
+            ) { request, _ ->
+                seenRequests += request
+                when (providerCalls.incrementAndGet()) {
+                    1 -> PluginV2ProviderInvocationResult.NonStreaming(
+                        PluginLlmResponse(
+                            requestId = request.requestId,
+                            providerId = request.selectedProviderId,
+                            modelId = request.selectedModelId,
+                            text = "Need two tools",
+                            toolCalls = listOf(
+                                PluginLlmToolCall(
+                                    toolCallId = "call_alpha",
+                                    toolName = "alpha",
+                                    arguments = linkedMapOf("q" to "a"),
+                                ),
+                                PluginLlmToolCall(
+                                    toolCallId = "call_beta",
+                                    toolName = "beta",
+                                    arguments = linkedMapOf("q" to "b"),
+                                ),
+                            ),
+                        ),
+                    )
+
+                    else -> PluginV2ProviderInvocationResult.NonStreaming(
+                        PluginLlmResponse(
+                            requestId = request.requestId,
+                            providerId = request.selectedProviderId,
+                            modelId = request.selectedModelId,
+                            text = "assistant",
+                        ),
+                    )
+                }
+            },
+            snapshot = snapshotOf(
+                llmFixture(
+                    pluginId = "com.example.tool.loop.reinject.multi",
+                    logBus = logBus,
+                ) { hostApi ->
+                    listOf("alpha", "beta").forEach { toolName ->
+                        hostApi.registerTool(
+                            descriptor = PluginToolDescriptor(
+                                pluginId = "com.example.tool.loop.reinject.multi",
+                                name = toolName,
+                                description = "$toolName tool",
+                                visibility = PluginToolVisibility.LLM_VISIBLE,
+                                sourceKind = PluginToolSourceKind.PLUGIN_V2,
+                                inputSchema = linkedMapOf("type" to "object"),
+                            ),
+                            handler = PluginV2CallbackHandle {},
+                        )
+                    }
+                },
+            ),
+        )
+
+        val second = seenRequests[1]
+        assertEquals(4, second.messages.size)
+        val assistant = second.messages[1]
+        assertEquals(PluginProviderMessageRole.ASSISTANT, assistant.role)
+        assertEquals("Need two tools", assistant.parts.filterIsInstance<PluginProviderMessagePartDto.TextPart>().single().text)
+        assertEquals(listOf("call_alpha", "call_beta"), assistant.toolCalls.map { it.normalizedId })
+        assertEquals(listOf(PluginProviderMessageRole.TOOL, PluginProviderMessageRole.TOOL), second.messages.takeLast(2).map { it.role })
+        assertEquals(listOf("call_alpha", "call_beta"), second.messages.takeLast(2).mapNotNull { message ->
+            ((message.metadata?.get("__host") as? Map<*, *>)?.get("toolCallId") as? String)
+        })
+    }
+
+    @Test
+    fun streaming_tool_call_delta_preserves_original_tool_call_id() = runBlocking {
+        val logBus = InMemoryPluginRuntimeLogBus(clock = { 1L })
+        val seenToolCallIds = CopyOnWriteArrayList<String>()
+        val providerCalls = AtomicInteger(0)
+
+        val coordinator = PluginV2LlmPipelineCoordinator(
+            dispatchEngine = PluginV2DispatchEngine(logBus = logBus, clock = { 1L }),
+            toolExecutor = PluginV2ToolExecutor { args ->
+                seenToolCallIds += args.toolCallId
+                PluginToolResult(
+                    toolCallId = args.toolCallId,
+                    requestId = args.requestId,
+                    toolId = args.toolId,
+                    status = PluginToolResultStatus.SUCCESS,
+                    text = "ok",
+                )
+            },
+            logBus = logBus,
+            clock = { 1L },
+            requestIdFactory = { "req-tool-loop-stream-id" },
+        )
+
+        coordinator.runPreSendStages(
+            input = pipelineInput(
+                event = sampleMessageEvent(rawText = "hello stream id"),
+                streamingMode = PluginV2StreamingMode.NATIVE_STREAM,
+            ) { request, _ ->
+                when (providerCalls.incrementAndGet()) {
+                    1 -> PluginV2ProviderInvocationResult.Streaming(
+                        events = listOf(
+                            PluginV2ProviderStreamChunk(
+                                toolCallDeltas = listOf(
+                                    PluginLlmToolCallDelta(
+                                        index = 0,
+                                        toolCallId = "call_stream_alpha",
+                                        toolName = "alpha",
+                                        arguments = linkedMapOf("q" to "a"),
+                                    ),
+                                ),
+                            ),
+                            PluginV2ProviderStreamChunk(isCompletion = true, finishReason = "tool_calls"),
+                        ),
+                    )
+
+                    else -> PluginV2ProviderInvocationResult.NonStreaming(
+                        PluginLlmResponse(
+                            requestId = request.requestId,
+                            providerId = request.selectedProviderId,
+                            modelId = request.selectedModelId,
+                            text = "assistant",
+                        ),
+                    )
+                }
+            },
+            snapshot = snapshotOf(
+                llmFixture(
+                    pluginId = "com.example.tool.loop.streaming.id",
+                    logBus = logBus,
+                ) { hostApi ->
+                    hostApi.registerTool(
+                        descriptor = PluginToolDescriptor(
+                            pluginId = "com.example.tool.loop.streaming.id",
+                            name = "alpha",
+                            description = "alpha tool",
+                            visibility = PluginToolVisibility.LLM_VISIBLE,
+                            sourceKind = PluginToolSourceKind.PLUGIN_V2,
+                            inputSchema = linkedMapOf("type" to "object"),
+                        ),
+                        handler = PluginV2CallbackHandle {},
+                    )
+                },
+            ),
+        )
+
+        assertEquals(listOf("call_stream_alpha"), seenToolCallIds.toList())
     }
 
     @Test
