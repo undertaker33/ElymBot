@@ -1239,11 +1239,23 @@ object ChatCompletionService {
                         put(JSONObject().put("role", "system").put("content", systemPrompt))
                     }
                     messages.forEach { message ->
-                        put(
-                            JSONObject()
-                                .put("role", message.role)
-                                .put("content", buildOpenAiContent(message)),
-                        )
+                        if (message.role == "tool") {
+                            put(
+                                JSONObject().apply {
+                                    put("role", "tool")
+                                    put("content", message.content)
+                                    message.id.takeIf { it.isNotBlank() }?.let { toolCallId ->
+                                        put("tool_call_id", toolCallId)
+                                    }
+                                },
+                            )
+                        } else {
+                            put(
+                                JSONObject()
+                                    .put("role", message.role)
+                                    .put("content", buildOpenAiContent(message)),
+                            )
+                        }
                     }
                 },
             )

@@ -159,6 +159,8 @@ private fun ConfigSkillEntity.toEntry(): SkillEntry {
         skillId = skillId,
         name = name,
         description = description,
+        content = content,
+        priority = priority,
         active = active,
     )
 }
@@ -169,6 +171,8 @@ private fun SkillEntry.toEntity(configId: String, sortIndex: Int): ConfigSkillEn
         skillId = skillId,
         name = name,
         description = description,
+        content = content,
+        priority = priority,
         active = active,
         sortIndex = sortIndex,
     )

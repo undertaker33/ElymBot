@@ -51,6 +51,12 @@ import com.astrbot.android.runtime.botcommand.BotCommandParser
 import com.astrbot.android.runtime.botcommand.BotCommandResources
 import com.astrbot.android.runtime.botcommand.BotCommandRouter
 import com.astrbot.android.runtime.botcommand.BotCommandSource
+import com.astrbot.android.runtime.context.RuntimeContextResolver
+import com.astrbot.android.runtime.context.RuntimeIngressEvent
+import com.astrbot.android.runtime.context.RuntimePlatform
+import com.astrbot.android.runtime.context.SenderInfo
+import com.astrbot.android.runtime.context.StreamingModeResolver
+import com.astrbot.android.runtime.context.SystemPromptBuilder
 import com.astrbot.android.runtime.plugin.PluginLlmResponse
 import com.astrbot.android.runtime.plugin.PluginLlmToolCall
 import com.astrbot.android.runtime.plugin.PluginLlmToolCallDelta
@@ -186,6 +192,71 @@ object OneBotBridgeServer {
 
     fun initialize(context: Context) {
         appContext = context.applicationContext
+    }
+
+    internal fun sendScheduledMessage(
+        conversationId: String,
+        text: String,
+        attachments: List<ConversationAttachment> = emptyList(),
+        botId: String = "",
+    ): OneBotSendResult {
+        val socket = activeSocket
+        if (socket == null) {
+            RuntimeLogRepository.append("QQ scheduled reply skipped: reverse WS is not connected")
+            return OneBotSendResult.failure("reverse_ws_not_connected")
+        }
+
+        val normalizedConversationId = conversationId.trim()
+        val isGroup = normalizedConversationId.startsWith("group:")
+        val targetId = normalizedConversationId.substringAfter(':', "").trim()
+        if (targetId.isBlank()) {
+            return OneBotSendResult.failure("invalid_conversation_id")
+        }
+
+        val bot = botId.takeIf { it.isNotBlank() }?.let { targetBotId ->
+            BotRepository.snapshotProfiles().firstOrNull { it.id == targetBotId }
+        }
+        val config = bot?.let { ConfigRepository.resolve(it.configProfileId) }
+        val decoration = QqReplyFormatter.buildDecoration(
+            messageType = if (isGroup) MessageType.GroupMessage else MessageType.FriendMessage,
+            messageId = "",
+            senderUserId = "",
+            replyTextPrefix = config?.replyTextPrefix.orEmpty(),
+            quoteSenderMessageEnabled = false,
+            mentionSenderEnabled = false,
+        )
+        val messagePayload: Any = OneBotPayloadCodec.buildReplyPayload(
+            text = text,
+            attachments = attachments,
+            decoration = decoration,
+            mapAudioAttachment = ::materializeAudioAttachmentForOneBot,
+        )
+        val params = JSONObject().apply {
+            put("message", messagePayload)
+            put("auto_escape", false)
+            if (isGroup) {
+                put("group_id", targetId)
+            } else {
+                put("user_id", targetId)
+            }
+        }
+        val action = JSONObject().apply {
+            put("action", if (isGroup) "send_group_msg" else "send_private_msg")
+            put("params", params)
+            put("echo", "astrbot-cron-${System.currentTimeMillis()}")
+        }
+
+        return runCatching {
+            socket.send(action.toString())
+            RuntimeLogRepository.append(
+                "QQ scheduled reply sent: conversation=$normalizedConversationId chars=${text.length} attachments=${attachments.size}",
+            )
+            OneBotSendResult.success()
+        }.getOrElse { error ->
+            val summary = error.message ?: error.javaClass.simpleName
+            RuntimeLogRepository.append("QQ scheduled reply send failed: $summary")
+            OneBotSendResult.failure(summary)
+        }
     }
 
     fun start() {
@@ -475,27 +546,36 @@ object OneBotBridgeServer {
             }
 
             val currentSession = ConversationRepository.session(sessionId)
-            val contextWindow = persona?.maxContextMessages ?: currentSession.maxContextMessages
-            val availableChatProviders = ProviderRepository.providers.value.filter { profile ->
-                profile.enabled && ProviderCapability.CHAT in profile.capabilities
-            }
-            val streamingMode = resolveLlmStreamingMode(
-                config = config,
-                provider = provider,
+            val runtimeContext = RuntimeContextResolver.resolve(
+                event = RuntimeIngressEvent(
+                    platform = RuntimePlatform.QQ_ONEBOT,
+                    conversationId = session.pluginConversationId(),
+                    messageId = userMessage.id,
+                    sender = SenderInfo(
+                        userId = event.userId,
+                        nickname = event.senderName,
+                        groupId = event.groupId,
+                    ),
+                    messageType = event.messageType,
+                    text = event.text,
+                ),
+                bot = bot,
+                overrideProviderId = provider.id,
+                overridePersonaId = persona?.id,
             )
+            val streamingMode = StreamingModeResolver.resolve(runtimeContext)
             val pipelineInput = PluginV2LlmPipelineInput(
                 event = llmEvent,
                 messageIds = listOf(userMessage.id),
                 streamingMode = streamingMode,
-                availableProviderIds = availableChatProviders.map { profile -> profile.id },
-                availableModelIdsByProvider = availableChatProviders.associate { profile ->
+                availableProviderIds = runtimeContext.availableProviders.map { profile -> profile.id },
+                availableModelIdsByProvider = runtimeContext.availableProviders.associate { profile ->
                     profile.id to listOf(profile.model).filter { modelId -> modelId.isNotBlank() }
                 },
                 selectedProviderId = provider.id,
                 selectedModelId = provider.model,
-                systemPrompt = buildSystemPrompt(bot, persona, event),
-                messages = currentSession.messages
-                    .takeLast(contextWindow)
+                systemPrompt = SystemPromptBuilder.build(runtimeContext),
+                messages = runtimeContext.messageWindow
                     .toPluginProviderMessages(),
                 personaToolEnablementSnapshot = persona?.let { activePersona ->
                     PersonaToolEnablementSnapshot(
@@ -510,7 +590,7 @@ object OneBotBridgeServer {
                         request = request,
                         mode = mode,
                         config = config,
-                        availableProviders = availableChatProviders,
+                        availableProviders = runtimeContext.availableProviders,
                     )
                 },
             )
@@ -791,7 +871,12 @@ object OneBotBridgeServer {
             ?: personas.firstOrNull()
     }
 
-    private fun buildSystemPrompt(
+    /**
+     * @deprecated Replaced by [SystemPromptBuilder.build] via [RuntimeContextResolver].
+     * Kept only as a documentation reference during Phase 1 migration; no callers remain.
+     */
+    @Suppress("unused")
+    private fun buildSystemPrompt_legacy(
         bot: BotProfile,
         persona: PersonaProfile?,
         event: IncomingMessageEvent,
@@ -879,7 +964,11 @@ object OneBotBridgeServer {
         return "attachment: $attachmentSummary"
     }
 
-    private fun resolveLlmStreamingMode(
+    /**
+     * @deprecated Replaced by [StreamingModeResolver.resolve]. Kept as reference during Phase 1.
+     */
+    @Suppress("unused")
+    private fun resolveLlmStreamingMode_legacy(
         config: com.astrbot.android.model.ConfigProfile,
         provider: ProviderProfile,
     ): PluginV2StreamingMode {
@@ -949,24 +1038,23 @@ object OneBotBridgeServer {
                         chunks += PluginV2ProviderStreamChunk(deltaText = delta)
                     }
                 },
-                onToolCallDelta = { index, name, args ->
-                    if (name.isNotBlank() || args.isNotBlank()) {
-                        chunks += PluginV2ProviderStreamChunk(
-                            toolCallDeltas = listOf(
-                                PluginLlmToolCallDelta(
-                                    index = index,
-                                    toolName = name.ifBlank { "_pending" },
-                                    arguments = if (args.isNotBlank()) {
-                                        parseToolCallArguments(args)
-                                    } else {
-                                        emptyMap()
-                                    },
-                                ),
-                            ),
-                        )
-                    }
-                },
+                onToolCallDelta = { _, _, _ -> },
             )
+            val finalizedToolDeltas = result.toolCalls.mapIndexedNotNull { index, toolCall ->
+                val normalizedName = toolCall.name.trim()
+                if (normalizedName.isBlank()) {
+                    null
+                } else {
+                    PluginLlmToolCallDelta(
+                        index = index,
+                        toolName = normalizedName,
+                        arguments = parseToolCallArguments(toolCall.arguments),
+                    )
+                }
+            }
+            if (finalizedToolDeltas.isNotEmpty()) {
+                chunks += PluginV2ProviderStreamChunk(toolCallDeltas = finalizedToolDeltas)
+            }
             val finishReason = if (result.toolCalls.isNotEmpty()) "tool_calls" else "stop"
             chunks += PluginV2ProviderStreamChunk(
                 deltaText = "",
@@ -1043,14 +1131,24 @@ object OneBotBridgeServer {
                         remoteUrl = part.uri,
                     )
                 }
+            val toolCallId = if (message.role == PluginProviderMessageRole.TOOL) {
+                extractHostToolCallId(message.metadata)
+            } else {
+                null
+            }
             ConversationMessage(
-                id = "$requestId-$index",
+                id = toolCallId ?: "$requestId-$index",
                 role = message.role.wireValue,
                 content = text,
                 timestamp = System.currentTimeMillis(),
                 attachments = attachments,
             )
         }
+    }
+
+    private fun extractHostToolCallId(metadata: Map<String, *>?): String? {
+        val host = metadata?.get("__host") as? Map<*, *> ?: return null
+        return (host["toolCallId"] as? String)?.trim()?.takeIf { it.isNotBlank() }
     }
 
     private fun List<PluginMessageEventResult.Attachment>.toConversationAttachments(): List<ConversationAttachment> {

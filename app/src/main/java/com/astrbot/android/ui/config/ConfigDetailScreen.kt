@@ -454,7 +454,7 @@ private fun ConfigDetailContent(
                                             withContext(Dispatchers.IO) {
                                                 ChatCompletionService.synthesizeSpeech(
                                                     provider = previewProvider,
-                                                    text = "娴ｇ姴銈芥稉鏍櫕",
+                                                    text = "你好，世界",
                                                     voiceId = ttsVoiceId,
                                                     readBracketedContent = true,
                                                 )
@@ -642,6 +642,27 @@ private fun ConfigDetailContent(
                                         skills = skills.toMutableList().also { it[index] = skill.copy(description = value) }
                                     },
                                     label = { Text(stringResource(R.string.config_skill_description)) },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = monochromeOutlinedTextFieldColors(),
+                                )
+                                OutlinedTextField(
+                                    value = skill.content,
+                                    onValueChange = { value ->
+                                        skills = skills.toMutableList().also { it[index] = skill.copy(content = value) }
+                                    },
+                                    label = { Text(stringResource(R.string.config_skill_content)) },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    minLines = 3,
+                                    maxLines = 8,
+                                    colors = monochromeOutlinedTextFieldColors(),
+                                )
+                                OutlinedTextField(
+                                    value = skill.priority.toString(),
+                                    onValueChange = { value ->
+                                        val parsed = value.toIntOrNull() ?: 0
+                                        skills = skills.toMutableList().also { it[index] = skill.copy(priority = parsed) }
+                                    },
+                                    label = { Text(stringResource(R.string.config_skill_priority)) },
                                     modifier = Modifier.fillMaxWidth(),
                                     colors = monochromeOutlinedTextFieldColors(),
                                 )

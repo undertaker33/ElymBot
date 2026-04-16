@@ -207,3 +207,10 @@ internal val migration17To18 = object : Migration(17, 18) {
         )
     }
 }
+
+internal val migration18To19 = object : Migration(18, 19) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE config_skills ADD COLUMN content TEXT NOT NULL DEFAULT ''")
+        db.execSQL("ALTER TABLE config_skills ADD COLUMN priority INTEGER NOT NULL DEFAULT 0")
+    }
+}

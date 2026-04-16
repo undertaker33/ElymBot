@@ -22,6 +22,8 @@ data class ConfigSkillEntity(
     val skillId: String,
     val name: String,
     val description: String,
+    val content: String = "",
+    val priority: Int = 0,
     val active: Boolean,
     val sortIndex: Int,
 )

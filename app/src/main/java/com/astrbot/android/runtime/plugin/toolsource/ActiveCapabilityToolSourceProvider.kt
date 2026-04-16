@@ -73,9 +73,10 @@ class ActiveCapabilityToolSourceProvider : FutureToolSourceProvider {
         // toolId format is "pluginId:name", extract the tool name
         val toolName = request.args.toolId.substringAfter(":")
         val payload = request.args.payload
+        val metadata = request.args.metadata
         return try {
             val text = when (toolName) {
-                "create_future_task" -> handleCreateFutureTask(payload)
+                "create_future_task" -> handleCreateFutureTask(payload, metadata)
                 "delete_future_task" -> handleDeleteFutureTask(payload)
                 "list_future_tasks" -> handleListFutureTasks()
                 else -> throw IllegalArgumentException("Unknown active capability tool: $toolName")
@@ -106,12 +107,38 @@ class ActiveCapabilityToolSourceProvider : FutureToolSourceProvider {
 
     // ── Tool handlers ───────────────────────────────────────────────────
 
-    private suspend fun handleCreateFutureTask(payload: Map<String, Any?>): String {
+    private suspend fun handleCreateFutureTask(
+        payload: Map<String, Any?>,
+        metadata: Map<String, Any?>?,
+    ): String {
         val name = (payload["name"] as? String)?.ifBlank { null } ?: "Unnamed Task"
         val cronExpression = (payload["cron_expression"] as? String) ?: ""
         val runAtStr = (payload["run_at"] as? String) ?: ""
         val note = (payload["note"] as? String) ?: ""
         val runOnce = (payload["run_once"] as? Boolean) ?: runAtStr.isNotBlank()
+
+        val hostMetadata = metadata?.get("__host") as? Map<*, *>
+        val hostEventExtras = hostMetadata?.get("eventExtras") as? Map<*, *>
+        val platform = (payload["platform"] as? String)
+            ?.takeIf { it.isNotBlank() }
+            ?: (hostMetadata?.get("platformAdapterType") as? String).orEmpty()
+        val conversationId = (payload["conversation_id"] as? String)
+            ?.takeIf { it.isNotBlank() }
+            ?: (payload["session"] as? String)
+                ?.takeIf { it.isNotBlank() }
+            ?: (hostMetadata?.get("conversationId") as? String).orEmpty()
+        val providerId = (payload["provider_id"] as? String)
+            ?.takeIf { it.isNotBlank() }
+            ?: (hostEventExtras?.get("providerId") as? String).orEmpty()
+        val personaId = (payload["persona_id"] as? String)
+            ?.takeIf { it.isNotBlank() }
+            ?: (hostEventExtras?.get("personaId") as? String).orEmpty()
+        val botId = (payload["bot_id"] as? String)
+            ?.takeIf { it.isNotBlank() }
+            ?: (hostEventExtras?.get("botId") as? String).orEmpty()
+        val configProfileId = (payload["config_profile_id"] as? String)
+            ?.takeIf { it.isNotBlank() }
+            ?: (hostEventExtras?.get("configProfileId") as? String).orEmpty()
 
         val jobId = UUID.randomUUID().toString()
         val now = System.currentTimeMillis()
@@ -133,8 +160,15 @@ class ActiveCapabilityToolSourceProvider : FutureToolSourceProvider {
         val jobPayload = JSONObject().apply {
             put("note", note)
             if (runAtStr.isNotBlank()) put("run_at", runAtStr)
-            // Capture session context so the worker knows where to reply
+            // Capture runtime target context for scheduled re-entry.
             put("session", request_sessionId ?: "")
+            put("platform", platform)
+            put("conversation_id", conversationId)
+            put("bot_id", botId)
+            put("config_profile_id", configProfileId)
+            put("persona_id", personaId)
+            put("provider_id", providerId)
+            put("origin", "tool")
         }
 
         val job = CronJob(
@@ -165,6 +199,8 @@ class ActiveCapabilityToolSourceProvider : FutureToolSourceProvider {
             put("name", name)
             put("next_run_time", java.time.Instant.ofEpochMilli(nextRunTime).toString())
             put("run_once", runOnce)
+            put("platform", platform)
+            put("conversation_id", conversationId)
         }.toString(2)
     }
 

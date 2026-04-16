@@ -93,7 +93,15 @@ internal class PluginV2ToolLoopCoordinator(
                 toolId = descriptor.toolId,
                 attemptIndex = 0,
                 payload = toolCall.normalizedArguments,
-                metadata = null,
+                metadata = linkedMapOf(
+                    "__host" to linkedMapOf(
+                        "platformAdapterType" to event.platformAdapterType,
+                        "conversationId" to event.conversationId,
+                        "providerId" to baseRequest.selectedProviderId,
+                        "modelId" to baseRequest.selectedModelId,
+                        "eventExtras" to event.extras,
+                    ),
+                ),
             ).freeze()
             publishToolDiagnostic(
                 code = PluginV2ToolDiagnosticCodes.LLM_TOOL_SELECTED,

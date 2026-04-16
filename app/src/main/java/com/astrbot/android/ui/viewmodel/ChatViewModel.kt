@@ -74,6 +74,17 @@ import com.astrbot.android.runtime.botcommand.BotCommandContext
 import com.astrbot.android.runtime.botcommand.BotCommandParser
 import com.astrbot.android.runtime.botcommand.BotCommandRouter
 import com.astrbot.android.runtime.botcommand.BotCommandSource
+import com.astrbot.android.runtime.context.RuntimeContextResolver
+import com.astrbot.android.runtime.context.RuntimeIngressEvent
+import com.astrbot.android.runtime.context.RuntimePlatform
+import com.astrbot.android.runtime.context.SenderInfo
+import com.astrbot.android.runtime.context.StreamingModeResolver
+import com.astrbot.android.runtime.context.SystemPromptBuilder
+import com.astrbot.android.runtime.context.ResolvedRuntimeContext
+import com.astrbot.android.runtime.plugin.PlatformLlmCallbacks
+import com.astrbot.android.runtime.plugin.PluginV2FollowupSender
+import com.astrbot.android.runtime.plugin.PluginV2LlmPipelineResult
+import com.astrbot.android.runtime.plugin.RuntimeOrchestrator
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
@@ -562,75 +573,72 @@ class ChatViewModel(
         ttsProvider: ProviderProfile?,
     ): ConversationMessage? {
         val llmRuntime = appChatPluginRuntime as? AppChatLlmPipelineRuntime ?: return null
-        val availableChatProviders = providers.value.filter { profile ->
-            profile.enabled && ProviderCapability.CHAT in profile.capabilities
-        }
-        val streamingMode = resolveAppChatStreamingMode(config, provider)
-        val llmEvent = buildAppChatPluginMessageEvent(
-            trigger = PluginTriggerSource.BeforeSendMessage,
-            session = session,
-            message = userMessage,
-            provider = provider,
-            bot = bot,
-            personaId = personaId,
-            config = config,
-        )
-        var persistedAssistantMessageId: String? = null
-        val deliveryResult = llmRuntime.deliverLlmPipeline(
-            request = PluginV2HostLlmDeliveryRequest(
-                pipelineInput = PluginV2LlmPipelineInput(
-                    event = llmEvent,
-                    messageIds = listOf(userMessage.id),
-                    streamingMode = streamingMode,
-                    availableProviderIds = availableChatProviders.map { profile -> profile.id },
-                    availableModelIdsByProvider = availableChatProviders.associate { profile ->
-                        profile.id to listOf(profile.model).filter { modelId -> modelId.isNotBlank() }
-                    },
-                    selectedProviderId = provider.id,
-                    selectedModelId = provider.model,
-                    systemPrompt = buildSystemPrompt(persona?.systemPrompt),
-                    messages = scopedSession.messages
-                        .takeLast(scopedSession.maxContextMessages)
-                        .toPluginProviderMessages(),
-                    personaToolEnablementSnapshot = persona?.let { activePersona ->
-                        PersonaToolEnablementSnapshot(
-                            personaId = activePersona.id,
-                            enabled = activePersona.enabled,
-                            enabledTools = activePersona.enabledTools.toSet(),
-                        )
-                    },
-                    configProfileId = config?.id,
-                    invokeProvider = { request, mode ->
-                        invokeProviderForAppChatPipeline(
-                            request = request,
-                            mode = mode,
-                            config = config,
-                            availableProviders = availableChatProviders,
-                        )
-                    },
+        val resolvedBot = bot ?: return null
+
+        val runtimeContext = RuntimeContextResolver.resolve(
+            event = RuntimeIngressEvent(
+                platform = RuntimePlatform.APP_CHAT,
+                conversationId = session.originSessionId.ifBlank { session.id },
+                messageId = userMessage.id,
+                sender = SenderInfo(
+                    userId = "app-user",
                 ),
-                conversationId = llmEvent.conversationId,
-                platformAdapterType = APP_CHAT_PLATFORM_ADAPTER_TYPE,
-                platformInstanceKey = bot?.id ?: session.botId,
-                prepareReply = { pipelineResult ->
-                    prepareAppChatPipelineReply(
-                        pipelineResult = pipelineResult,
-                        wantsTts = wantsTts,
-                        ttsProvider = ttsProvider,
-                        config = config,
-                    )
-                },
-                sendReply = {
-                    PluginV2HostSendResult(success = true)
-                },
-                persistDeliveredReply = { preparedReply, _, _ ->
-                    persistedAssistantMessageId = persistAppChatPreparedReply(
-                        sessionId = sessionId,
-                        preparedReply = preparedReply,
-                        streamingMode = streamingMode,
-                    )
-                },
+                messageType = session.messageType,
+                text = userMessage.content,
             ),
+            bot = resolvedBot,
+            overrideProviderId = provider.id,
+            overridePersonaId = personaId,
+        )
+
+        val streamingMode = StreamingModeResolver.resolve(runtimeContext)
+        var persistedAssistantMessageId: String? = null
+
+        val callbacks = object : PlatformLlmCallbacks {
+            override val platformInstanceKey = resolvedBot.id
+            override val hostCapabilityGateway = DefaultPluginHostCapabilityGateway()
+            override val followupSender: PluginV2FollowupSender? = null
+
+            override suspend fun prepareReply(result: PluginV2LlmPipelineResult) =
+                prepareAppChatPipelineReply(
+                    pipelineResult = result,
+                    wantsTts = wantsTts,
+                    ttsProvider = ttsProvider,
+                    config = config,
+                )
+
+            override suspend fun sendReply(prepared: PluginV2HostPreparedReply) =
+                PluginV2HostSendResult(success = true)
+
+            override suspend fun persistDeliveredReply(
+                prepared: PluginV2HostPreparedReply,
+                sendResult: PluginV2HostSendResult,
+                pipelineResult: PluginV2LlmPipelineResult,
+            ) {
+                persistedAssistantMessageId = persistAppChatPreparedReply(
+                    sessionId = sessionId,
+                    preparedReply = prepared,
+                    streamingMode = streamingMode,
+                )
+            }
+
+            override suspend fun invokeProvider(
+                request: PluginProviderRequest,
+                mode: PluginV2StreamingMode,
+                ctx: ResolvedRuntimeContext,
+            ) = invokeProviderForAppChatPipeline(
+                request = request,
+                mode = mode,
+                config = config,
+                availableProviders = ctx.availableProviders,
+            )
+        }
+
+        val deliveryResult = RuntimeOrchestrator.dispatchLlm(
+            ctx = runtimeContext,
+            llmRuntime = llmRuntime,
+            callbacks = callbacks,
+            userMessage = userMessage,
         )
         return when (deliveryResult) {
             is PluginV2HostLlmDeliveryResult.Sent -> {
@@ -769,24 +777,23 @@ class ChatViewModel(
                             chunks += PluginV2ProviderStreamChunk(deltaText = delta)
                         }
                     },
-                    onToolCallDelta = { index, name, args ->
-                        if (name.isNotBlank() || args.isNotBlank()) {
-                            chunks += PluginV2ProviderStreamChunk(
-                                toolCallDeltas = listOf(
-                                    PluginLlmToolCallDelta(
-                                        index = index,
-                                        toolName = name.ifBlank { "_pending" },
-                                        arguments = if (args.isNotBlank()) {
-                                            parseToolCallArguments(args)
-                                        } else {
-                                            emptyMap()
-                                        },
-                                    ),
-                                ),
-                            )
-                        }
-                    },
+                    onToolCallDelta = { _, _, _ -> },
                 )
+            }
+            val finalizedToolDeltas = result.toolCalls.mapIndexedNotNull { index, toolCall ->
+                val normalizedName = toolCall.name.trim()
+                if (normalizedName.isBlank()) {
+                    null
+                } else {
+                    PluginLlmToolCallDelta(
+                        index = index,
+                        toolName = normalizedName,
+                        arguments = parseToolCallArguments(toolCall.arguments),
+                    )
+                }
+            }
+            if (finalizedToolDeltas.isNotEmpty()) {
+                chunks += PluginV2ProviderStreamChunk(toolCallDeltas = finalizedToolDeltas)
             }
             val finishReason = if (result.toolCalls.isNotEmpty()) "tool_calls" else "stop"
             chunks += PluginV2ProviderStreamChunk(
@@ -1830,14 +1837,24 @@ class ChatViewModel(
                         remoteUrl = part.uri,
                     )
                 }
+            val toolCallId = if (message.role == PluginProviderMessageRole.TOOL) {
+                extractHostToolCallId(message.metadata)
+            } else {
+                null
+            }
             ConversationMessage(
-                id = "$requestId-$index",
+                id = toolCallId ?: "$requestId-$index",
                 role = message.role.wireValue,
                 content = text,
                 timestamp = System.currentTimeMillis(),
                 attachments = attachments,
             )
         }
+    }
+
+    private fun extractHostToolCallId(metadata: Map<String, *>?): String? {
+        val host = metadata?.get("__host") as? Map<*, *> ?: return null
+        return (host["toolCallId"] as? String)?.trim()?.takeIf { it.isNotBlank() }
     }
 
     private fun List<PluginMessageEventResult.Attachment>.toConversationAttachments(): List<ConversationAttachment> {
@@ -1867,15 +1884,18 @@ class ChatViewModel(
         }
     }
 
+    /**
+     * Delegates to [SystemPromptBuilder] for App chat context. Track B (direct
+     * provider) still calls this; Track A (pipeline) uses RuntimeOrchestrator
+     * which calls PromptAssembler directly.
+     */
     private fun buildSystemPrompt(personaPrompt: String?): String? {
         val config = selectedBot()?.configProfileId?.let { dependencies.resolveConfig(it) }
-        val promptParts = mutableListOf<String>()
-        personaPrompt?.trim()?.takeIf { it.isNotBlank() }?.let(promptParts::add)
-        if (config?.realWorldTimeAwarenessEnabled == true) {
-            val now = ZonedDateTime.now()
-            promptParts += "Current local time: ${now.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss z"))}."
-        }
-        return promptParts.joinToString("\n\n").ifBlank { null }
+        return SystemPromptBuilder.buildForAppChat(
+            personaPrompt = personaPrompt,
+            realWorldTimeAwarenessEnabled = config?.realWorldTimeAwarenessEnabled == true,
+            skills = config?.skills.orEmpty(),
+        )
     }
 
     private fun selectedStreamingIntervalMs(

@@ -626,6 +626,8 @@
     <string name="config_skills_title">技能</string>
     <string name="config_skill_name">技能名称</string>
     <string name="config_skill_description">描述</string>
+    <string name="config_skill_content">提示词内容</string>
+    <string name="config_skill_priority">优先级（越大越靠前）</string>
     <string name="config_skill_active">启用</string>
     <string name="config_skill_add">添加技能</string>
     <string name="config_skill_remove">移除</string>
