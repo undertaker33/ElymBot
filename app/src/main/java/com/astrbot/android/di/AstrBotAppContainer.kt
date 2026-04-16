@@ -35,6 +35,7 @@ import com.astrbot.android.runtime.plugin.PluginV2RuntimeSyncResult
 import com.astrbot.android.runtime.plugin.PluginRuntimeRegistry
 import com.astrbot.android.runtime.plugin.toolsource.ActiveCapabilityToolSourceProvider
 import com.astrbot.android.runtime.cron.CronJobExecutionBridge
+import com.astrbot.android.runtime.cron.ScheduledTaskRuntimeExecutor
 import com.astrbot.android.model.plugin.PluginInstallRecord
 import com.astrbot.android.ui.viewmodel.BotViewModel
 import com.astrbot.android.ui.viewmodel.BridgeViewModel
@@ -113,11 +114,7 @@ class AstrBotAppContainer(
         TtsVoiceAssetRepository.initialize(application)
         ActiveCapabilityToolSourceProvider.initialize(application)
         CronJobExecutionBridge.instance = CronJobExecutionBridge { context ->
-            RuntimeLogRepository.append(
-                "CronJobBridge: executing job '${context.name}' (${context.jobId}) note=${context.note.take(120)}",
-            )
-            // Future: dispatch context.note as a system-initiated agent message to context.sessionId.
-            // For now, log the execution so the job is recorded as completed rather than silently dropped.
+            ScheduledTaskRuntimeExecutor.execute(context)
         }
         ProviderRepository.initialize(application)
         PersonaRepository.initialize(application)

@@ -834,6 +834,8 @@
     <string name="config_skills_title">Skills</string>
     <string name="config_skill_name">Skill name</string>
     <string name="config_skill_description">Description</string>
+    <string name="config_skill_content">Prompt content</string>
+    <string name="config_skill_priority">Priority (higher = earlier)</string>
     <string name="config_skill_active">Active</string>
     <string name="config_skill_add">Add Skill</string>
     <string name="config_skill_remove">Remove</string>

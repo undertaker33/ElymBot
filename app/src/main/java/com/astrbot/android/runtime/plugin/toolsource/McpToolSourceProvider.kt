@@ -2,11 +2,13 @@ package com.astrbot.android.runtime.plugin.toolsource
 
 import com.astrbot.android.data.ConfigRepository
 import com.astrbot.android.model.McpServerEntry
+import com.astrbot.android.runtime.RuntimeLogRepository
 import com.astrbot.android.runtime.plugin.PluginToolDescriptor
 import com.astrbot.android.runtime.plugin.PluginToolResult
 import com.astrbot.android.runtime.plugin.PluginToolResultStatus
 import com.astrbot.android.runtime.plugin.PluginToolSourceKind
 import com.astrbot.android.runtime.plugin.PluginToolVisibility
+import com.astrbot.android.runtime.plugin.mcp.McpSessionManager
 
 /**
  * MCP (Model Context Protocol) tool source provider.
@@ -25,7 +27,16 @@ class McpToolSourceProvider : FutureToolSourceProvider {
     ): List<ToolSourceDescriptorBinding> {
         val configProfile = ConfigRepository.resolve(context.configProfileId)
         val activeServers = configProfile.mcpServers.filter { it.active }
-        return activeServers.flatMap { server -> buildBindingsForServer(server) }
+        return activeServers.flatMap { server ->
+            runCatching {
+                val tools = sessionManager.discoverTools(server)
+                buildBindingsForServer(server, tools)
+            }.onFailure { error ->
+                RuntimeLogRepository.append(
+                    "MCP tools discovery failed: server=${server.serverId} reason=${error.message ?: error.javaClass.simpleName}",
+                )
+            }.getOrDefault(emptyList())
+        }
     }
 
     override suspend fun availabilityOf(
@@ -34,13 +45,7 @@ class McpToolSourceProvider : FutureToolSourceProvider {
     ): ToolSourceAvailability {
         val configProfile = ConfigRepository.resolve(context.configProfileId)
         val server = configProfile.mcpServers.firstOrNull { "mcp.${it.serverId}" == identity.ownerId }
-        return if (server != null && server.active) {
-            ToolSourceAvailability(
-                providerReachable = true,
-                permissionGranted = true,
-                capabilityAllowed = true,
-            )
-        } else {
+        return if (server == null || !server.active) {
             ToolSourceAvailability(
                 providerReachable = false,
                 permissionGranted = true,
@@ -48,50 +53,130 @@ class McpToolSourceProvider : FutureToolSourceProvider {
                 detailCode = "mcp_server_inactive",
                 detailMessage = "MCP server is not configured or inactive.",
             )
+        } else {
+            runCatching {
+                sessionManager.discoverTools(server)
+            }.fold(
+                onSuccess = {
+                    ToolSourceAvailability(
+                        providerReachable = true,
+                        permissionGranted = true,
+                        capabilityAllowed = true,
+                    )
+                },
+                onFailure = { error ->
+                    ToolSourceAvailability(
+                        providerReachable = false,
+                        permissionGranted = true,
+                        capabilityAllowed = true,
+                        detailCode = "mcp_server_unreachable",
+                        detailMessage = error.message ?: "MCP tools discovery failed",
+                    )
+                },
+            )
         }
     }
 
     override suspend fun invoke(
         request: ToolSourceInvokeRequest,
     ): ToolSourceInvokeResult {
-        // TODO: Phase 6 — implement actual MCP HTTP/SSE client invocation.
-        // For now, return an error indicating the MCP runtime is not yet connected.
-        return ToolSourceInvokeResult(
-            result = PluginToolResult(
-                toolCallId = request.args.toolCallId,
-                requestId = request.args.requestId,
-                toolId = request.args.toolId,
-                status = PluginToolResultStatus.ERROR,
-                errorCode = "mcp_not_connected",
-                text = "MCP invocation is not yet implemented on Android.",
-            ),
-        )
+        val ownerId = request.identity.ownerId
+        val server = resolveServerByOwnerId(ownerId)
+            ?: return ToolSourceInvokeResult(
+                result = PluginToolResult(
+                    toolCallId = request.args.toolCallId,
+                    requestId = request.args.requestId,
+                    toolId = request.args.toolId,
+                    status = PluginToolResultStatus.ERROR,
+                    errorCode = "mcp_server_not_found",
+                    text = "MCP server not found for ownerId=$ownerId",
+                ),
+            )
+
+        val encodedToolName = request.args.toolId.substringAfter(":")
+        val actualToolName = decodeToolName(server.serverId, encodedToolName)
+        return runCatching {
+            val output = sessionManager.callTool(
+                server = server,
+                toolName = actualToolName,
+                arguments = request.args.payload,
+            )
+            ToolSourceInvokeResult(
+                result = PluginToolResult(
+                    toolCallId = request.args.toolCallId,
+                    requestId = request.args.requestId,
+                    toolId = request.args.toolId,
+                    status = if (output.isError) PluginToolResultStatus.ERROR else PluginToolResultStatus.SUCCESS,
+                    errorCode = if (output.isError) "mcp_tool_error" else null,
+                    text = output.text,
+                    structuredContent = output.structuredContent,
+                ),
+            )
+        }.getOrElse { error ->
+            ToolSourceInvokeResult(
+                result = PluginToolResult(
+                    toolCallId = request.args.toolCallId,
+                    requestId = request.args.requestId,
+                    toolId = request.args.toolId,
+                    status = PluginToolResultStatus.ERROR,
+                    errorCode = "mcp_invoke_failed",
+                    text = error.message ?: error.javaClass.simpleName,
+                ),
+            )
+        }
     }
 
-    private fun buildBindingsForServer(server: McpServerEntry): List<ToolSourceDescriptorBinding> {
-        // MCP tool list comes from server discovery at connect time.
-        // Until the MCP client runtime is connected, produce a placeholder descriptor
-        // that lets the tool appear in the registry (compile-time visible, invoke-time stub).
+    private fun buildBindingsForServer(
+        server: McpServerEntry,
+        tools: List<com.astrbot.android.runtime.plugin.mcp.McpDiscoveredTool>,
+    ): List<ToolSourceDescriptorBinding> {
         val ownerId = "mcp.${server.serverId}"
-        val identity = ToolSourceIdentity(
-            sourceKind = PluginToolSourceKind.MCP,
-            ownerId = ownerId,
-            sourceRef = server.url.ifBlank { server.command },
-            displayName = server.name.ifBlank { server.serverId },
-        )
-        val descriptor = PluginToolDescriptor(
-            pluginId = ownerId,
-            name = "${server.serverId}_proxy",
-            description = "MCP proxy tool for server: ${server.name.ifBlank { server.serverId }}",
-            visibility = PluginToolVisibility.LLM_VISIBLE,
-            sourceKind = PluginToolSourceKind.MCP,
-            inputSchema = mapOf("type" to "object" as Any),
-        )
-        return listOf(
+        return tools.map { tool ->
+            val encodedToolName = encodeToolName(server.serverId, tool.name)
             ToolSourceDescriptorBinding(
-                identity = identity,
-                descriptor = descriptor,
-            ),
-        )
+                identity = ToolSourceIdentity(
+                    sourceKind = PluginToolSourceKind.MCP,
+                    ownerId = ownerId,
+                    sourceRef = tool.name,
+                    displayName = "${server.name.ifBlank { server.serverId }} / ${tool.name}",
+                ),
+                descriptor = PluginToolDescriptor(
+                    pluginId = ownerId,
+                    name = encodedToolName,
+                    description = tool.description,
+                    visibility = PluginToolVisibility.LLM_VISIBLE,
+                    sourceKind = PluginToolSourceKind.MCP,
+                    inputSchema = if (tool.inputSchema.isEmpty()) {
+                        mapOf("type" to "object" as Any)
+                    } else {
+                        tool.inputSchema
+                    },
+                ),
+            )
+        }
+    }
+
+    private fun resolveServerByOwnerId(ownerId: String): McpServerEntry? {
+        return ConfigRepository.profiles.value
+            .asSequence()
+            .flatMap { profile -> profile.mcpServers.asSequence() }
+            .firstOrNull { server -> "mcp.${server.serverId}" == ownerId && server.active }
+    }
+
+    private fun encodeToolName(serverId: String, toolName: String): String {
+        return "${serverId}__${toolName}"
+    }
+
+    private fun decodeToolName(serverId: String, encodedToolName: String): String {
+        val prefix = "${serverId}__"
+        return if (encodedToolName.startsWith(prefix)) {
+            encodedToolName.removePrefix(prefix)
+        } else {
+            encodedToolName
+        }
+    }
+
+    private companion object {
+        private val sessionManager = McpSessionManager()
     }
 }

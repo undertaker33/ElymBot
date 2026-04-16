@@ -16,6 +16,7 @@ import com.astrbot.android.data.db.core.migration14To15
 import com.astrbot.android.data.db.core.migration15To16
 import com.astrbot.android.data.db.core.migration16To17
 import com.astrbot.android.data.db.core.migration17To18
+import com.astrbot.android.data.db.core.migration18To19
 
 @Database(
     entities = [
@@ -56,7 +57,7 @@ import com.astrbot.android.data.db.core.migration17To18
         TtsVoiceProviderBindingEntity::class,
         CronJobEntity::class,
     ],
-    version = 18,
+    version = 19,
     exportSchema = true,
 )
 abstract class AstrBotDatabase : RoomDatabase() {
@@ -341,6 +342,7 @@ abstract class AstrBotDatabase : RoomDatabase() {
             migration15To16,
             migration16To17,
             migration17To18,
+            migration18To19,
         )
 
         fun get(context: Context): AstrBotDatabase {
