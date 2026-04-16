@@ -51,6 +51,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.astrbot.android.di.astrBotViewModel
 import com.astrbot.android.R
+import com.astrbot.android.data.PersonaRepository
 import com.astrbot.android.model.PersonaProfile
 import com.astrbot.android.ui.bot.ScrollableAssistChipRow
 import com.astrbot.android.ui.app.FloatingBottomNavFabBottomPadding
@@ -140,7 +141,7 @@ internal fun PersonaCatalogContent(
                     name = newPersonaLabel,
                     tag = "",
                     systemPrompt = "",
-                    enabledTools = emptySet(),
+                    enabledTools = PersonaRepository.defaultEnabledTools(),
                 )
             },
             modifier = Modifier
@@ -300,7 +301,7 @@ private fun PersonaEditorDialog(
                                     systemPrompt = systemPrompt.trim(),
                                     defaultProviderId = "",
                                     maxContextMessages = maxContextMessages.toIntOrNull()?.coerceAtLeast(1) ?: 12,
-                                    enabledTools = emptySet(),
+                                    enabledTools = initialPersona.enabledTools,
                                     enabled = enabled,
                                 ),
                             )

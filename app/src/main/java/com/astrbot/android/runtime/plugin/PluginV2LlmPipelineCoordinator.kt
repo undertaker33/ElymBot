@@ -26,6 +26,7 @@ internal data class PluginV2LlmPipelineInput(
     val metadata: JsonLikeMap? = null,
     val personaToolEnablementSnapshot: PersonaToolEnablementSnapshot? = null,
     val configProfileId: String? = null,
+    val supportsToolCalling: Boolean = true,
     val invokeProvider: suspend (
         request: PluginProviderRequest,
         streamingMode: PluginV2StreamingMode,
@@ -267,6 +268,8 @@ internal class PluginV2LlmPipelineCoordinator(
         var currentRequest = materializeInitialRequest(admission = admission, input = input, snapshot = snapshot)
         var finalResponse: PluginLlmResponse
         var responseHookTrace: List<String>
+        var toolRoundCount = 0
+        val maxToolRounds = 8
 
         while (true) {
             val requestPayload = PluginV2LlmRequestPayload(
@@ -346,9 +349,25 @@ internal class PluginV2LlmPipelineCoordinator(
                 break
             }
 
+            toolRoundCount++
+            if (toolRoundCount > maxToolRounds) {
+                logBus.publishLifecycleRecord(
+                    pluginId = HOST_PIPELINE_PLUGIN_ID,
+                    pluginVersion = "",
+                    occurredAtEpochMillis = clock(),
+                    level = PluginRuntimeLogLevel.Warning,
+                    code = "tool_loop_max_rounds_exceeded",
+                    message = "Tool loop exceeded $maxToolRounds rounds, breaking to prevent infinite loop.",
+                    metadata = linkedMapOf("requestId" to admission.requestId),
+                )
+                currentRequest = finalizedRequest
+                break
+            }
+
             val toolLoopRun = toolLoopCoordinator.runToolLoop(
                 event = input.event,
                 baseRequest = finalizedRequest,
+                assistantText = finalResponse.text,
                 toolCalls = frozenToolCalls,
                 snapshot = snapshot,
             )
@@ -442,7 +461,8 @@ internal class PluginV2LlmPipelineCoordinator(
     ): PluginProviderRequest {
         val llmVisibleTools = (snapshot.toolRegistrySnapshot?.activeEntries ?: emptyList())
             .filter { it.visibility == PluginToolVisibility.LLM_VISIBLE }
-            .map { entry ->
+            .filter { entry -> snapshot.toolAvailabilityByName[entry.name]?.available == true }
+            .map { entry -> 
                 PluginProviderToolDefinition(
                     name = entry.name,
                     description = entry.description,
@@ -467,7 +487,7 @@ internal class PluginV2LlmPipelineCoordinator(
             maxTokens = input.maxTokens,
             streamingEnabled = input.streamingEnabled,
             metadata = input.metadata,
-            tools = llmVisibleTools,
+            tools = if (input.supportsToolCalling) llmVisibleTools else emptyList(),
         )
     }
 
@@ -510,6 +530,7 @@ internal class PluginV2LlmPipelineCoordinator(
                         .sortedBy { (index, _) -> index }
                         .map { (_, delta) ->
                             PluginLlmToolCall(
+                                toolCallId = delta.toolCallId,
                                 toolName = delta.toolName,
                                 arguments = delta.arguments,
                             )
@@ -569,6 +590,7 @@ internal class PluginV2LlmPipelineCoordinator(
             markdown = markdown,
             toolCalls = toolCalls.map { call ->
                 PluginLlmToolCall(
+                    toolCallId = call.normalizedToolCallId,
                     toolName = call.normalizedToolName,
                     arguments = LinkedHashMap(call.normalizedArguments),
                     metadata = call.normalizedMetadata?.let(::LinkedHashMap),

@@ -44,7 +44,8 @@ class OkHttpAstrBotHttpClient(
             client.newCall(request).execute().use { response ->
                 val bytes = response.body?.bytes() ?: byteArrayOf()
                 if (!response.isSuccessful) {
-                    throw IllegalStateException("HTTP ${response.code}")
+                    val errorBody = sanitizeErrorBody(bytes.toString(StandardCharsets.UTF_8))
+                    throw IllegalStateException("HTTP ${response.code}: $errorBody")
                 }
                 logger("HTTP binary response code: code=${response.code} endpoint=$sanitizedUrl")
                 bytes
@@ -65,7 +66,9 @@ class OkHttpAstrBotHttpClient(
         try {
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
-                    throw IllegalStateException("HTTP ${response.code}")
+                    val rawBody = response.body?.charStream()?.readText().orEmpty()
+                    val errorBody = sanitizeErrorBody(rawBody)
+                    throw IllegalStateException("HTTP ${response.code}: $errorBody")
                 }
                 logger("HTTP streaming response code: code=${response.code} endpoint=$sanitizedUrl")
                 response.body?.charStream()?.useLines { lines ->
@@ -172,6 +175,18 @@ class OkHttpAstrBotHttpClient(
                 message = error.message ?: "HTTP request failed",
                 cause = error,
             )
+        }
+    }
+
+    internal fun sanitizeErrorBody(raw: String): String {
+        if (raw.isBlank()) return "(empty)"
+        val truncated = raw.take(1000)
+        val sensitiveKeys = Regex(
+            """("(?:api_key|apikey|authorization|token|secret|password|key)")\s*:\s*"[^"]*"""",
+            RegexOption.IGNORE_CASE,
+        )
+        return sensitiveKeys.replace(truncated) { match ->
+            "${match.groupValues[1]}: \"***\""
         }
     }
 

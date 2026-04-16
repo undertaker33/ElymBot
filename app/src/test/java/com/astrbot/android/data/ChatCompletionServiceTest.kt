@@ -7,7 +7,13 @@ import com.astrbot.android.model.ProviderProfile
 import com.astrbot.android.model.ProviderType
 import com.astrbot.android.model.chat.ConversationAttachment
 import com.astrbot.android.model.chat.ConversationMessage
+import com.astrbot.android.model.chat.ConversationToolCall
+import com.astrbot.android.data.http.AstrBotHttpClient
+import com.astrbot.android.data.http.HttpRequestSpec
+import com.astrbot.android.data.http.HttpResponsePayload
+import com.astrbot.android.data.http.MultipartPartSpec
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ChatCompletionServiceTest {
@@ -193,11 +199,282 @@ class ChatCompletionServiceTest {
         assertEquals("web_search", result.toolCalls[1].name)
     }
 
+    @Test
+    fun build_openai_payload_preserves_assistant_tool_calls_and_tool_call_id() {
+        val payload = ChatCompletionService.buildOpenAiPayloadForTests(
+            provider = plainChatProvider(),
+            messages = listOf(
+                ConversationMessage(
+                    id = "assistant-1",
+                    role = "assistant",
+                    content = "Let me search.",
+                    timestamp = 1L,
+                    assistantToolCalls = listOf(
+                        ConversationToolCall(
+                            id = "call_weather",
+                            name = "web_search",
+                            arguments = "{\"query\":\"weather\"}",
+                        ),
+                    ),
+                ),
+                ConversationMessage(
+                    id = "tool-1",
+                    role = "tool",
+                    content = "sunny",
+                    timestamp = 2L,
+                    toolCallId = "call_weather",
+                ),
+            ),
+            tools = listOf(
+                ChatCompletionService.ChatToolDefinition(
+                    name = "web_search",
+                    description = "search the web",
+                    parameters = org.json.JSONObject("{\"type\":\"object\"}"),
+                ),
+            ),
+        )
+
+        val messages = payload.getJSONArray("messages")
+        val assistant = messages.getJSONObject(0)
+        assertEquals("assistant", assistant.getString("role"))
+        assertEquals("Let me search.", assistant.getString("content"))
+        val toolCalls = assistant.getJSONArray("tool_calls")
+        assertEquals("call_weather", toolCalls.getJSONObject(0).getString("id"))
+        assertEquals(
+            "web_search",
+            toolCalls.getJSONObject(0).getJSONObject("function").getString("name"),
+        )
+
+        val tool = messages.getJSONObject(1)
+        assertEquals("tool", tool.getString("role"))
+        assertEquals("call_weather", tool.getString("tool_call_id"))
+        assertEquals("sunny", tool.getString("content"))
+        assertTrue(payload.getJSONArray("tools").length() == 1)
+    }
+
     @Test(expected = IllegalStateException::class)
     fun parse_openai_response_empty_content_and_no_tool_calls_throws() {
         val body = """
             {"choices":[{"message":{"role":"assistant","content":""}}]}
         """.trimIndent()
         ChatCompletionService.parseOpenAiChatCompletionResult(body)
+    }
+
+    @Test
+    fun build_openai_payload_assistant_tool_calls_empty_content_uses_empty_string_not_null() {
+        val payload = ChatCompletionService.buildOpenAiPayloadForTests(
+            provider = plainChatProvider(),
+            messages = listOf(
+                ConversationMessage(
+                    id = "assistant-tc",
+                    role = "assistant",
+                    content = "",
+                    timestamp = 1L,
+                    assistantToolCalls = listOf(
+                        ConversationToolCall(
+                            id = "call_abc",
+                            name = "get_weather",
+                            arguments = "{}",
+                        ),
+                    ),
+                ),
+                ConversationMessage(
+                    id = "tool-resp",
+                    role = "tool",
+                    content = "sunny",
+                    timestamp = 2L,
+                    toolCallId = "call_abc",
+                ),
+            ),
+            tools = listOf(
+                ChatCompletionService.ChatToolDefinition(
+                    name = "get_weather",
+                    description = "get current weather",
+                    parameters = org.json.JSONObject("{\"type\":\"object\"}"),
+                ),
+            ),
+        )
+        val messages = payload.getJSONArray("messages")
+        val assistant = messages.getJSONObject(0)
+        // Must be empty string "", not JSONObject.NULL or literal "null"
+        assertEquals("", assistant.getString("content"))
+        assertTrue(assistant.has("tool_calls"))
+    }
+
+    @Test
+    fun configured_chat_with_tools_keeps_web_search_assistant_tool_call_round_after_sanitizing() {
+        val captureClient = CapturingHttpClient()
+        ChatCompletionService.setHttpClientOverrideForTests(captureClient)
+        try {
+            ChatCompletionService.sendConfiguredChatWithTools(
+                provider = plainChatProvider(),
+                messages = listOf(
+                    ConversationMessage(
+                        id = "user-search",
+                        role = "user",
+                        content = "search the web",
+                        timestamp = 1L,
+                    ),
+                    ConversationMessage(
+                        id = "assistant-tool-call",
+                        role = "assistant",
+                        content = "",
+                        timestamp = 2L,
+                        assistantToolCalls = listOf(
+                            ConversationToolCall(
+                                id = "call_web_search",
+                                name = "web_search",
+                                arguments = "{\"query\":\"AstrBot\"}",
+                            ),
+                        ),
+                    ),
+                    ConversationMessage(
+                        id = "tool-result",
+                        role = "tool",
+                        content = "search result",
+                        timestamp = 3L,
+                        toolCallId = "call_web_search",
+                    ),
+                ),
+                tools = listOf(
+                    ChatCompletionService.ChatToolDefinition(
+                        name = "web_search",
+                        description = "search the web",
+                        parameters = org.json.JSONObject("{\"type\":\"object\"}"),
+                    ),
+                ),
+            )
+
+            val payload = org.json.JSONObject(captureClient.requireBody())
+            val messages = payload.getJSONArray("messages")
+            assertEquals(3, messages.length())
+            assertEquals("user", messages.getJSONObject(0).getString("role"))
+
+            val assistant = messages.getJSONObject(1)
+            assertEquals("assistant", assistant.getString("role"))
+            assertEquals("", assistant.getString("content"))
+            val toolCalls = assistant.getJSONArray("tool_calls")
+            assertEquals(1, toolCalls.length())
+            val toolCall = toolCalls.getJSONObject(0)
+            assertEquals("call_web_search", toolCall.getString("id"))
+            assertEquals("web_search", toolCall.getJSONObject("function").getString("name"))
+
+            val tool = messages.getJSONObject(2)
+            assertEquals("tool", tool.getString("role"))
+            assertEquals("call_web_search", tool.getString("tool_call_id"))
+            assertEquals("search result", tool.getString("content"))
+        } finally {
+            ChatCompletionService.setHttpClientOverrideForTests(null)
+        }
+    }
+
+    @Test
+    fun configured_chat_with_tools_still_removes_plain_empty_assistant_after_sanitizing() {
+        val captureClient = CapturingHttpClient()
+        ChatCompletionService.setHttpClientOverrideForTests(captureClient)
+        try {
+            ChatCompletionService.sendConfiguredChatWithTools(
+                provider = plainChatProvider(),
+                messages = listOf(
+                    ConversationMessage(
+                        id = "empty-assistant",
+                        role = "assistant",
+                        content = "",
+                        timestamp = 1L,
+                    ),
+                    ConversationMessage(
+                        id = "user",
+                        role = "user",
+                        content = "hello",
+                        timestamp = 2L,
+                    ),
+                ),
+                tools = emptyList(),
+            )
+
+            val messages = org.json.JSONObject(captureClient.requireBody()).getJSONArray("messages")
+            assertEquals(1, messages.length())
+            assertEquals("user", messages.getJSONObject(0).getString("role"))
+            assertEquals("hello", messages.getJSONObject(0).getString("content"))
+        } finally {
+            ChatCompletionService.setHttpClientOverrideForTests(null)
+        }
+    }
+
+    @Test
+    fun configured_chat_with_tools_keeps_empty_tool_result_with_tool_call_id_after_sanitizing() {
+        val captureClient = CapturingHttpClient()
+        ChatCompletionService.setHttpClientOverrideForTests(captureClient)
+        try {
+            ChatCompletionService.sendConfiguredChatWithTools(
+                provider = plainChatProvider(),
+                messages = listOf(
+                    ConversationMessage(
+                        id = "assistant-tool-call",
+                        role = "assistant",
+                        content = "",
+                        timestamp = 1L,
+                        assistantToolCalls = listOf(
+                            ConversationToolCall(
+                                id = "call_web_search_empty",
+                                name = "web_search",
+                                arguments = "{\"query\":\"empty\"}",
+                            ),
+                        ),
+                    ),
+                    ConversationMessage(
+                        id = "tool-empty",
+                        role = "tool",
+                        content = "",
+                        timestamp = 2L,
+                        toolCallId = "call_web_search_empty",
+                    ),
+                ),
+                tools = listOf(
+                    ChatCompletionService.ChatToolDefinition(
+                        name = "web_search",
+                        description = "search the web",
+                        parameters = org.json.JSONObject("{\"type\":\"object\"}"),
+                    ),
+                ),
+            )
+
+            val messages = org.json.JSONObject(captureClient.requireBody()).getJSONArray("messages")
+            assertEquals(2, messages.length())
+            val tool = messages.getJSONObject(1)
+            assertEquals("tool", tool.getString("role"))
+            assertEquals("call_web_search_empty", tool.getString("tool_call_id"))
+            assertEquals("", tool.getString("content"))
+        } finally {
+            ChatCompletionService.setHttpClientOverrideForTests(null)
+        }
+    }
+
+    private class CapturingHttpClient : AstrBotHttpClient {
+        private var body: String? = null
+
+        override fun execute(requestSpec: HttpRequestSpec): HttpResponsePayload {
+            body = requestSpec.body
+            return HttpResponsePayload(
+                code = 200,
+                body = """{"choices":[{"message":{"role":"assistant","content":"ok"}}]}""",
+                headers = emptyMap(),
+                url = requestSpec.url,
+            )
+        }
+
+        override fun executeBytes(requestSpec: HttpRequestSpec): ByteArray = ByteArray(0)
+
+        override suspend fun executeStream(
+            requestSpec: HttpRequestSpec,
+            onLine: suspend (String) -> Unit,
+        ) = Unit
+
+        override fun executeMultipart(
+            requestSpec: HttpRequestSpec,
+            parts: List<MultipartPartSpec>,
+        ): HttpResponsePayload = execute(requestSpec)
+
+        fun requireBody(): String = requireNotNull(body) { "Expected request body to be captured." }
     }
 }

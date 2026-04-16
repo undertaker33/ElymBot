@@ -146,4 +146,71 @@ class AstrBotHttpClientTest {
 
         assertEquals(listOf<Byte>(1, 2, 3, 4), bytes.toList())
     }
+
+    @Test
+    fun `execute stream on 400 includes error body in exception message`() {
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(400)
+                .setBody("""{"error":{"message":"invalid request: empty messages"}}"""),
+        )
+        val client = OkHttpAstrBotHttpClient()
+
+        val error = runCatching {
+            runBlocking {
+                client.executeStream(
+                    HttpRequestSpec(
+                        method = HttpMethod.POST,
+                        url = server.url("/chat").toString(),
+                        body = "{}",
+                        contentType = "application/json",
+                    ),
+                ) { /* no-op */ }
+            }
+        }.exceptionOrNull()
+
+        requireNotNull(error)
+        assertTrue(error.message!!.contains("400"))
+        assertTrue(error.message!!.contains("empty messages"))
+    }
+
+    @Test
+    fun `execute bytes on 400 includes error body in exception message`() {
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(400)
+                .setBody("""{"error":"bad input"}"""),
+        )
+        val client = OkHttpAstrBotHttpClient()
+
+        val error = runCatching {
+            client.executeBytes(
+                HttpRequestSpec(
+                    method = HttpMethod.GET,
+                    url = server.url("/audio").toString(),
+                ),
+            )
+        }.exceptionOrNull()
+
+        requireNotNull(error)
+        assertTrue(error.message!!.contains("400"))
+        assertTrue(error.message!!.contains("bad input"))
+    }
+
+    @Test
+    fun `sanitize error body redacts api keys`() {
+        val client = OkHttpAstrBotHttpClient()
+        val raw = """{"error":"fail","api_key":"sk-12345secret"}"""
+        val sanitized = client.sanitizeErrorBody(raw)
+        assertTrue(sanitized.contains("error"))
+        assertFalse(sanitized.contains("sk-12345secret"))
+    }
+
+    @Test
+    fun `sanitize error body truncates long bodies`() {
+        val client = OkHttpAstrBotHttpClient()
+        val raw = "x".repeat(2000)
+        val sanitized = client.sanitizeErrorBody(raw)
+        assertTrue(sanitized.length <= 1000)
+    }
 }

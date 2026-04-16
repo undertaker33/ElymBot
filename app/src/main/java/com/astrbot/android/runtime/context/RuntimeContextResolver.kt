@@ -12,6 +12,7 @@ import com.astrbot.android.model.PersonaToolEnablementSnapshot
 import com.astrbot.android.model.ProviderCapability
 import com.astrbot.android.model.ProviderProfile
 import com.astrbot.android.model.hasNativeStreamingSupport
+import com.astrbot.android.model.usesOpenAiStyleChatApi
 
 /**
  * Resolves a [RuntimeIngressEvent] into a complete [ResolvedRuntimeContext] by
@@ -45,7 +46,9 @@ object RuntimeContextResolver {
             PersonaRepository.personas.value.firstOrNull { it.id == pid && it.enabled }
         }
 
-        val session = ConversationRepository.session(event.conversationId)
+        val effectiveSessionId = event.repositorySessionId.takeIf { it.isNotBlank() }
+            ?: event.conversationId
+        val session = ConversationRepository.session(effectiveSessionId)
         val contextWindow = resolveContextWindow(config, persona)
         val messageWindow = session.messages.takeLast(contextWindow)
 
@@ -76,7 +79,7 @@ object RuntimeContextResolver {
             ),
             personaToolSnapshot = personaToolSnapshot,
             providerCapabilities = ProviderCapabilitySnapshot(
-                supportsToolCalling = true, // refined in Phase 3
+                supportsToolCalling = provider.providerType.usesOpenAiStyleChatApi(),
                 supportsStreaming = provider.hasNativeStreamingSupport(),
                 supportsMultimodal = provider.multimodalRuleSupport == FeatureSupportState.SUPPORTED
                     || provider.multimodalProbeSupport == FeatureSupportState.SUPPORTED,

@@ -11,6 +11,7 @@ import android.content.Context
 import com.astrbot.android.model.ConfigProfile
 import com.astrbot.android.model.chat.ConversationAttachment
 import com.astrbot.android.model.chat.ConversationMessage
+import com.astrbot.android.model.chat.ConversationToolCall
 import com.astrbot.android.model.FeatureSupportState
 import com.astrbot.android.model.ProviderCapability
 import com.astrbot.android.model.ProviderProfile
@@ -139,6 +140,13 @@ object ChatCompletionService {
     }
 
     internal fun sanitizeUrlForLogsForTests(url: String): String = sanitizeUrlForLogs(url)
+
+    internal fun buildOpenAiPayloadForTests(
+        provider: ProviderProfile,
+        messages: List<ConversationMessage>,
+        systemPrompt: String? = null,
+        tools: List<ChatToolDefinition> = emptyList(),
+    ): JSONObject = buildOpenAiPayload(provider, messages, systemPrompt, tools)
 
     internal fun setHttpClientOverrideForTests(client: AstrBotHttpClient?) {
         httpClient = client ?: OkHttpAstrBotHttpClient()
@@ -538,7 +546,10 @@ object ChatCompletionService {
     private fun sanitizeConversationMessages(messages: List<ConversationMessage>): List<ConversationMessage> {
         val lastUserMessageIndex = messages.indexOfLast { it.role == "user" }
         return messages.mapIndexedNotNull { index, message ->
-            val hasPayload = message.content.isNotBlank() || message.attachments.isNotEmpty()
+            val hasPayload = message.content.isNotBlank() ||
+                message.attachments.isNotEmpty() ||
+                message.assistantToolCalls.isNotEmpty() ||
+                (message.role == "tool" && message.toolCallId.isNotBlank())
             when {
                 hasPayload -> message
                 message.role == "assistant" -> null
@@ -1239,23 +1250,7 @@ object ChatCompletionService {
                         put(JSONObject().put("role", "system").put("content", systemPrompt))
                     }
                     messages.forEach { message ->
-                        if (message.role == "tool") {
-                            put(
-                                JSONObject().apply {
-                                    put("role", "tool")
-                                    put("content", message.content)
-                                    message.id.takeIf { it.isNotBlank() }?.let { toolCallId ->
-                                        put("tool_call_id", toolCallId)
-                                    }
-                                },
-                            )
-                        } else {
-                            put(
-                                JSONObject()
-                                    .put("role", message.role)
-                                    .put("content", buildOpenAiContent(message)),
-                            )
-                        }
+                        put(buildOpenAiMessage(message))
                     }
                 },
             )
@@ -1308,6 +1303,7 @@ object ChatCompletionService {
         }
         val textBuilder = StringBuilder()
         val toolCallAccumulators = linkedMapOf<Int, Pair<String, StringBuilder>>() // index -> (name, args)
+        val toolCallIds = linkedMapOf<Int, String>()
         executeOpenAiStyleChatWithRetry(
             endpoint = provider.baseUrl.trimEnd('/') + "/chat/completions",
             apiKey = provider.apiKey,
@@ -1340,6 +1336,7 @@ object ChatCompletionService {
                     for (i in 0 until toolCalls.length()) {
                         val tc = toolCalls.optJSONObject(i) ?: continue
                         val index = tc.optInt("index", i)
+                        tc.optString("id").takeIf { it.isNotBlank() }?.let { toolCallIds[index] = it }
                         val fn = tc.optJSONObject("function")
                         val name = fn?.optString("name").orEmpty()
                         val args = fn?.optString("arguments").orEmpty()
@@ -1360,7 +1357,7 @@ object ChatCompletionService {
         val text = textBuilder.toString().trim()
         val toolCallList = toolCallAccumulators.entries.map { (index, pair) ->
             ChatToolCall(
-                id = "call_stream_$index",
+                id = toolCallIds[index].orEmpty().ifBlank { "call_stream_$index" },
                 name = pair.first,
                 arguments = pair.second.toString(),
             )
@@ -1386,11 +1383,7 @@ object ChatCompletionService {
                         put(JSONObject().put("role", "system").put("content", systemPrompt))
                     }
                     messages.forEach { message ->
-                        put(
-                            JSONObject()
-                                .put("role", message.role)
-                                .put("content", buildOpenAiContent(message)),
-                        )
+                        put(buildOpenAiMessage(message))
                     }
                 },
             )
@@ -1952,6 +1945,53 @@ object ChatCompletionService {
             imageAttachments.forEach { attachment ->
                 put(buildOpenAiImagePart(attachment))
             }
+        }
+    }
+
+    private fun buildOpenAiMessage(message: ConversationMessage): JSONObject {
+        return when (message.role) {
+            "tool" -> JSONObject().apply {
+                put("role", "tool")
+                put("content", message.content)
+                message.toolCallId.takeIf { it.isNotBlank() }?.let { put("tool_call_id", it) }
+            }
+
+            "assistant" -> JSONObject().apply {
+                put("role", "assistant")
+                if (message.assistantToolCalls.isNotEmpty()) {
+                    // DeepSeek rejects content:null when tool_calls is present.
+                    // Use empty string for compatibility with both OpenAI and DeepSeek.
+                    put("content", message.content.ifBlank { "" })
+                    put(
+                        "tool_calls",
+                        JSONArray().apply {
+                            message.assistantToolCalls.forEach { toolCall ->
+                                put(buildOpenAiAssistantToolCall(toolCall))
+                            }
+                        },
+                    )
+                } else {
+                    put("content", buildOpenAiContent(message))
+                }
+            }
+
+            else -> JSONObject()
+                .put("role", message.role)
+                .put("content", buildOpenAiContent(message))
+        }
+    }
+
+    private fun buildOpenAiAssistantToolCall(toolCall: ConversationToolCall): JSONObject {
+        return JSONObject().apply {
+            put("id", toolCall.id)
+            put("type", "function")
+            put(
+                "function",
+                JSONObject().apply {
+                    put("name", toolCall.name)
+                    put("arguments", toolCall.arguments)
+                },
+            )
         }
     }
 

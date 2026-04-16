@@ -175,7 +175,7 @@ class PluginV2ToolAvailabilityTest {
     }
 
     @Test
-    fun centralized_runtime_tool_state_uses_real_persona_snapshot_instead_of_default_enablement() {
+    fun centralized_runtime_tool_state_keeps_empty_enabled_tools_disabled() {
         val session = bootstrappedToolSession(
             pluginId = "com.example.runtime.persona",
             toolName = "persona_guarded",

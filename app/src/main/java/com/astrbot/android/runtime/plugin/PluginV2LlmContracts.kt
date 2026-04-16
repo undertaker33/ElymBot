@@ -56,29 +56,52 @@ sealed interface PluginProviderMessagePartDto {
     }
 }
 
+data class PluginProviderAssistantToolCall(
+    val id: String,
+    val toolName: String,
+    val arguments: JsonLikeMap = emptyMap(),
+) {
+    val normalizedId: String = id.trim()
+    val normalizedToolName: String = toolName.trim()
+    val normalizedArguments: JsonLikeMap = PluginV2ValueSanitizer.requireAllowedMap(arguments)
+
+    init {
+        require(normalizedId.isNotBlank()) { "id must not be blank." }
+        require(normalizedToolName.isNotBlank()) { "toolName must not be blank." }
+    }
+}
+
 class PluginProviderMessageDto(
     val role: PluginProviderMessageRole,
     parts: List<PluginProviderMessagePartDto>,
     name: String? = null,
     metadata: JsonLikeMap? = null,
+    toolCalls: List<PluginProviderAssistantToolCall> = emptyList(),
 ) {
     val parts: List<PluginProviderMessagePartDto> = parts.toList()
     val name: String? = name?.trim()?.takeIf { it.isNotBlank() }
     val metadata: JsonLikeMap? = metadata?.let(PluginV2ValueSanitizer::requireAllowedMap)
+    val toolCalls: List<PluginProviderAssistantToolCall> = toolCalls.toList()
 
     init {
-        require(this.parts.isNotEmpty()) { "parts must not be empty." }
+        require(this.parts.isNotEmpty() || (role == PluginProviderMessageRole.ASSISTANT && this.toolCalls.isNotEmpty())) {
+            "parts must not be empty unless role=ASSISTANT with toolCalls."
+        }
         require(
             role == PluginProviderMessageRole.TOOL ||
-                this.parts.none { it is PluginProviderMessagePartDto.TextPart && it.text.isBlank() },
+                ((role == PluginProviderMessageRole.ASSISTANT && this.toolCalls.isNotEmpty()) ||
+                    this.parts.none { it is PluginProviderMessagePartDto.TextPart && it.text.isBlank() }),
         ) {
-            "parts must not contain blank text values unless role=TOOL."
+            "parts must not contain blank text values unless role=TOOL or assistant toolCalls are present."
         }
         require(this.parts.none { it is PluginProviderMessagePartDto.MediaRefPart && it.uri.isBlank() }) {
             "parts must not contain blank media references."
         }
         require(this.parts.none { it is PluginProviderMessagePartDto.MediaRefPart && it.mimeType.isBlank() }) {
             "parts must not contain blank media mime types."
+        }
+        require(role == PluginProviderMessageRole.ASSISTANT || this.toolCalls.isEmpty()) {
+            "toolCalls are only allowed for role=ASSISTANT."
         }
         if (role == PluginProviderMessageRole.TOOL) {
             require(this.name != null) { "role=TOOL requires name." }
@@ -154,8 +177,10 @@ class PluginProviderRequest(
         set(value) {
             // Phase 5: plugins must not author TOOL role messages via request hooks.
             // Host-authored TOOL messages (tool reinjection) must remain intact across plugin mutations.
-            val nextMessages = sanitizeMessages(value)
-            field = nextMessages.filter { it.role != PluginProviderMessageRole.TOOL } + preservedHostToolMessages
+            field = sanitizeMessagesPreservingHostToolOrder(
+                values = value,
+                preservedHostToolMessages = preservedHostToolMessages,
+            )
         }
 
     var temperature: Double? = sanitizeTemperature(temperature)
@@ -294,10 +319,12 @@ class PluginLlmResponse(
 }
 
 data class PluginLlmToolCall(
+    val toolCallId: String? = null,
     val toolName: String,
     val arguments: JsonLikeMap = emptyMap(),
     val metadata: JsonLikeMap? = null,
 ) {
+    val normalizedToolCallId: String? = toolCallId?.trim()?.takeIf { it.isNotBlank() }
     val normalizedToolName: String = toolName.trim()
     val normalizedArguments: JsonLikeMap = PluginV2ValueSanitizer.requireAllowedMap(arguments)
     val normalizedMetadata: JsonLikeMap? = metadata?.let(PluginV2ValueSanitizer::requireAllowedMap)
@@ -309,6 +336,7 @@ data class PluginLlmToolCall(
 
 data class PluginLlmToolCallDelta(
     val index: Int,
+    val toolCallId: String? = null,
     val toolName: String,
     val arguments: JsonLikeMap = emptyMap(),
 ) {
@@ -456,8 +484,10 @@ private fun sanitizeInitialMessages(
     values: List<PluginProviderMessageDto>,
     preservedHostToolMessages: List<PluginProviderMessageDto>,
 ): List<PluginProviderMessageDto> {
-    val sanitized = sanitizeMessages(values)
-    return sanitized.filter { it.role != PluginProviderMessageRole.TOOL } + preservedHostToolMessages
+    return sanitizeMessagesPreservingHostToolOrder(
+        values = values,
+        preservedHostToolMessages = preservedHostToolMessages,
+    )
 }
 
 private fun sanitizeInitialHostToolMessages(
@@ -482,9 +512,50 @@ private fun extractHostToolCallId(metadata: JsonLikeMap?): String? {
     return (hostMetadata["toolCallId"] as? String)?.trim()?.takeIf { it.isNotBlank() }
 }
 
+private fun sanitizeMessagesPreservingHostToolOrder(
+    values: List<PluginProviderMessageDto>,
+    preservedHostToolMessages: List<PluginProviderMessageDto>,
+): List<PluginProviderMessageDto> {
+    val sanitized = sanitizeMessages(values)
+    if (preservedHostToolMessages.isEmpty()) {
+        return sanitized.filter { it.role != PluginProviderMessageRole.TOOL }
+    }
+
+    val preservedByToolCallId = preservedHostToolMessages.associateBy { message ->
+        requireNotNull(extractHostToolCallId(message.metadata)) {
+            "host-preserved role=TOOL messages require metadata.__host.toolCallId."
+        }
+    }
+    val merged = mutableListOf<PluginProviderMessageDto>()
+    val seenToolCallIds = linkedSetOf<String>()
+
+    sanitized.forEach { message ->
+        if (message.role != PluginProviderMessageRole.TOOL) {
+            merged += message
+            return@forEach
+        }
+        val toolCallId = extractHostToolCallId(message.metadata) ?: return@forEach
+        val preserved = preservedByToolCallId[toolCallId] ?: return@forEach
+        merged += preserved
+        seenToolCallIds += toolCallId
+    }
+
+    preservedHostToolMessages.forEach { message ->
+        val toolCallId = requireNotNull(extractHostToolCallId(message.metadata)) {
+            "host-preserved role=TOOL messages require metadata.__host.toolCallId."
+        }
+        if (toolCallId !in seenToolCallIds) {
+            merged += message
+        }
+    }
+
+    return merged
+}
+
 private fun sanitizeToolCalls(values: List<PluginLlmToolCall>): List<PluginLlmToolCall> {
     return values.map { call ->
         PluginLlmToolCall(
+            toolCallId = call.normalizedToolCallId,
             toolName = call.normalizedToolName,
             arguments = call.normalizedArguments,
             metadata = call.normalizedMetadata,

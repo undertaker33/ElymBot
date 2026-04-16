@@ -188,6 +188,7 @@ internal object AppChatPluginRuntimeCoordinatorProvider {
                                 ),
                                 args = args,
                                 timeoutMs = 60_000L,
+                                configProfileId = extractConfigProfileId(args),
                             ),
                         )
                         if (invokeResult != null) return@PluginV2ToolExecutor invokeResult.result
@@ -211,6 +212,12 @@ internal object AppChatPluginRuntimeCoordinatorProvider {
         coordinator: PluginV2LlmPipelineCoordinator?,
     ) {
         coordinatorOverrideForTests = coordinator
+    }
+
+    private fun extractConfigProfileId(args: PluginToolArgs): String? {
+        val host = args.metadata?.get("__host") as? Map<*, *> ?: return null
+        val eventExtras = host["eventExtras"] as? Map<*, *> ?: return null
+        return (eventExtras["configProfileId"] as? String)?.trim()?.takeIf { it.isNotBlank() }
     }
 }
 

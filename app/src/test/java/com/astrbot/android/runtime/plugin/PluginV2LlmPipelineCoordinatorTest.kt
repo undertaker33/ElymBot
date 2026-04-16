@@ -165,6 +165,100 @@ class PluginV2LlmPipelineCoordinatorTest {
     }
 
     @Test
+    fun llm_request_exposes_only_available_tools_to_provider() = runBlocking {
+        val logBus = InMemoryPluginRuntimeLogBus(clock = { 25L })
+        val requestedToolNames = CopyOnWriteArrayList<List<String>>()
+        val coordinator = PluginV2LlmPipelineCoordinator(
+            dispatchEngine = PluginV2DispatchEngine(logBus = logBus, clock = { 25L }),
+            logBus = logBus,
+            clock = { 25L },
+            requestIdFactory = { "req-tool-visibility-001" },
+        )
+
+        val availableTool = PluginV2ToolRegistryEntry(
+            pluginId = "com.example.search",
+            name = "web_search",
+            toolId = "com.example.search:web_search",
+            description = "search the web",
+            visibility = PluginToolVisibility.LLM_VISIBLE,
+            sourceKind = PluginToolSourceKind.WEB_SEARCH,
+            inputSchema = linkedMapOf("type" to "object"),
+            metadata = null,
+            sourceOrder = 0,
+        )
+        val blockedTool = PluginV2ToolRegistryEntry(
+            pluginId = "com.example.search",
+            name = "internal_lookup",
+            toolId = "com.example.search:internal_lookup",
+            description = "blocked lookup",
+            visibility = PluginToolVisibility.LLM_VISIBLE,
+            sourceKind = PluginToolSourceKind.PLUGIN_V2,
+            inputSchema = linkedMapOf("type" to "object"),
+            metadata = null,
+            sourceOrder = 1,
+        )
+        val snapshot = PluginV2ActiveRuntimeSnapshot(
+            toolRegistrySnapshot = PluginV2ToolRegistrySnapshot(
+                activeEntries = listOf(availableTool, blockedTool),
+                activeEntriesByName = linkedMapOf(
+                    availableTool.name to availableTool,
+                    blockedTool.name to blockedTool,
+                ),
+                activeEntriesByToolId = linkedMapOf(
+                    availableTool.toolId to availableTool,
+                    blockedTool.toolId to blockedTool,
+                ),
+            ),
+            toolAvailabilityByName = linkedMapOf(
+                availableTool.name to PluginV2ToolAvailabilitySnapshot(
+                    toolName = availableTool.name,
+                    toolId = availableTool.toolId,
+                    pluginId = availableTool.pluginId,
+                    sourceKind = availableTool.sourceKind,
+                    registryActive = true,
+                    personaEnabled = true,
+                    capabilityAllowed = true,
+                    sourceProviderAvailable = true,
+                    available = true,
+                ),
+                blockedTool.name to PluginV2ToolAvailabilitySnapshot(
+                    toolName = blockedTool.name,
+                    toolId = blockedTool.toolId,
+                    pluginId = blockedTool.pluginId,
+                    sourceKind = blockedTool.sourceKind,
+                    registryActive = true,
+                    personaEnabled = false,
+                    capabilityAllowed = false,
+                    sourceProviderAvailable = false,
+                    available = false,
+                    firstFailureReason = PluginV2ToolAvailabilityFailureReason.PersonaDisabled,
+                ),
+            ),
+        )
+
+        val result = coordinator.runPreSendStages(
+            input = pipelineInput(
+                event = sampleMessageEvent(rawText = "hello tool visibility"),
+                streamingMode = PluginV2StreamingMode.NON_STREAM,
+            ) { request, _ ->
+                requestedToolNames += request.tools.map { it.name }
+                PluginV2ProviderInvocationResult.NonStreaming(
+                    PluginLlmResponse(
+                        requestId = request.requestId,
+                        providerId = request.selectedProviderId,
+                        modelId = request.selectedModelId,
+                        text = "final",
+                    ),
+                )
+            },
+            snapshot = snapshot,
+        )
+
+        assertEquals(listOf(listOf("web_search")), requestedToolNames)
+        assertEquals("final", result.sendableResult.text)
+    }
+
+    @Test
     fun response_stage_is_triggered_once_for_non_stream_and_streaming_modes_with_same_hook_order() = runBlocking {
         val nonStream = executePipelineForMode(mode = PluginV2StreamingMode.NON_STREAM)
         val pseudoStream = executePipelineForMode(mode = PluginV2StreamingMode.PSEUDO_STREAM)

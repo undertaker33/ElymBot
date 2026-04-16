@@ -12,6 +12,7 @@ import com.astrbot.android.model.plugin.PluginSourceType
 import com.astrbot.android.runtime.RuntimeLogRepository
 import com.astrbot.android.runtime.plugin.PluginV2RuntimeSyncResult
 import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -22,6 +23,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class AstrBotAppContainerTest {
     @Test
     fun plugin_repository_updates_trigger_repeated_loader_syncs() = runTest {

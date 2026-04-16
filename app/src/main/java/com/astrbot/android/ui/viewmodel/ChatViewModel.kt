@@ -19,6 +19,8 @@ import com.astrbot.android.model.ProviderCapability
 import com.astrbot.android.model.ProviderProfile
 import com.astrbot.android.model.chat.ConversationAttachment
 import com.astrbot.android.model.chat.ConversationMessage
+import com.astrbot.android.model.chat.ConversationToolCall
+import com.astrbot.android.model.plugin.PluginExecutionProtocolJson
 import com.astrbot.android.model.chat.ConversationSession
 import com.astrbot.android.model.chat.MessageSessionRef
 import com.astrbot.android.model.plugin.PluginV2StreamingMode
@@ -118,6 +120,9 @@ private data class PluginCommandConsumption(
 
 private const val APP_CHAT_PLATFORM_ADAPTER_TYPE = "app_chat"
 
+/** Returns true if this session belongs to the app platform (not QQ). */
+private fun ConversationSession.isAppSession(): Boolean = platformId != "qq"
+
 class ChatViewModel(
     private val dependencies: ChatViewModelDependencies = DefaultChatViewModelDependencies,
     private val appChatPluginRuntime: AppChatPluginRuntime = DefaultAppChatPluginRuntime,
@@ -138,7 +143,7 @@ class ChatViewModel(
 
     init {
         val firstBot = dependencies.bots.value.firstOrNull()
-        val firstSession = dependencies.sessions.value.firstOrNull()
+        val firstSession = dependencies.sessions.value.firstAppSession()
         val providerId = resolveProviderId(
             preferredProviderId = firstSession?.providerId,
             fallbackBot = firstBot,
@@ -159,10 +164,11 @@ class ChatViewModel(
 
                 if (!hasAppliedInitialSessionRestore) {
                     val preferredSession = when {
-                        currentSession == null -> allSessions.firstOrNull()
-                        currentSession.id != defaultSessionId -> currentSession
-                        else -> allSessions.firstOrNull { it.id != defaultSessionId }
-                            ?: currentSession
+                        currentSession == null -> allSessions.firstAppSession()
+                        currentSession.isAppSession() && currentSession.id != defaultSessionId -> currentSession
+                        else -> allSessions.firstAppSession { it.id != defaultSessionId }
+                            ?: currentSession.takeIf { it.isAppSession() }
+                            ?: allSessions.firstAppSession()
                     } ?: return@collectLatest
 
                     hasAppliedInitialSessionRestore = true
@@ -262,7 +268,7 @@ class ChatViewModel(
     fun deleteSelectedSession() {
         val currentId = _uiState.value.selectedSessionId
         dependencies.deleteSession(currentId)
-        val nextSession = sessions.value.firstOrNull()
+        val nextSession = sessions.value.firstAppSession()
         if (nextSession != null) {
             selectSession(nextSession.id)
         } else {
@@ -274,7 +280,7 @@ class ChatViewModel(
         val deletingCurrent = sessionId == _uiState.value.selectedSessionId
         dependencies.deleteSession(sessionId)
         if (deletingCurrent) {
-            val nextSession = sessions.value.firstOrNull()
+            val nextSession = sessions.value.firstAppSession()
             if (nextSession != null) {
                 selectSession(nextSession.id)
             } else {
@@ -313,9 +319,18 @@ class ChatViewModel(
     }
 
     fun sendMessage(input: String, attachments: List<ConversationAttachment> = emptyList()) {
-        val sessionId = _uiState.value.selectedSessionId
+        var sessionId = _uiState.value.selectedSessionId
         val content = input.trim()
         if ((content.isBlank() && attachments.isEmpty()) || _uiState.value.isSending) return
+
+        // Prevent sending app input into a QQ session. Auto-create a new app session.
+        val currentSendSession = sessions.value.firstOrNull { it.id == sessionId }
+        if (currentSendSession != null && !currentSendSession.isAppSession()) {
+            val newSession = createSessionInternal()
+            sessionId = newSession.id
+            dependencies.log("Chat send redirected: QQ session ${currentSendSession.id} -> new app session $sessionId")
+        }
+
         val unsupportedSlashCommand = attachments.isEmpty() && isUnsupportedPluginCommand(content)
 
         if (attachments.isEmpty() && handleSessionCommand(sessionId, content)) {
@@ -439,11 +454,9 @@ class ChatViewModel(
                     val llmAssistantMessage = deliverAppChatLlmPipelineIfSupported(
                         sessionId = sessionId,
                         session = currentSession,
-                        scopedSession = scopedSession,
                         userMessage = userMessage,
                         provider = provider,
                         bot = botSnapshot,
-                        persona = personaSnapshot,
                         personaId = personaIdSnapshot,
                         config = config,
                         wantsTts = wantsTts,
@@ -562,11 +575,9 @@ class ChatViewModel(
     private suspend fun deliverAppChatLlmPipelineIfSupported(
         sessionId: String,
         session: ConversationSession,
-        scopedSession: ConversationSession,
         userMessage: ConversationMessage,
         provider: ProviderProfile,
         bot: BotProfile?,
-        persona: PersonaProfile?,
         personaId: String,
         config: ConfigProfile?,
         wantsTts: Boolean,
@@ -756,6 +767,7 @@ class ChatViewModel(
                     text = result.text,
                     toolCalls = result.toolCalls.map { tc ->
                         PluginLlmToolCall(
+                            toolCallId = tc.id,
                             toolName = tc.name,
                             arguments = parseToolCallArguments(tc.arguments),
                         )
@@ -787,6 +799,7 @@ class ChatViewModel(
                 } else {
                     PluginLlmToolCallDelta(
                         index = index,
+                        toolCallId = toolCall.id,
                         toolName = normalizedName,
                         arguments = parseToolCallArguments(toolCall.arguments),
                     )
@@ -873,7 +886,7 @@ class ChatViewModel(
 
     fun currentSession(): ConversationSession? {
         return sessions.value.firstOrNull { it.id == _uiState.value.selectedSessionId }
-            ?: sessions.value.firstOrNull()
+            ?: sessions.value.firstAppSession()
     }
 
     fun currentPersona() = personas.value.firstOrNull {
@@ -1793,6 +1806,7 @@ class ChatViewModel(
             val role = when (message.role.lowercase(Locale.US)) {
                 "system" -> PluginProviderMessageRole.SYSTEM
                 "assistant" -> PluginProviderMessageRole.ASSISTANT
+                "tool" -> PluginProviderMessageRole.TOOL
                 else -> PluginProviderMessageRole.USER
             }
             val parts = mutableListOf<PluginProviderMessagePartDto>()
@@ -1813,9 +1827,21 @@ class ChatViewModel(
             if (parts.isEmpty()) {
                 parts += PluginProviderMessagePartDto.TextPart("[empty]")
             }
+            val toolName: String? = if (role == PluginProviderMessageRole.TOOL) {
+                message.toolCallId.ifBlank { "tool" }
+            } else {
+                null
+            }
+            val toolMeta: Map<String, Any?>? = if (role == PluginProviderMessageRole.TOOL) {
+                mapOf("__host" to mapOf("toolCallId" to message.toolCallId))
+            } else {
+                null
+            }
             PluginProviderMessageDto(
                 role = role,
                 parts = parts,
+                name = toolName,
+                metadata = toolMeta,
             )
         }
     }
@@ -1848,6 +1874,14 @@ class ChatViewModel(
                 content = text,
                 timestamp = System.currentTimeMillis(),
                 attachments = attachments,
+                toolCallId = toolCallId.orEmpty(),
+                assistantToolCalls = message.toolCalls.map { toolCall ->
+                    ConversationToolCall(
+                        id = toolCall.normalizedId,
+                        name = toolCall.normalizedToolName,
+                        arguments = PluginExecutionProtocolJson.canonicalJson(toolCall.normalizedArguments),
+                    )
+                },
             )
         }
     }
@@ -1910,3 +1944,7 @@ class ChatViewModel(
             ?: 120L
     }
 }
+
+private fun List<ConversationSession>.firstAppSession(
+    predicate: (ConversationSession) -> Boolean = { true },
+): ConversationSession? = firstOrNull { it.isAppSession() && predicate(it) }

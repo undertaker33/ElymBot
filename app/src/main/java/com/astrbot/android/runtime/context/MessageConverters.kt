@@ -2,6 +2,9 @@ package com.astrbot.android.runtime.context
 
 import com.astrbot.android.model.chat.ConversationAttachment
 import com.astrbot.android.model.chat.ConversationMessage
+import com.astrbot.android.model.chat.ConversationToolCall
+import com.astrbot.android.model.plugin.PluginExecutionProtocolJson
+import com.astrbot.android.runtime.plugin.PluginProviderAssistantToolCall
 import com.astrbot.android.runtime.plugin.PluginProviderMessageDto
 import com.astrbot.android.runtime.plugin.PluginProviderMessagePartDto
 import com.astrbot.android.runtime.plugin.PluginProviderMessageRole
@@ -18,6 +21,7 @@ object MessageConverters {
             val role = when (message.role.lowercase(Locale.US)) {
                 "system" -> PluginProviderMessageRole.SYSTEM
                 "assistant" -> PluginProviderMessageRole.ASSISTANT
+                "tool" -> PluginProviderMessageRole.TOOL
                 else -> PluginProviderMessageRole.USER
             }
             val parts = mutableListOf<PluginProviderMessagePartDto>()
@@ -38,9 +42,30 @@ object MessageConverters {
             if (parts.isEmpty()) {
                 parts += PluginProviderMessagePartDto.TextPart("[empty]")
             }
+            val toolName: String? = if (role == PluginProviderMessageRole.TOOL) {
+                // ConversationMessage doesn't carry the tool function name,
+                // so derive a placeholder from toolCallId.
+                message.toolCallId.ifBlank { "tool" }
+            } else {
+                null
+            }
+            val toolMeta: Map<String, Any?>? = if (role == PluginProviderMessageRole.TOOL) {
+                mapOf("__host" to mapOf("toolCallId" to message.toolCallId))
+            } else {
+                null
+            }
             PluginProviderMessageDto(
                 role = role,
                 parts = parts,
+                name = toolName,
+                metadata = toolMeta,
+                toolCalls = message.assistantToolCalls.map { toolCall ->
+                    PluginProviderAssistantToolCall(
+                        id = toolCall.id,
+                        toolName = toolCall.name,
+                        arguments = parseToolArguments(toolCall.arguments),
+                    )
+                },
             )
         }
     }
@@ -73,6 +98,14 @@ object MessageConverters {
                 content = text,
                 timestamp = System.currentTimeMillis(),
                 attachments = attachments,
+                toolCallId = toolCallId.orEmpty(),
+                assistantToolCalls = message.toolCalls.map { toolCall ->
+                    ConversationToolCall(
+                        id = toolCall.normalizedId,
+                        name = toolCall.normalizedToolName,
+                        arguments = PluginExecutionProtocolJson.canonicalJson(toolCall.normalizedArguments),
+                    )
+                },
             )
         }
     }
@@ -80,5 +113,13 @@ object MessageConverters {
     private fun extractHostToolCallId(metadata: Map<String, *>?): String? {
         val host = metadata?.get("__host") as? Map<*, *> ?: return null
         return (host["toolCallId"] as? String)?.trim()?.takeIf { it.isNotBlank() }
+    }
+
+    private fun parseToolArguments(raw: String): Map<String, Any?> {
+        return runCatching {
+            org.json.JSONObject(raw).keys().asSequence().associateWith { key ->
+                org.json.JSONObject(raw).opt(key)
+            }
+        }.getOrElse { emptyMap() }
     }
 }

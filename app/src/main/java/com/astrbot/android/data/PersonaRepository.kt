@@ -26,6 +26,7 @@ import kotlinx.coroutines.runBlocking
 object PersonaRepository {
     private const val PREFS_NAME = "persona_profiles"
     private const val KEY_PERSONAS_JSON = "personas_json"
+    private const val DEFAULT_ENABLED_TOOL = "web_search"
 
     private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val initialized = AtomicBoolean(false)
@@ -173,11 +174,16 @@ object PersonaRepository {
     }
 
     private fun normalizePersona(profile: PersonaProfile): PersonaProfile {
+        val normalizedTools = profile.enabledTools.map(String::trim).filter(String::isNotBlank).toSet()
         return profile.copy(
             name = profile.name.trim(),
             tag = profile.tag.trim(),
             systemPrompt = profile.systemPrompt,
-            enabledTools = profile.enabledTools.map(String::trim).filter(String::isNotBlank).toSet(),
+            enabledTools = if (normalizedTools.isEmpty()) {
+                defaultEnabledTools()
+            } else {
+                normalizedTools
+            },
         )
     }
 
@@ -187,10 +193,14 @@ object PersonaRepository {
             name = "Default Assistant",
             tag = "Default",
             systemPrompt = "You are a concise, reliable QQ assistant.",
-            enabledTools = emptySet(),
+            enabledTools = defaultEnabledTools(),
             maxContextMessages = 12,
         ),
     )
+
+    fun defaultEnabledTools(): Set<String> {
+        return setOf(DEFAULT_ENABLED_TOOL)
+    }
 }
 
 private object PersonaDaoPlaceholder {
