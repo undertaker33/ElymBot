@@ -1,185 +1,143 @@
 package com.astrbot.android.data.http
 
 import com.astrbot.android.runtime.RuntimeLogRepository
-import java.util.concurrent.TimeUnit
+import com.astrbot.android.runtime.network.RuntimeNetworkCapability
+import com.astrbot.android.runtime.network.RuntimeNetworkException
+import com.astrbot.android.runtime.network.RuntimeNetworkFailure
+import com.astrbot.android.runtime.network.RuntimeNetworkRequest
+import com.astrbot.android.runtime.network.RuntimeNetworkResponse
+import com.astrbot.android.runtime.network.RuntimeNetworkTransport
+import com.astrbot.android.runtime.network.SharedRuntimeNetworkTransport
+import com.astrbot.android.runtime.network.SseEvent
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
-import okhttp3.mockwebserver.MockResponse
-import okhttp3.mockwebserver.MockWebServer
-import okhttp3.mockwebserver.SocketPolicy
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
 class AstrBotHttpClientTest {
-    private lateinit var server: MockWebServer
 
     @Before
     fun setUp() {
-        server = MockWebServer()
-        server.start()
         RuntimeLogRepository.clear()
+        SharedRuntimeNetworkTransport.setOverrideForTests(null)
     }
 
     @After
     fun tearDown() {
-        server.shutdown()
+        SharedRuntimeNetworkTransport.setOverrideForTests(null)
     }
 
     @Test
-    fun `execute supports get request and redacts api keys in logs`() {
-        server.enqueue(
-            MockResponse()
-                .setResponseCode(200)
-                .addHeader("X-Test", "ok")
-                .setBody("""{"ok":true}"""),
+    fun `execute delegates to runtime transport and preserves response payload contract`() {
+        val transport = RecordingRuntimeTransport(
+            executeResponse = RuntimeNetworkResponse(
+                statusCode = 201,
+                headers = mapOf("X-Test" to listOf("ok")),
+                bodyBytes = """{"created":true}""".toByteArray(),
+                traceId = "trace-1",
+                durationMs = 5,
+            ),
+        )
+        SharedRuntimeNetworkTransport.setOverrideForTests(transport)
+        val client = OkHttpAstrBotHttpClient()
+
+        val response = client.execute(
+            HttpRequestSpec(
+                method = HttpMethod.POST,
+                url = "http://127.0.0.1:1/chat?key=secret-value",
+                headers = mapOf("Authorization" to "Bearer test-token"),
+                body = """{"message":"hello"}""",
+                contentType = "application/json",
+                connectTimeoutMs = 111,
+                readTimeoutMs = 222,
+            ),
+        )
+
+        assertEquals(201, response.code)
+        assertEquals("""{"created":true}""", response.body)
+        assertEquals("ok", response.headers["X-Test"]?.single())
+        assertEquals(1, transport.executeRequests.size)
+        val recorded = transport.executeRequests.single()
+        assertEquals(RuntimeNetworkCapability.PROVIDER, recorded.capability)
+        assertEquals("POST", recorded.method)
+        assertEquals("http://127.0.0.1:1/chat?key=secret-value", recorded.url)
+        assertEquals("application/json", recorded.contentType)
+        assertEquals("""{"message":"hello"}""", recorded.body!!.decodeToString())
+        assertTrue(RuntimeLogRepository.logs.value.any { it.contains("key=***") })
+        assertFalse(RuntimeLogRepository.logs.value.any { it.contains("secret-value") })
+    }
+
+    @Test
+    fun `execute converts runtime http failure into response payload`() {
+        SharedRuntimeNetworkTransport.setOverrideForTests(
+            RecordingRuntimeTransport(
+                executeException = RuntimeNetworkException(
+                    RuntimeNetworkFailure.Http(
+                        statusCode = 404,
+                        url = "http://127.0.0.1:1/missing",
+                        bodyPreview = """{"error":"missing"}""",
+                    ),
+                ),
+            ),
         )
         val client = OkHttpAstrBotHttpClient()
 
         val response = client.execute(
             HttpRequestSpec(
                 method = HttpMethod.GET,
-                url = server.url("/v1/models?key=secret-value&alt=sse").toString(),
+                url = "http://127.0.0.1:1/missing",
             ),
         )
 
-        assertEquals(200, response.code)
-        assertEquals("""{"ok":true}""", response.body)
-        assertEquals("ok", response.headers["X-Test"]?.single())
-        assertTrue(RuntimeLogRepository.logs.value.any { it.contains("key=***") })
-        assertFalse(RuntimeLogRepository.logs.value.any { it.contains("secret-value") })
+        assertEquals(404, response.code)
+        assertEquals("""{"error":"missing"}""", response.body)
+        assertEquals("http://127.0.0.1:1/missing", response.url)
     }
 
     @Test
-    fun `execute sends json body and custom headers`() {
-        server.enqueue(
-            MockResponse()
-                .setResponseCode(201)
-                .setBody("""{"created":true}"""),
-        )
-        val client = OkHttpAstrBotHttpClient()
-
-        client.execute(
-            HttpRequestSpec(
-                method = HttpMethod.POST,
-                url = server.url("/chat/completions").toString(),
-                headers = mapOf("Authorization" to "Bearer test-token"),
-                body = """{"message":"hello"}""",
-                contentType = "application/json",
+    fun `execute bytes delegates to runtime transport`() {
+        val transport = RecordingRuntimeTransport(
+            executeResponse = RuntimeNetworkResponse(
+                statusCode = 200,
+                headers = emptyMap(),
+                bodyBytes = byteArrayOf(1, 2, 3, 4),
+                traceId = "trace-2",
+                durationMs = 2,
             ),
         )
-
-        val request = server.takeRequest(1, TimeUnit.SECONDS)
-        requireNotNull(request)
-        assertEquals("POST", request.method)
-        assertEquals("Bearer test-token", request.getHeader("Authorization"))
-        assertEquals("""{"message":"hello"}""", request.body.readUtf8())
-        assertEquals("application/json", request.getHeader("Content-Type"))
-    }
-
-    @Test
-    fun `execute maps read timeout to timeout category`() {
-        server.enqueue(
-            MockResponse()
-                .setSocketPolicy(SocketPolicy.NO_RESPONSE),
-        )
-        val client = OkHttpAstrBotHttpClient()
-
-        val error = runCatching {
-            client.execute(
-                HttpRequestSpec(
-                    method = HttpMethod.GET,
-                    url = server.url("/slow").toString(),
-                    readTimeoutMs = 100,
-                ),
-            )
-        }.exceptionOrNull()
-
-        requireNotNull(error)
-        assertTrue(error is AstrBotHttpException)
-        assertEquals(HttpFailureCategory.TIMEOUT, (error as AstrBotHttpException).category)
-    }
-
-    @Test
-    fun `execute stream emits response lines in order`() {
-        server.enqueue(
-            MockResponse()
-                .setResponseCode(200)
-                .setBody("data: first\n\ndata: second\n\n"),
-        )
-        val client = OkHttpAstrBotHttpClient()
-        val lines = mutableListOf<String>()
-
-        runBlocking {
-            client.executeStream(
-                HttpRequestSpec(
-                    method = HttpMethod.POST,
-                    url = server.url("/stream").toString(),
-                    body = "{}",
-                    contentType = "application/json",
-                ),
-            ) { line: String ->
-                lines += line
-            }
-        }
-
-        assertEquals(listOf("data: first", "", "data: second", ""), lines)
-    }
-
-    @Test
-    fun `execute bytes returns raw binary payload`() {
-        server.enqueue(
-            MockResponse()
-                .setResponseCode(200)
-                .setBody(okio.Buffer().write(byteArrayOf(1, 2, 3, 4))),
-        )
+        SharedRuntimeNetworkTransport.setOverrideForTests(transport)
         val client = OkHttpAstrBotHttpClient()
 
         val bytes = client.executeBytes(
             HttpRequestSpec(
                 method = HttpMethod.GET,
-                url = server.url("/binary").toString(),
+                url = "http://127.0.0.1:1/binary",
             ),
         )
 
         assertEquals(listOf<Byte>(1, 2, 3, 4), bytes.toList())
+        assertEquals(1, transport.executeRequests.size)
+        assertEquals("http://127.0.0.1:1/binary", transport.executeRequests.single().url)
     }
 
     @Test
-    fun `execute stream on 400 includes error body in exception message`() {
-        server.enqueue(
-            MockResponse()
-                .setResponseCode(400)
-                .setBody("""{"error":{"message":"invalid request: empty messages"}}"""),
-        )
-        val client = OkHttpAstrBotHttpClient()
-
-        val error = runCatching {
-            runBlocking {
-                client.executeStream(
-                    HttpRequestSpec(
-                        method = HttpMethod.POST,
-                        url = server.url("/chat").toString(),
-                        body = "{}",
-                        contentType = "application/json",
+    fun `execute bytes on runtime http failure includes status and body`() {
+        SharedRuntimeNetworkTransport.setOverrideForTests(
+            RecordingRuntimeTransport(
+                executeException = RuntimeNetworkException(
+                    RuntimeNetworkFailure.Http(
+                        statusCode = 400,
+                        url = "http://127.0.0.1:1/audio",
+                        bodyPreview = """{"error":"bad input"}""",
                     ),
-                ) { /* no-op */ }
-            }
-        }.exceptionOrNull()
-
-        requireNotNull(error)
-        assertTrue(error.message!!.contains("400"))
-        assertTrue(error.message!!.contains("empty messages"))
-    }
-
-    @Test
-    fun `execute bytes on 400 includes error body in exception message`() {
-        server.enqueue(
-            MockResponse()
-                .setResponseCode(400)
-                .setBody("""{"error":"bad input"}"""),
+                ),
+            ),
         )
         val client = OkHttpAstrBotHttpClient()
 
@@ -187,21 +145,94 @@ class AstrBotHttpClientTest {
             client.executeBytes(
                 HttpRequestSpec(
                     method = HttpMethod.GET,
-                    url = server.url("/audio").toString(),
+                    url = "http://127.0.0.1:1/audio",
                 ),
             )
         }.exceptionOrNull()
 
         requireNotNull(error)
+        assertTrue(error is AstrBotHttpException)
         assertTrue(error.message!!.contains("400"))
         assertTrue(error.message!!.contains("bad input"))
+    }
+
+    @Test
+    fun `execute stream delegates to runtime transport lines`() {
+        val transport = RecordingRuntimeTransport(
+            streamLines = flowOf("data: first", "", "data: second", ""),
+        )
+        SharedRuntimeNetworkTransport.setOverrideForTests(transport)
+        val client = OkHttpAstrBotHttpClient()
+        val lines = mutableListOf<String>()
+
+        runBlocking {
+            client.executeStream(
+                HttpRequestSpec(
+                    method = HttpMethod.POST,
+                    url = "http://127.0.0.1:1/stream",
+                    body = "{}",
+                    contentType = "application/json",
+                ),
+            ) { line ->
+                lines += line
+            }
+        }
+
+        assertEquals(listOf("data: first", "", "data: second", ""), lines)
+        assertEquals(1, transport.streamRequests.size)
+        assertEquals("http://127.0.0.1:1/stream", transport.streamRequests.single().url)
+    }
+
+    @Test
+    fun `execute multipart delegates encoded body through runtime transport`() {
+        val transport = RecordingRuntimeTransport(
+            executeResponse = RuntimeNetworkResponse(
+                statusCode = 200,
+                headers = emptyMap(),
+                bodyBytes = """{"ok":true}""".toByteArray(),
+                traceId = "trace-3",
+                durationMs = 1,
+            ),
+        )
+        SharedRuntimeNetworkTransport.setOverrideForTests(transport)
+        val client = OkHttpAstrBotHttpClient()
+
+        val response = client.executeMultipart(
+            HttpRequestSpec(
+                method = HttpMethod.POST,
+                url = "http://127.0.0.1:1/upload",
+                headers = mapOf("Authorization" to "Bearer token"),
+            ),
+            listOf(
+                MultipartPartSpec.Text(name = "purpose", value = "vision"),
+                MultipartPartSpec.File(
+                    name = "file",
+                    fileName = "photo.jpg",
+                    contentType = "image/jpeg",
+                    bytes = byteArrayOf(1, 2, 3),
+                ),
+            ),
+        )
+
+        assertEquals(200, response.code)
+        assertEquals(1, transport.executeRequests.size)
+        val recorded = transport.executeRequests.single()
+        assertEquals("POST", recorded.method)
+        assertNotNull(recorded.body)
+        assertTrue(recorded.contentType!!.startsWith("multipart/form-data; boundary="))
+        val bodyText = recorded.body!!.decodeToString()
+        assertTrue(bodyText.contains("name=\"purpose\""))
+        assertTrue(bodyText.contains("vision"))
+        assertTrue(bodyText.contains("name=\"file\"; filename=\"photo.jpg\""))
     }
 
     @Test
     fun `sanitize error body redacts api keys`() {
         val client = OkHttpAstrBotHttpClient()
         val raw = """{"error":"fail","api_key":"sk-12345secret"}"""
+
         val sanitized = client.sanitizeErrorBody(raw)
+
         assertTrue(sanitized.contains("error"))
         assertFalse(sanitized.contains("sk-12345secret"))
     }
@@ -210,7 +241,39 @@ class AstrBotHttpClientTest {
     fun `sanitize error body truncates long bodies`() {
         val client = OkHttpAstrBotHttpClient()
         val raw = "x".repeat(2000)
+
         val sanitized = client.sanitizeErrorBody(raw)
+
         assertTrue(sanitized.length <= 1000)
+    }
+
+    private class RecordingRuntimeTransport(
+        private val executeResponse: RuntimeNetworkResponse = RuntimeNetworkResponse(
+            statusCode = 200,
+            headers = emptyMap(),
+            bodyBytes = ByteArray(0),
+            traceId = "trace",
+            durationMs = 1,
+        ),
+        private val executeException: RuntimeNetworkException? = null,
+        private val streamLines: Flow<String> = flowOf(),
+    ) : RuntimeNetworkTransport {
+        val executeRequests = mutableListOf<RuntimeNetworkRequest>()
+        val streamRequests = mutableListOf<RuntimeNetworkRequest>()
+
+        override suspend fun execute(request: RuntimeNetworkRequest): RuntimeNetworkResponse {
+            executeRequests += request
+            executeException?.let { throw it }
+            return executeResponse
+        }
+
+        override fun openStream(request: RuntimeNetworkRequest): Flow<String> {
+            streamRequests += request
+            return streamLines
+        }
+
+        override fun openSse(request: RuntimeNetworkRequest): Flow<SseEvent> {
+            throw UnsupportedOperationException("Not used in provider adapter tests.")
+        }
     }
 }

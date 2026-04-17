@@ -2,6 +2,9 @@ package com.astrbot.android.ui.viewmodel
 
 import com.astrbot.android.MainDispatcherRule
 import com.astrbot.android.data.ChatCompletionService
+import com.astrbot.android.data.ConfigRepository
+import com.astrbot.android.data.ConversationRepository
+import com.astrbot.android.data.ProviderRepository
 import com.astrbot.android.di.ChatViewModelDependencies
 import com.astrbot.android.model.BotProfile
 import com.astrbot.android.model.ConfigProfile
@@ -81,6 +84,7 @@ import com.astrbot.android.runtime.plugin.PluginV2InternalStage
 import com.astrbot.android.runtime.plugin.PluginV2LlmPipelineInput
 import com.astrbot.android.runtime.plugin.PluginV2LlmPipelineResult
 import com.astrbot.android.runtime.plugin.PluginV2LlmStageDispatchResult
+import com.astrbot.android.runtime.plugin.PluginV2ProviderInvocationResult
 import com.astrbot.android.runtime.plugin.PluginErrorEventPayload
 import com.astrbot.android.runtime.plugin.LlmPipelineAdmission
 import com.astrbot.android.runtime.plugin.MessageHandlerRegistrationInput
@@ -110,10 +114,26 @@ class ChatViewModelTest {
     @get:Rule
     val mainDispatcherRule = MainDispatcherRule(dispatcher)
 
+    private var savedProviders: List<ProviderProfile> = emptyList()
+    private var savedConfig: List<ConfigProfile> = emptyList()
+    private var savedConfigSelectedId: String? = null
+    private var savedSessions: List<ConversationSession> = emptyList()
+
+    @org.junit.Before
+    fun setUp() {
+        savedProviders = ProviderRepository.snapshotProfiles()
+        savedConfig = ConfigRepository.snapshotProfiles()
+        savedConfigSelectedId = ConfigRepository.selectedProfileId.value
+        savedSessions = ConversationRepository.snapshotSessions()
+    }
+
     @org.junit.After
     fun tearDown() {
         PluginRuntimeRegistry.reset()
         PluginV2DispatchEngineProvider.setEngineOverrideForTests(null)
+        ProviderRepository.restoreProfiles(savedProviders)
+        ConfigRepository.restoreProfiles(savedConfig, savedConfigSelectedId)
+        ConversationRepository.restoreSessions(savedSessions)
     }
 
     @Test
@@ -210,11 +230,11 @@ class ChatViewModelTest {
         assertOrder(
             signals = deps.signalLog,
             before = "plugin:before",
-            after = "model:sync",
+            after = "model:sync:tools",
         )
         assertOrder(
             signals = deps.signalLog,
-            before = "model:sync",
+            before = "model:sync:tools",
             after = "plugin:after",
         )
         assertEquals(1, deps.sentChatRequests)
@@ -280,7 +300,7 @@ class ChatViewModelTest {
         )
         val legacyContextFactories = AtomicInteger(0)
         val legacyTriggers = CopyOnWriteArrayList<PluginTriggerSource>()
-        val runtime = object : AppChatPluginRuntime {
+        val runtime = object : AppChatPluginRuntime, AppChatLlmPipelineRuntime {
             override fun execute(
                 trigger: PluginTriggerSource,
                 contextFactory: (PluginRuntimePlugin) -> PluginExecutionContext,
@@ -301,6 +321,55 @@ class ChatViewModelTest {
                     trigger = trigger,
                     outcomes = emptyList(),
                     skipped = emptyList(),
+                )
+            }
+
+            override suspend fun runLlmPipeline(
+                input: PluginV2LlmPipelineInput,
+            ): PluginV2LlmPipelineResult {
+                error("not called directly")
+            }
+
+            override suspend fun deliverLlmPipeline(
+                request: PluginV2HostLlmDeliveryRequest,
+            ): PluginV2HostLlmDeliveryResult {
+                val input = request.pipelineInput
+                val pipelineResult = fakePipelineResult(input = input, text = "")
+                val providerResult = input.invokeProvider(pipelineResult.finalRequest, input.streamingMode)
+                val text = when (providerResult) {
+                    is PluginV2ProviderInvocationResult.NonStreaming -> providerResult.response.text
+                    is PluginV2ProviderInvocationResult.Streaming ->
+                        providerResult.events.joinToString("") { it.deltaText }
+                }
+                val result = fakePipelineResult(input = input, text = text)
+                val preparedReply = request.prepareReply(result)
+                val sendResult = request.sendReply(preparedReply)
+                request.persistDeliveredReply(preparedReply, sendResult, result)
+                val afterSentView = PluginV2EventResultCoordinator().buildAfterSentView(
+                    requestId = result.admission.requestId,
+                    conversationId = result.admission.conversationId,
+                    sendAttemptId = "host-send-test",
+                    platformAdapterType = request.platformAdapterType,
+                    platformInstanceKey = request.platformInstanceKey,
+                    sentAtEpochMs = 1L,
+                    deliveryStatus = PluginV2AfterSentView.DeliveryStatus.SUCCESS,
+                    deliveredEntries = preparedReply.deliveredEntries,
+                )
+                return PluginV2HostLlmDeliveryResult.Sent(
+                    pipelineResult = result,
+                    preparedReply = preparedReply,
+                    sendResult = sendResult,
+                    afterSentView = afterSentView,
+                )
+            }
+
+            override suspend fun dispatchAfterMessageSent(
+                event: PluginMessageEvent,
+                afterSentView: PluginV2AfterSentView,
+            ): PluginV2LlmStageDispatchResult {
+                return PluginV2LlmStageDispatchResult(
+                    stage = PluginV2InternalStage.AfterMessageSent,
+                    invokedHandlerIds = emptyList(),
                 )
             }
         }
@@ -797,7 +866,9 @@ class ChatViewModelTest {
 
         assertEquals(1, deps.sentChatRequests)
         assertEquals("", viewModel.uiState.value.error)
-        assertEquals("", deps.latestAssistantMessage()?.content)
+        // CancellationException propagates before the pipeline persists an
+        // assistant message, so no assistant message exists.
+        assertEquals(null, deps.latestAssistantMessage())
     }
 
     @Test
@@ -1092,6 +1163,22 @@ class ChatViewModelTest {
         override val sessions: MutableStateFlow<List<ConversationSession>> = MutableStateFlow(sessions)
         override val personas: StateFlow<List<PersonaProfile>> = MutableStateFlow(emptyList())
 
+        init {
+            // RuntimeContextResolver uses global singletons, so sync test
+            // data into the global repositories for the unified pipeline.
+            ProviderRepository.restoreProfiles(providers)
+            ConfigRepository.restoreProfiles(listOf(config), config.id)
+            ConversationRepository.restoreSessions(sessions)
+        }
+
+        init {
+            // RuntimeContextResolver uses global singletons, so sync test
+            // data into the global repositories for the unified pipeline.
+            ProviderRepository.restoreProfiles(providers)
+            ConfigRepository.restoreProfiles(listOf(config), config.id)
+            ConversationRepository.restoreSessions(sessions)
+        }
+
         data class BindingUpdate(
             val sessionId: String,
             val providerId: String,
@@ -1337,7 +1424,7 @@ class ChatViewModelTest {
 
     private class RecordingAppChatPluginRuntime(
         plugins: List<PluginRuntimePlugin>,
-    ) : AppChatPluginRuntime {
+    ) : AppChatPluginRuntime, AppChatLlmPipelineRuntime {
         private val failureGuard = PluginFailureGuard(InMemoryPluginFailureStateStore())
         private val delegate = EngineBackedAppChatPluginRuntime(
             pluginProvider = { plugins },
@@ -1354,6 +1441,100 @@ class ChatViewModelTest {
             contextFactory: (PluginRuntimePlugin) -> PluginExecutionContext,
         ): PluginExecutionBatchResult {
             return delegate.execute(trigger, contextFactory).also { batches += it }
+        }
+
+        override suspend fun runLlmPipeline(
+            input: PluginV2LlmPipelineInput,
+        ): PluginV2LlmPipelineResult {
+            error("runLlmPipeline should not be called directly in recording runtime")
+        }
+
+        override suspend fun deliverLlmPipeline(
+            request: PluginV2HostLlmDeliveryRequest,
+        ): PluginV2HostLlmDeliveryResult {
+            val input = request.pipelineInput
+            val admission = LlmPipelineAdmission(
+                requestId = "req-recording",
+                conversationId = input.event.conversationId,
+                messageIds = input.messageIds,
+                llmInputSnapshot = input.event.workingText,
+                routingTarget = input.routingTarget,
+                streamingMode = input.streamingMode,
+            )
+            val finalRequest = PluginProviderRequest(
+                requestId = admission.requestId,
+                availableProviderIds = input.availableProviderIds,
+                availableModelIdsByProvider = input.availableModelIdsByProvider,
+                conversationId = admission.conversationId,
+                messageIds = admission.messageIds,
+                llmInputSnapshot = admission.llmInputSnapshot,
+                selectedProviderId = input.selectedProviderId,
+                selectedModelId = input.selectedModelId,
+                systemPrompt = input.systemPrompt,
+                messages = input.messages,
+                temperature = input.temperature,
+                topP = input.topP,
+                maxTokens = input.maxTokens,
+                streamingEnabled = input.streamingEnabled,
+                metadata = input.metadata,
+            )
+            val providerResult = input.invokeProvider(finalRequest, input.streamingMode)
+            val text = when (providerResult) {
+                is PluginV2ProviderInvocationResult.NonStreaming -> providerResult.response.text
+                is PluginV2ProviderInvocationResult.Streaming ->
+                    providerResult.events.joinToString("") { it.deltaText }
+            }
+            val finalResponse = PluginLlmResponse(
+                requestId = admission.requestId,
+                providerId = finalRequest.selectedProviderId,
+                modelId = finalRequest.selectedModelId,
+                text = text,
+            )
+            val sendableResult = PluginMessageEventResult(
+                requestId = admission.requestId,
+                conversationId = admission.conversationId,
+                text = text,
+            )
+            val pipelineResult = PluginV2LlmPipelineResult(
+                admission = admission,
+                finalRequest = finalRequest,
+                finalResponse = finalResponse,
+                sendableResult = sendableResult,
+                hookInvocationTrace = emptyList(),
+                decoratingRunResult = PluginV2EventResultCoordinator.DecoratingRunResult(
+                    finalResult = sendableResult,
+                    appliedHandlerIds = emptyList(),
+                ),
+            )
+            val preparedReply = request.prepareReply(pipelineResult)
+            val sendResult = request.sendReply(preparedReply)
+            request.persistDeliveredReply(preparedReply, sendResult, pipelineResult)
+            val afterSentView = PluginV2EventResultCoordinator().buildAfterSentView(
+                requestId = admission.requestId,
+                conversationId = admission.conversationId,
+                sendAttemptId = "host-send-recording",
+                platformAdapterType = request.platformAdapterType,
+                platformInstanceKey = request.platformInstanceKey,
+                sentAtEpochMs = 1L,
+                deliveryStatus = PluginV2AfterSentView.DeliveryStatus.SUCCESS,
+                deliveredEntries = preparedReply.deliveredEntries,
+            )
+            return PluginV2HostLlmDeliveryResult.Sent(
+                pipelineResult = pipelineResult,
+                preparedReply = preparedReply,
+                sendResult = sendResult,
+                afterSentView = afterSentView,
+            )
+        }
+
+        override suspend fun dispatchAfterMessageSent(
+            event: PluginMessageEvent,
+            afterSentView: PluginV2AfterSentView,
+        ): PluginV2LlmStageDispatchResult {
+            return PluginV2LlmStageDispatchResult(
+                stage = PluginV2InternalStage.AfterMessageSent,
+                invokedHandlerIds = emptyList(),
+            )
         }
     }
 

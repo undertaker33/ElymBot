@@ -1,15 +1,23 @@
 package com.astrbot.android.data.http
 
 import com.astrbot.android.runtime.RuntimeLogRepository
-import java.io.InterruptedIOException
-import java.net.SocketTimeoutException
-import java.nio.charset.StandardCharsets
-import java.util.concurrent.TimeUnit
-import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import com.astrbot.android.runtime.network.RuntimeNetworkCapability
+import com.astrbot.android.runtime.network.RuntimeNetworkException
+import com.astrbot.android.runtime.network.RuntimeNetworkFailure
+import com.astrbot.android.runtime.network.RuntimeNetworkRequest
+import com.astrbot.android.runtime.network.RuntimeNetworkResponse
+import com.astrbot.android.runtime.network.RuntimeNetworkTransport
+import com.astrbot.android.runtime.network.RuntimeTimeoutProfile
+import com.astrbot.android.runtime.network.SharedRuntimeNetworkTransport
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.runBlocking
 import okhttp3.MultipartBody
-import okhttp3.OkHttpClient
-import okhttp3.Request
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.RequestBody.Companion.toRequestBody
+import okio.Buffer
+import java.io.InterruptedIOException
+import java.nio.charset.StandardCharsets
+import java.net.SocketTimeoutException
 
 interface AstrBotHttpClient {
     fun execute(requestSpec: HttpRequestSpec): HttpResponsePayload
@@ -28,27 +36,45 @@ interface AstrBotHttpClient {
 }
 
 class OkHttpAstrBotHttpClient(
-    private val baseClient: OkHttpClient = OkHttpClient(),
+    private val transport: RuntimeNetworkTransport = SharedRuntimeNetworkTransport.get(),
     private val logger: (String) -> Unit = RuntimeLogRepository::append,
 ) : AstrBotHttpClient {
     override fun execute(requestSpec: HttpRequestSpec): HttpResponsePayload {
-        return executeInternal(requestSpec)
+        val sanitizedUrl = sanitizeUrlForLogs(requestSpec.url)
+        logger("HTTP request: method=${requestSpec.method.value} endpoint=$sanitizedUrl")
+        return try {
+            when (val result = executeRuntimeRequest(requestSpec, streaming = false)) {
+                is RuntimeExecuteResult.Success -> {
+                    logger("HTTP response code: code=${result.response.statusCode} endpoint=$sanitizedUrl")
+                    result.response.toHttpResponsePayload(requestSpec.url)
+                }
+                is RuntimeExecuteResult.HttpFailure -> {
+                    logger(
+                        "HTTP response error: code=${result.failure.statusCode} endpoint=$sanitizedUrl body=${sanitizeErrorBody(result.failure.bodyPreview)}",
+                    )
+                    HttpResponsePayload(
+                        code = result.failure.statusCode,
+                        body = result.failure.bodyPreview,
+                        headers = emptyMap(),
+                        url = requestSpec.url,
+                    )
+                }
+            }
+        } catch (error: Throwable) {
+            throw mapFailure(sanitizedUrl, error)
+        }
     }
 
     override fun executeBytes(requestSpec: HttpRequestSpec): ByteArray {
         val sanitizedUrl = sanitizeUrlForLogs(requestSpec.url)
         logger("HTTP binary request: method=${requestSpec.method.value} endpoint=$sanitizedUrl")
-        val request = buildRequest(requestSpec)
-        val client = buildClient(requestSpec)
         return try {
-            client.newCall(request).execute().use { response ->
-                val bytes = response.body?.bytes() ?: byteArrayOf()
-                if (!response.isSuccessful) {
-                    val errorBody = sanitizeErrorBody(bytes.toString(StandardCharsets.UTF_8))
-                    throw IllegalStateException("HTTP ${response.code}: $errorBody")
+            when (val result = executeRuntimeRequest(requestSpec, streaming = false)) {
+                is RuntimeExecuteResult.Success -> {
+                    logger("HTTP binary response code: code=${result.response.statusCode} endpoint=$sanitizedUrl")
+                    result.response.bodyBytes
                 }
-                logger("HTTP binary response code: code=${response.code} endpoint=$sanitizedUrl")
-                bytes
+                is RuntimeExecuteResult.HttpFailure -> throw mapRuntimeHttpFailure(sanitizedUrl, result.failure)
             }
         } catch (error: Throwable) {
             throw mapFailure(sanitizedUrl, error)
@@ -61,20 +87,12 @@ class OkHttpAstrBotHttpClient(
     ) {
         val sanitizedUrl = sanitizeUrlForLogs(requestSpec.url)
         logger("HTTP streaming request: method=${requestSpec.method.value} endpoint=$sanitizedUrl")
-        val request = buildRequest(requestSpec)
-        val client = buildClient(requestSpec)
+        val runtimeRequest = requestSpec.toRuntimeRequest(streaming = true)
         try {
-            client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) {
-                    val rawBody = response.body?.charStream()?.readText().orEmpty()
-                    val errorBody = sanitizeErrorBody(rawBody)
-                    throw IllegalStateException("HTTP ${response.code}: $errorBody")
-                }
-                logger("HTTP streaming response code: code=${response.code} endpoint=$sanitizedUrl")
-                response.body?.charStream()?.useLines { lines ->
-                    lines.forEach { line -> kotlinx.coroutines.runBlocking { onLine(line) } }
-                }
+            transport.openStream(runtimeRequest).collect { line ->
+                onLine(line)
             }
+            logger("HTTP streaming response complete: endpoint=$sanitizedUrl")
         } catch (error: Throwable) {
             throw mapFailure(sanitizedUrl, error)
         }
@@ -84,6 +102,68 @@ class OkHttpAstrBotHttpClient(
         requestSpec: HttpRequestSpec,
         parts: List<MultipartPartSpec>,
     ): HttpResponsePayload {
+        val sanitizedUrl = sanitizeUrlForLogs(requestSpec.url)
+        logger("HTTP multipart request: method=${requestSpec.method.value} endpoint=$sanitizedUrl")
+        return try {
+            when (val result = executeRuntimeMultipart(requestSpec, parts)) {
+                is RuntimeExecuteResult.Success -> {
+                    logger("HTTP multipart response code: code=${result.response.statusCode} endpoint=$sanitizedUrl")
+                    result.response.toHttpResponsePayload(requestSpec.url)
+                }
+                is RuntimeExecuteResult.HttpFailure -> {
+                    logger(
+                        "HTTP multipart response error: code=${result.failure.statusCode} endpoint=$sanitizedUrl body=${sanitizeErrorBody(result.failure.bodyPreview)}",
+                    )
+                    HttpResponsePayload(
+                        code = result.failure.statusCode,
+                        body = result.failure.bodyPreview,
+                        headers = emptyMap(),
+                        url = requestSpec.url,
+                    )
+                }
+            }
+        } catch (error: Throwable) {
+            throw mapFailure(sanitizedUrl, error)
+        }
+    }
+
+    private fun executeRuntimeRequest(
+        requestSpec: HttpRequestSpec,
+        streaming: Boolean,
+    ): RuntimeExecuteResult {
+        val runtimeRequest = requestSpec.toRuntimeRequest(streaming)
+        return try {
+            val response = runBlocking { transport.execute(runtimeRequest) }
+            RuntimeExecuteResult.Success(response)
+        } catch (error: RuntimeNetworkException) {
+            when (val failure = error.failure) {
+                is RuntimeNetworkFailure.Http -> RuntimeExecuteResult.HttpFailure(failure)
+                else -> throw error
+            }
+        }
+    }
+
+    private fun executeRuntimeMultipart(
+        requestSpec: HttpRequestSpec,
+        parts: List<MultipartPartSpec>,
+    ): RuntimeExecuteResult {
+        val multipart = buildMultipartBody(parts)
+        val runtimeRequest = requestSpec.toRuntimeRequest(streaming = false).copy(
+            body = multipart.bytes,
+            contentType = multipart.contentType,
+        )
+        return try {
+            val response = runBlocking { transport.execute(runtimeRequest) }
+            RuntimeExecuteResult.Success(response)
+        } catch (error: RuntimeNetworkException) {
+            when (val failure = error.failure) {
+                is RuntimeNetworkFailure.Http -> RuntimeExecuteResult.HttpFailure(failure)
+                else -> throw error
+            }
+        }
+    }
+
+    private fun buildMultipartBody(parts: List<MultipartPartSpec>): EncodedMultipart {
         val multipartBody = MultipartBody.Builder()
             .setType(MultipartBody.FORM)
             .apply {
@@ -99,82 +179,94 @@ class OkHttpAstrBotHttpClient(
                 }
             }
             .build()
-        return executeInternal(
-            requestSpec.copy(
-                body = null,
-                contentType = multipartBody.contentType().toString(),
-            ),
-            requestOverride = Request.Builder().url(requestSpec.url).apply {
-                requestSpec.headers.forEach { (name, value) -> header(name, value) }
-            }.method(requestSpec.method.value, multipartBody).build(),
+
+        val buffer = Buffer()
+        multipartBody.writeTo(buffer)
+        return EncodedMultipart(
+            bytes = buffer.readByteArray(),
+            contentType = multipartBody.contentType().toString(),
         )
     }
 
-    private fun executeInternal(
-        requestSpec: HttpRequestSpec,
-        requestOverride: Request? = null,
-    ): HttpResponsePayload {
-        val sanitizedUrl = sanitizeUrlForLogs(requestSpec.url)
-        logger("HTTP request: method=${requestSpec.method.value} endpoint=$sanitizedUrl")
-
-        val request = requestOverride ?: buildRequest(requestSpec)
-        val client = buildClient(requestSpec)
-
-        return try {
-            client.newCall(request).execute().use { response ->
-                val body = response.body?.string().orEmpty()
-                logger("HTTP response code: code=${response.code} endpoint=$sanitizedUrl")
-                HttpResponsePayload(
-                    code = response.code,
-                    body = body,
-                    headers = response.headers.toMultimap(),
-                    url = requestSpec.url,
-                )
-            }
-        } catch (error: Throwable) {
-            throw mapFailure(sanitizedUrl, error)
-        }
+    private fun RuntimeNetworkResponse.toHttpResponsePayload(url: String): HttpResponsePayload {
+        return HttpResponsePayload(
+            code = statusCode,
+            body = bodyString,
+            headers = headers,
+            url = url,
+        )
     }
 
-    private fun buildRequest(requestSpec: HttpRequestSpec): Request {
-        val builder = Request.Builder().url(requestSpec.url)
-        requestSpec.headers.forEach { (name, value) -> builder.header(name, value) }
-        val body = requestSpec.body
-        val requestBody = when {
-            body == null && requestSpec.method == HttpMethod.GET -> null
-            body == null -> ByteArray(0).toRequestBody(requestSpec.contentType?.toMediaTypeOrNull())
-            else -> body.toByteArray(StandardCharsets.UTF_8).toRequestBody(requestSpec.contentType?.toMediaTypeOrNull())
-        }
-        return builder.method(requestSpec.method.value, requestBody).build()
-    }
-
-    private fun buildClient(requestSpec: HttpRequestSpec): OkHttpClient {
-        return baseClient.newBuilder()
-            .connectTimeout(requestSpec.connectTimeoutMs, TimeUnit.MILLISECONDS)
-            .readTimeout(requestSpec.readTimeoutMs, TimeUnit.MILLISECONDS)
-            .build()
+    private fun HttpRequestSpec.toRuntimeRequest(streaming: Boolean): RuntimeNetworkRequest {
+        return RuntimeNetworkRequest(
+            capability = RuntimeNetworkCapability.PROVIDER,
+            method = method.value,
+            url = url,
+            headers = headers,
+            body = body?.toByteArray(StandardCharsets.UTF_8),
+            contentType = contentType,
+            timeoutProfile = if (streaming) {
+                RuntimeTimeoutProfile.PROVIDER_STREAMING
+            } else {
+                RuntimeTimeoutProfile.PROVIDER_NON_STREAMING
+            },
+            connectTimeoutMs = connectTimeoutMs,
+            readTimeoutMs = readTimeoutMs,
+        )
     }
 
     private fun mapFailure(
         sanitizedUrl: String,
         error: Throwable,
     ): AstrBotHttpException {
+        if (error is AstrBotHttpException) return error
+
         val category = when (error) {
-            is SocketTimeoutException, is InterruptedIOException -> HttpFailureCategory.TIMEOUT
-            is AstrBotHttpException -> error.category
+            is RuntimeNetworkException -> when (error.failure) {
+                is RuntimeNetworkFailure.ConnectTimeout,
+                is RuntimeNetworkFailure.ReadTimeout -> HttpFailureCategory.TIMEOUT
+                else -> HttpFailureCategory.NETWORK
+            }
+            is SocketTimeoutException,
+            is InterruptedIOException -> HttpFailureCategory.TIMEOUT
             else -> HttpFailureCategory.NETWORK
         }
+
+        val message = when (error) {
+            is RuntimeNetworkException -> error.failure.toMessage()
+            else -> error.message ?: "HTTP request failed"
+        }
+
         logger(
-            "HTTP request failed: endpoint=$sanitizedUrl category=$category reason=${error.message ?: error.javaClass.simpleName}",
+            "HTTP request failed: endpoint=$sanitizedUrl category=$category reason=${message}",
         )
-        return if (error is AstrBotHttpException) {
-            error
-        } else {
-            AstrBotHttpException(
-                category = category,
-                message = error.message ?: "HTTP request failed",
-                cause = error,
-            )
+
+        return AstrBotHttpException(
+            category = category,
+            message = message,
+            cause = error,
+        )
+    }
+
+    private fun mapRuntimeHttpFailure(
+        sanitizedUrl: String,
+        failure: RuntimeNetworkFailure.Http,
+    ): AstrBotHttpException {
+        val message = failure.toMessage()
+        logger(
+            "HTTP request failed: endpoint=$sanitizedUrl category=${HttpFailureCategory.NETWORK} reason=$message",
+        )
+        return AstrBotHttpException(
+            category = HttpFailureCategory.NETWORK,
+            message = message,
+            cause = failure.cause,
+        )
+    }
+
+    private fun RuntimeNetworkFailure.toMessage(): String {
+        return when (this) {
+            is RuntimeNetworkFailure.Http -> "HTTP $statusCode: ${sanitizeErrorBody(bodyPreview)}"
+            else -> summary
         }
     }
 
@@ -210,4 +302,14 @@ class OkHttpAstrBotHttpClient(
             }
         return "$base?$sanitizedQuery"
     }
+
+    private sealed class RuntimeExecuteResult {
+        data class Success(val response: RuntimeNetworkResponse) : RuntimeExecuteResult()
+        data class HttpFailure(val failure: RuntimeNetworkFailure.Http) : RuntimeExecuteResult()
+    }
+
+    private data class EncodedMultipart(
+        val bytes: ByteArray,
+        val contentType: String,
+    )
 }

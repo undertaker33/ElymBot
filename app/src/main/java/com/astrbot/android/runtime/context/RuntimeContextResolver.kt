@@ -7,7 +7,6 @@ import com.astrbot.android.data.ProviderRepository
 import com.astrbot.android.model.BotProfile
 import com.astrbot.android.model.ConfigProfile
 import com.astrbot.android.model.FeatureSupportState
-import com.astrbot.android.model.PersonaProfile
 import com.astrbot.android.model.PersonaToolEnablementSnapshot
 import com.astrbot.android.model.ProviderCapability
 import com.astrbot.android.model.ProviderProfile
@@ -49,7 +48,7 @@ object RuntimeContextResolver {
         val effectiveSessionId = event.repositorySessionId.takeIf { it.isNotBlank() }
             ?: event.conversationId
         val session = ConversationRepository.session(effectiveSessionId)
-        val contextWindow = resolveContextWindow(config, persona)
+        val contextWindow = resolveContextWindow(config)
         val messageWindow = session.messages.takeLast(contextWindow)
 
         val personaToolSnapshot = persona?.let {
@@ -101,15 +100,14 @@ object RuntimeContextResolver {
         )
     }
 
+    /**
+     * Context window is derived solely from config — persona no longer
+     * participates in context strategy (Phase 1 boundary).
+     */
     private fun resolveContextWindow(
         config: ConfigProfile,
-        persona: PersonaProfile?,
     ): Int {
         val configMax = config.maxContextTurns
-        val personaMax = persona?.maxContextMessages ?: Int.MAX_VALUE
-        return when {
-            configMax <= 0 -> personaMax
-            else -> minOf(configMax, personaMax)
-        }
+        return if (configMax <= 0) Int.MAX_VALUE else configMax
     }
 }
