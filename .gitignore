@@ -12,6 +12,8 @@ artifacts/*
 docs/plugins/
 .superpowers/
 .worktrees/
+hs_err_pid15876.log
+replay_pid15876.log
 .android-home/
 .android-sdk/
 .codex-home/

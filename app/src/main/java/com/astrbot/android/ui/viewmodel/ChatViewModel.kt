@@ -14,7 +14,7 @@ import com.astrbot.android.di.DefaultChatViewModelDependencies
 import com.astrbot.android.model.BotProfile
 import com.astrbot.android.model.ConfigProfile
 import com.astrbot.android.model.PersonaProfile
-import com.astrbot.android.model.PersonaToolEnablementSnapshot
+
 import com.astrbot.android.model.ProviderCapability
 import com.astrbot.android.model.ProviderProfile
 import com.astrbot.android.model.chat.ConversationAttachment
@@ -81,7 +81,7 @@ import com.astrbot.android.runtime.context.RuntimeIngressEvent
 import com.astrbot.android.runtime.context.RuntimePlatform
 import com.astrbot.android.runtime.context.SenderInfo
 import com.astrbot.android.runtime.context.StreamingModeResolver
-import com.astrbot.android.runtime.context.SystemPromptBuilder
+
 import com.astrbot.android.runtime.context.ResolvedRuntimeContext
 import com.astrbot.android.runtime.plugin.PlatformLlmCallbacks
 import com.astrbot.android.runtime.plugin.PluginV2FollowupSender
@@ -346,7 +346,6 @@ class ChatViewModel(
 
         val botSnapshot = selectedBot()
         val botIdSnapshot = botSnapshot?.id ?: dependencies.selectedBotId.value
-        val personaSnapshot = currentPersona()
         val personaIdSnapshot = resolveSessionPersonaId(sessionId)
         val configSnapshot = botSnapshot?.configProfileId?.let { dependencies.resolveConfig(it) }
         val audioAttachments = attachments.filter { it.type == "audio" }
@@ -449,9 +448,7 @@ class ChatViewModel(
                     }
 
                     val currentSession = dependencies.session(sessionId)
-                    val contextWindow = personaSnapshot?.maxContextMessages ?: currentSession.maxContextMessages
-                    val scopedSession = currentSession.copy(maxContextMessages = contextWindow)
-                    val llmAssistantMessage = deliverAppChatLlmPipelineIfSupported(
+                    val llmAssistantMessage = deliverAppChatLlmPipeline(
                         sessionId = sessionId,
                         session = currentSession,
                         userMessage = userMessage,
@@ -462,93 +459,16 @@ class ChatViewModel(
                         wantsTts = wantsTts,
                         ttsProvider = ttsProvider,
                     )
-                    if (llmAssistantMessage != null) {
-                        assistantMessageId = llmAssistantMessage.id
-                        dispatchAppChatPlugins(
-                            trigger = PluginTriggerSource.AfterModelResponse,
-                            session = dependencies.session(sessionId),
-                            message = llmAssistantMessage,
-                            provider = provider,
-                            bot = botSnapshot,
-                            personaId = personaIdSnapshot,
-                            config = config,
-                        )
-                        return@sessionLock
-                    }
-
-                    assistantMessageId = dependencies.appendMessage(
-                        sessionId = sessionId,
-                        role = "assistant",
-                        content = "",
+                    assistantMessageId = llmAssistantMessage.id
+                    dispatchAppChatPlugins(
+                        trigger = PluginTriggerSource.AfterModelResponse,
+                        session = dependencies.session(sessionId),
+                        message = llmAssistantMessage,
+                        provider = provider,
+                        bot = botSnapshot,
+                        personaId = personaIdSnapshot,
+                        config = config,
                     )
-                    val resolvedAssistantMessageId = assistantMessageId ?: return@sessionLock
-                    val response = if (config?.textStreamingEnabled == true && provider.hasNativeStreamingSupport()) {
-                        emitNativeStreamingResponse(
-                            sessionId = sessionId,
-                            messageId = resolvedAssistantMessageId,
-                            provider = provider,
-                            currentSession = scopedSession,
-                            systemPrompt = buildSystemPrompt(personaSnapshot?.systemPrompt),
-                            config = config,
-                        )
-                    } else {
-                        val fullResponse = withContext(ioDispatcher) {
-                            dependencies.sendConfiguredChat(
-                                provider = provider,
-                                messages = scopedSession.messages.takeLast(scopedSession.maxContextMessages),
-                                systemPrompt = buildSystemPrompt(personaSnapshot?.systemPrompt),
-                                config = config,
-                                availableProviders = providers.value,
-                            )
-                        }
-                        if (config?.textStreamingEnabled == true) {
-                            emitPseudoStreamingResponse(sessionId, resolvedAssistantMessageId, fullResponse)
-                        } else {
-                            dependencies.updateMessage(sessionId, resolvedAssistantMessageId, content = fullResponse)
-                        }
-                        fullResponse
-                    }
-
-                    if (wantsTts && ttsProvider != null) {
-                        if (config.voiceStreamingEnabled) {
-                            emitVoiceStreamingAttachments(
-                                sessionId = sessionId,
-                                messageId = resolvedAssistantMessageId,
-                                response = response,
-                                provider = ttsProvider,
-                                voiceId = config.ttsVoiceId,
-                                readBracketedContent = config.ttsReadBracketedContent,
-                            )
-                        } else {
-                            synthesizeSingleVoiceReply(
-                                provider = ttsProvider,
-                                text = response,
-                                voiceId = config.ttsVoiceId,
-                                readBracketedContent = config.ttsReadBracketedContent,
-                            )?.let { attachment ->
-                                dependencies.updateMessage(
-                                    sessionId = sessionId,
-                                    messageId = resolvedAssistantMessageId,
-                                    attachments = listOf(attachment),
-                                )
-                            }
-                        }
-                    }
-
-                    dependencies.session(sessionId)
-                        .messages
-                        .firstOrNull { it.id == resolvedAssistantMessageId }
-                        ?.let { assistantMessage ->
-                            dispatchAppChatPlugins(
-                                trigger = PluginTriggerSource.AfterModelResponse,
-                                session = dependencies.session(sessionId),
-                                message = assistantMessage,
-                                provider = provider,
-                                bot = botSnapshot,
-                                personaId = personaIdSnapshot,
-                                config = config,
-                            )
-                        }
                 }
             } catch (error: CancellationException) {
                 throw error
@@ -572,7 +492,7 @@ class ChatViewModel(
         }
     }
 
-    private suspend fun deliverAppChatLlmPipelineIfSupported(
+    private suspend fun deliverAppChatLlmPipeline(
         sessionId: String,
         session: ConversationSession,
         userMessage: ConversationMessage,
@@ -582,9 +502,11 @@ class ChatViewModel(
         config: ConfigProfile?,
         wantsTts: Boolean,
         ttsProvider: ProviderProfile?,
-    ): ConversationMessage? {
-        val llmRuntime = appChatPluginRuntime as? AppChatLlmPipelineRuntime ?: return null
-        val resolvedBot = bot ?: return null
+    ): ConversationMessage {
+        val llmRuntime = appChatPluginRuntime as? AppChatLlmPipelineRuntime
+            ?: error("AppChatPluginRuntime must implement AppChatLlmPipelineRuntime — legacy Track B path has been removed")
+        val resolvedBot = bot
+            ?: error("Bot profile is required for LLM pipeline — cannot proceed without a bot")
 
         val runtimeContext = RuntimeContextResolver.resolve(
             event = RuntimeIngressEvent(
@@ -653,17 +575,16 @@ class ChatViewModel(
         )
         return when (deliveryResult) {
             is PluginV2HostLlmDeliveryResult.Sent -> {
-                persistedAssistantMessageId
-                    ?.let { messageId ->
-                        dependencies.session(sessionId).messages.firstOrNull { message -> message.id == messageId }
-                    }
+                val messageId = persistedAssistantMessageId
+                    ?: error("LLM pipeline succeeded but no assistant message was persisted")
+                dependencies.session(sessionId).messages.firstOrNull { message -> message.id == messageId }
+                    ?: error("Persisted assistant message $messageId not found in session $sessionId")
             }
 
             is PluginV2HostLlmDeliveryResult.Suppressed -> {
-                dependencies.log(
+                error(
                     "App chat llm result suppressed: requestId=${deliveryResult.pipelineResult.admission.requestId} session=$sessionId",
                 )
-                null
             }
 
             is PluginV2HostLlmDeliveryResult.SendFailed -> error(
@@ -1916,20 +1837,6 @@ class ChatViewModel(
                 it.enabled &&
                 ProviderCapability.TTS in it.capabilities
         }
-    }
-
-    /**
-     * Delegates to [SystemPromptBuilder] for App chat context. Track B (direct
-     * provider) still calls this; Track A (pipeline) uses RuntimeOrchestrator
-     * which calls PromptAssembler directly.
-     */
-    private fun buildSystemPrompt(personaPrompt: String?): String? {
-        val config = selectedBot()?.configProfileId?.let { dependencies.resolveConfig(it) }
-        return SystemPromptBuilder.buildForAppChat(
-            personaPrompt = personaPrompt,
-            realWorldTimeAwarenessEnabled = config?.realWorldTimeAwarenessEnabled == true,
-            skills = config?.skills.orEmpty(),
-        )
     }
 
     private fun selectedStreamingIntervalMs(
