@@ -148,7 +148,7 @@ data class McpServerEntry(
     val serverId: String = "",
     val name: String = "",
     val url: String = "",
-    val transport: String = "sse",
+    val transport: String = "streamable_http",
     val command: String = "",
     val args: List<String> = emptyList(),
     val headers: Map<String, String> = emptyMap(),
@@ -175,12 +175,33 @@ data class CronJob(
     val payloadJson: String = "{}",
     val enabled: Boolean = true,
     val runOnce: Boolean = false,
+    val platform: String = "",
+    val conversationId: String = "",
+    val botId: String = "",
+    val configProfileId: String = "",
+    val personaId: String = "",
+    val providerId: String = "",
+    val origin: String = "",
     val status: String = "scheduled",
     val lastRunAt: Long = 0L,
     val nextRunTime: Long = 0L,
     val lastError: String = "",
     val createdAt: Long = 0L,
     val updatedAt: Long = 0L,
+)
+
+data class CronJobExecutionRecord(
+    val executionId: String = "",
+    val jobId: String = "",
+    val status: String = "",
+    val startedAt: Long = 0L,
+    val completedAt: Long = 0L,
+    val durationMs: Long = 0L,
+    val attempt: Int = 0,
+    val trigger: String = "",
+    val errorCode: String = "",
+    val errorMessage: String = "",
+    val deliverySummary: String = "",
 )
 
 data class BotRuntimeState(

@@ -4,6 +4,7 @@ import com.astrbot.android.model.plugin.AppChatLlm
 import com.astrbot.android.model.PersonaToolEnablementSnapshot
 import com.astrbot.android.model.plugin.PluginV2StreamingMode
 import com.astrbot.android.model.plugin.PluginRuntimeLogLevel
+import com.astrbot.android.runtime.plugin.toolsource.ToolSourceContext
 import java.util.LinkedHashMap
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CancellationException
@@ -26,6 +27,7 @@ internal data class PluginV2LlmPipelineInput(
     val metadata: JsonLikeMap? = null,
     val personaToolEnablementSnapshot: PersonaToolEnablementSnapshot? = null,
     val configProfileId: String? = null,
+    val toolSourceContext: ToolSourceContext? = null,
     val supportsToolCalling: Boolean = true,
     val invokeProvider: suspend (
         request: PluginProviderRequest,

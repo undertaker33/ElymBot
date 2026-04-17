@@ -33,11 +33,14 @@ import org.json.JSONObject
 
 internal object ScheduledTaskRuntimeExecutor {
 
-    suspend fun execute(context: CronJobExecutionContext) {
+    suspend fun execute(context: CronJobExecutionContext): CronJobDeliverySummary {
         val note = context.note.trim().ifBlank { context.description.trim() }
         if (note.isBlank()) {
-            RuntimeLogRepository.append("CronJobBridge: skip empty note for job=${context.jobId}")
-            return
+            throw CronJobExecutionFailure(
+                code = "empty_note",
+                retryable = false,
+                message = "Scheduled task note is empty for job=${context.jobId}",
+            )
         }
 
         require(context.platform.isNotBlank()) { "Scheduled task missing platform for job=${context.jobId}" }
@@ -80,6 +83,23 @@ internal object ScheduledTaskRuntimeExecutor {
             rawPlatformPayload = mapOf(
                 "jobId" to context.jobId,
                 "trigger" to PluginTriggerSource.BeforeSendMessage.wireValue,
+                "scheduledTask" to mapOf(
+                    "jobId" to context.jobId,
+                    "name" to context.name,
+                    "description" to context.description,
+                    "note" to note,
+                    "jobType" to context.jobType,
+                    "sessionId" to context.sessionId,
+                    "platform" to context.platform,
+                    "conversationId" to context.conversationId,
+                    "botId" to context.botId,
+                    "configProfileId" to context.configProfileId,
+                    "personaId" to context.personaId,
+                    "providerId" to context.providerId,
+                    "origin" to context.origin,
+                    "runOnce" to context.runOnce,
+                    "runAt" to context.runAt,
+                ),
             ),
         )
 
@@ -240,10 +260,32 @@ internal object ScheduledTaskRuntimeExecutor {
         RuntimeLogRepository.append(
             "CronJobBridge: job=${context.jobId} completed with ${deliveryResult::class.simpleName.orEmpty()} conversation=$conversationId",
         )
+        return when (deliveryResult) {
+            is com.astrbot.android.runtime.plugin.PluginV2HostLlmDeliveryResult.Sent -> CronJobDeliverySummary(
+                platform = context.platform,
+                conversationId = conversationId,
+                deliveredMessageCount = deliveryResult.preparedReply.deliveredEntries.size.coerceAtLeast(1),
+                receiptIds = deliveryResult.sendResult.receiptIds,
+                textPreview = deliveryResult.preparedReply.text.take(160),
+            )
+            is com.astrbot.android.runtime.plugin.PluginV2HostLlmDeliveryResult.Suppressed -> {
+                RuntimeLogRepository.append(
+                    "CronJobBridge: job=${context.jobId} suppressed without sending conversation=$conversationId",
+                )
+                throw CronJobExecutionFailure(
+                    code = "scheduled_task_suppressed",
+                    retryable = false,
+                    message = "Scheduled task completed without sending a reminder for job=${context.jobId}",
+                )
+            }
+            is com.astrbot.android.runtime.plugin.PluginV2HostLlmDeliveryResult.SendFailed -> error("unreachable")
+        }
     }
 
     private fun resolvePlatform(platform: String): RuntimePlatform {
         return when (platform.trim().lowercase()) {
+            "qq",
+            "onebot",
             RuntimePlatform.QQ_ONEBOT.wireValue -> RuntimePlatform.QQ_ONEBOT
             else -> RuntimePlatform.APP_CHAT
         }

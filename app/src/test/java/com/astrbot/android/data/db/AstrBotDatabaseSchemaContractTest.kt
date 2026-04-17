@@ -78,8 +78,62 @@ class AstrBotDatabaseSchemaContractTest {
     }
 
     @Test
-    fun latestMigration_targetsVersion19() {
-        assertTrue(AstrBotDatabase.allMigrations.maxOf { it.endVersion } == 19)
+    fun latestMigration_targetsVersion20() {
+        assertTrue(AstrBotDatabase.allMigrations.maxOf { it.endVersion } == 20)
+    }
+
+    @Test
+    fun version20Schema_containsCronExecutionRecordsAndExplicitCronTargetColumns() {
+        val schemaFile = listOf(
+            File("schemas/com.astrbot.android.data.db.AstrBotDatabase/20.json"),
+            File("app/schemas/com.astrbot.android.data.db.AstrBotDatabase/20.json"),
+        ).firstOrNull { it.exists() } ?: error("Room schema file for v20 was not found")
+        val schema = schemaFile.readText()
+
+        listOf(
+            "cron_job_execution_records",
+            "executionId",
+            "durationMs",
+            "deliverySummary",
+            "platform",
+            "conversationId",
+            "botId",
+            "configProfileId",
+            "personaId",
+            "providerId",
+            "origin",
+        ).forEach { token ->
+            assertTrue("Expected $token to exist in v20 schema", token in schema)
+        }
+    }
+
+    @Test
+    fun migrations_include19To20Step() {
+        assertTrue(
+            AstrBotDatabase.allMigrations.any { migration ->
+                migration.startVersion == 19 && migration.endVersion == 20
+            },
+        )
+    }
+
+    @Test
+    fun version20Schema_containsResourceCenterTables() {
+        val schemaFile = listOf(
+            File("schemas/com.astrbot.android.data.db.AstrBotDatabase/20.json"),
+            File("app/schemas/com.astrbot.android.data.db.AstrBotDatabase/20.json"),
+        ).firstOrNull { it.exists() } ?: error("Room schema file for v20 was not found")
+        val schema = schemaFile.readText()
+
+        listOf(
+            "resource_center_items",
+            "config_resource_projections",
+            "resourceId",
+            "skillKind",
+            "configJson",
+            "index_config_resource_projections_configId_kind_sortIndex",
+        ).forEach { token ->
+            assertTrue("Expected $token to exist in v20 schema", token in schema)
+        }
     }
 
     @Test

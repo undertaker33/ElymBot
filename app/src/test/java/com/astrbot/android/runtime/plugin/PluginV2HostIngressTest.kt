@@ -614,6 +614,46 @@ class PluginV2HostIngressTest {
     }
 
     @Test
+    fun onebot_llm_event_extras_include_runtime_target_context_for_host_tools() = runBlocking {
+        val capturedExtras = AtomicReference<Map<String, *>?>()
+        val runtime = RecordingAppChatPluginRuntime(
+            preSend = { input ->
+                capturedExtras.set(input.event.extras)
+                buildPipelineResult(
+                    input = input,
+                    shouldSend = false,
+                    text = "context-check",
+                )
+            },
+        )
+        withOneBotState(
+            bot = defaultBot(),
+            config = defaultConfig(textStreamingEnabled = false),
+            providers = listOf(defaultChatProvider()),
+        ) {
+            OneBotBridgeServer.setAppChatPluginRuntimeOverrideForTests(runtime)
+            OneBotBridgeServer.setReplySenderOverrideForTests { _, _, _ ->
+                OneBotSendResult.success()
+            }
+            PluginV2DispatchEngineProvider.setEngineOverrideForTests(v2EngineWithHandlers())
+
+            invokeHandlePayload(
+                oneBotMessagePayload(
+                    messageId = "msg-host-tool-context",
+                    text = "astrbot 五分钟后提醒我喝水",
+                ),
+            )
+
+            val extras = requireNotNull(capturedExtras.get())
+            assertEquals("qq_runtime", extras["source"])
+            assertEquals(PluginTriggerSource.BeforeSendMessage.wireValue, extras["trigger"])
+            assertEquals("qq-main", extras["botId"])
+            assertEquals("config-qq", extras["configProfileId"])
+            assertEquals("provider-1", extras["providerId"])
+        }
+    }
+
+    @Test
     fun onebot_after_sent_view_uses_same_public_conversation_id_as_event() = runBlocking {
         val capturedEventConversationId = AtomicReference<String>()
         val capturedViewConversationId = AtomicReference<String>()

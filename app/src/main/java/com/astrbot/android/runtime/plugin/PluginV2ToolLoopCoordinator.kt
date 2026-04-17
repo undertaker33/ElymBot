@@ -107,6 +107,8 @@ internal class PluginV2ToolLoopCoordinator(
                         "conversationId" to event.conversationId,
                         "providerId" to baseRequest.selectedProviderId,
                         "modelId" to baseRequest.selectedModelId,
+                        "rawText" to event.rawText,
+                        "workingText" to event.workingText,
                         "eventExtras" to event.extras,
                     ),
                 ),

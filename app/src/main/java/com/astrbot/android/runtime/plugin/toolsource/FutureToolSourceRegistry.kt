@@ -2,6 +2,11 @@ package com.astrbot.android.runtime.plugin.toolsource
 
 import com.astrbot.android.runtime.plugin.PluginToolDescriptor
 import com.astrbot.android.runtime.plugin.PluginToolSourceKind
+import com.astrbot.android.data.ConfigRepository
+import com.astrbot.android.data.ResourceCenterRepository
+import com.astrbot.android.runtime.context.IngressTrigger
+import com.astrbot.android.runtime.context.RuntimePlatform
+import com.astrbot.android.runtime.context.RuntimeSkillProjectionResolver
 
 /**
  * Aggregates all [FutureToolSourceProvider] instances and produces a unified list
@@ -19,7 +24,14 @@ class FutureToolSourceRegistry(
     suspend fun collectToolDescriptors(
         configProfileId: String,
     ): List<PluginToolDescriptor> {
-        val context = ToolSourceRegistryIngestContext(configProfileId = configProfileId)
+        val context = ToolSourceRegistryIngestContext(toolSourceContext = contextForConfig(configProfileId))
+        return collectToolDescriptors(context.toolSourceContext)
+    }
+
+    suspend fun collectToolDescriptors(
+        toolSourceContext: ToolSourceContext,
+    ): List<PluginToolDescriptor> {
+        val context = ToolSourceRegistryIngestContext(toolSourceContext = toolSourceContext)
         return providers.flatMap { provider ->
             provider.listBindings(context).map { binding -> binding.descriptor }
         }
@@ -39,7 +51,26 @@ class FutureToolSourceRegistry(
         )
         val availability = provider.availabilityOf(
             identity = identity,
-            context = ToolSourceAvailabilityContext(configProfileId = configProfileId),
+            context = ToolSourceAvailabilityContext(toolSourceContext = contextForConfig(configProfileId)),
+        )
+        return availability.providerReachable && availability.capabilityAllowed
+    }
+
+    suspend fun isAvailable(
+        sourceKind: PluginToolSourceKind,
+        ownerId: String,
+        toolSourceContext: ToolSourceContext,
+    ): Boolean {
+        val provider = providersByKind[sourceKind] ?: return false
+        val identity = ToolSourceIdentity(
+            sourceKind = sourceKind,
+            ownerId = ownerId,
+            sourceRef = "",
+            displayName = "",
+        )
+        val availability = provider.availabilityOf(
+            identity = identity,
+            context = ToolSourceAvailabilityContext(toolSourceContext = toolSourceContext),
         )
         return availability.providerReachable && availability.capabilityAllowed
     }
@@ -63,5 +94,20 @@ class FutureToolSourceRegistry(
             ContextStrategyToolSourceProvider(),
             WebSearchToolSourceProvider(),
         )
+
+        fun contextForConfig(configProfileId: String): ToolSourceContext {
+            val config = ConfigRepository.resolve(configProfileId)
+            val resourceProjection = RuntimeSkillProjectionResolver.fromResourceCenterSnapshot(
+                snapshot = ResourceCenterRepository.compatibilitySnapshotForConfig(config),
+                platform = RuntimePlatform.APP_CHAT,
+                trigger = IngressTrigger.USER_MESSAGE,
+            )
+            return ToolSourceContext.fromConfigProfile(
+                config = config,
+                mcpServers = resourceProjection.mcpServers,
+                promptSkills = resourceProjection.promptSkills,
+                toolSkills = resourceProjection.toolSkills,
+            )
+        }
     }
 }

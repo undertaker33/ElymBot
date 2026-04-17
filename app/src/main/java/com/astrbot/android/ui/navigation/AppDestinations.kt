@@ -8,6 +8,7 @@ import androidx.compose.material.icons.outlined.Memory
 import androidx.compose.material.icons.outlined.PersonOutline
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.SmartToy
+import com.astrbot.android.ui.settings.ResourceKind
 
 // 统一维护全局导航 route，避免在页面和动画层重复写字符串。
 internal sealed class AppDestination(
@@ -43,6 +44,10 @@ internal sealed class AppDestination(
 
     data object Logs : AppDestination("logs", Icons.AutoMirrored.Outlined.List)
     data object Me : AppDestination("me", Icons.Outlined.PersonOutline)
+    data object ResourceCenter : AppDestination("resource-center", Icons.Outlined.Memory)
+    data object ResourceList : AppDestination("resource-center/{resourceType}", Icons.Outlined.Memory) {
+        fun routeFor(resourceKind: ResourceKind): String = "resource-center/${resourceKind.routeSegment}"
+    }
     data object QQAccount : AppDestination("qq-account", Icons.Outlined.PersonOutline)
     data object QQLogin : AppDestination("qq-login", Icons.Outlined.PersonOutline)
     data object SettingsHub : AppDestination("settings-hub", Icons.Outlined.Settings)

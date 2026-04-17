@@ -34,7 +34,7 @@ object PromptAssembler {
         ctx.persona?.systemPrompt?.trim()?.takeIf { it.isNotBlank() }?.let(parts::add)
 
         // 2. Prompt Skill blocks
-        assembleSkillBlocks(ctx.skills)?.let(parts::add)
+        assemblePromptSkillBlocks(ctx.promptSkills)?.let(parts::add)
 
         // 3. Platform channel hint
         channelHint(ctx)?.let(parts::add)
@@ -44,6 +44,8 @@ object PromptAssembler {
             val now = ZonedDateTime.now()
             parts += "Current local time: ${now.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss z"))}."
         }
+
+        hostCapabilityGuidance(ctx.ingressEvent.trigger)?.let(parts::add)
 
         return parts.joinToString("\n\n").ifBlank { null }
     }
@@ -61,6 +63,7 @@ object PromptAssembler {
         val parts = mutableListOf<String>()
         personaPrompt?.trim()?.takeIf { it.isNotBlank() }?.let(parts::add)
         assembleSkillBlocks(skills)?.let(parts::add)
+        hostCapabilityGuidance(null)?.let(parts::add)
         if (realWorldTimeAwarenessEnabled) {
             val now = ZonedDateTime.now()
             parts += "Current local time: ${now.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss z"))}."
@@ -74,16 +77,24 @@ object PromptAssembler {
      * The combined length is capped at [DEFAULT_SKILL_BUDGET_CHARS].
      */
     internal fun assembleSkillBlocks(skills: List<SkillEntry>): String? {
-        val activeSkills = skills
-            .filter { it.active && it.content.isNotBlank() }
-            .sortedByDescending { it.priority }
-        if (activeSkills.isEmpty()) return null
+        return assemblePromptSkillBlocks(
+            RuntimeSkillProjectionResolver.promptSkills(
+                skills = skills,
+                platform = RuntimePlatform.APP_CHAT,
+                trigger = IngressTrigger.USER_MESSAGE,
+            ),
+        )
+    }
 
+    internal fun assemblePromptSkillBlocks(skills: List<PromptSkillProjection>): String? {
+        val activeSkills = skills.filter { it.active && it.content.isNotBlank() }
+        if (activeSkills.isEmpty()) return null
         val builder = StringBuilder()
         var budget = DEFAULT_SKILL_BUDGET_CHARS
         for (skill in activeSkills) {
             val block = skill.content.trim()
-            if (block.length > budget) break
+            val skillBudget = if (skill.budgetChars > 0) minOf(skill.budgetChars, budget) else budget
+            if (block.length > skillBudget) break
             if (builder.isNotEmpty()) builder.append("\n\n")
             builder.append(block)
             budget -= block.length
@@ -98,6 +109,18 @@ object PromptAssembler {
                 "You are replying inside a QQ group chat. Keep the answer concise and natural, and focus on the latest message."
             else ->
                 "You are replying inside a QQ private chat. Keep the answer concise and natural."
+        }
+    }
+
+    private fun hostCapabilityGuidance(trigger: IngressTrigger?): String? {
+        val reminderRoutingRule = "When the user asks to remind, schedule a follow-up, set a timer, or repeat a task later, prefer create_future_task. Use web_search only when the user explicitly asks how reminders work, about reminder apps, or for related information/news."
+        return if (trigger == IngressTrigger.SCHEDULED_TASK) {
+            listOf(
+                reminderRoutingRule,
+                "This turn was triggered by a scheduled task. It is not a normal chat turn. Do not greet, do not add filler, and do the scheduled work first. If this task exists to remind, notify, or follow up with the user, you must send the reminder now and must not silently suppress it.",
+            ).joinToString("\n\n")
+        } else {
+            reminderRoutingRule
         }
     }
 }

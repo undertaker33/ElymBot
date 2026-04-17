@@ -8,6 +8,7 @@ import com.astrbot.android.model.PersonaToolEnablementSnapshot
 import com.astrbot.android.model.ProviderProfile
 import com.astrbot.android.model.SkillEntry
 import com.astrbot.android.model.chat.ConversationMessage
+import com.astrbot.android.runtime.plugin.toolsource.ToolSourceContext
 import java.util.UUID
 
 /**
@@ -45,6 +46,9 @@ data class ResolvedRuntimeContext(
     val proactiveEnabled: Boolean,
     val mcpServers: List<McpServerEntry>,
     val skills: List<SkillEntry>,
+    val promptSkills: List<PromptSkillProjection>,
+    val toolSkills: List<ToolSkillProjection>,
+    val toolSourceContext: ToolSourceContext,
 
     // ── Delivery ──
     val deliveryPolicy: DeliveryPolicy,
