@@ -54,6 +54,7 @@ internal object RuntimeOrchestrator {
             messages = messages,
             personaToolEnablementSnapshot = ctx.personaToolSnapshot,
             configProfileId = ctx.config.id,
+            toolSourceContext = ctx.toolSourceContext,
             supportsToolCalling = ctx.providerCapabilities.supportsToolCalling,
             invokeProvider = { request, mode ->
                 callbacks.invokeProvider(request, mode, ctx)

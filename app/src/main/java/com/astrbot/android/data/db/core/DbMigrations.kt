@@ -214,3 +214,186 @@ internal val migration18To19 = object : Migration(18, 19) {
         db.execSQL("ALTER TABLE config_skills ADD COLUMN priority INTEGER NOT NULL DEFAULT 0")
     }
 }
+
+internal val migration19To20 = object : Migration(19, 20) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS resource_center_items (
+                resourceId TEXT NOT NULL PRIMARY KEY,
+                kind TEXT NOT NULL,
+                skillKind TEXT,
+                name TEXT NOT NULL,
+                description TEXT NOT NULL,
+                content TEXT NOT NULL,
+                payloadJson TEXT NOT NULL,
+                source TEXT NOT NULL,
+                enabled INTEGER NOT NULL,
+                createdAt INTEGER NOT NULL,
+                updatedAt INTEGER NOT NULL
+            )
+            """.trimIndent(),
+        )
+        db.execSQL(
+            """
+            CREATE INDEX IF NOT EXISTS index_resource_center_items_kind_name
+            ON resource_center_items(kind, name)
+            """.trimIndent(),
+        )
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS config_resource_projections (
+                configId TEXT NOT NULL,
+                resourceId TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                active INTEGER NOT NULL,
+                priority INTEGER NOT NULL,
+                sortIndex INTEGER NOT NULL,
+                configJson TEXT NOT NULL,
+                createdAt INTEGER NOT NULL,
+                updatedAt INTEGER NOT NULL,
+                PRIMARY KEY(configId, kind, resourceId),
+                FOREIGN KEY(configId) REFERENCES config_profiles(id) ON DELETE CASCADE,
+                FOREIGN KEY(resourceId) REFERENCES resource_center_items(resourceId) ON DELETE CASCADE
+            )
+            """.trimIndent(),
+        )
+        db.execSQL(
+            """
+            CREATE INDEX IF NOT EXISTS index_config_resource_projections_configId_kind_sortIndex
+            ON config_resource_projections(configId, kind, sortIndex)
+            """.trimIndent(),
+        )
+        db.execSQL(
+            """
+            CREATE INDEX IF NOT EXISTS index_config_resource_projections_resourceId
+            ON config_resource_projections(resourceId)
+            """.trimIndent(),
+        )
+
+        db.execSQL(
+            """
+            INSERT OR IGNORE INTO resource_center_items (
+                resourceId, kind, skillKind, name, description, content,
+                payloadJson, source, enabled, createdAt, updatedAt
+            )
+            SELECT
+                serverId,
+                'MCP_SERVER',
+                NULL,
+                name,
+                CASE
+                    WHEN url != '' THEN url
+                    WHEN command != '' THEN command
+                    ELSE transport
+                END,
+                '',
+                '{"url":"' || replace(url, '"', '\"') ||
+                    '","transport":"' || replace(transport, '"', '\"') ||
+                    '","command":"' || replace(command, '"', '\"') ||
+                    '","args":' || argsJson ||
+                    ',"headers":' || headersJson ||
+                    ',"timeoutSeconds":' || timeoutSeconds || '}',
+                'legacy_config',
+                active,
+                0,
+                0
+            FROM config_mcp_servers
+            """.trimIndent(),
+        )
+        db.execSQL(
+            """
+            INSERT OR IGNORE INTO resource_center_items (
+                resourceId, kind, skillKind, name, description, content,
+                payloadJson, source, enabled, createdAt, updatedAt
+            )
+            SELECT
+                skillId,
+                'SKILL',
+                'PROMPT',
+                name,
+                description,
+                content,
+                '{}',
+                'legacy_config',
+                active,
+                0,
+                0
+            FROM config_skills
+            """.trimIndent(),
+        )
+        db.execSQL(
+            """
+            INSERT OR IGNORE INTO config_resource_projections (
+                configId, resourceId, kind, active, priority, sortIndex,
+                configJson, createdAt, updatedAt
+            )
+            SELECT
+                configId,
+                serverId,
+                'MCP_SERVER',
+                active,
+                0,
+                sortIndex,
+                '{"url":"' || replace(url, '"', '\"') ||
+                    '","transport":"' || replace(transport, '"', '\"') ||
+                    '","command":"' || replace(command, '"', '\"') ||
+                    '","args":' || argsJson ||
+                    ',"headers":' || headersJson ||
+                    ',"timeoutSeconds":' || timeoutSeconds || '}',
+                0,
+                0
+            FROM config_mcp_servers
+            """.trimIndent(),
+        )
+        db.execSQL(
+            """
+            INSERT OR IGNORE INTO config_resource_projections (
+                configId, resourceId, kind, active, priority, sortIndex,
+                configJson, createdAt, updatedAt
+            )
+            SELECT
+                configId,
+                skillId,
+                'SKILL',
+                active,
+                priority,
+                sortIndex,
+                '{}',
+                0,
+                0
+            FROM config_skills
+            """.trimIndent(),
+        )
+        db.execSQL("ALTER TABLE cron_jobs ADD COLUMN platform TEXT NOT NULL DEFAULT ''")
+        db.execSQL("ALTER TABLE cron_jobs ADD COLUMN conversationId TEXT NOT NULL DEFAULT ''")
+        db.execSQL("ALTER TABLE cron_jobs ADD COLUMN botId TEXT NOT NULL DEFAULT ''")
+        db.execSQL("ALTER TABLE cron_jobs ADD COLUMN configProfileId TEXT NOT NULL DEFAULT ''")
+        db.execSQL("ALTER TABLE cron_jobs ADD COLUMN personaId TEXT NOT NULL DEFAULT ''")
+        db.execSQL("ALTER TABLE cron_jobs ADD COLUMN providerId TEXT NOT NULL DEFAULT ''")
+        db.execSQL("ALTER TABLE cron_jobs ADD COLUMN origin TEXT NOT NULL DEFAULT ''")
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS cron_job_execution_records (
+                executionId TEXT NOT NULL PRIMARY KEY,
+                jobId TEXT NOT NULL,
+                status TEXT NOT NULL,
+                startedAt INTEGER NOT NULL,
+                completedAt INTEGER NOT NULL,
+                durationMs INTEGER NOT NULL,
+                attempt INTEGER NOT NULL,
+                trigger TEXT NOT NULL,
+                errorCode TEXT NOT NULL,
+                errorMessage TEXT NOT NULL,
+                deliverySummary TEXT NOT NULL
+            )
+            """.trimIndent(),
+        )
+        db.execSQL(
+            """
+            CREATE INDEX IF NOT EXISTS index_cron_job_execution_records_jobId_startedAt
+            ON cron_job_execution_records(jobId, startedAt)
+            """.trimIndent(),
+        )
+    }
+}

@@ -11,11 +11,13 @@ import com.astrbot.android.data.ChatCompletionService
 import com.astrbot.android.data.ConfigRepository
 import com.astrbot.android.data.ConversationBackupRepository
 import com.astrbot.android.data.ConversationRepository
+import com.astrbot.android.data.CronJobRepository
 import com.astrbot.android.data.NapCatBridgeRepository
 import com.astrbot.android.data.NapCatLoginRepository
 import com.astrbot.android.data.PersonaRepository
 import com.astrbot.android.data.PluginRepository
 import com.astrbot.android.data.ProviderRepository
+import com.astrbot.android.data.ResourceCenterRepository
 import com.astrbot.android.data.RuntimeAssetRepository
 import com.astrbot.android.data.SherpaOnnxBridge
 import com.astrbot.android.data.TtsVoiceAssetRepository
@@ -35,6 +37,7 @@ import com.astrbot.android.runtime.plugin.PluginV2RuntimeSyncResult
 import com.astrbot.android.runtime.plugin.PluginRuntimeRegistry
 import com.astrbot.android.runtime.plugin.toolsource.ActiveCapabilityToolSourceProvider
 import com.astrbot.android.runtime.cron.CronJobExecutionBridge
+import com.astrbot.android.runtime.cron.CronJobScheduler
 import com.astrbot.android.runtime.cron.ScheduledTaskRuntimeExecutor
 import com.astrbot.android.model.plugin.PluginInstallRecord
 import com.astrbot.android.ui.viewmodel.BotViewModel
@@ -112,15 +115,18 @@ class AstrBotAppContainer(
         RuntimeAssetRepository.initialize(application)
         SherpaOnnxBridge.initialize(application)
         TtsVoiceAssetRepository.initialize(application)
+        ConfigRepository.initialize(application)
         ActiveCapabilityToolSourceProvider.initialize(application)
+        CronJobRepository.initialize(application)
+        ResourceCenterRepository.initialize(application)
         CronJobExecutionBridge.instance = CronJobExecutionBridge { context ->
             ScheduledTaskRuntimeExecutor.execute(context)
         }
         ProviderRepository.initialize(application)
         PersonaRepository.initialize(application)
-        ConfigRepository.initialize(application)
         ConversationRepository.initialize(application)
         PluginRepository.initialize(application)
+        CronJobScheduler.initialize(application)
         PluginRuntimeLogCleanupRepository.initialize(application)
         PluginRuntimeRegistry.registerExternalProvider {
             ExternalPluginRuntimeCatalog.plugins()

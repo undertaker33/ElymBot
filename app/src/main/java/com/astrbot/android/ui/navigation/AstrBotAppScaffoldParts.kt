@@ -8,6 +8,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.navigation.NavDestination
@@ -16,8 +18,11 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import com.astrbot.android.R
+import com.astrbot.android.data.ConfigRepository
+import com.astrbot.android.data.ResourceCenterRepository
 import com.astrbot.android.data.backup.AppBackupModuleKind
 import com.astrbot.android.model.BotProfile
+import com.astrbot.android.model.ConfigResourceProjection
 import com.astrbot.android.model.PersonaProfile
 import com.astrbot.android.ui.navigation.AppDestination
 import com.astrbot.android.ui.navigation.MainSwipePage
@@ -49,6 +54,10 @@ import com.astrbot.android.ui.settings.LogScreen
 import com.astrbot.android.ui.settings.CronJobsScreen
 import com.astrbot.android.ui.settings.MeScreen
 import com.astrbot.android.ui.settings.ModuleBackupScreen
+import com.astrbot.android.ui.settings.ResourceCenterScreen
+import com.astrbot.android.ui.settings.ResourceKind
+import com.astrbot.android.ui.settings.ResourceListScreen
+import com.astrbot.android.ui.settings.buildResourceCards
 import com.astrbot.android.ui.persona.PersonaScreen
 import com.astrbot.android.ui.plugin.PluginDetailScreenRoute
 import com.astrbot.android.ui.plugin.PluginManagerScreenRoute
@@ -387,6 +396,46 @@ internal fun AstrBotAppNavGraph(
                 qqLoginViewModel = qqLoginViewModel,
             )
         }
+        composable(AppDestination.ResourceCenter.route) {
+            ResourceCenterScreen(
+                onBack = { AppNavigator.back(navController) },
+                onOpenResourceList = { kind ->
+                    AppNavigator.open(navController, AppDestination.ResourceList.routeFor(kind))
+                },
+            )
+        }
+        composable(AppDestination.ResourceList.route) { backStackEntry ->
+            val resourceType = backStackEntry.arguments?.getString("resourceType").orEmpty()
+            val kind = ResourceKind.fromRouteSegment(resourceType)
+            if (kind == ResourceKind.TOOL) {
+                ResourceListScreen(
+                    kind = kind,
+                    onBack = { AppNavigator.back(navController) },
+                )
+            } else {
+                val repositoryResources by ResourceCenterRepository.resources.collectAsState()
+                ResourceListScreen(
+                    kind = kind,
+                    resources = buildResourceCards(kind, repositoryResources),
+                    onBack = { AppNavigator.back(navController) },
+                    onAddResource = { resource ->
+                        val savedResource = ResourceCenterRepository.saveResource(resource)
+                        val selectedConfigId = ConfigRepository.resolveExistingId(ConfigRepository.selectedProfileId.value)
+                        val nextSortIndex = ResourceCenterRepository.projectionsForConfig(selectedConfigId)
+                            .count { projection -> projection.kind == savedResource.kind }
+                        ResourceCenterRepository.setProjection(
+                            ConfigResourceProjection(
+                                configId = selectedConfigId,
+                                resourceId = savedResource.resourceId,
+                                kind = savedResource.kind,
+                                active = savedResource.enabled,
+                                sortIndex = nextSortIndex,
+                            ),
+                        )
+                    },
+                )
+            }
+        }
         composable(AppDestination.QQAccount.route) {
             QQAccountCenterScreen(
                 onBack = { AppNavigator.back(navController) },
@@ -601,6 +650,7 @@ private fun MainTopLevelRail(
                         onOpenAssets = { AppNavigator.open(navController, AppDestination.Assets.route) },
                         onOpenBackup = { AppNavigator.open(navController, AppDestination.BackupHub.route) },
                         onOpenCronJobs = { AppNavigator.open(navController, AppDestination.CronJobs.route) },
+                        onOpenResourceCenter = { AppNavigator.open(navController, AppDestination.ResourceCenter.route) },
                     )
                 },
             ),

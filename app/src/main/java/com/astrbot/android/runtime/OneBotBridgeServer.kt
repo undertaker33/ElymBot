@@ -446,7 +446,7 @@ object OneBotBridgeServer {
                     return@lock
                 }
             }
-            val provider = resolveProvider(bot)
+            val provider = resolveProvider(bot, session.providerId)
             if (provider == null) {
                 RuntimeLogRepository.append("Auto reply skipped: no enabled chat provider configured")
                 sendFailureNoticeIfNeeded(event, "No chat model is configured for this bot.")
@@ -513,6 +513,10 @@ object OneBotBridgeServer {
             val llmEvent = event.toPluginMessageEvent(
                 trigger = PluginTriggerSource.BeforeSendMessage,
                 conversationId = session.pluginConversationId(),
+                botId = bot.id,
+                configProfileId = config.id,
+                personaId = persona?.id.orEmpty(),
+                providerId = provider.id,
             )
             val ingressDispatchResult = dispatchQqV2MessageIngress(
                 trigger = PluginTriggerSource.BeforeSendMessage,
@@ -855,12 +859,14 @@ object OneBotBridgeServer {
         return BotRepository.resolveBoundBot(event.selfId)
     }
 
-    private fun resolveProvider(bot: BotProfile): ProviderProfile? {
+    private fun resolveProvider(bot: BotProfile, preferredProviderId: String = ""): ProviderProfile? {
         val providers = ProviderRepository.providers.value.filter {
             it.enabled && ProviderCapability.CHAT in it.capabilities
         }
         val config = ConfigRepository.resolve(bot.configProfileId)
         val preferredIds = listOf(
+            preferredProviderId,
+            bot.defaultProviderId,
             config.defaultChatProviderId,
         ).filter { it.isNotBlank() }
 
@@ -1474,6 +1480,10 @@ object OneBotBridgeServer {
             trigger = PluginTriggerSource.OnCommand,
             event = event,
             conversationId = session.pluginConversationId(),
+            botId = bot.id,
+            configProfileId = config.id,
+            personaId = currentPersona?.id.orEmpty(),
+            providerId = resolveProvider(bot, session.providerId)?.id.orEmpty(),
         )
         dispatchResult.commandResponse?.let { commandResponse ->
             consumeQqV2CommandResponse(
@@ -1512,7 +1522,7 @@ object OneBotBridgeServer {
                         trigger = PluginTriggerSource.OnCommand,
                         session = session,
                         message = syntheticMessage,
-                        provider = resolveProvider(bot),
+                        provider = resolveProvider(bot, session.providerId),
                         bot = bot,
                         persona = currentPersona,
                         config = config,
@@ -1609,6 +1619,10 @@ object OneBotBridgeServer {
         event: IncomingMessageEvent,
         materializedEvent: PluginMessageEvent? = null,
         conversationId: String? = null,
+        botId: String = "",
+        configProfileId: String = "",
+        personaId: String = "",
+        providerId: String = "",
     ): PluginV2MessageDispatchResult {
         return runCatching {
             runBlocking {
@@ -1616,6 +1630,10 @@ object OneBotBridgeServer {
                     event = materializedEvent ?: event.toPluginMessageEvent(
                         trigger = trigger,
                         conversationId = conversationId,
+                        botId = botId,
+                        configProfileId = configProfileId,
+                        personaId = personaId,
+                        providerId = providerId,
                     ),
                 )
             }
@@ -1640,6 +1658,10 @@ object OneBotBridgeServer {
     private fun IncomingMessageEvent.toPluginMessageEvent(
         trigger: PluginTriggerSource,
         conversationId: String? = null,
+        botId: String = "",
+        configProfileId: String = "",
+        personaId: String = "",
+        providerId: String = "",
     ): PluginMessageEvent {
         val resolvedEventId = messageId.takeIf { value -> value.isNotBlank() }
             ?: "${trigger.wireValue}:${System.currentTimeMillis()}"
@@ -1666,6 +1688,10 @@ object OneBotBridgeServer {
                 put("selfId", selfId)
                 put("groupId", groupId)
                 put("messageId", messageId)
+                put("botId", botId)
+                put("configProfileId", configProfileId)
+                put("personaId", personaId)
+                put("providerId", providerId)
             },
         )
     }
@@ -1983,7 +2009,7 @@ object OneBotBridgeServer {
                 bot = bot,
                 availableBots = BotRepository.botProfiles.value,
                 config = config,
-                activeProviderId = resolveProvider(bot)?.id ?: session.providerId,
+                activeProviderId = resolveProvider(bot, session.providerId)?.id ?: session.providerId,
                 availableProviders = ProviderRepository.providers.value.filter { it.enabled && ProviderCapability.CHAT in it.capabilities },
                 currentPersona = currentPersona,
                 availablePersonas = PersonaRepository.personas.value.filter { it.enabled },

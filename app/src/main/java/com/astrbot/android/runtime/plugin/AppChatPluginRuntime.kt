@@ -105,7 +105,9 @@ internal class EngineBackedAppChatPluginRuntime(
         val hostCapabilityGateway = defaultHostCapabilityGatewayProvider()
         val configProfileId = input.configProfileId.orEmpty()
         val futureRegistry = FutureToolSourceRegistry()
-        val futureDescriptors = futureRegistry.collectToolDescriptors(configProfileId)
+        val toolSourceContext = input.toolSourceContext
+            ?: FutureToolSourceRegistry.contextForConfig(configProfileId)
+        val futureDescriptors = futureRegistry.collectToolDescriptors(toolSourceContext)
         val activeFutureKinds = futureDescriptors.map { it.sourceKind }.toSet()
         val snapshot = hostCapabilityGateway.registerHostBuiltinTools(
             PluginV2ActiveRuntimeStoreProvider.store().snapshot(),
@@ -116,6 +118,7 @@ internal class EngineBackedAppChatPluginRuntime(
         return AppChatPluginRuntimeCoordinatorProvider.coordinator(
             hostCapabilityGateway = hostCapabilityGateway,
             futureRegistry = futureRegistry,
+            toolSourceContext = toolSourceContext,
             toolRegistrySnapshot = snapshot.toolRegistrySnapshot,
         ).runPreSendStages(
             input = input,
@@ -128,7 +131,9 @@ internal class EngineBackedAppChatPluginRuntime(
     ): PluginV2HostLlmDeliveryResult {
         val configProfileId = request.pipelineInput.configProfileId.orEmpty()
         val futureRegistry = FutureToolSourceRegistry()
-        val futureDescriptors = futureRegistry.collectToolDescriptors(configProfileId)
+        val toolSourceContext = request.pipelineInput.toolSourceContext
+            ?: FutureToolSourceRegistry.contextForConfig(configProfileId)
+        val futureDescriptors = futureRegistry.collectToolDescriptors(toolSourceContext)
         val activeFutureKinds = futureDescriptors.map { it.sourceKind }.toSet()
         val snapshot = request.hostCapabilityGateway.registerHostBuiltinTools(
             PluginV2ActiveRuntimeStoreProvider.store().snapshot(),
@@ -139,6 +144,7 @@ internal class EngineBackedAppChatPluginRuntime(
         return AppChatPluginRuntimeCoordinatorProvider.coordinator(
             hostCapabilityGateway = request.hostCapabilityGateway,
             futureRegistry = futureRegistry,
+            toolSourceContext = toolSourceContext,
             toolRegistrySnapshot = snapshot.toolRegistrySnapshot,
         ).deliverLlmPipeline(
             request = request,
@@ -166,6 +172,7 @@ internal object AppChatPluginRuntimeCoordinatorProvider {
     fun coordinator(
         hostCapabilityGateway: PluginHostCapabilityGateway,
         futureRegistry: FutureToolSourceRegistry? = null,
+        toolSourceContext: com.astrbot.android.runtime.plugin.toolsource.ToolSourceContext? = null,
         toolRegistrySnapshot: PluginV2ToolRegistrySnapshot? = null,
     ): PluginV2LlmPipelineCoordinator {
         return coordinatorOverrideForTests ?: PluginV2LlmPipelineCoordinator(
@@ -189,6 +196,7 @@ internal object AppChatPluginRuntimeCoordinatorProvider {
                                 args = args,
                                 timeoutMs = 60_000L,
                                 configProfileId = extractConfigProfileId(args),
+                                toolSourceContext = toolSourceContext,
                             ),
                         )
                         if (invokeResult != null) return@PluginV2ToolExecutor invokeResult.result

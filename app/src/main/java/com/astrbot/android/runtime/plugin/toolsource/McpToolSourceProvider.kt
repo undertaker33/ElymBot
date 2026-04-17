@@ -1,6 +1,5 @@
 package com.astrbot.android.runtime.plugin.toolsource
 
-import com.astrbot.android.data.ConfigRepository
 import com.astrbot.android.model.McpServerEntry
 import com.astrbot.android.runtime.RuntimeLogRepository
 import com.astrbot.android.runtime.plugin.PluginToolDescriptor
@@ -16,7 +15,7 @@ import com.astrbot.android.runtime.plugin.mcp.McpSessionManager
  * Reads per-config MCP server entries and converts their advertised tools into
  * [ToolSourceDescriptorBinding]s that feed into the centralized registry.
  *
- * On Android, only HTTP-based MCP transports (SSE / streamable_http) are supported.
+ * On Android, only remote streamable_http MCP transports are supported.
  * stdio-based MCP is not feasible without a local subprocess runtime.
  */
 class McpToolSourceProvider : FutureToolSourceProvider {
@@ -25,9 +24,14 @@ class McpToolSourceProvider : FutureToolSourceProvider {
     override suspend fun listBindings(
         context: ToolSourceRegistryIngestContext,
     ): List<ToolSourceDescriptorBinding> {
-        val configProfile = ConfigRepository.resolve(context.configProfileId)
-        val activeServers = configProfile.mcpServers.filter { it.active }
+        val activeServers = context.toolSourceContext.mcpServers.filter { it.active }
         return activeServers.flatMap { server ->
+            if (!isStreamableHttp(server.transport)) {
+                RuntimeLogRepository.append(
+                    "MCP tools discovery skipped: server=${server.serverId} unsupported transport=${server.transport}",
+                )
+                return@flatMap emptyList()
+            }
             runCatching {
                 val tools = sessionManager.discoverTools(context.configProfileId, server)
                 buildBindingsForServer(server, tools)
@@ -43,8 +47,7 @@ class McpToolSourceProvider : FutureToolSourceProvider {
         identity: ToolSourceIdentity,
         context: ToolSourceAvailabilityContext,
     ): ToolSourceAvailability {
-        val configProfile = ConfigRepository.resolve(context.configProfileId)
-        val server = configProfile.mcpServers.firstOrNull { "mcp.${it.serverId}" == identity.ownerId }
+        val server = context.toolSourceContext.mcpServers.firstOrNull { "mcp.${it.serverId}" == identity.ownerId }
         return if (server == null || !server.active) {
             ToolSourceAvailability(
                 providerReachable = false,
@@ -52,6 +55,14 @@ class McpToolSourceProvider : FutureToolSourceProvider {
                 capabilityAllowed = true,
                 detailCode = "mcp_server_inactive",
                 detailMessage = "MCP server is not configured or inactive.",
+            )
+        } else if (!isStreamableHttp(server.transport)) {
+            ToolSourceAvailability(
+                providerReachable = false,
+                permissionGranted = true,
+                capabilityAllowed = false,
+                detailCode = "mcp_transport_unsupported",
+                detailMessage = "Only streamable_http MCP transport is supported.",
             )
         } else {
             runCatching {
@@ -81,6 +92,7 @@ class McpToolSourceProvider : FutureToolSourceProvider {
         request: ToolSourceInvokeRequest,
     ): ToolSourceInvokeResult {
         val configProfileId = request.configProfileId?.takeIf { it.isNotBlank() }
+            ?: request.toolSourceContext?.configProfileId?.takeIf { it.isNotBlank() }
             ?: extractConfigProfileId(request)
             ?: return ToolSourceInvokeResult(
                 result = PluginToolResult(
@@ -93,7 +105,7 @@ class McpToolSourceProvider : FutureToolSourceProvider {
                 ),
             )
         val ownerId = request.identity.ownerId
-        val server = resolveServerByOwnerId(configProfileId, ownerId)
+        val server = resolveServerByOwnerId(request.toolSourceContext, configProfileId, ownerId)
             ?: return ToolSourceInvokeResult(
                 result = PluginToolResult(
                     toolCallId = request.args.toolCallId,
@@ -169,11 +181,14 @@ class McpToolSourceProvider : FutureToolSourceProvider {
         }
     }
 
-    private fun resolveServerByOwnerId(configProfileId: String?, ownerId: String): McpServerEntry? {
+    private fun resolveServerByOwnerId(
+        toolSourceContext: ToolSourceContext?,
+        configProfileId: String?,
+        ownerId: String,
+    ): McpServerEntry? {
         val resolvedConfigId = configProfileId?.takeIf { it.isNotBlank() } ?: return null
-        return ConfigRepository.resolve(resolvedConfigId)
-            .mcpServers
-            .firstOrNull { server -> "mcp.${server.serverId}" == ownerId && server.active }
+        val context = toolSourceContext ?: FutureToolSourceRegistry.contextForConfig(resolvedConfigId)
+        return context.mcpServers.firstOrNull { server -> "mcp.${server.serverId}" == ownerId && server.active }
     }
 
     private fun encodeToolName(serverId: String, toolName: String): String {
@@ -211,6 +226,10 @@ class McpToolSourceProvider : FutureToolSourceProvider {
         val hostMetadata = request.args.metadata?.get("__host") as? Map<*, *> ?: return null
         val eventExtras = hostMetadata["eventExtras"] as? Map<*, *> ?: return null
         return (eventExtras["configProfileId"] as? String)?.trim()?.takeIf { it.isNotBlank() }
+    }
+
+    private fun isStreamableHttp(transport: String): Boolean {
+        return transport.trim().lowercase().replace('-', '_').ifBlank { "streamable_http" } == "streamable_http"
     }
 
     private companion object {

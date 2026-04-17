@@ -1,7 +1,6 @@
 package com.astrbot.android.runtime.plugin.toolsource
 
-import com.astrbot.android.data.ConfigRepository
-import com.astrbot.android.model.SkillEntry
+import com.astrbot.android.runtime.context.ToolSkillProjection
 import com.astrbot.android.runtime.plugin.PluginToolDescriptor
 import com.astrbot.android.runtime.plugin.PluginToolResult
 import com.astrbot.android.runtime.plugin.PluginToolResultStatus
@@ -11,9 +10,8 @@ import com.astrbot.android.runtime.plugin.PluginToolVisibility
 /**
  * Skill tool source provider.
  *
- * Skills are lightweight prompt-injection units (analogous to AstrBot SKILL.md).
- * Each active skill per-config is projected as a tool descriptor so it can be
- * persona-filtered and rendered in the availability chain.
+ * Tool Skills are distinct from Prompt Skills. Prompt Skills are consumed by
+ * PromptAssembler; only explicit tool skill projections are registered here.
  */
 class SkillToolSourceProvider : FutureToolSourceProvider {
     override val sourceKind: PluginToolSourceKind = PluginToolSourceKind.SKILL
@@ -21,16 +19,14 @@ class SkillToolSourceProvider : FutureToolSourceProvider {
     override suspend fun listBindings(
         context: ToolSourceRegistryIngestContext,
     ): List<ToolSourceDescriptorBinding> {
-        val configProfile = ConfigRepository.resolve(context.configProfileId)
-        return configProfile.skills.filter { it.active }.map { skill -> buildBinding(skill) }
+        return context.toolSourceContext.toolSkills.filter { it.active }.map { skill -> buildBinding(skill) }
     }
 
     override suspend fun availabilityOf(
         identity: ToolSourceIdentity,
         context: ToolSourceAvailabilityContext,
     ): ToolSourceAvailability {
-        val configProfile = ConfigRepository.resolve(context.configProfileId)
-        val skill = configProfile.skills.firstOrNull { "skill.${it.skillId}" == identity.ownerId }
+        val skill = context.toolSourceContext.toolSkills.firstOrNull { "skill.${it.skillId}" == identity.ownerId }
         return if (skill != null && skill.active) {
             ToolSourceAvailability(
                 providerReachable = true,
@@ -51,20 +47,33 @@ class SkillToolSourceProvider : FutureToolSourceProvider {
     override suspend fun invoke(
         request: ToolSourceInvokeRequest,
     ): ToolSourceInvokeResult {
-        // Skills are prompt-injection only — they augment the system prompt,
-        // not invoked as function tools. Return an informational result.
+        val skill = request.toolSourceContext?.toolSkills
+            ?.firstOrNull { "skill.${it.skillId}" == request.identity.ownerId && it.active }
+        if (skill == null) {
+            return ToolSourceInvokeResult(
+                result = PluginToolResult(
+                    toolCallId = request.args.toolCallId,
+                    requestId = request.args.requestId,
+                    toolId = request.args.toolId,
+                    status = PluginToolResultStatus.ERROR,
+                    errorCode = "tool_skill_unavailable",
+                    text = "Tool Skill is not configured or inactive.",
+                ),
+            )
+        }
+        val rendered = renderTemplate(skill.resultTemplate, request.args.payload)
         return ToolSourceInvokeResult(
             result = PluginToolResult(
                 toolCallId = request.args.toolCallId,
                 requestId = request.args.requestId,
                 toolId = request.args.toolId,
                 status = PluginToolResultStatus.SUCCESS,
-                text = "Skill content injected into system prompt.",
+                text = rendered.ifBlank { "Tool Skill '${skill.name}' executed." },
             ),
         )
     }
 
-    private fun buildBinding(skill: SkillEntry): ToolSourceDescriptorBinding {
+    private fun buildBinding(skill: ToolSkillProjection): ToolSourceDescriptorBinding {
         val ownerId = "skill.${skill.skillId}"
         val identity = ToolSourceIdentity(
             sourceKind = PluginToolSourceKind.SKILL,
@@ -74,15 +83,21 @@ class SkillToolSourceProvider : FutureToolSourceProvider {
         )
         val descriptor = PluginToolDescriptor(
             pluginId = ownerId,
-            name = skill.skillId,
-            description = skill.description.ifBlank { "Skill: ${skill.name}" },
-            visibility = PluginToolVisibility.HOST_INTERNAL,
+            name = skill.name.ifBlank { skill.skillId },
+            description = skill.description.ifBlank { "Tool Skill: ${skill.name}" },
+            visibility = PluginToolVisibility.LLM_VISIBLE,
             sourceKind = PluginToolSourceKind.SKILL,
-            inputSchema = mapOf("type" to "object" as Any),
+            inputSchema = skill.inputSchema,
         )
         return ToolSourceDescriptorBinding(
             identity = identity,
             descriptor = descriptor,
         )
+    }
+
+    private fun renderTemplate(template: String, payload: Map<String, Any?>): String {
+        return payload.entries.fold(template) { current, (key, value) ->
+            current.replace("{{${key}}}", value?.toString().orEmpty())
+        }
     }
 }

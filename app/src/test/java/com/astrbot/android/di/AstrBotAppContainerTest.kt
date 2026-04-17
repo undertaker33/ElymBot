@@ -11,6 +11,7 @@ import com.astrbot.android.model.plugin.PluginSource
 import com.astrbot.android.model.plugin.PluginSourceType
 import com.astrbot.android.runtime.RuntimeLogRepository
 import com.astrbot.android.runtime.plugin.PluginV2RuntimeSyncResult
+import java.io.File
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
@@ -25,6 +26,25 @@ import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class AstrBotAppContainerTest {
+    @Test
+    fun bootstrap_initializes_config_repository_before_resource_center_repository() {
+        val sourceFile = listOf(
+            File("src/main/java/com/astrbot/android/di/AstrBotAppContainer.kt"),
+            File("app/src/main/java/com/astrbot/android/di/AstrBotAppContainer.kt"),
+        ).first { it.exists() }
+        val source = sourceFile.readText()
+
+        val configIndex = source.indexOf("ConfigRepository.initialize(application)")
+        val resourceCenterIndex = source.indexOf("ResourceCenterRepository.initialize(application)")
+
+        assertTrue("ConfigRepository bootstrap call must exist", configIndex >= 0)
+        assertTrue("ResourceCenterRepository bootstrap call must exist", resourceCenterIndex >= 0)
+        assertTrue(
+            "ResourceCenterRepository seeds from config tables, so ConfigRepository must initialize first",
+            configIndex < resourceCenterIndex,
+        )
+    }
+
     @Test
     fun plugin_repository_updates_trigger_repeated_loader_syncs() = runTest {
         RuntimeLogRepository.clear()

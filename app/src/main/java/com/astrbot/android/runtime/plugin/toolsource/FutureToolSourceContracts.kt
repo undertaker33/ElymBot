@@ -67,6 +67,7 @@ data class ToolSourceInvokeRequest(
     val timeoutMs: Long,
     val cancellationToken: String? = null,
     val configProfileId: String? = null,
+    val toolSourceContext: ToolSourceContext? = null,
 )
 
 data class ToolSourceInvokeResult(
@@ -77,9 +78,13 @@ data class ToolSourceInvokeResult(
 // ── Context carriers ──
 
 data class ToolSourceRegistryIngestContext(
-    val configProfileId: String,
-)
+    val toolSourceContext: ToolSourceContext,
+) {
+    val configProfileId: String get() = toolSourceContext.configProfileId
+}
 
 data class ToolSourceAvailabilityContext(
-    val configProfileId: String,
-)
+    val toolSourceContext: ToolSourceContext,
+) {
+    val configProfileId: String get() = toolSourceContext.configProfileId
+}

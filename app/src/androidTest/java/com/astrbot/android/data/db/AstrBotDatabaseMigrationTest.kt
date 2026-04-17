@@ -490,4 +490,126 @@ class AstrBotDatabaseMigrationTest {
         }
         database.close()
     }
+
+    @Test
+    @Throws(IOException::class)
+    fun migrate19To20_createsResourceCenterTablesAndSeedsLegacyConfigResources() {
+        val databaseName = "migration-test-19-20"
+        helper.createDatabase(databaseName, 19).apply {
+            execSQL(
+                """
+                INSERT INTO config_profiles (
+                    id, name, defaultChatProviderId, defaultVisionProviderId,
+                    defaultSttProviderId, defaultTtsProviderId,
+                    sttEnabled, ttsEnabled, alwaysTtsEnabled, ttsReadBracketedContent,
+                    textStreamingEnabled, voiceStreamingEnabled, streamingMessageIntervalMs,
+                    realWorldTimeAwarenessEnabled, imageCaptionTextEnabled, webSearchEnabled,
+                    proactiveEnabled, ttsVoiceId, sessionIsolationEnabled,
+                    wakeWordsAdminOnlyEnabled, privateChatRequiresWakeWord,
+                    replyTextPrefix, quoteSenderMessageEnabled, mentionSenderEnabled,
+                    replyOnAtOnlyEnabled, whitelistEnabled, logOnWhitelistMiss,
+                    adminGroupBypassWhitelistEnabled, adminPrivateBypassWhitelistEnabled,
+                    ignoreSelfMessageEnabled, ignoreAtAllEventEnabled,
+                    replyWhenPermissionDenied, rateLimitWindowSeconds,
+                    rateLimitMaxCount, rateLimitStrategy, keywordDetectionEnabled,
+                    contextLimitStrategy, maxContextTurns, dequeueContextTurns,
+                    llmCompressInstruction, llmCompressKeepRecent,
+                    llmCompressProviderId, sortIndex, updatedAt
+                ) VALUES (
+                    'config-resource', 'Resource Config', '', '',
+                    '', '',
+                    0, 0, 0, 1,
+                    0, 0, 120,
+                    0, 0, 0,
+                    0, '', 0,
+                    0, 0,
+                    '', 0, 0,
+                    1, 0, 0,
+                    1, 1,
+                    1, 1,
+                    0, 0,
+                    0, 'drop', 0,
+                    'truncate_by_turns', -1, 1,
+                    '', 6,
+                    '', 0, 1000
+                )
+                """.trimIndent(),
+            )
+            execSQL(
+                """
+                INSERT INTO config_mcp_servers (
+                    configId, serverId, name, url, transport, command,
+                    argsJson, headersJson, timeoutSeconds, active, sortIndex
+                ) VALUES (
+                    'config-resource', 'mcp-weather', 'Weather MCP',
+                    'https://mcp.example.com/sse', 'sse', '',
+                    '[""--verbose""]', '{"Authorization":"Bearer demo"}',
+                    45, 1, 0
+                )
+                """.trimIndent(),
+            )
+            execSQL(
+                """
+                INSERT INTO config_skills (
+                    configId, skillId, name, description, content,
+                    priority, active, sortIndex
+                ) VALUES (
+                    'config-resource', 'skill-summary', 'Summary',
+                    'Summarize context', 'Be concise.',
+                    3, 0, 1
+                )
+                """.trimIndent(),
+            )
+            close()
+        }
+
+        helper.runMigrationsAndValidate(databaseName, 20, true, *AstrBotDatabase.allMigrations)
+
+        val database = context.openDatabaseForVerification(databaseName)
+        listOf("resource_center_items", "config_resource_projections").forEach { tableName ->
+            database.rawQuery(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='$tableName'",
+                null,
+            ).use { cursor ->
+                org.junit.Assert.assertTrue("Expected $tableName to exist", cursor.moveToFirst())
+            }
+        }
+        database.rawQuery(
+            """
+            SELECT kind, skillKind, name, content
+            FROM resource_center_items
+            WHERE resourceId = 'skill-summary'
+            """.trimIndent(),
+            null,
+        ).use { cursor ->
+            org.junit.Assert.assertTrue(cursor.moveToFirst())
+            org.junit.Assert.assertEquals("SKILL", cursor.getString(0))
+            org.junit.Assert.assertEquals("PROMPT", cursor.getString(1))
+            org.junit.Assert.assertEquals("Summary", cursor.getString(2))
+            org.junit.Assert.assertEquals("Be concise.", cursor.getString(3))
+        }
+        database.rawQuery(
+            """
+            SELECT kind, active, priority, sortIndex
+            FROM config_resource_projections
+            WHERE configId = 'config-resource' AND resourceId = 'mcp-weather'
+            """.trimIndent(),
+            null,
+        ).use { cursor ->
+            org.junit.Assert.assertTrue(cursor.moveToFirst())
+            org.junit.Assert.assertEquals("MCP_SERVER", cursor.getString(0))
+            org.junit.Assert.assertEquals(1, cursor.getInt(1))
+            org.junit.Assert.assertEquals(0, cursor.getInt(2))
+            org.junit.Assert.assertEquals(0, cursor.getInt(3))
+        }
+        database.rawQuery("SELECT COUNT(*) FROM config_mcp_servers", null).use { cursor ->
+            cursor.moveToFirst()
+            org.junit.Assert.assertEquals(1, cursor.getInt(0))
+        }
+        database.rawQuery("SELECT COUNT(*) FROM config_skills", null).use { cursor ->
+            cursor.moveToFirst()
+            org.junit.Assert.assertEquals(1, cursor.getInt(0))
+        }
+        database.close()
+    }
 }

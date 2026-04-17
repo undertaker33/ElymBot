@@ -4,6 +4,7 @@ import com.astrbot.android.data.ConfigRepository
 import com.astrbot.android.data.ConversationRepository
 import com.astrbot.android.data.PersonaRepository
 import com.astrbot.android.data.ProviderRepository
+import com.astrbot.android.data.ResourceCenterRepository
 import com.astrbot.android.model.BotProfile
 import com.astrbot.android.model.ConfigProfile
 import com.astrbot.android.model.FeatureSupportState
@@ -12,6 +13,8 @@ import com.astrbot.android.model.ProviderCapability
 import com.astrbot.android.model.ProviderProfile
 import com.astrbot.android.model.hasNativeStreamingSupport
 import com.astrbot.android.model.usesOpenAiStyleChatApi
+import com.astrbot.android.runtime.plugin.toolsource.ToolSourceContext
+import java.util.UUID
 
 /**
  * Resolves a [RuntimeIngressEvent] into a complete [ResolvedRuntimeContext] by
@@ -51,15 +54,38 @@ object RuntimeContextResolver {
         val contextWindow = resolveContextWindow(config)
         val messageWindow = session.messages.takeLast(contextWindow)
 
-        val personaToolSnapshot = persona?.let {
+        val personaToolSnapshot = persona?.let { resolvedPersona ->
             PersonaToolEnablementSnapshot(
-                personaId = it.id,
-                enabled = it.enabled,
-                enabledTools = it.enabledTools,
+                personaId = resolvedPersona.id,
+                enabled = resolvedPersona.enabled,
+                enabledTools = resolvedPersona.enabledTools
+                    .toMutableSet()
+                    .apply { addAll(hostCapabilityToolsForConfig(config)) }
+                    .toSet(),
             )
         }
 
+        val requestId = UUID.randomUUID().toString()
+        val resourceProjection = RuntimeSkillProjectionResolver.fromResourceCenterSnapshot(
+            snapshot = ResourceCenterRepository.compatibilitySnapshotForConfig(config),
+            platform = event.platform,
+            trigger = event.trigger,
+        )
+        val promptSkills = resourceProjection.promptSkills
+        val toolSkills = resourceProjection.toolSkills
+        val mcpServers = resourceProjection.mcpServers
+        val toolSourceContext = ToolSourceContext.fromConfigProfile(
+            config = config,
+            requestId = requestId,
+            platform = event.platform,
+            conversationId = event.conversationId,
+            mcpServers = mcpServers,
+            promptSkills = promptSkills,
+            toolSkills = toolSkills,
+        )
+
         return ResolvedRuntimeContext(
+            requestId = requestId,
             ingressEvent = event,
             bot = bot,
             config = config,
@@ -85,8 +111,11 @@ object RuntimeContextResolver {
             ),
             webSearchEnabled = config.webSearchEnabled,
             proactiveEnabled = config.proactiveEnabled,
-            mcpServers = config.mcpServers,
+            mcpServers = mcpServers,
             skills = config.skills,
+            promptSkills = promptSkills,
+            toolSkills = toolSkills,
+            toolSourceContext = toolSourceContext,
             deliveryPolicy = DeliveryPolicy(
                 platform = event.platform,
                 streamingEnabled = config.textStreamingEnabled,
@@ -109,5 +138,18 @@ object RuntimeContextResolver {
     ): Int {
         val configMax = config.maxContextTurns
         return if (configMax <= 0) Int.MAX_VALUE else configMax
+    }
+
+    private fun hostCapabilityToolsForConfig(config: ConfigProfile): Set<String> {
+        return buildSet {
+            if (config.webSearchEnabled) {
+                add("web_search")
+            }
+            if (config.proactiveEnabled) {
+                add("create_future_task")
+                add("delete_future_task")
+                add("list_future_tasks")
+            }
+        }
     }
 }

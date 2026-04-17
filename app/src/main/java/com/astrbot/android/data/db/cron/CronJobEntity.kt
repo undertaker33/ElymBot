@@ -1,6 +1,7 @@
 package com.astrbot.android.data.db
 
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 
 /**
@@ -17,6 +18,15 @@ import androidx.room.PrimaryKey
  * ```json
  * {
  *   "session": "<unified_msg_origin>",
+ *   "target": {
+ *     "platform": "app",
+ *     "conversation_id": "conversation-id",
+ *     "bot_id": "bot-id",
+ *     "config_profile_id": "config-id",
+ *     "persona_id": "persona-id",
+ *     "provider_id": "provider-id",
+ *     "origin": "tool"
+ *   },
  *   "sender_id": "<sender_id>",
  *   "note": "<detailed instruction>",
  *   "origin": "tool" | "api" | "ui",
@@ -37,10 +47,35 @@ data class CronJobEntity(
     val payloadJson: String,
     val enabled: Boolean,
     val runOnce: Boolean,
+    val platform: String,
+    val conversationId: String,
+    val botId: String,
+    val configProfileId: String,
+    val personaId: String,
+    val providerId: String,
+    val origin: String,
     val status: String,
     val lastRunAt: Long,
     val nextRunTime: Long,
     val lastError: String,
     val createdAt: Long,
     val updatedAt: Long,
+)
+
+@Entity(
+    tableName = "cron_job_execution_records",
+    indices = [Index(value = ["jobId", "startedAt"])],
+)
+data class CronJobExecutionRecordEntity(
+    @PrimaryKey val executionId: String,
+    val jobId: String,
+    val status: String,
+    val startedAt: Long,
+    val completedAt: Long,
+    val durationMs: Long,
+    val attempt: Int,
+    val trigger: String,
+    val errorCode: String,
+    val errorMessage: String,
+    val deliverySummary: String,
 )

@@ -38,7 +38,7 @@ private data class McpSessionKey(
 data class McpSession(
     val sessionId: String?,
     val messageEndpoint: String,
-    /** For legacy SSE, the persistent SSE reader; null for streamable HTTP. */
+    /** Streamable HTTP sessions do not use an SSE reader. */
     val sseReader: LegacySseReader? = null,
     val expiresAt: Long,
 )
@@ -52,9 +52,8 @@ private data class McpRpcEnvelope(
 internal class McpHttpException(val code: Int, message: String) : Exception(message)
 
 /**
- * Reads SSE lines from a persistent HTTP response body.
- * Used for legacy MCP SSE transport where a single GET connection stays open
- * and all JSON-RPC responses arrive as SSE events on that stream.
+ * Legacy SSE parsing helper retained only for historical reference.
+ * The active transport client no longer uses it.
  */
 class LegacySseReader(
     private val reader: BufferedReader,
@@ -138,12 +137,10 @@ class McpTransportClient(
 ) {
     suspend fun initialize(server: McpServerEntry): McpSession = withContext(Dispatchers.IO) {
         when (normalizeTransport(server.transport)) {
-            "streamable_http" -> try {
-                initializeStreamableHttp(server)
-            } catch (e: McpHttpException) {
-                if (e.code in setOf(400, 404, 405)) initializeLegacySse(server) else throw e
-            }
-            else -> initializeLegacySse(server)
+            STREAMABLE_HTTP -> initializeStreamableHttp(server)
+            else -> throw IllegalArgumentException(
+                "Unsupported MCP transport '${server.transport}'. Only streamable_http is supported.",
+            )
         }
     }
 
@@ -225,6 +222,7 @@ class McpTransportClient(
     // ── Streamable HTTP ──────────────────────────────────────────────
 
     private fun initializeStreamableHttp(server: McpServerEntry): McpSession {
+        require(server.url.isNotBlank()) { "MCP streamable_http requires a remote url." }
         val initEnvelope = streamableHttpRpc(
             server = server,
             endpoint = server.url,
@@ -302,7 +300,7 @@ class McpTransportClient(
         }
     }
 
-    // ── Legacy SSE ───────────────────────────────────────────────────
+    // Legacy SSE helpers are retained for historical compatibility tests only.
 
     /**
      * Legacy MCP SSE transport:
@@ -550,11 +548,12 @@ class McpTransportClient(
     }
 
     private fun normalizeTransport(transport: String): String {
-        return transport.trim().lowercase().replace('-', '_').ifBlank { "sse" }
+        return transport.trim().lowercase().replace('-', '_').ifBlank { STREAMABLE_HTTP }
     }
 
     private companion object {
         const val PROTOCOL_VERSION = "2024-11-05"
+        const val STREAMABLE_HTTP = "streamable_http"
         val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
     }
 }
