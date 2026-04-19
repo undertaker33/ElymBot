@@ -5,6 +5,7 @@ import com.astrbot.android.model.chat.ConversationAttachment
 import com.astrbot.android.model.chat.ConversationSession
 import kotlinx.coroutines.flow.StateFlow
 
+@Suppress("DEPRECATION")
 class LegacyConversationRepositoryAdapter : ConversationRepositoryPort {
     override val sessions: StateFlow<List<ConversationSession>> = FeatureConversationRepository.sessions
 

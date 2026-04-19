@@ -52,14 +52,7 @@ internal class OneBotReverseWebSocketTransport(
         }
 
         val headers = handshake.headers.orEmpty()
-        val authorization = headers["authorization"].orEmpty()
-        val token = when {
-            authorization.startsWith("Bearer ", ignoreCase = true) ->
-                authorization.substringAfter("Bearer ", "").trim()
-
-            else -> authorization.trim()
-        }
-        if (token.isNotBlank() && token != authToken) {
+        if (!isAuthorizedOneBotReverseWebSocket(headers, authToken)) {
             log("OneBot reverse WS rejected: invalid authorization header")
             socket.closeSafely(WebSocketFrame.CloseCode.PolicyViolation, "Unauthorized")
             return
@@ -116,4 +109,18 @@ internal class OneBotReverseWebSocketTransport(
             }
         }
     }
+}
+
+internal fun isAuthorizedOneBotReverseWebSocket(
+    headers: Map<String, String>,
+    authToken: String,
+): Boolean {
+    if (authToken.isBlank()) return false
+    val authorization = headers["authorization"].orEmpty()
+    val token = when {
+        authorization.startsWith("Bearer ", ignoreCase = true) ->
+            authorization.substringAfter("Bearer ", "").trim()
+        else -> authorization.trim()
+    }
+    return token.isNotBlank() && token == authToken
 }

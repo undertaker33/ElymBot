@@ -8,15 +8,15 @@ import com.astrbot.android.core.runtime.llm.LlmInvocationResult
 import com.astrbot.android.core.runtime.llm.LlmStreamEvent
 import com.astrbot.android.core.runtime.llm.LlmToolCall
 import com.astrbot.android.core.runtime.llm.LlmToolDefinition
-import com.astrbot.android.core.runtime.llm.ChatCompletionService
 import kotlinx.coroutines.flow.Flow
 import org.json.JSONObject
 
+@Suppress("DEPRECATION")
 internal class LegacyChatCompletionServiceAdapter : LlmClientPort {
 
     override suspend fun sendWithTools(request: LlmInvocationRequest): LlmInvocationResult {
         val chatTools = request.tools.map { it.toLegacyToolDefinition() }
-        val result = ChatCompletionService.sendConfiguredChatWithTools(
+        val result = com.astrbot.android.core.runtime.llm.ChatCompletionService.sendConfiguredChatWithTools(
             provider = request.provider,
             messages = request.messages,
             systemPrompt = request.systemPrompt,
@@ -30,7 +30,7 @@ internal class LegacyChatCompletionServiceAdapter : LlmClientPort {
     override fun streamWithTools(request: LlmInvocationRequest): Flow<LlmStreamEvent> = flow {
         val chatTools = request.tools.map { it.toLegacyToolDefinition() }
         try {
-            val result = ChatCompletionService.sendConfiguredChatStreamWithTools(
+            val result = com.astrbot.android.core.runtime.llm.ChatCompletionService.sendConfiguredChatStreamWithTools(
                 provider = request.provider,
                 messages = request.messages,
                 systemPrompt = request.systemPrompt,
@@ -59,16 +59,16 @@ internal class LegacyChatCompletionServiceAdapter : LlmClientPort {
     }
 
     companion object {
-        internal fun LlmToolDefinition.toLegacyToolDefinition(): ChatCompletionService.ChatToolDefinition {
+        internal fun LlmToolDefinition.toLegacyToolDefinition(): com.astrbot.android.core.runtime.llm.ChatCompletionService.ChatToolDefinition {
             val safeParameters = parametersJson.ifBlank { "{}" }
-            return ChatCompletionService.ChatToolDefinition(
+            return com.astrbot.android.core.runtime.llm.ChatCompletionService.ChatToolDefinition(
                 name = name,
                 description = description,
                 parameters = JSONObject(safeParameters),
             )
         }
 
-        internal fun ChatCompletionService.ChatCompletionResult.toLlmInvocationResult(): LlmInvocationResult {
+        internal fun com.astrbot.android.core.runtime.llm.ChatCompletionService.ChatCompletionResult.toLlmInvocationResult(): LlmInvocationResult {
             return LlmInvocationResult(
                 text = text,
                 toolCalls = toolCalls.map { tc ->

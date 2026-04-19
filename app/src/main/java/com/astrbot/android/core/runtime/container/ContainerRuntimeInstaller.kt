@@ -1,3 +1,5 @@
+@file:Suppress("DEPRECATION")
+
 package com.astrbot.android.core.runtime.container
 
 import com.astrbot.android.core.runtime.secret.RuntimeSecretRepository

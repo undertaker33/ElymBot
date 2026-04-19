@@ -1,7 +1,15 @@
 package com.astrbot.android.data
 
+import com.astrbot.android.data.db.ConversationAggregate
+import com.astrbot.android.data.db.ConversationAggregateDao
+import com.astrbot.android.data.db.ConversationAggregateWriteModel
+import com.astrbot.android.data.db.ConversationAttachmentEntity
+import com.astrbot.android.data.db.ConversationEntity
+import com.astrbot.android.data.db.ConversationMessageEntity
 import com.astrbot.android.model.chat.ConversationSession
 import com.astrbot.android.model.chat.MessageType
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -10,14 +18,17 @@ import org.junit.Test
 
 class ConversationRepositoryTest {
     private lateinit var snapshot: List<ConversationSession>
+    private lateinit var originalConversationDao: ConversationAggregateDao
 
     @Before
     fun captureSnapshot() {
         snapshot = ConversationRepository.snapshotSessions()
+        originalConversationDao = conversationAggregateDao()
     }
 
     @After
     fun restoreSnapshot() {
+        setConversationDao(originalConversationDao)
         ConversationRepository.restoreSessions(snapshot)
     }
 
@@ -155,6 +166,135 @@ class ConversationRepositoryTest {
         assertTrue(updated.titleCustomized)
     }
 
+    /**
+     * Task10 Phase3 – Task D: restoreSessionsDurable must update the in-memory snapshot
+     * synchronously (no Room DB available in unit tests, but the in-memory state is still set).
+     */
+    @Test
+    fun restoreSessionsDurable_updates_in_memory_sessions() = runBlocking {
+        val session = testSession(id = "session-durable", personaId = "persona-durable")
+
+        ConversationRepository.restoreSessionsDurable(listOf(session))
+
+        val sessions = ConversationRepository.snapshotSessions()
+        assertEquals(1, sessions.size)
+        assertEquals("session-durable", sessions.single().id)
+    }
+
+    /**
+     * Task10 Phase3 – Task D: restoreSessionsDurable applies the same dedup logic as
+     * restoreSessions (distinct IDs only).
+     */
+    @Test
+    fun restoreSessionsDurable_deduplicates_sessions_by_id() = runBlocking {
+        val dup = testSession(id = "dup", personaId = "p1")
+
+        ConversationRepository.restoreSessionsDurable(listOf(dup, dup))
+
+        val sessions = ConversationRepository.snapshotSessions()
+        assertEquals(1, sessions.count { it.id == "dup" })
+    }
+
+    /**
+     * Task10 Phase3 – Task D (import path): importSessionsDurable merges sessions and updates
+     * in-memory state durably, applying the same dedup-key logic as importSessions.
+     */
+    @Test
+    fun importSessionsDurable_merges_new_sessions_into_existing() = runBlocking {
+        val existing = testSession(id = "existing-session", personaId = "p1")
+        val incoming = testSession(id = "new-session", personaId = "p2")
+        ConversationRepository.restoreSessions(listOf(existing))
+
+        val result = ConversationRepository.importSessionsDurable(
+            importedSessions = listOf(incoming),
+            overwriteDuplicates = false,
+        )
+
+        val sessions = ConversationRepository.snapshotSessions()
+        assertEquals(1, result.importedCount)
+        assertEquals(0, result.overwrittenCount)
+        assertTrue(sessions.any { it.id == "existing-session" })
+        assertTrue(sessions.any { it.id == "new-session" })
+    }
+
+    /**
+     * Task10 Phase3 – Task D (import path): importSessionsDurable deduplicates incoming sessions
+     * by ID before merging, matching the behavior of importSessions.
+     */
+    @Test
+    fun importSessionsDurable_deduplicates_incoming_sessions_by_id() = runBlocking {
+        val dup = testSession(id = "dup-import", personaId = "p3")
+
+        val result = ConversationRepository.importSessionsDurable(
+            importedSessions = listOf(dup, dup),
+            overwriteDuplicates = false,
+        )
+
+        val sessions = ConversationRepository.snapshotSessions()
+        assertEquals(1, sessions.count { it.id == "dup-import" })
+        assertEquals(1, result.importedCount)
+    }
+
+    @Test
+    fun restoreSessionsDurable_rethrows_and_rolls_back_when_persistence_fails() = runBlocking {
+        val before = listOf(testSession(id = "existing-before-restore", personaId = "p0"))
+        ConversationRepository.restoreSessions(before)
+        setConversationDao(ThrowingConversationAggregateDao())
+
+        var failed = false
+        try {
+            ConversationRepository.restoreSessionsDurable(
+                listOf(testSession(id = "incoming-after-failure", personaId = "p1")),
+            )
+        } catch (_: IllegalStateException) {
+            failed = true
+        }
+
+        assertTrue("restoreSessionsDurable must propagate Room persistence failures", failed)
+        assertEquals(
+            "restoreSessionsDurable must roll back in-memory sessions on persistence failure",
+            before,
+            ConversationRepository.snapshotSessions(),
+        )
+    }
+
+    @Test
+    fun importSessionsDurable_rethrows_and_rolls_back_when_persistence_fails() = runBlocking {
+        val before = listOf(testSession(id = "existing-before-import", personaId = "p0"))
+        ConversationRepository.restoreSessions(before)
+        setConversationDao(ThrowingConversationAggregateDao())
+
+        var failed = false
+        try {
+            ConversationRepository.importSessionsDurable(
+                importedSessions = listOf(testSession(id = "incoming-import", personaId = "p1")),
+                overwriteDuplicates = false,
+            )
+        } catch (_: IllegalStateException) {
+            failed = true
+        }
+
+        assertTrue("importSessionsDurable must propagate Room persistence failures", failed)
+        assertEquals(
+            "importSessionsDurable must roll back in-memory sessions on persistence failure",
+            before,
+            ConversationRepository.snapshotSessions(),
+        )
+    }
+
+    private fun conversationAggregateDao(): ConversationAggregateDao {
+        val field = ConversationRepository::class.java.getDeclaredField("conversationAggregateDao")
+        field.isAccessible = true
+        @Suppress("UNCHECKED_CAST")
+        return field.get(ConversationRepository) as ConversationAggregateDao
+    }
+
+    private fun setConversationDao(dao: ConversationAggregateDao) {
+        val field = ConversationRepository::class.java.getDeclaredField("conversationAggregateDao")
+        field.isAccessible = true
+        field.set(ConversationRepository, dao)
+    }
+
     private fun testSession(
         id: String,
         personaId: String,
@@ -192,5 +332,29 @@ class ConversationRepositoryTest {
                 emptyList()
             },
         )
+    }
+}
+
+private class ThrowingConversationAggregateDao : ConversationAggregateDao() {
+    override fun observeConversationAggregates() = flowOf(emptyList<ConversationAggregate>())
+
+    override suspend fun listConversationAggregates(): List<ConversationAggregate> = emptyList()
+
+    override suspend fun upsertSessions(entities: List<ConversationEntity>) = Unit
+
+    override suspend fun upsertMessages(entities: List<ConversationMessageEntity>) = Unit
+
+    override suspend fun upsertAttachments(entities: List<ConversationAttachmentEntity>) = Unit
+
+    override suspend fun deleteMissingSessions(ids: List<String>) = Unit
+
+    override suspend fun clearSessions() = Unit
+
+    override suspend fun deleteMessagesForSessions(sessionIds: List<String>) = Unit
+
+    override suspend fun count(): Int = 0
+
+    override suspend fun replaceAll(writeModels: List<ConversationAggregateWriteModel>) {
+        throw IllegalStateException("forced durable conversation persistence failure")
     }
 }

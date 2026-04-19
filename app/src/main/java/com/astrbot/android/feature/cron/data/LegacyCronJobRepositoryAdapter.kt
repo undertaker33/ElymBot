@@ -1,11 +1,11 @@
 ﻿package com.astrbot.android.feature.cron.data
 
-import com.astrbot.android.feature.cron.data.FeatureCronJobRepository
 import com.astrbot.android.feature.cron.domain.CronJobRepositoryPort
 import com.astrbot.android.model.CronJob
 import com.astrbot.android.model.CronJobExecutionRecord
 import kotlinx.coroutines.flow.StateFlow
 
+@Suppress("DEPRECATION")
 class LegacyCronJobRepositoryAdapter : CronJobRepositoryPort {
 
     override val jobs: StateFlow<List<CronJob>>

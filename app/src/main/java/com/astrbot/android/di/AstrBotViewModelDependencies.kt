@@ -1,8 +1,18 @@
+@file:Suppress("DEPRECATION")
+
 package com.astrbot.android.di
 
 import android.net.Uri
 import android.provider.OpenableColumns
+import androidx.room.withTransaction
 import com.astrbot.android.feature.bot.data.FeatureBotRepository as BotRepository
+import com.astrbot.android.core.common.profile.ProfileCatalogKind
+import com.astrbot.android.core.common.profile.ProfileDeletionGuard
+import com.astrbot.android.data.db.AppPreferenceEntity
+import com.astrbot.android.data.db.AstrBotDatabase
+import com.astrbot.android.data.db.toConversationSession
+import com.astrbot.android.data.db.toProfile
+import com.astrbot.android.data.db.toWriteModel
 import com.astrbot.android.core.runtime.llm.ChatCompletionService
 import com.astrbot.android.core.runtime.llm.LlmInvocationResult
 import com.astrbot.android.core.runtime.llm.LlmToolCall
@@ -91,6 +101,156 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import kotlin.coroutines.CoroutineContext
 
+private const val SELECTED_CONFIG_PROFILE_PREF_KEY = "selected_config_profile_id"
+private const val SELECTED_BOT_PREF_KEY = "selected_bot_id"
+
+internal interface Phase3DataTransactionService {
+    suspend fun deleteConfigProfile(profileId: String)
+
+    suspend fun deleteBotProfile(botId: String)
+}
+
+internal object Phase3DataTransactionServiceRegistry {
+    @Volatile
+    var service: Phase3DataTransactionService = FallbackPhase3DataTransactionService
+}
+
+internal fun installProductionPhase3DataTransactionService(database: AstrBotDatabase) {
+    Phase3DataTransactionServiceRegistry.service = RoomPhase3DataTransactionService(database)
+}
+
+private object FallbackPhase3DataTransactionService : Phase3DataTransactionService {
+    override suspend fun deleteConfigProfile(profileId: String) {
+        val profiles = ConfigRepository.profiles.value
+        if (profiles.size <= 1) return
+        val fallbackId = if (ConfigRepository.selectedProfileId.value == profileId) {
+            profiles.firstOrNull { it.id != profileId }?.id ?: return
+        } else {
+            ConfigRepository.selectedProfileId.value
+        }
+        BotRepository.replaceConfigBinding(profileId, fallbackId)
+        ConfigRepository.delete(profileId)
+    }
+
+    override suspend fun deleteBotProfile(botId: String) {
+        val sessionSnapshot = ConversationRepository.snapshotSessions()
+        ConversationRepository.deleteSessionsForBot(botId)
+        try {
+            BotRepository.delete(botId)
+        } catch (error: Throwable) {
+            ConversationRepository.restoreSessions(sessionSnapshot)
+            throw error
+        }
+    }
+}
+
+private class RoomPhase3DataTransactionService(
+    private val database: AstrBotDatabase,
+) : Phase3DataTransactionService {
+    override suspend fun deleteConfigProfile(profileId: String) {
+        withContext(Dispatchers.IO) {
+            database.withTransaction {
+                val configDao = database.configAggregateDao()
+                val botDao = database.botAggregateDao()
+                val appPreferenceDao = database.appPreferenceDao()
+                val currentConfigs = configDao.listConfigAggregates().map { it.toProfile() }
+                if (currentConfigs.size <= 1) return@withTransaction
+
+                val remainingConfigs = currentConfigs.filterNot { it.id == profileId }
+                if (remainingConfigs.size == currentConfigs.size) return@withTransaction
+
+                val storedSelectedConfigId = appPreferenceDao.getValue(SELECTED_CONFIG_PROFILE_PREF_KEY)
+                val resolvedSelectedConfigId = if (storedSelectedConfigId == profileId) {
+                    remainingConfigs.first().id
+                } else {
+                    remainingConfigs.firstOrNull { it.id == storedSelectedConfigId }?.id ?: remainingConfigs.first().id
+                }
+                val fallbackConfig = remainingConfigs.first { it.id == resolvedSelectedConfigId }
+                val updatedBots = botDao.listBotAggregates()
+                    .map { it.toProfile() }
+                    .map { profile ->
+                        if (profile.configProfileId == profileId) {
+                            profile.copy(
+                                configProfileId = fallbackConfig.id,
+                                defaultProviderId = fallbackConfig.defaultChatProviderId,
+                            )
+                        } else {
+                            profile
+                        }
+                    }
+
+                configDao.replaceAll(
+                    remainingConfigs.mapIndexed { index, profile ->
+                        profile.toWriteModel(sortIndex = index)
+                    },
+                )
+                appPreferenceDao.upsert(
+                    AppPreferenceEntity(
+                        key = SELECTED_CONFIG_PROFILE_PREF_KEY,
+                        value = resolvedSelectedConfigId,
+                        updatedAt = System.currentTimeMillis(),
+                    ),
+                )
+                botDao.replaceAll(updatedBots.map { it.toWriteModel() })
+            }
+        }
+    }
+
+    override suspend fun deleteBotProfile(botId: String) {
+        withContext(Dispatchers.IO) {
+            database.withTransaction {
+                val botDao = database.botAggregateDao()
+                val conversationDao = database.conversationAggregateDao()
+                val appPreferenceDao = database.appPreferenceDao()
+                val currentBots = botDao.listBotAggregates().map { it.toProfile() }
+                currentBots.firstOrNull { it.id == botId } ?: return@withTransaction
+                ProfileDeletionGuard.requireCanDelete(
+                    remainingCount = currentBots.size,
+                    kind = ProfileCatalogKind.BOT,
+                )
+
+                val updatedBots = currentBots.filterNot { it.id == botId }
+                val storedSelectedBotId = appPreferenceDao.getValue(SELECTED_BOT_PREF_KEY)
+                val resolvedSelectedBotId = if (storedSelectedBotId == botId) {
+                    updatedBots.first().id
+                } else {
+                    updatedBots.firstOrNull { it.id == storedSelectedBotId }?.id ?: updatedBots.first().id
+                }
+                val updatedSessions = conversationDao.listConversationAggregates()
+                    .map { it.toConversationSession() }
+                    .filterNot { it.botId == botId }
+                    .ifEmpty {
+                        listOf(
+                            ConversationSession(
+                                id = ConversationRepository.DEFAULT_SESSION_ID,
+                                title = ConversationRepository.DEFAULT_SESSION_TITLE,
+                                botId = resolvedSelectedBotId,
+                                personaId = "",
+                                providerId = "",
+                                maxContextMessages = 12,
+                                sessionSttEnabled = true,
+                                sessionTtsEnabled = true,
+                                pinned = false,
+                                titleCustomized = false,
+                                messages = emptyList(),
+                            ),
+                        )
+                    }
+
+                botDao.replaceAll(updatedBots.map { it.toWriteModel() })
+                appPreferenceDao.upsert(
+                    AppPreferenceEntity(
+                        key = SELECTED_BOT_PREF_KEY,
+                        value = resolvedSelectedBotId,
+                        updatedAt = System.currentTimeMillis(),
+                    ),
+                )
+                conversationDao.replaceAll(updatedSessions.map { it.toWriteModel() })
+            }
+        }
+    }
+}
+
 interface BridgeViewModelDependencies {
     val config: StateFlow<NapCatBridgeConfig>
     val runtimeState: StateFlow<NapCatRuntimeState>
@@ -124,7 +284,7 @@ interface BotViewModelDependencies {
 
     fun create()
 
-    fun delete(botId: String)
+    suspend fun delete(botId: String)
 
     fun resolveConfig(profileId: String): ConfigProfile
 }
@@ -154,8 +314,8 @@ object HiltBotViewModelDependencies : BotViewModelDependencies {
         BotRepository.create()
     }
 
-    override fun delete(botId: String) {
-        BotRepository.delete(botId)
+    override suspend fun delete(botId: String) {
+        Phase3DataTransactionServiceRegistry.service.deleteBotProfile(botId)
     }
 
     override fun resolveConfig(profileId: String): ConfigProfile {
@@ -342,6 +502,8 @@ interface ConfigViewModelDependencies {
 
     fun replaceConfigBinding(deletedConfigId: String, fallbackConfigId: String)
 
+    suspend fun deleteConfigProfile(profileId: String)
+
     fun resolve(profileId: String): ConfigProfile
 }
 
@@ -370,6 +532,10 @@ object HiltConfigViewModelDependencies : ConfigViewModelDependencies {
 
     override fun replaceConfigBinding(deletedConfigId: String, fallbackConfigId: String) {
         BotRepository.replaceConfigBinding(deletedConfigId, fallbackConfigId)
+    }
+
+    override suspend fun deleteConfigProfile(profileId: String) {
+        Phase3DataTransactionServiceRegistry.service.deleteConfigProfile(profileId)
     }
 
     override fun resolve(profileId: String): ConfigProfile {

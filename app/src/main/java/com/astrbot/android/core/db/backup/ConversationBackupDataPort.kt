@@ -29,6 +29,12 @@ interface ConversationBackupDataPort {
         importedSessions: List<ConversationSession>,
         overwriteDuplicates: Boolean,
     ): ConversationImportResult
+
+    /** Durable variant: awaits DB write and propagates failures. */
+    suspend fun importSessionsDurable(
+        importedSessions: List<ConversationSession>,
+        overwriteDuplicates: Boolean,
+    ): ConversationImportResult
 }
 
 object ConversationBackupDataRegistry {
@@ -68,4 +74,9 @@ private object MissingConversationBackupDataPort : ConversationBackupDataPort {
             skippedCount = 0,
         )
     }
+
+    override suspend fun importSessionsDurable(
+        importedSessions: List<ConversationSession>,
+        overwriteDuplicates: Boolean,
+    ): ConversationImportResult = importSessions(importedSessions, overwriteDuplicates)
 }

@@ -51,7 +51,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.astrbot.android.R
-import com.astrbot.android.feature.persona.data.FeaturePersonaRepository
 import com.astrbot.android.model.PersonaProfile
 import com.astrbot.android.ui.bot.ScrollableAssistChipRow
 import com.astrbot.android.ui.app.FloatingBottomNavFabBottomPadding
@@ -69,6 +68,7 @@ fun PersonaScreen(
     PersonaCatalogContent(personaViewModel = personaViewModel)
 }
 
+@Suppress("DEPRECATION")
 @Composable
 internal fun PersonaCatalogContent(
     personaViewModel: PersonaViewModel = hiltViewModel(),
@@ -141,7 +141,7 @@ internal fun PersonaCatalogContent(
                     name = newPersonaLabel,
                     tag = "",
                     systemPrompt = "",
-                    enabledTools = FeaturePersonaRepository.defaultEnabledTools(),
+                    enabledTools = com.astrbot.android.feature.persona.data.FeaturePersonaRepository.defaultEnabledTools(),
                 )
             },
             modifier = Modifier

@@ -5,6 +5,7 @@ import com.astrbot.android.feature.cron.domain.CronSchedulerPort
 import com.astrbot.android.model.CronJob
 import com.astrbot.android.feature.cron.runtime.CronJobScheduler
 
+@Suppress("DEPRECATION")
 class LegacyCronSchedulerAdapter(
     private val contextProvider: () -> Context?,
 ) : CronSchedulerPort {

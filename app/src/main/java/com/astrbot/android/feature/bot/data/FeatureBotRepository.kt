@@ -1,6 +1,6 @@
-package com.astrbot.android.feature.bot.data
+@file:Suppress("DEPRECATION")
 
-import kotlinx.coroutines.flow.collect
+package com.astrbot.android.feature.bot.data
 
 import android.content.Context
 import android.content.SharedPreferences
@@ -15,14 +15,15 @@ import com.astrbot.android.data.db.BotAggregateDao
 import com.astrbot.android.data.db.BotEntity
 import com.astrbot.android.data.db.toProfile
 import com.astrbot.android.data.db.toWriteModel
-import com.astrbot.android.feature.chat.data.FeatureConversationRepository
 import com.astrbot.android.feature.config.data.FeatureConfigRepository
+import com.astrbot.android.feature.chat.data.FeatureConversationRepository
 import com.astrbot.android.model.BotProfile
 import com.astrbot.android.core.common.logging.AppLogger
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -30,7 +31,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 @Deprecated("Use BotRepositoryPort from feature/bot/domain. Direct access will be removed.")
@@ -42,6 +44,8 @@ object FeatureBotRepository {
 
     private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val initialized = AtomicBoolean(false)
+    private val writeMutex = Mutex()
+    private var syncJob: Job? = null
 
     private val defaultBot = BotProfile(
         id = "qq-main",
@@ -73,46 +77,40 @@ object FeatureBotRepository {
         appPreferenceDao = database.appPreferenceDao()
         bindingsPreferences = context.applicationContext.getSharedPreferences(BOT_BINDINGS_PREFS_NAME, Context.MODE_PRIVATE)
 
-        runBlocking(Dispatchers.IO) {
-            seedStorageIfNeeded()
-            migrateLegacyBindingsIfNeeded()
-        }
         repositoryScope.launch {
-            combine(
-                botDao.observeBotAggregates(),
-                appPreferenceDao.observeValue(PREF_SELECTED_BOT_ID),
-            ) { entities, selectedId -> entities to selectedId }
-                .collect { (entities, selectedId) ->
-                    val profiles = entities.map { entity -> normalizeProfile(entity.toProfile()) }.ifEmpty { listOf(defaultBot) }
-                    _botProfiles.value = profiles
-                    val currentSelected = profiles.firstOrNull { it.id == selectedId } ?: profiles.first()
-                    _selectedBotId.value = currentSelected.id
-                    _botProfile.value = currentSelected
-                    AppLogger.append("Bot database synced: count=${profiles.size} selected=${currentSelected.id}")
-                }
+            writeMutex.withLock {
+                seedStorageIfNeeded()
+                migrateLegacyBindingsIfNeeded()
+            }
         }
+        startStateSync()
     }
 
     fun select(botId: String) {
         val selected = _botProfiles.value.firstOrNull { it.id == botId } ?: return
-        _selectedBotId.value = selected.id
-        _botProfile.value = selected
-        persistSelectedBotId(selected.id)
+        repositoryScope.launch {
+            writeMutex.withLock {
+                persistSelectedBotId(selected.id)
+            }
+        }
         AppLogger.append("Bot selected: ${selected.displayName} (${selected.id})")
     }
 
     fun save(profile: BotProfile) {
         repositoryScope.launch {
-            val normalized = normalizeProfile(profile)
-            val updated = _botProfiles.value.map { if (it.id == normalized.id) normalized else it }
-                .let { current -> if (current.any { it.id == normalized.id }) current else current + normalized }
-            _botProfiles.value = updated
-            persistProfiles(updated, normalized.id)
-            FeatureConversationRepository.syncPersistenceForBot(normalized.id, normalized.persistConversationLocally)
-            AppLogger.append(
-                "Bot saved: ${normalized.displayName}, provider=${normalized.defaultProviderId.ifBlank { "none" }}, persona=${normalized.defaultPersonaId.ifBlank { "none" }}, config=${normalized.configProfileId}, qqBindings=${normalized.boundQqUins.size}, persist=${normalized.persistConversationLocally}",
-            )
-            select(normalized.id)
+            writeMutex.withLock {
+                val normalized = normalizeProfile(profile)
+                val updated = _botProfiles.value.map { if (it.id == normalized.id) normalized else it }
+                    .let { current -> if (current.any { it.id == normalized.id }) current else current + normalized }
+                _botProfiles.value = updated
+                _selectedBotId.value = normalized.id
+                _botProfile.value = updated.first { it.id == normalized.id }
+                persistProfiles(updated, normalized.id)
+                FeatureConversationRepository.syncPersistenceForBot(normalized.id, normalized.persistConversationLocally)
+                AppLogger.append(
+                    "Bot saved: ${normalized.displayName}, provider=${normalized.defaultProviderId.ifBlank { "none" }}, persona=${normalized.defaultPersonaId.ifBlank { "none" }}, config=${normalized.configProfileId}, qqBindings=${normalized.boundQqUins.size}, persist=${normalized.persistConversationLocally}",
+                )
+            }
         }
     }
 
@@ -125,11 +123,14 @@ object FeatureBotRepository {
                 .let { FeatureConfigRepository.resolve(it).defaultChatProviderId },
         )
         repositoryScope.launch {
-            val updated = _botProfiles.value + created
-            _botProfiles.value = updated
-            persistProfiles(updated, created.id)
-            AppLogger.append("Bot created: ${created.displayName} (${created.id})")
-            select(created.id)
+            writeMutex.withLock {
+                val updated = _botProfiles.value + created
+                _botProfiles.value = updated
+                _selectedBotId.value = created.id
+                _botProfile.value = created
+                persistProfiles(updated, created.id)
+                AppLogger.append("Bot created: ${created.displayName} (${created.id})")
+            }
         }
         return created
     }
@@ -147,16 +148,18 @@ object FeatureBotRepository {
         profiles: List<BotProfile>,
         selectedBotId: String?,
     ) = withContext(Dispatchers.IO) {
-        val normalized = profiles
-            .map(::normalizeProfile)
-            .distinctBy { it.id }
-            .ifEmpty { listOf(defaultBot) }
-        val resolvedSelected = normalized.firstOrNull { it.id == selectedBotId }?.id ?: normalized.first().id
-        _botProfiles.value = normalized
-        _selectedBotId.value = resolvedSelected
-        _botProfile.value = normalized.first { it.id == resolvedSelected }
-        persistProfiles(normalized, resolvedSelected)
-        AppLogger.append("Bot profiles restored: count=${normalized.size} selected=$resolvedSelected")
+        writeMutex.withLock {
+            val normalized = profiles
+                .map(::normalizeProfile)
+                .distinctBy { it.id }
+                .ifEmpty { listOf(defaultBot) }
+            val resolvedSelected = normalized.firstOrNull { it.id == selectedBotId }?.id ?: normalized.first().id
+            _botProfiles.value = normalized
+            _selectedBotId.value = resolvedSelected
+            _botProfile.value = normalized.first { it.id == resolvedSelected }
+            persistProfiles(normalized, resolvedSelected)
+            AppLogger.append("Bot profiles restored: count=${normalized.size} selected=$resolvedSelected")
+        }
     }
 
     fun delete(botId: String) {
@@ -166,14 +169,15 @@ object FeatureBotRepository {
             kind = ProfileCatalogKind.BOT,
         )
         repositoryScope.launch {
-            val updated = _botProfiles.value.filterNot { it.id == botId }
-            val selectedId = if (_selectedBotId.value == botId) updated.first().id else _selectedBotId.value
-            _botProfiles.value = updated
-            _selectedBotId.value = selectedId
-            _botProfile.value = updated.first { it.id == selectedId }
-            persistProfiles(updated, selectedId)
-            FeatureConversationRepository.deleteSessionsForBot(botId)
-            AppLogger.append("Bot deleted: ${removed.displayName} (${removed.id})")
+            writeMutex.withLock {
+                val updated = _botProfiles.value.filterNot { it.id == botId }
+                val selectedId = if (_selectedBotId.value == botId) updated.first().id else _selectedBotId.value
+                _botProfiles.value = updated
+                _selectedBotId.value = selectedId
+                _botProfile.value = updated.first { it.id == selectedId }
+                persistProfiles(updated, selectedId)
+                AppLogger.append("Bot deleted: ${removed.displayName} (${removed.id})")
+            }
         }
     }
 
@@ -192,7 +196,9 @@ object FeatureBotRepository {
         _botProfiles.value = updated
         _botProfile.value = updated.firstOrNull { it.id == _selectedBotId.value } ?: updated.firstOrNull() ?: defaultBot
         repositoryScope.launch {
-            persistProfiles(updated, _selectedBotId.value)
+            writeMutex.withLock {
+                persistProfiles(updated, _selectedBotId.value)
+            }
         }
         AppLogger.append("Bot config bindings reassigned: removed=$deletedConfigId fallback=$resolvedFallbackId")
     }
@@ -215,6 +221,24 @@ object FeatureBotRepository {
 
     fun shouldPersistConversation(botId: String): Boolean {
         return _botProfiles.value.firstOrNull { it.id == botId }?.persistConversationLocally == true
+    }
+
+    private fun startStateSync() {
+        syncJob?.cancel()
+        syncJob = repositoryScope.launch {
+            combine(
+                botDao.observeBotAggregates(),
+                appPreferenceDao.observeValue(PREF_SELECTED_BOT_ID),
+            ) { entities, selectedId -> entities to selectedId }
+                .collect { (entities, selectedId) ->
+                    val profiles = entities.map { entity -> normalizeProfile(entity.toProfile()) }.ifEmpty { listOf(defaultBot) }
+                    _botProfiles.value = profiles
+                    val currentSelected = profiles.firstOrNull { it.id == selectedId } ?: profiles.first()
+                    _selectedBotId.value = currentSelected.id
+                    _botProfile.value = currentSelected
+                    AppLogger.append("Bot database synced: count=${profiles.size} selected=${currentSelected.id}")
+                }
+        }
     }
 
     private suspend fun persistProfiles(
@@ -286,16 +310,14 @@ object FeatureBotRepository {
         )
     }
 
-    private fun persistSelectedBotId(botId: String) {
-        repositoryScope.launch {
-            appPreferenceDao.upsert(
-                AppPreferenceEntity(
-                    key = PREF_SELECTED_BOT_ID,
-                    value = botId,
-                    updatedAt = System.currentTimeMillis(),
-                ),
-            )
-        }
+    private suspend fun persistSelectedBotId(botId: String) {
+        appPreferenceDao.upsert(
+            AppPreferenceEntity(
+                key = PREF_SELECTED_BOT_ID,
+                value = botId,
+                updatedAt = System.currentTimeMillis(),
+            ),
+        )
     }
 
     private fun normalizeProfile(profile: BotProfile): BotProfile {

@@ -33,13 +33,15 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 object TtsVoiceAssetRepository {
     private const val PREFS_NAME = "tts_voice_assets"
     private const val KEY_ASSETS_JSON = "assets_json"
 
     private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val writeMutex = Mutex()
     private var legacyPreferences: SharedPreferences? = null
     private var assetDao: TtsVoiceAssetAggregateDao = TtsVoiceAssetAggregateDaoPlaceholder.instance
     private val _assets = MutableStateFlow<List<TtsVoiceReferenceAsset>>(emptyList())
@@ -50,8 +52,10 @@ object TtsVoiceAssetRepository {
         val database = AstrBotDatabase.get(context)
         assetDao = database.ttsVoiceAssetAggregateDao()
         legacyPreferences = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        runBlocking(Dispatchers.IO) {
-            seedStorageIfNeeded()
+        repositoryScope.launch {
+            writeMutex.withLock {
+                seedStorageIfNeeded()
+            }
         }
         repositoryScope.launch {
             assetDao.observeAssetAggregates().collect { aggregates ->
@@ -284,7 +288,11 @@ object TtsVoiceAssetRepository {
     }
 
     fun snapshotAssets(): List<TtsVoiceReferenceAsset> {
-        return _assets.value.map { asset ->
+        return snapshotAssets(_assets.value)
+    }
+
+    private fun snapshotAssets(assets: List<TtsVoiceReferenceAsset>): List<TtsVoiceReferenceAsset> {
+        return assets.map { asset ->
             asset.copy(
                 clips = asset.clips.map { clip -> clip.copy() },
                 providerBindings = asset.providerBindings.map { binding -> binding.copy() },
@@ -318,8 +326,11 @@ object TtsVoiceAssetRepository {
     }
 
     private fun persist(assets: List<TtsVoiceReferenceAsset>) {
-        runBlocking(Dispatchers.IO) {
-            assetDao.replaceAll(assets.map(TtsVoiceReferenceAsset::toWriteModel))
+        val snapshot = snapshotAssets(assets)
+        repositoryScope.launch {
+            writeMutex.withLock {
+                assetDao.replaceAll(snapshot.map(TtsVoiceReferenceAsset::toWriteModel))
+            }
         }
     }
 

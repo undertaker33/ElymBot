@@ -5,6 +5,7 @@ import java.nio.file.Path
 import kotlin.io.path.exists
 import kotlin.io.path.isRegularFile
 import kotlin.io.path.readText
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -166,11 +167,11 @@ class RepositoryPortSourceContractTest {
 
     @Test
     fun app_container_bootstrap_uses_coordinator_for_configuration_domains() {
-        val source = mainRoot.resolve("di/ElymBotAppContainer.kt").readText()
+        val source = appBootstrapperSource()
         val bootstrapBody = functionBody(source, "bootstrap")
 
         assertTrue(
-            "ElymBotAppContainer.bootstrap must delegate configuration-domain startup to InitializationCoordinator",
+            "AppBootstrapper.bootstrap must delegate configuration-domain startup to InitializationCoordinator",
             bootstrapBody.contains("InitializationCoordinator("),
         )
         val requiredInitializers = listOf(
@@ -203,8 +204,118 @@ class RepositoryPortSourceContractTest {
     }
 
     @Test
+    fun app_bootstrapper_avoids_sync_tts_and_duplicate_config_initialization() {
+        val bootstrapBody = functionBody(appBootstrapperSource(), "bootstrap")
+
+        assertTrue(
+            "AppBootstrapper.bootstrap must not synchronously initialize TTS voice assets on the main startup path",
+            !bootstrapBody.contains("TtsVoiceAssetRepository.initialize(application)"),
+        )
+        assertEquals(
+            "AppBootstrapper.bootstrap must wire ConfigRepositoryInitializer exactly once during phase-2 startup",
+            1,
+            "ConfigRepositoryInitializer()".toRegex(RegexOption.LITERAL).findAll(bootstrapBody).count(),
+        )
+    }
+
+    @Test
+    fun app_backup_wiring_uses_shared_production_port_with_durable_conversation_restore() {
+        val source = appBootstrapperSource()
+        val bootstrapBody = functionBody(source, "bootstrap")
+        val productionPortBody = functionBody(source, "createProductionAppBackupDataPort")
+
+        assertTrue(
+            "AppBootstrapper must install the shared production AppBackupDataPort factory instead of duplicating inline wiring",
+            bootstrapBody.contains("createProductionAppBackupDataPort()"),
+        )
+        assertTrue(
+            "Production AppBackupDataPort must route conversation restore through restoreSessionsDurable()",
+            productionPortBody.contains("ConversationRepository.restoreSessionsDurable(sessions)"),
+        )
+    }
+
+    @Test
+    fun startup_blocking_phase2_repositories_do_not_use_runblocking_dispatchers_io() {
+        val targetFiles = listOf(
+            "feature/bot/data/FeatureBotRepository.kt",
+            "feature/config/data/FeatureConfigRepository.kt",
+            "core/runtime/audio/TtsVoiceAssetRepository.kt",
+        )
+        val offenders = targetFiles.mapNotNull { relativePath ->
+            val source = mainRoot.resolve(relativePath).readText()
+            if (source.contains("runBlocking(Dispatchers.IO)")) relativePath else null
+        }
+
+        assertTrue(
+            "Phase-2 repositories must remove runBlocking(Dispatchers.IO) from initialization and persistence paths: $offenders",
+            offenders.isEmpty(),
+        )
+    }
+
+    @Test
+    fun repository_selection_mutators_do_not_eagerly_assign_selected_state() {
+        val botSelectBody = functionBody(
+            mainRoot.resolve("feature/bot/data/FeatureBotRepository.kt").readText(),
+            "select",
+        )
+        val configSelectBody = functionBody(
+            mainRoot.resolve("feature/config/data/FeatureConfigRepository.kt").readText(),
+            "select",
+        )
+        val configSaveBody = functionBody(
+            mainRoot.resolve("feature/config/data/FeatureConfigRepository.kt").readText(),
+            "save",
+        )
+        val configDeleteBody = functionBody(
+            mainRoot.resolve("feature/config/data/FeatureConfigRepository.kt").readText(),
+            "delete",
+        )
+        val configRestoreBody = functionBody(
+            mainRoot.resolve("feature/config/data/FeatureConfigRepository.kt").readText(),
+            "restoreProfiles",
+        )
+
+        assertTrue(
+            "FeatureBotRepository.select must not directly assign selectedBotId before persistence flow catches up",
+            !containsDirectAssignment(botSelectBody, "_selectedBotId.value"),
+        )
+        assertTrue(
+            "FeatureBotRepository.select must not directly assign botProfile before persistence flow catches up",
+            !containsDirectAssignment(botSelectBody, "_botProfile.value"),
+        )
+        assertTrue(
+            "FeatureConfigRepository.select must not directly assign selectedProfileId before persistence flow catches up",
+            !containsDirectAssignment(configSelectBody, "_selectedProfileId.value"),
+        )
+        assertTrue(
+            "FeatureConfigRepository.save must not directly assign selectedProfileId before persistence flow catches up",
+            !containsDirectAssignment(configSaveBody, "_selectedProfileId.value"),
+        )
+        assertTrue(
+            "FeatureConfigRepository.save must not directly assign profiles before persistence flow catches up",
+            !containsDirectAssignment(configSaveBody, "_profiles.value"),
+        )
+        assertTrue(
+            "FeatureConfigRepository.delete must not directly assign selectedProfileId before persistence flow catches up",
+            !containsDirectAssignment(configDeleteBody, "_selectedProfileId.value"),
+        )
+        assertTrue(
+            "FeatureConfigRepository.delete must not directly assign profiles before persistence flow catches up",
+            !containsDirectAssignment(configDeleteBody, "_profiles.value"),
+        )
+        assertTrue(
+            "FeatureConfigRepository.restoreProfiles must not directly assign selectedProfileId before persistence flow catches up",
+            !containsDirectAssignment(configRestoreBody, "_selectedProfileId.value"),
+        )
+        assertTrue(
+            "FeatureConfigRepository.restoreProfiles must not directly assign profiles before persistence flow catches up",
+            !containsDirectAssignment(configRestoreBody, "_profiles.value"),
+        )
+    }
+
+    @Test
     fun initialization_coordinator_wiring_does_not_include_out_of_scope_initializers() {
-        val source = mainRoot.resolve("di/ElymBotAppContainer.kt").readText()
+        val source = appBootstrapperSource()
         val bootstrapBody = functionBody(source, "bootstrap")
 
         val forbiddenInitializerTokens = listOf(
@@ -270,6 +381,58 @@ class RepositoryPortSourceContractTest {
     }
 
     @Test
+    fun view_model_dependency_delete_shells_delegate_to_phase3_transaction_service() {
+        val source = mainRoot.resolve("di/AstrBotViewModelDependencies.kt").readText()
+        val botDeleteBody = functionBody(objectBody(source, "HiltBotViewModelDependencies"), "delete")
+        val configDeleteBody = functionBody(objectBody(source, "HiltConfigViewModelDependencies"), "deleteConfigProfile")
+        val bootstrapBody = functionBody(appBootstrapperSource(), "bootstrap")
+
+        assertTrue(
+            "HiltBotViewModelDependencies.delete must delegate to a single phase-3 transaction service",
+            botDeleteBody.contains("Phase3DataTransactionServiceRegistry.service.deleteBotProfile(botId)"),
+        )
+        assertTrue(
+            "HiltBotViewModelDependencies must not keep hand-rolled conversation cleanup sequencing",
+            !botDeleteBody.contains("ConversationRepository.deleteSessionsForBot(") &&
+                !botDeleteBody.contains("ConversationRepository.restoreSessions(") &&
+                !botDeleteBody.contains("BotRepository.delete(botId)"),
+        )
+
+        assertTrue(
+            "HiltConfigViewModelDependencies.deleteConfigProfile must delegate to a single phase-3 transaction service",
+            configDeleteBody.contains("Phase3DataTransactionServiceRegistry.service.deleteConfigProfile(profileId)"),
+        )
+        assertTrue(
+            "HiltConfigViewModelDependencies must not keep hand-rolled config delete / bot rebind sequencing",
+            !configDeleteBody.contains("BotRepository.replaceConfigBinding(") &&
+                !configDeleteBody.contains("ConfigRepository.delete(profileId)"),
+        )
+        assertTrue(
+            "AppBootstrapper must install the production phase-3 transaction service for delete shells",
+            bootstrapBody.contains("installProductionPhase3DataTransactionService("),
+        )
+    }
+
+    @Test
+    fun phase3_delete_transaction_service_is_suspend_and_does_not_use_runblocking() {
+        val source = mainRoot.resolve("di/AstrBotViewModelDependencies.kt").readText()
+        val serviceBody = interfaceBody(source, "Phase3DataTransactionService")
+
+        assertTrue(
+            "Phase3DataTransactionService.deleteConfigProfile must be suspend",
+            serviceBody.contains("suspend fun deleteConfigProfile(profileId: String)"),
+        )
+        assertTrue(
+            "Phase3DataTransactionService.deleteBotProfile must be suspend",
+            serviceBody.contains("suspend fun deleteBotProfile(botId: String)"),
+        )
+        assertTrue(
+            "Phase3 delete transaction service must not use runBlocking in the service file",
+            !source.contains("runBlocking"),
+        )
+    }
+
+    @Test
     fun persona_port_exposes_designed_tool_enablement_and_explicit_enabled_semantics() {
         val port = mainRoot.resolve("feature/persona/domain/PersonaRepositoryPort.kt").readText()
         val adapter = mainRoot.resolve("feature/persona/data/LegacyPersonaRepositoryAdapter.kt").readText()
@@ -317,6 +480,35 @@ class RepositoryPortSourceContractTest {
         assertNotEquals("Missing body for function: $functionName", -1, bodyStart)
         val bodyEnd = matchingBraceIndex(source, bodyStart)
         return source.substring(bodyStart + 1, bodyEnd)
+    }
+
+    private fun appBootstrapperSource(): String {
+        val file = mainRoot.resolve("di/AppBootstrapper.kt")
+        assertTrue("AppBootstrapper.kt must exist", file.exists())
+        return file.readText()
+    }
+
+    private fun objectBody(source: String, objectName: String): String {
+        val signatureIndex = source.indexOf("object $objectName")
+        assertNotEquals("Missing object: $objectName", -1, signatureIndex)
+        val bodyStart = source.indexOf('{', signatureIndex)
+        assertNotEquals("Missing body for object: $objectName", -1, bodyStart)
+        val bodyEnd = matchingBraceIndex(source, bodyStart)
+        return source.substring(bodyStart + 1, bodyEnd)
+    }
+
+    private fun interfaceBody(source: String, interfaceName: String): String {
+        val signatureIndex = source.indexOf("interface $interfaceName")
+        assertNotEquals("Missing interface: $interfaceName", -1, signatureIndex)
+        val bodyStart = source.indexOf('{', signatureIndex)
+        assertNotEquals("Missing body for interface: $interfaceName", -1, bodyStart)
+        val bodyEnd = matchingBraceIndex(source, bodyStart)
+        return source.substring(bodyStart + 1, bodyEnd)
+    }
+
+    private fun containsDirectAssignment(source: String, lhs: String): Boolean {
+        val pattern = Regex("""${Regex.escape(lhs)}\s*=\s*[^=]""")
+        return pattern.containsMatchIn(source)
     }
 
     private fun matchingBraceIndex(source: String, openIndex: Int): Int {

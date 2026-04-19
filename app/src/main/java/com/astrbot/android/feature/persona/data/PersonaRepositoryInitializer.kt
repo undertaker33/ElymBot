@@ -2,8 +2,7 @@
 
 import android.content.Context
 import com.astrbot.android.core.di.AppInitializer
-import com.astrbot.android.feature.persona.data.FeaturePersonaRepository
-
+@Suppress("DEPRECATION")
 class PersonaRepositoryInitializer : AppInitializer {
     override val key: String = "persona"
     override val dependencies: Set<String> = emptySet()

@@ -9,6 +9,7 @@ import com.astrbot.android.feature.plugin.runtime.PluginMessageEvent
 import com.astrbot.android.feature.plugin.runtime.PluginV2HostLlmDeliveryResult
 import com.astrbot.android.feature.plugin.runtime.RuntimeLlmOrchestratorPort
 
+@Suppress("DEPRECATION")
 internal class LegacyRuntimeOrchestratorAdapter(
     private val delegate: RuntimeLlmOrchestratorPort = DefaultRuntimeLlmOrchestrator(),
 ) : RuntimeLlmOrchestratorPort {

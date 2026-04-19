@@ -2,8 +2,7 @@
 
 import android.content.Context
 import com.astrbot.android.core.di.AppInitializer
-import com.astrbot.android.feature.bot.data.FeatureBotRepository
-
+@Suppress("DEPRECATION")
 class BotRepositoryInitializer : AppInitializer {
     override val key: String = "bot"
     override val dependencies: Set<String> = setOf("config")

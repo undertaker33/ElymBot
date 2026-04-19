@@ -494,17 +494,78 @@ object AppBackupRepository {
         val current = buildCurrentSnapshot()
         val resolved = AppBackupImportPlanner.merge(current, incoming, plan)
         val dataPort = AppBackupDataRegistry.port
-
-        dataPort.restoreProviders(resolved.providers)
-        dataPort.restorePersonas(resolved.personas)
-        dataPort.restoreConfigs(resolved.configs, resolved.appState.selectedConfigId)
-        dataPort.restoreBots(resolved.bots, resolved.appState.selectedBotId)
-        dataPort.restoreConversations(resolved.conversations)
-        dataPort.restoreQqLoginState(
-            quickLoginUin = resolved.quickLoginUin,
-            savedAccounts = resolved.savedAccounts,
+        val appliedStages = mutableListOf<AppBackupRestoreStage>()
+        val stages = listOf(
+            AppBackupRestoreStage(
+                name = "providers",
+                shouldApply = current.providers != resolved.providers,
+                apply = { dataPort.restoreProviders(resolved.providers) },
+                rollback = { dataPort.restoreProviders(current.providers) },
+            ),
+            AppBackupRestoreStage(
+                name = "personas",
+                shouldApply = current.personas != resolved.personas,
+                apply = { dataPort.restorePersonas(resolved.personas) },
+                rollback = { dataPort.restorePersonas(current.personas) },
+            ),
+            AppBackupRestoreStage(
+                name = "configs",
+                shouldApply = current.configs != resolved.configs ||
+                    current.appState.selectedConfigId != resolved.appState.selectedConfigId,
+                apply = { dataPort.restoreConfigs(resolved.configs, resolved.appState.selectedConfigId) },
+                rollback = { dataPort.restoreConfigs(current.configs, current.appState.selectedConfigId) },
+            ),
+            AppBackupRestoreStage(
+                name = "bots",
+                shouldApply = current.bots != resolved.bots ||
+                    current.appState.selectedBotId != resolved.appState.selectedBotId,
+                apply = { dataPort.restoreBots(resolved.bots, resolved.appState.selectedBotId) },
+                rollback = { dataPort.restoreBots(current.bots, current.appState.selectedBotId) },
+            ),
+            AppBackupRestoreStage(
+                name = "conversations",
+                shouldApply = current.conversations != resolved.conversations,
+                apply = { dataPort.restoreConversations(resolved.conversations) },
+                rollback = { dataPort.restoreConversations(current.conversations) },
+            ),
+            AppBackupRestoreStage(
+                name = "qqAccounts",
+                shouldApply = current.quickLoginUin != resolved.quickLoginUin ||
+                    current.savedAccounts != resolved.savedAccounts,
+                apply = {
+                    dataPort.restoreQqLoginState(
+                        quickLoginUin = resolved.quickLoginUin,
+                        savedAccounts = resolved.savedAccounts,
+                    )
+                },
+                rollback = {
+                    dataPort.restoreQqLoginState(
+                        quickLoginUin = current.quickLoginUin,
+                        savedAccounts = current.savedAccounts,
+                    )
+                },
+            ),
+            AppBackupRestoreStage(
+                name = "ttsAssets",
+                shouldApply = current.ttsAssets != resolved.ttsAssets,
+                apply = { TtsVoiceAssetRepository.restoreAssets(resolved.ttsAssets) },
+                rollback = { TtsVoiceAssetRepository.restoreAssets(current.ttsAssets) },
+            ),
         )
-        TtsVoiceAssetRepository.restoreAssets(resolved.ttsAssets)
+
+        try {
+            stages.forEach { stage ->
+                if (!stage.shouldApply) return@forEach
+                stage.apply()
+                appliedStages += stage
+            }
+        } catch (restoreError: Throwable) {
+            rollbackAppliedRestoreStages(
+                appliedStages = appliedStages,
+                restoreError = restoreError,
+            )
+            throw restoreError
+        }
 
         return AppBackupRestoreResult(
             botCount = resolved.bots.size,
@@ -535,6 +596,22 @@ object AppBackupRepository {
             preview = moduleConflictFor(module, preview),
             extractedFiles = extractedFiles,
         )
+    }
+
+    private suspend fun rollbackAppliedRestoreStages(
+        appliedStages: List<AppBackupRestoreStage>,
+        restoreError: Throwable,
+    ) {
+        appliedStages.asReversed().forEach { stage ->
+            runCatching {
+                stage.rollback()
+            }.onFailure { rollbackError ->
+                restoreError.addSuppressed(rollbackError)
+                RuntimeLogRepository.append(
+                    "Full backup rollback failed at ${stage.name}: ${rollbackError.message ?: rollbackError.javaClass.simpleName}",
+                )
+            }
+        }
     }
 
     private fun parseManifest(json: String): AppBackupManifest {
@@ -837,6 +914,13 @@ object AppBackupRepository {
             )
     }
 }
+
+private data class AppBackupRestoreStage(
+    val name: String,
+    val shouldApply: Boolean,
+    val apply: suspend () -> Unit,
+    val rollback: suspend () -> Unit,
+)
 
 private val AppBackupModuleKind.directoryName: String
     get() = when (this) {

@@ -3,7 +3,6 @@ package com.astrbot.android.feature.chat.runtime
 import com.astrbot.android.AppStrings
 import com.astrbot.android.R
 import com.astrbot.android.di.ChatViewModelDependencies
-import com.astrbot.android.feature.plugin.data.FeaturePluginRepository
 import com.astrbot.android.feature.plugin.data.PluginStoragePaths
 import com.astrbot.android.feature.plugin.runtime.AppChatPluginRuntime
 import com.astrbot.android.feature.plugin.runtime.DefaultPluginHostCapabilityGateway
@@ -44,6 +43,7 @@ import java.io.File
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 
+@Suppress("DEPRECATION")
 class AppChatPluginCommandService(
     private val dependencies: ChatViewModelDependencies,
     private val appChatPluginRuntime: AppChatPluginRuntime,
@@ -413,7 +413,7 @@ class AppChatPluginCommandService(
     private fun resolvePluginPrivateRootPath(pluginId: String): String {
         return runCatching {
             PluginStoragePaths.fromFilesDir(
-                FeaturePluginRepository.requireAppContext().filesDir,
+                com.astrbot.android.feature.plugin.data.FeaturePluginRepository.requireAppContext().filesDir,
             ).privateDir(pluginId).absolutePath
         }.getOrDefault("")
     }

@@ -1,17 +1,29 @@
 package com.astrbot.android.ui.viewmodel
 
+import com.astrbot.android.MainDispatcherRule
 import com.astrbot.android.di.BotViewModelDependencies
 import com.astrbot.android.model.BotProfile
 import com.astrbot.android.model.ConfigProfile
 import com.astrbot.android.model.NapCatLoginState
 import com.astrbot.android.model.PersonaProfile
 import com.astrbot.android.model.ProviderProfile
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Rule
 import org.junit.Test
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class BotViewModelTest {
+    private val dispatcher = StandardTestDispatcher()
+
+    @get:Rule
+    val mainDispatcherRule = MainDispatcherRule(dispatcher)
+
     @Test
     fun save_with_config_model_updates_config_then_bot() {
         val deps = FakeBotDependencies()
@@ -26,7 +38,7 @@ class BotViewModelTest {
     }
 
     @Test
-    fun delete_selected_uses_current_bot_id() {
+    fun delete_selected_uses_current_bot_id() = runTest(dispatcher) {
         val deps = FakeBotDependencies(
             selectedBot = BotProfile(id = "bot-2", displayName = "Bot 2"),
         )
@@ -34,6 +46,8 @@ class BotViewModelTest {
 
         viewModel.deleteSelected()
 
+        assertEquals(emptyList<String>(), deps.deletedBotIds)
+        advanceUntilIdle()
         assertEquals(listOf("bot-2"), deps.deletedBotIds)
     }
 
@@ -66,7 +80,7 @@ class BotViewModelTest {
 
         override fun create() = Unit
 
-        override fun delete(botId: String) {
+        override suspend fun delete(botId: String) {
             deletedBotIds += botId
         }
 

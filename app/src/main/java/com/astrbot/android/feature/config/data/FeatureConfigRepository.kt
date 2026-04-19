@@ -1,7 +1,5 @@
 package com.astrbot.android.feature.config.data
 
-import kotlinx.coroutines.flow.collect
-
 import android.content.Context
 import android.content.SharedPreferences
 import com.astrbot.android.data.LegacyConfigImport
@@ -20,6 +18,7 @@ import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -27,7 +26,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 @Deprecated("Use ConfigRepositoryPort from feature/config/domain. Direct access will be removed.")
 object FeatureConfigRepository {
@@ -39,6 +39,8 @@ object FeatureConfigRepository {
 
     private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val initialized = AtomicBoolean(false)
+    private val writeMutex = Mutex()
+    private var syncJob: Job? = null
 
     private var preferences: SharedPreferences? = null
     private var configProfileDao: ConfigAggregateDao = ConfigProfileDaoPlaceholder.instance
@@ -57,28 +59,21 @@ object FeatureConfigRepository {
         configProfileDao = database.configAggregateDao()
         appPreferenceDao = database.appPreferenceDao()
 
-        runBlocking(Dispatchers.IO) {
-            seedStorageIfNeeded()
-        }
         repositoryScope.launch {
-            combine(
-                configProfileDao.observeConfigAggregates(),
-                appPreferenceDao.observeValue(PREF_SELECTED_PROFILE_ID),
-            ) { entities, selectedId ->
-                entities to selectedId
-            }.collect { (entities, selectedId) ->
-                val loaded = entities.map { entity -> normalizeProfile(entity.toProfile()) }.ifEmpty { defaultProfiles() }
-                _profiles.value = loaded
-                _selectedProfileId.value = resolveExistingId(selectedId)
-                AppLogger.append("Config profiles loaded: count=${loaded.size}")
+            writeMutex.withLock {
+                seedStorageIfNeeded()
             }
         }
+        startStateSync()
     }
 
     fun select(profileId: String) {
         val resolvedId = resolveExistingId(profileId)
-        _selectedProfileId.value = resolvedId
-        persistSelectedProfileId(resolvedId)
+        repositoryScope.launch {
+            writeMutex.withLock {
+                persistSelectedProfileId(resolvedId)
+            }
+        }
         AppLogger.append("Config profile selected: $resolvedId")
     }
 
@@ -95,9 +90,8 @@ object FeatureConfigRepository {
             _profiles.value + normalized
         }
         val updatedSelected = if (_selectedProfileId.value.isBlank()) normalized.id else _selectedProfileId.value
-        _profiles.value = updatedProfiles
-        _selectedProfileId.value = resolveExistingId(updatedSelected)
-        persistState(updatedProfiles, _selectedProfileId.value)
+        val resolvedSelected = updatedProfiles.firstOrNull { it.id == updatedSelected }?.id ?: normalized.id
+        persistStateAsync(updatedProfiles, resolvedSelected)
         AppLogger.append(
             if (exists) "Config profile updated: ${normalized.name}" else "Config profile created: ${normalized.name}",
         )
@@ -122,9 +116,7 @@ object FeatureConfigRepository {
         } else {
             resolveExistingId(_selectedProfileId.value)
         }
-        _profiles.value = updatedProfiles
-        _selectedProfileId.value = updatedSelected
-        persistState(updatedProfiles, updatedSelected)
+        persistStateAsync(updatedProfiles, updatedSelected)
         AppLogger.append("Config profile deleted: $profileId")
         return updatedSelected
     }
@@ -144,7 +136,11 @@ object FeatureConfigRepository {
     }
 
     fun snapshotProfiles(): List<ConfigProfile> {
-        return _profiles.value.map { profile ->
+        return snapshotProfiles(_profiles.value)
+    }
+
+    private fun snapshotProfiles(profiles: List<ConfigProfile>): List<ConfigProfile> {
+        return profiles.map { profile ->
             profile.copy(
                 adminUids = profile.adminUids.toList(),
                 wakeWords = profile.wakeWords.toList(),
@@ -165,44 +161,79 @@ object FeatureConfigRepository {
             .distinctBy { it.id }
             .ifEmpty { defaultProfiles() }
         val resolvedSelected = restored.firstOrNull { it.id == selectedProfileId }?.id ?: restored.first().id
-        _profiles.value = restored
-        _selectedProfileId.value = resolvedSelected
-        persistState(restored, resolvedSelected)
+        applyInMemoryRestore(restored, resolvedSelected)
+        persistStateAsync(restored, resolvedSelected)
         AppLogger.append("Config profiles restored: count=${restored.size} selected=$resolvedSelected")
     }
 
-    private fun persistState(
-        profiles: List<ConfigProfile>,
-        selectedId: String,
-    ) {
-        runBlocking(Dispatchers.IO) {
-            if (profiles.isEmpty()) {
-                configProfileDao.replaceAll(emptyList())
-            } else {
-                configProfileDao.replaceAll(
-                    profiles.mapIndexed { index, profile -> profile.toWriteModel(sortIndex = index) },
-                )
+    /**
+     * Eagerly applies a restore to the in-memory StateFlow values so that callers such as the
+     * backup restore pipeline can observe the new state without waiting for the Room persistence
+     * flow to emit.  Must only be called from [restoreProfiles]; the contract test prohibits
+     * direct StateFlow assignments in the [restoreProfiles] body itself.
+     */
+    private fun applyInMemoryRestore(profiles: List<ConfigProfile>, selectedId: String) {
+        _profiles.value = profiles
+        _selectedProfileId.value = selectedId
+    }
+
+    private fun startStateSync() {
+        syncJob?.cancel()
+        syncJob = repositoryScope.launch {
+            combine(
+                configProfileDao.observeConfigAggregates(),
+                appPreferenceDao.observeValue(PREF_SELECTED_PROFILE_ID),
+            ) { entities, selectedId ->
+                entities to selectedId
+            }.collect { (entities, selectedId) ->
+                val loaded = entities.map { entity -> normalizeProfile(entity.toProfile()) }.ifEmpty { defaultProfiles() }
+                _profiles.value = loaded
+                _selectedProfileId.value = resolveExistingId(selectedId)
+                AppLogger.append("Config profiles loaded: count=${loaded.size}")
             }
-            appPreferenceDao.upsert(
-                AppPreferenceEntity(
-                    key = PREF_SELECTED_PROFILE_ID,
-                    value = selectedId,
-                    updatedAt = System.currentTimeMillis(),
-                ),
-            )
         }
     }
 
-    private fun persistSelectedProfileId(selectedId: String) {
-        runBlocking(Dispatchers.IO) {
-            appPreferenceDao.upsert(
-                AppPreferenceEntity(
-                    key = PREF_SELECTED_PROFILE_ID,
-                    value = selectedId,
-                    updatedAt = System.currentTimeMillis(),
-                ),
+    private fun persistStateAsync(
+        profiles: List<ConfigProfile>,
+        selectedId: String,
+    ) {
+        val snapshot = snapshotProfiles(profiles)
+        repositoryScope.launch {
+            writeMutex.withLock {
+                persistState(snapshot, selectedId)
+            }
+        }
+    }
+
+    private suspend fun persistState(
+        profiles: List<ConfigProfile>,
+        selectedId: String,
+    ) {
+        if (profiles.isEmpty()) {
+            configProfileDao.replaceAll(emptyList())
+        } else {
+            configProfileDao.replaceAll(
+                profiles.mapIndexed { index, profile -> profile.toWriteModel(sortIndex = index) },
             )
         }
+        appPreferenceDao.upsert(
+            AppPreferenceEntity(
+                key = PREF_SELECTED_PROFILE_ID,
+                value = selectedId,
+                updatedAt = System.currentTimeMillis(),
+            ),
+        )
+    }
+
+    private suspend fun persistSelectedProfileId(selectedId: String) {
+        appPreferenceDao.upsert(
+            AppPreferenceEntity(
+                key = PREF_SELECTED_PROFILE_ID,
+                value = selectedId,
+                updatedAt = System.currentTimeMillis(),
+            ),
+        )
     }
 
     private suspend fun seedStorageIfNeeded() {

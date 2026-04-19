@@ -1156,6 +1156,37 @@ class ChatViewModelTest {
         assertEquals("app-2", viewModel.uiState.value.selectedSessionId)
     }
 
+    @Test
+    fun session_flow_falls_back_to_remaining_app_session_when_selected_session_disappears() = runTest(dispatcher) {
+        val qqSession = ConversationSession(
+            id = "qq-bot123-private-934457024",
+            title = "QQ Friend",
+            botId = "qq-main",
+            providerId = "",
+            personaId = "",
+            maxContextMessages = 12,
+            messages = emptyList(),
+        )
+        val appSession1 = defaultSession(id = "app-1")
+        val appSession2 = defaultSession(id = "app-2")
+        val deps = FakeChatDependencies(
+            sessions = listOf(appSession1, qqSession, appSession2),
+            bots = listOf(defaultBot()),
+            providers = emptyList(),
+        )
+        val viewModel = ChatViewModel(deps)
+        advanceUntilIdle()
+
+        viewModel.selectSession("app-2")
+        advanceUntilIdle()
+        assertEquals("app-2", viewModel.uiState.value.selectedSessionId)
+
+        deps.sessions.value = listOf(appSession1, qqSession)
+        advanceUntilIdle()
+
+        assertEquals("app-1", viewModel.uiState.value.selectedSessionId)
+    }
+
     private class FakeChatDependencies(
         sessions: List<ConversationSession>,
         bots: List<BotProfile>,

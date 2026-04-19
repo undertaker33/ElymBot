@@ -1,6 +1,5 @@
 ﻿package com.astrbot.android.feature.resource.data
 
-import com.astrbot.android.feature.resource.data.FeatureResourceCenterRepository
 import com.astrbot.android.feature.resource.domain.ResourceCenterPort
 import com.astrbot.android.model.ConfigProfile
 import com.astrbot.android.model.ConfigResourceProjection
@@ -9,6 +8,7 @@ import com.astrbot.android.model.ResourceCenterItem
 import com.astrbot.android.model.ResourceCenterKind
 import kotlinx.coroutines.flow.StateFlow
 
+@Suppress("DEPRECATION")
 class LegacyResourceCenterRepositoryAdapter : ResourceCenterPort {
 
     override val resources: StateFlow<List<ResourceCenterItem>>

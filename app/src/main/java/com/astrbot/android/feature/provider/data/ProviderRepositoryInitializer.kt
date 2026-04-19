@@ -2,8 +2,7 @@
 
 import android.content.Context
 import com.astrbot.android.core.di.AppInitializer
-import com.astrbot.android.feature.provider.data.FeatureProviderRepository
-
+@Suppress("DEPRECATION")
 class ProviderRepositoryInitializer : AppInitializer {
     override val key: String = "provider"
     override val dependencies: Set<String> = emptySet()

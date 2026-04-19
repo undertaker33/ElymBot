@@ -980,4 +980,10 @@
     <string name="cron_platform_qq_onebot">QQ</string>
     <string name="cron_field_bot">Bot</string>
     <string name="cron_field_bot_no_options">暂无可选 Bot</string>
+
+    <string name="plugin_deep_link_repository_title">添加插件仓库？</string>
+    <string name="plugin_deep_link_install_title">安装插件包？</string>
+    <string name="plugin_deep_link_confirm_message">外部链接请求执行此插件操作：\n%1$s\n仅在信任来源时继续。</string>
+    <string name="plugin_deep_link_confirm_action">继续</string>
+    <string name="plugin_deep_link_cancel_action">取消</string>
 </resources>

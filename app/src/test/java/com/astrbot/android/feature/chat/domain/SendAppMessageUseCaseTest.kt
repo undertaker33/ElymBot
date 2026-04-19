@@ -178,6 +178,52 @@ class SendAppMessageUseCaseTest {
         assertEquals("network error", lastUpdate.content)
     }
 
+    @Test
+    fun send_reuses_single_assistant_placeholder_across_mixed_runtime_events() = runTest {
+        val fakeConversations = FakeConversationRepository()
+        val firstAttachments = listOf(
+            ConversationAttachment(
+                id = "att-1",
+                type = "image",
+                mimeType = "image/png",
+                remoteUrl = "https://example.com/1.png",
+            ),
+        )
+        val secondAttachments = listOf(
+            ConversationAttachment(
+                id = "att-2",
+                type = "audio",
+                mimeType = "audio/mpeg",
+                remoteUrl = "https://example.com/2.mp3",
+            ),
+        )
+        val fakeRuntime = FakeAppChatRuntime(
+            events = listOf(
+                AppChatRuntimeEvent.AttachmentUpdate(firstAttachments),
+                AppChatRuntimeEvent.AssistantDelta("partial"),
+                AppChatRuntimeEvent.AttachmentUpdate(secondAttachments),
+                AppChatRuntimeEvent.AssistantFinal("complete"),
+            ),
+        )
+        val useCase = SendAppMessageUseCase(
+            conversations = fakeConversations,
+            runtime = fakeRuntime,
+        )
+
+        val events = useCase.send(sessionId = "s1", text = "hello").toList()
+
+        val assistantAppends = fakeConversations.appendCalls.filter { it.role == "assistant" }
+        val assistantMessageIds = fakeConversations.updateCalls.map { it.messageId }.distinct()
+        val startedEvents = events.filterIsInstance<SendAppMessageEvent.Started>()
+
+        assertEquals(1, assistantAppends.size)
+        assertEquals(1, startedEvents.size)
+        assertEquals(1, assistantMessageIds.size)
+        assertEquals(startedEvents.single().assistantMessageId, assistantMessageIds.single())
+        assertEquals(4, fakeConversations.updateCalls.size)
+        assertEquals("complete", fakeConversations.updateCalls.last().content)
+    }
+
     // -- Fakes --
 
     private class FakeConversationRepository(

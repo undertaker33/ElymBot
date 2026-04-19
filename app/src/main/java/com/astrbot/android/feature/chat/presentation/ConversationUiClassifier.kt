@@ -1,6 +1,5 @@
 ﻿package com.astrbot.android.ui.chat
 
-import com.astrbot.android.feature.chat.data.FeatureConversationRepository
 import com.astrbot.android.model.chat.ConversationSession
 import com.astrbot.android.model.chat.MessageType
 
@@ -16,7 +15,8 @@ internal fun ConversationSession.canRenameConversation(): Boolean {
     return isQqPrivateConversation()
 }
 
+@Suppress("DEPRECATION")
 internal fun ConversationSession.canDeleteConversation(): Boolean {
-    return id != FeatureConversationRepository.DEFAULT_SESSION_ID
+    return id != com.astrbot.android.feature.chat.data.FeatureConversationRepository.DEFAULT_SESSION_ID
 }
 

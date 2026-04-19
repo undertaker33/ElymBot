@@ -1,10 +1,10 @@
 ﻿package com.astrbot.android.feature.bot.data
 
-import com.astrbot.android.feature.bot.data.FeatureBotRepository
 import com.astrbot.android.feature.bot.domain.BotRepositoryPort
 import com.astrbot.android.model.BotProfile
 import kotlinx.coroutines.flow.StateFlow
 
+@Suppress("DEPRECATION")
 class LegacyBotRepositoryAdapter : BotRepositoryPort {
 
     override val bots: StateFlow<List<BotProfile>>

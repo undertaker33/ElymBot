@@ -1007,4 +1007,10 @@
     <string name="plugin_trigger_on_conversation_enter">On conversation enter</string>
     <string name="cron_field_bot">Bot</string>
     <string name="cron_field_bot_no_options">No bots available</string>
+
+    <string name="plugin_deep_link_repository_title">Add plugin repository?</string>
+    <string name="plugin_deep_link_install_title">Install plugin package?</string>
+    <string name="plugin_deep_link_confirm_message">External link requested this plugin action:\n%1$s\nContinue only if you trust the source.</string>
+    <string name="plugin_deep_link_confirm_action">Continue</string>
+    <string name="plugin_deep_link_cancel_action">Cancel</string>
 </resources>

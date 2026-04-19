@@ -116,9 +116,12 @@ internal fun BotScreen(
                     },
                     onDeleteBot = { bot ->
                         botViewModel.select(bot.id)
-                        botViewModel.deleteSelected().onFailure { error ->
-                            showProfileDeletionFailureToast(context, error)
+                        botViewModel.deleteSelected { result ->
+                            result.onFailure { error ->
+                                showProfileDeletionFailureToast(context, error)
+                            }
                         }
+                        Result.success(Unit)
                     },
                 )
             }
