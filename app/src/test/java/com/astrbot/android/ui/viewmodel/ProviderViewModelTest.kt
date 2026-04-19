@@ -1,7 +1,11 @@
 package com.astrbot.android.ui.viewmodel
 
 import com.astrbot.android.core.runtime.llm.ChatCompletionService
+import com.astrbot.android.core.common.profile.ProviderInUseException
+import com.astrbot.android.core.common.profile.ProviderReferenceGuard
+import com.astrbot.android.data.ProviderRepository
 import com.astrbot.android.di.ProviderViewModelDependencies
+import org.junit.Assert.assertFalse
 import com.astrbot.android.model.ConfigProfile
 import com.astrbot.android.model.FeatureSupportState
 import com.astrbot.android.model.ProviderCapability
@@ -77,6 +81,66 @@ class ProviderViewModelTest {
         val result = viewModel.fetchModels(fakeProvider())
 
         assertEquals(listOf("deepseek-chat"), result)
+    }
+
+    /**
+     * Task10 Phase3 – Task C: deleting a referenced provider must surface a stable error.
+     * The actual enforcement is in FeatureProviderRepository; here we verify the guard
+     * contract is exercised via the ProviderReferenceGuard.
+     */
+    @Test
+    fun delete_referenced_provider_is_blocked_by_reference_guard() {
+        val inUseId = "provider-in-use"
+        ProviderReferenceGuard.register { providerId -> providerId == inUseId }
+        val originalProviders = ProviderRepository.snapshotProfiles()
+
+        try {
+            ProviderRepository.restoreProfiles(
+                listOf(
+                    com.astrbot.android.model.ProviderProfile(id = inUseId, name = "In-Use Provider", baseUrl = "", model = "", providerType = com.astrbot.android.model.ProviderType.OPENAI_COMPATIBLE, apiKey = "", capabilities = emptySet()),
+                    com.astrbot.android.model.ProviderProfile(id = "provider-spare", name = "Spare Provider", baseUrl = "", model = "", providerType = com.astrbot.android.model.ProviderType.OPENAI_COMPATIBLE, apiKey = "", capabilities = emptySet()),
+                ),
+            )
+
+            try {
+                ProviderRepository.delete(inUseId)
+                org.junit.Assert.fail("Expected ProviderInUseException but delete succeeded")
+            } catch (e: ProviderInUseException) {
+                assertEquals(inUseId, e.providerId)
+            }
+
+            org.junit.Assert.assertTrue(
+                "In-use provider must still be present after blocked delete",
+                ProviderRepository.snapshotProfiles().any { it.id == inUseId },
+            )
+        } finally {
+            ProviderReferenceGuard.register { false }
+            ProviderRepository.restoreProfiles(originalProviders)
+        }
+    }
+
+    @Test
+    fun delete_unreferenced_provider_succeeds() {
+        ProviderReferenceGuard.register { false }
+        val originalProviders = ProviderRepository.snapshotProfiles()
+
+        try {
+            ProviderRepository.restoreProfiles(
+                listOf(
+                    com.astrbot.android.model.ProviderProfile(id = "provider-a", name = "Provider A", baseUrl = "", model = "", providerType = com.astrbot.android.model.ProviderType.OPENAI_COMPATIBLE, apiKey = "", capabilities = emptySet()),
+                    com.astrbot.android.model.ProviderProfile(id = "provider-b", name = "Provider B", baseUrl = "", model = "", providerType = com.astrbot.android.model.ProviderType.OPENAI_COMPATIBLE, apiKey = "", capabilities = emptySet()),
+                ),
+            )
+
+            ProviderRepository.delete("provider-a")
+
+            org.junit.Assert.assertFalse(
+                ProviderRepository.snapshotProfiles().any { it.id == "provider-a" },
+            )
+        } finally {
+            ProviderReferenceGuard.register { false }
+            ProviderRepository.restoreProfiles(originalProviders)
+        }
     }
 
     @Test

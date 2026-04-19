@@ -162,7 +162,24 @@ class ChatViewModel @Inject constructor(
                     }
                 }
 
-                currentSession?.let { session ->
+                if (currentSession == null) {
+                    val fallbackSession = allSessions.firstAppSession() ?: allSessions.first()
+                    val fallbackProviderId = resolveProviderId(
+                        preferredProviderId = fallbackSession.providerId,
+                        fallbackBot = bots.value.firstOrNull { it.id == fallbackSession.botId } ?: selectedBot(),
+                    )
+                    _uiState.value = _uiState.value.copy(
+                        selectedSessionId = fallbackSession.id,
+                        selectedBotId = fallbackSession.botId,
+                        selectedProviderId = fallbackProviderId,
+                        error = "",
+                    )
+                    dependencies.log("Chat session fallback after churn: ${fallbackSession.id}")
+                    syncSessionBindings(fallbackSession.id, fallbackProviderId)
+                    return@collectLatest
+                }
+
+                currentSession.let { session ->
                     val syncedProviderId = resolveProviderId(
                         preferredProviderId = session.providerId,
                         fallbackBot = bots.value.firstOrNull { it.id == session.botId } ?: selectedBot(),

@@ -1,11 +1,11 @@
 ﻿package com.astrbot.android.feature.persona.data
 
-import com.astrbot.android.feature.persona.data.FeaturePersonaRepository
 import com.astrbot.android.feature.persona.domain.PersonaRepositoryPort
 import com.astrbot.android.model.PersonaProfile
 import com.astrbot.android.model.PersonaToolEnablementSnapshot
 import kotlinx.coroutines.flow.StateFlow
 
+@Suppress("DEPRECATION")
 class LegacyPersonaRepositoryAdapter : PersonaRepositoryPort {
 
     override val personas: StateFlow<List<PersonaProfile>>

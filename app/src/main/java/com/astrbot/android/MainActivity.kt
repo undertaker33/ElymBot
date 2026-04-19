@@ -1,3 +1,5 @@
+@file:Suppress("DEPRECATION")
+
 package com.astrbot.android
 
 import android.Manifest
@@ -51,6 +53,7 @@ import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
 import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -58,6 +61,8 @@ import kotlinx.coroutines.withContext
 class MainActivity : AppCompatActivity() {
     @Inject
     lateinit var pluginInstallIntentHandler: PluginInstallIntentHandler
+
+    private val pendingPluginDeepLinkRequest = MutableStateFlow<PluginDeepLinkInstallRequest?>(null)
 
     private var notificationPermissionRequested = false
     private val notificationPermissionLauncher = registerForActivityResult(
@@ -174,6 +179,42 @@ class MainActivity : AppCompatActivity() {
                 ) {
                     AstrBotApp()
 
+                    val pendingPluginRequest by pendingPluginDeepLinkRequest.collectAsState()
+                    pendingPluginRequest?.let { request ->
+                        androidx.compose.material3.AlertDialog(
+                            onDismissRequest = { cancelPluginDeepLinkInstall(request) },
+                            title = {
+                                androidx.compose.material3.Text(
+                                    text = getString(
+                                        when (request.action) {
+                                            PluginDeepLinkAction.Repository -> R.string.plugin_deep_link_repository_title
+                                            PluginDeepLinkAction.DirectPackage -> R.string.plugin_deep_link_install_title
+                                        },
+                                    ),
+                                )
+                            },
+                            text = {
+                                androidx.compose.material3.Text(
+                                    text = getString(R.string.plugin_deep_link_confirm_message, request.url),
+                                )
+                            },
+                            confirmButton = {
+                                androidx.compose.material3.TextButton(
+                                    onClick = { confirmPluginDeepLinkInstall(request) },
+                                ) {
+                                    androidx.compose.material3.Text(text = getString(R.string.plugin_deep_link_confirm_action))
+                                }
+                            },
+                            dismissButton = {
+                                androidx.compose.material3.TextButton(
+                                    onClick = { cancelPluginDeepLinkInstall(request) },
+                                ) {
+                                    androidx.compose.material3.Text(text = getString(R.string.plugin_deep_link_cancel_action))
+                                }
+                            },
+                        )
+                    }
+
                     if (overlayAlpha.value > 0f) {
                         Box(
                             modifier = Modifier
@@ -233,17 +274,29 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun handlePluginDeepLink(rawDeepLink: String?) {
-        val installIntent = parsePluginInstallIntentFromDeepLink(rawDeepLink) ?: return
+        val request = parsePluginDeepLinkInstallRequest(rawDeepLink) ?: return
+        pendingPluginDeepLinkRequest.value = request
+    }
+
+    private fun confirmPluginDeepLinkInstall(request: PluginDeepLinkInstallRequest) {
+        if (pendingPluginDeepLinkRequest.value != request) return
+        pendingPluginDeepLinkRequest.value = null
         lifecycleScope.launch {
             runCatching {
                 withContext(Dispatchers.IO) {
-                    pluginInstallIntentHandler.handle(installIntent)
+                    pluginInstallIntentHandler.handle(request.intent)
                 }
             }.onFailure { error ->
                 RuntimeLogRepository.append(
                     "Plugin deep link failed: ${error.message ?: error.javaClass.simpleName}",
                 )
             }
+        }
+    }
+
+    private fun cancelPluginDeepLinkInstall(request: PluginDeepLinkInstallRequest) {
+        if (pendingPluginDeepLinkRequest.value == request) {
+            pendingPluginDeepLinkRequest.value = null
         }
     }
 
@@ -273,17 +326,50 @@ internal fun shouldRequestNotificationPermissionForTests(
     return sdkInt >= Build.VERSION_CODES.TIRAMISU && !permissionGranted
 }
 
-internal fun parsePluginInstallIntentFromDeepLink(rawDeepLink: String?): PluginInstallIntent? {
+internal enum class PluginDeepLinkAction {
+    Repository,
+    DirectPackage,
+}
+
+internal data class PluginDeepLinkInstallRequest(
+    val action: PluginDeepLinkAction,
+    val url: String,
+    val intent: PluginInstallIntent,
+)
+
+internal fun parsePluginDeepLinkInstallRequest(rawDeepLink: String?): PluginDeepLinkInstallRequest? {
     if (rawDeepLink.isNullOrBlank()) return null
     val uri = runCatching { URI(rawDeepLink) }.getOrNull() ?: return null
     if (uri.scheme?.lowercase() != "astrbot") return null
     if (uri.host?.lowercase() != "plugin") return null
     val url = decodeQueryParameter(uri.rawQuery, "url") ?: return null
+    if (!url.isHttpsUrl()) return null
     return when (uri.path?.trim('/')) {
-        "repository" -> runCatching { PluginInstallIntent.repositoryUrl(url) }.getOrNull()
-        "install" -> runCatching { PluginInstallIntent.directPackageUrl(url) }.getOrNull()
+        "repository" -> runCatching {
+            PluginDeepLinkInstallRequest(
+                action = PluginDeepLinkAction.Repository,
+                url = url,
+                intent = PluginInstallIntent.repositoryUrl(url),
+            )
+        }.getOrNull()
+        "install" -> runCatching {
+            PluginDeepLinkInstallRequest(
+                action = PluginDeepLinkAction.DirectPackage,
+                url = url,
+                intent = PluginInstallIntent.directPackageUrl(url),
+            )
+        }.getOrNull()
         else -> null
     }
+}
+
+internal fun parsePluginInstallIntentFromDeepLink(rawDeepLink: String?): PluginInstallIntent? {
+    return parsePluginDeepLinkInstallRequest(rawDeepLink)?.intent
+}
+
+private fun String.isHttpsUrl(): Boolean {
+    val parsed = runCatching { URI(this) }.getOrNull() ?: return false
+    return parsed.scheme.equals("https", ignoreCase = true) && !parsed.host.isNullOrBlank()
 }
 
 private fun decodeQueryParameter(rawQuery: String?, key: String): String? {

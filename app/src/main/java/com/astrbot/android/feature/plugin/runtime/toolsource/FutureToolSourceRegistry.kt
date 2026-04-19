@@ -1,3 +1,5 @@
+@file:Suppress("DEPRECATION")
+
 package com.astrbot.android.feature.plugin.runtime.toolsource
 
 import com.astrbot.android.core.runtime.tool.DefaultToolDescriptorCachePolicy

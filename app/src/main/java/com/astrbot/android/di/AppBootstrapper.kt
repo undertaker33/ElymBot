@@ -1,3 +1,5 @@
+@file:Suppress("DEPRECATION")
+
 package com.astrbot.android.di
 
 import android.app.Application
@@ -17,6 +19,7 @@ import com.astrbot.android.core.runtime.llm.LlmClientPort
 import com.astrbot.android.core.db.backup.ConversationBackupRepository
 import com.astrbot.android.core.runtime.container.ContainerBridgeStatePort
 import com.astrbot.android.core.runtime.container.ContainerBridgeStateRegistry
+import com.astrbot.android.data.db.AstrBotDatabase
 import com.astrbot.android.feature.chat.data.FeatureConversationRepository as ConversationRepository
 import com.astrbot.android.feature.bot.data.FeatureBotRepository as BotRepository
 import com.astrbot.android.feature.config.data.FeatureConfigRepository as ConfigRepository
@@ -59,6 +62,8 @@ import com.astrbot.android.feature.cron.runtime.CronJobExecutionBridge
 import com.astrbot.android.feature.cron.runtime.CronJobScheduler
 import com.astrbot.android.feature.cron.runtime.ScheduledTaskRuntimeDependencies
 import com.astrbot.android.feature.cron.runtime.ScheduledTaskRuntimeExecutor
+import com.astrbot.android.core.common.profile.PersonaReferenceGuard
+import com.astrbot.android.core.common.profile.ProviderReferenceGuard
 import com.astrbot.android.di.hilt.ApplicationScope
 import com.astrbot.android.model.plugin.PluginInstallRecord
 import java.util.concurrent.atomic.AtomicBoolean
@@ -111,11 +116,11 @@ internal class AppBootstrapper @Inject constructor(
         appScope.launch(Dispatchers.IO) {
             AppDownloadManager.initialize(application)
         }
+        warmUpTtsVoiceAssets()
         NapCatBridgeRepository.initialize(application)
         NapCatLoginRepository.initialize(application)
         RuntimeAssetRepository.initialize(application)
         SherpaOnnxBridge.initialize(application)
-        TtsVoiceAssetRepository.initialize(application)
         InitializationCoordinator(
             listOf(
                 ConfigRepositoryInitializer(),
@@ -221,66 +226,38 @@ internal class AppBootstrapper @Inject constructor(
                     skippedCount = result.skippedCount,
                 )
             }
-        }
-        AppBackupDataRegistry.port = object : AppBackupDataPort {
-            override fun snapshotBots() = BotRepository.snapshotProfiles()
 
-            override fun snapshotProviders() = ProviderRepository.snapshotProfiles()
-
-            override fun snapshotPersonas() = PersonaRepository.snapshotProfiles()
-
-            override fun snapshotConfigs() = ConfigRepository.snapshotProfiles()
-
-            override fun snapshotConversations() = ConversationRepository.snapshotSessions()
-
-            override fun snapshotExternalState(): AppBackupExternalState {
-                val loginState = NapCatLoginRepository.loginState.value
-                return AppBackupExternalState(
-                    selectedBotId = BotRepository.selectedBotId.value,
-                    selectedConfigId = ConfigRepository.selectedProfileId.value,
-                    quickLoginUin = loginState.quickLoginUin,
-                    savedAccounts = loginState.savedAccounts,
+            override suspend fun importSessionsDurable(
+                importedSessions: List<com.astrbot.android.model.chat.ConversationSession>,
+                overwriteDuplicates: Boolean,
+            ): ConversationImportResult {
+                val result = ConversationRepository.importSessionsDurable(
+                    importedSessions = importedSessions,
+                    overwriteDuplicates = overwriteDuplicates,
                 )
-            }
-
-            override suspend fun restoreBots(
-                profiles: List<com.astrbot.android.model.BotProfile>,
-                selectedBotId: String,
-            ) {
-                BotRepository.restoreProfiles(profiles, selectedBotId)
-            }
-
-            override fun restoreProviders(profiles: List<com.astrbot.android.model.ProviderProfile>) {
-                ProviderRepository.restoreProfiles(profiles)
-            }
-
-            override fun restorePersonas(profiles: List<com.astrbot.android.model.PersonaProfile>) {
-                PersonaRepository.restoreProfiles(profiles)
-            }
-
-            override fun restoreConfigs(
-                profiles: List<com.astrbot.android.model.ConfigProfile>,
-                selectedConfigId: String,
-            ) {
-                ConfigRepository.restoreProfiles(profiles, selectedConfigId)
-            }
-
-            override fun restoreConversations(sessions: List<com.astrbot.android.model.chat.ConversationSession>) {
-                ConversationRepository.restoreSessions(sessions)
-            }
-
-            override fun restoreQqLoginState(
-                quickLoginUin: String,
-                savedAccounts: List<com.astrbot.android.model.SavedQqAccount>,
-            ) {
-                NapCatLoginRepository.restoreSavedLoginState(
-                    quickLoginUin = quickLoginUin,
-                    savedAccounts = savedAccounts,
+                return ConversationImportResult(
+                    importedCount = result.importedCount,
+                    overwrittenCount = result.overwrittenCount,
+                    skippedCount = result.skippedCount,
                 )
             }
         }
+        AppBackupDataRegistry.port = createProductionAppBackupDataPort()
+        installProductionPhase3DataTransactionService(AstrBotDatabase.get(application))
         CronJobScheduler.initialize(application)
         PluginRuntimeLogCleanupRepository.initialize(application)
+        // Task10 Phase3 – Task C: wire persona/provider reference guards so delete is rejected when in use.
+        PersonaReferenceGuard.register { personaId ->
+            BotRepository.botProfiles.value.any { it.defaultPersonaId == personaId }
+        }
+        ProviderReferenceGuard.register { providerId ->
+            ConfigRepository.profiles.value.any { config ->
+                config.defaultChatProviderId == providerId ||
+                    config.defaultVisionProviderId == providerId ||
+                    config.defaultSttProviderId == providerId ||
+                    config.defaultTtsProviderId == providerId
+            } || BotRepository.botProfiles.value.any { it.defaultProviderId == providerId }
+        }
         PluginRuntimeRegistry.registerExternalProvider {
             ExternalPluginRuntimeCatalog.plugins()
         }
@@ -300,7 +277,6 @@ internal class AppBootstrapper @Inject constructor(
         appScope.launch(Dispatchers.IO) {
             InitializationCoordinator(
                 listOf(
-                    ConfigRepositoryInitializer(),
                     BotRepositoryInitializer(),
                 ),
             ).initializeAll(application)
@@ -308,6 +284,72 @@ internal class AppBootstrapper @Inject constructor(
         ContainerRuntimeInstaller.warmUpAsync(application, appScope)
         RuntimeLogRepository.append("App started")
         Log.i("AstrBotRuntime", "AppBootstrapper.bootstrap completed")
+    }
+
+    private fun warmUpTtsVoiceAssets() {
+        appScope.launch(Dispatchers.IO) {
+            TtsVoiceAssetRepository.initialize(application)
+        }
+    }
+}
+
+internal fun createProductionAppBackupDataPort(): AppBackupDataPort {
+    return object : AppBackupDataPort {
+        override fun snapshotBots() = BotRepository.snapshotProfiles()
+
+        override fun snapshotProviders() = ProviderRepository.snapshotProfiles()
+
+        override fun snapshotPersonas() = PersonaRepository.snapshotProfiles()
+
+        override fun snapshotConfigs() = ConfigRepository.snapshotProfiles()
+
+        override fun snapshotConversations() = ConversationRepository.snapshotSessions()
+
+        override fun snapshotExternalState(): AppBackupExternalState {
+            val loginState = NapCatLoginRepository.loginState.value
+            return AppBackupExternalState(
+                selectedBotId = BotRepository.selectedBotId.value,
+                selectedConfigId = ConfigRepository.selectedProfileId.value,
+                quickLoginUin = loginState.quickLoginUin,
+                savedAccounts = loginState.savedAccounts,
+            )
+        }
+
+        override suspend fun restoreBots(
+            profiles: List<com.astrbot.android.model.BotProfile>,
+            selectedBotId: String,
+        ) {
+            BotRepository.restoreProfiles(profiles, selectedBotId)
+        }
+
+        override fun restoreProviders(profiles: List<com.astrbot.android.model.ProviderProfile>) {
+            ProviderRepository.restoreProfiles(profiles)
+        }
+
+        override fun restorePersonas(profiles: List<com.astrbot.android.model.PersonaProfile>) {
+            PersonaRepository.restoreProfiles(profiles)
+        }
+
+        override fun restoreConfigs(
+            profiles: List<com.astrbot.android.model.ConfigProfile>,
+            selectedConfigId: String,
+        ) {
+            ConfigRepository.restoreProfiles(profiles, selectedConfigId)
+        }
+
+        override suspend fun restoreConversations(sessions: List<com.astrbot.android.model.chat.ConversationSession>) {
+            ConversationRepository.restoreSessionsDurable(sessions)
+        }
+
+        override fun restoreQqLoginState(
+            quickLoginUin: String,
+            savedAccounts: List<com.astrbot.android.model.SavedQqAccount>,
+        ) {
+            NapCatLoginRepository.restoreSavedLoginState(
+                quickLoginUin = quickLoginUin,
+                savedAccounts = savedAccounts,
+            )
+        }
     }
 }
 

@@ -1,11 +1,11 @@
 ﻿package com.astrbot.android.feature.provider.data
 
-import com.astrbot.android.feature.provider.data.FeatureProviderRepository
 import com.astrbot.android.feature.provider.domain.ProviderRepositoryPort
 import com.astrbot.android.model.ProviderCapability
 import com.astrbot.android.model.ProviderProfile
 import kotlinx.coroutines.flow.StateFlow
 
+@Suppress("DEPRECATION")
 class LegacyProviderRepositoryAdapter : ProviderRepositoryPort {
 
     override val providers: StateFlow<List<ProviderProfile>>

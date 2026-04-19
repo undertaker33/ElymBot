@@ -188,7 +188,7 @@ object ConversationBackupRepository {
         overwriteDuplicates: Boolean,
     ): Result<ConversationImportResult> = withContext(Dispatchers.IO) {
         runCatching {
-            ConversationBackupDataRegistry.port.importSessions(
+            ConversationBackupDataRegistry.port.importSessionsDurable(
                 importedSessions = sessions,
                 overwriteDuplicates = overwriteDuplicates,
             )

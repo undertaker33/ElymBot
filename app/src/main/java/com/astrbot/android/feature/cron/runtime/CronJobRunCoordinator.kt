@@ -1,3 +1,5 @@
+@file:Suppress("DEPRECATION")
+
 package com.astrbot.android.feature.cron.runtime
 
 import com.astrbot.android.feature.cron.data.FeatureCronJobRepository

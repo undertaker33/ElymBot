@@ -18,6 +18,7 @@ import com.astrbot.android.model.ProviderProfile
 import com.astrbot.android.model.ProviderType
 import com.astrbot.android.model.defaultCapability
 import com.astrbot.android.model.inferMultimodalRuleSupport
+import com.astrbot.android.core.common.profile.ProviderReferenceGuard
 import com.astrbot.android.model.inferNativeStreamingRuleSupport
 import com.astrbot.android.core.common.logging.AppLogger
 import java.util.UUID
@@ -131,6 +132,7 @@ object FeatureProviderRepository {
 
     fun delete(id: String) {
         val removed = _providers.value.firstOrNull { it.id == id }
+        ProviderReferenceGuard.requireNotInUse(id)
         val updated = _providers.value.filterNot { it.id == id }
         _providers.value = updated
         persistProviders(updated)

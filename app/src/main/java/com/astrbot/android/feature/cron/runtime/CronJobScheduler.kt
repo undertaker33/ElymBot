@@ -7,7 +7,6 @@ import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.workDataOf
-import com.astrbot.android.feature.cron.data.FeatureCronJobRepository
 import com.astrbot.android.model.CronJob
 import com.astrbot.android.core.common.logging.AppLogger
 import kotlinx.coroutines.CoroutineScope
@@ -22,6 +21,7 @@ import java.util.concurrent.TimeUnit
  * For recurring cron jobs, schedules the next occurrence as a OneTimeWorkRequest
  * (re-enqueued after each execution by CronJobWorker).
  */
+@Suppress("DEPRECATION")
 object CronJobScheduler {
 
     private const val WORK_TAG = "cron_job"
@@ -29,7 +29,7 @@ object CronJobScheduler {
     fun initialize(context: Context) {
         // Reschedule all enabled jobs on app start.
         kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
-            val enabledJobs = FeatureCronJobRepository.listEnabled()
+            val enabledJobs = com.astrbot.android.feature.cron.data.FeatureCronJobRepository.listEnabled()
             AppLogger.append("CronJobScheduler: re-scheduling ${enabledJobs.size} enabled jobs")
             enabledJobs.forEach { job -> scheduleJob(context, job) }
         }

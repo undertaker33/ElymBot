@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import com.astrbot.android.core.common.profile.ProfileCatalogKind
 import com.astrbot.android.core.common.profile.ProfileDeletionGuard
+import com.astrbot.android.core.common.profile.PersonaReferenceGuard
 import com.astrbot.android.data.parseLegacyPersonaProfiles
 import com.astrbot.android.data.db.AstrBotDatabase
 import com.astrbot.android.data.db.PersonaAggregate
@@ -115,6 +116,7 @@ object FeaturePersonaRepository {
             remainingCount = _personas.value.size,
             kind = ProfileCatalogKind.PERSONA,
         )
+        PersonaReferenceGuard.requireNotInUse(id)
         val updated = _personas.value.filterNot { it.id == id }
         _personas.value = updated
         persistPersonas(updated)

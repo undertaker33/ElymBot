@@ -1,16 +1,16 @@
 ﻿package com.astrbot.android.feature.qq.data
 
-import com.astrbot.android.feature.chat.data.FeatureConversationRepository
 import com.astrbot.android.feature.qq.domain.QqConversationPort
 import com.astrbot.android.model.chat.ConversationAttachment
 import com.astrbot.android.model.chat.ConversationMessage
 import com.astrbot.android.model.chat.ConversationSession
 import com.astrbot.android.model.chat.MessageType
 
+@Suppress("DEPRECATION")
 class LegacyQqConversationAdapter : QqConversationPort {
 
     override fun sessions(): List<ConversationSession> {
-        return FeatureConversationRepository.sessions.value
+        return com.astrbot.android.feature.chat.data.FeatureConversationRepository.sessions.value
     }
 
     override fun resolveOrCreateSession(
@@ -18,15 +18,15 @@ class LegacyQqConversationAdapter : QqConversationPort {
         title: String,
         messageType: MessageType,
     ): ConversationSession {
-        val existing = FeatureConversationRepository.session(sessionId)
+        val existing = com.astrbot.android.feature.chat.data.FeatureConversationRepository.session(sessionId)
         if (existing.title != title || !existing.titleCustomized) {
-            FeatureConversationRepository.syncSystemSessionTitle(sessionId, title)
+            com.astrbot.android.feature.chat.data.FeatureConversationRepository.syncSystemSessionTitle(sessionId, title)
         }
-        return FeatureConversationRepository.session(sessionId)
+        return com.astrbot.android.feature.chat.data.FeatureConversationRepository.session(sessionId)
     }
 
     override fun session(sessionId: String): ConversationSession {
-        return FeatureConversationRepository.session(sessionId)
+        return com.astrbot.android.feature.chat.data.FeatureConversationRepository.session(sessionId)
     }
 
     override fun appendMessage(
@@ -35,7 +35,7 @@ class LegacyQqConversationAdapter : QqConversationPort {
         content: String,
         attachments: List<ConversationAttachment>,
     ): String {
-        return FeatureConversationRepository.appendMessage(
+        return com.astrbot.android.feature.chat.data.FeatureConversationRepository.appendMessage(
             sessionId = sessionId,
             role = role,
             content = content,
@@ -49,7 +49,7 @@ class LegacyQqConversationAdapter : QqConversationPort {
         providerId: String,
         personaId: String,
     ) {
-        FeatureConversationRepository.updateSessionBindings(
+        com.astrbot.android.feature.chat.data.FeatureConversationRepository.updateSessionBindings(
             sessionId = sessionId,
             providerId = providerId,
             personaId = personaId,
@@ -62,7 +62,7 @@ class LegacyQqConversationAdapter : QqConversationPort {
         sessionSttEnabled: Boolean?,
         sessionTtsEnabled: Boolean?,
     ) {
-        FeatureConversationRepository.updateSessionServiceFlags(
+        com.astrbot.android.feature.chat.data.FeatureConversationRepository.updateSessionServiceFlags(
             sessionId = sessionId,
             sessionSttEnabled = sessionSttEnabled,
             sessionTtsEnabled = sessionTtsEnabled,
@@ -73,15 +73,15 @@ class LegacyQqConversationAdapter : QqConversationPort {
         sessionId: String,
         messages: List<ConversationMessage>,
     ) {
-        FeatureConversationRepository.replaceMessages(sessionId, messages)
+        com.astrbot.android.feature.chat.data.FeatureConversationRepository.replaceMessages(sessionId, messages)
     }
 
     override fun renameSession(sessionId: String, title: String) {
-        FeatureConversationRepository.renameSession(sessionId, title)
+        com.astrbot.android.feature.chat.data.FeatureConversationRepository.renameSession(sessionId, title)
     }
 
     override fun deleteSession(sessionId: String) {
-        FeatureConversationRepository.deleteSession(sessionId)
+        com.astrbot.android.feature.chat.data.FeatureConversationRepository.deleteSession(sessionId)
     }
 }
 

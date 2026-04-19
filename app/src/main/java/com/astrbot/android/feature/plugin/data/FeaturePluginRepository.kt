@@ -114,6 +114,7 @@ class PluginPackageInstallBlockedException(
 ) : IllegalStateException(message)
 
 @Deprecated("Use PluginRepositoryPort from feature/plugin/domain. Direct access will be removed.")
+@Suppress("DEPRECATION")
 object FeaturePluginRepository : PluginInstallStore, PluginCatalogSyncStore {
     const val SUPPORTED_PROTOCOL_VERSION = 2
 
@@ -949,6 +950,7 @@ object FeaturePluginRepository : PluginInstallStore, PluginCatalogSyncStore {
     }
 }
 
+@Suppress("DEPRECATION")
 internal fun unsupportedProtocolCompatibilityNote(
     protocolVersion: Int,
     supportedProtocolVersion: Int,

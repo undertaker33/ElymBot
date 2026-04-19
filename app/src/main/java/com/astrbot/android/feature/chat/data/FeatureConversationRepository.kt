@@ -23,6 +23,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
@@ -395,6 +396,43 @@ object FeatureConversationRepository {
         AppLogger.append("Conversation sessions restored: sessions=${normalized.size}")
     }
 
+    /**
+     * Task10 Phase3 – Task D: durable restore path.
+     *
+     * Unlike [restoreSessions] which fires-and-forgets the DB write, this suspend function
+     * waits for the Room write to complete before returning.  Callers such as the backup
+     * restore flow should prefer this when "restore complete" must mean "data is on disk".
+     */
+    suspend fun restoreSessionsDurable(restoredSessions: List<ConversationSession>) {
+        val normalized = restoredSessions
+            .map { session ->
+                session.copy(
+                    title = session.title.ifBlank { DEFAULT_SESSION_TITLE },
+                    botId = session.botId.ifBlank { currentSelectedBotId() },
+                    messages = session.messages.sortedBy { it.timestamp },
+                )
+            }
+            .distinctBy { it.id }
+            .ifEmpty { defaultSessions() }
+            .let(::sortConversationSessions)
+
+        val snapshot = _sessions.value  // capture before mutation so we can roll back on DB failure
+        _sessions.value = normalized
+        withContext(Dispatchers.IO) {
+            persistenceMutex.withLock {
+                runCatching {
+                    conversationAggregateDao.replaceAll(normalized.map { it.toWriteModel() })
+                }.onFailure { error ->
+                    AppLogger.append(
+                        "Conversation durable restore failed, rolling back in-memory state: ${error.message ?: error.javaClass.simpleName}",
+                    )
+                    _sessions.value = snapshot  // roll back so in-memory state stays consistent with DB
+                }.getOrThrow()  // propagate to caller — "durable restore" must surface DB failures
+            }
+        }
+        AppLogger.append("Conversation sessions durably restored: sessions=${normalized.size}")
+    }
+
     fun previewImportedSessions(importedSessions: List<ConversationSession>): ConversationImportPreview {
         val existingKeys = _sessions.value.map { it.importDedupKey() }.toSet()
         val duplicates = importedSessions.filter { it.importDedupKey() in existingKeys }
@@ -452,6 +490,77 @@ object FeatureConversationRepository {
         }
         AppLogger.append(
             "Conversation sessions imported: new=$importedCount overwritten=$overwrittenCount skipped=$skippedCount",
+        )
+        return ConversationImportResult(
+            importedCount = importedCount,
+            overwrittenCount = overwrittenCount,
+            skippedCount = skippedCount,
+        )
+    }
+
+    /**
+     * Task10 Phase3 – Task D (import path): durable counterpart of [importSessions].
+     *
+     * Unlike [importSessions] which fires-and-forgets the DB write, this suspend function awaits
+     * the Room write before returning.  On DB failure the in-memory state is rolled back and the
+     * exception is rethrown so callers (e.g. the backup import flow) see the failure.
+     */
+    suspend fun importSessionsDurable(
+        importedSessions: List<ConversationSession>,
+        overwriteDuplicates: Boolean,
+    ): ConversationImportResult {
+        val incoming = importedSessions
+            .map { session ->
+                session.copy(
+                    title = session.title.ifBlank { DEFAULT_SESSION_TITLE },
+                    botId = session.botId.ifBlank { currentSelectedBotId() },
+                    messages = session.messages.sortedBy { it.timestamp },
+                )
+            }
+            .distinctBy { it.id }
+
+        val currentByKey = _sessions.value.associateBy { it.importDedupKey() }.toMutableMap()
+        var importedCount = 0
+        var overwrittenCount = 0
+        var skippedCount = 0
+
+        incoming.forEach { session ->
+            val dedupKey = session.importDedupKey()
+            val existingSession = currentByKey[dedupKey]
+            when {
+                existingSession == null -> {
+                    currentByKey[dedupKey] = session
+                    importedCount += 1
+                }
+                overwriteDuplicates -> {
+                    currentByKey[dedupKey] = session.copy(id = existingSession.id)
+                    overwrittenCount += 1
+                }
+                else -> skippedCount += 1
+            }
+        }
+
+        val merged = currentByKey.values
+            .toList()
+            .ifEmpty { defaultSessions() }
+            .let(::sortConversationSessions)
+
+        val snapshot = _sessions.value  // capture before mutation for rollback on DB failure
+        _sessions.value = merged
+        withContext(Dispatchers.IO) {
+            persistenceMutex.withLock {
+                runCatching {
+                    conversationAggregateDao.replaceAll(merged.map { it.toWriteModel() })
+                }.onFailure { error ->
+                    AppLogger.append(
+                        "Conversation durable import failed, rolling back in-memory state: ${error.message ?: error.javaClass.simpleName}",
+                    )
+                    _sessions.value = snapshot  // roll back so in-memory state stays consistent with DB
+                }.getOrThrow()  // propagate to caller — durable import must surface DB failures
+            }
+        }
+        AppLogger.append(
+            "Conversation sessions durably imported: new=$importedCount overwritten=$overwrittenCount skipped=$skippedCount",
         )
         return ConversationImportResult(
             importedCount = importedCount,

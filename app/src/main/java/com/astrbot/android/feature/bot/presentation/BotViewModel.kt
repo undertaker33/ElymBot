@@ -1,6 +1,7 @@
 package com.astrbot.android.ui.viewmodel
 
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
 import com.astrbot.android.di.BotViewModelDependencies
 import com.astrbot.android.model.BotProfile
 import com.astrbot.android.model.ConfigProfile
@@ -10,6 +11,7 @@ import com.astrbot.android.model.ProviderProfile
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
 
 @HiltViewModel
 class BotViewModel @Inject constructor(
@@ -44,8 +46,18 @@ class BotViewModel @Inject constructor(
     }
 
     fun deleteSelected(): Result<Unit> {
-        return runCatching {
-            dependencies.delete(botProfile.value.id)
+        deleteSelected {}
+        return Result.success(Unit)
+    }
+
+    fun deleteSelected(onComplete: (Result<Unit>) -> Unit) {
+        val botId = botProfile.value.id
+        viewModelScope.launch {
+            onComplete(
+                runCatching {
+                    dependencies.delete(botId)
+                },
+            )
         }
     }
 }

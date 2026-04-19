@@ -25,7 +25,7 @@ interface AppBackupDataPort {
     fun restoreProviders(profiles: List<ProviderProfile>)
     fun restorePersonas(profiles: List<PersonaProfile>)
     fun restoreConfigs(profiles: List<ConfigProfile>, selectedConfigId: String)
-    fun restoreConversations(sessions: List<ConversationSession>)
+    suspend fun restoreConversations(sessions: List<ConversationSession>)
     fun restoreQqLoginState(quickLoginUin: String, savedAccounts: List<SavedQqAccount>)
 }
 
@@ -55,7 +55,7 @@ private object MissingAppBackupDataPort : AppBackupDataPort {
 
     override fun restoreConfigs(profiles: List<ConfigProfile>, selectedConfigId: String) = Unit
 
-    override fun restoreConversations(sessions: List<ConversationSession>) = Unit
+    override suspend fun restoreConversations(sessions: List<ConversationSession>) = Unit
 
     override fun restoreQqLoginState(quickLoginUin: String, savedAccounts: List<SavedQqAccount>) = Unit
 }

@@ -1,6 +1,7 @@
 package com.astrbot.android.ui.viewmodel
 
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
 import com.astrbot.android.di.ConfigViewModelDependencies
 import com.astrbot.android.model.BotProfile
 import com.astrbot.android.model.ConfigProfile
@@ -9,6 +10,7 @@ import com.astrbot.android.model.TtsVoiceReferenceAsset
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
 
 @HiltViewModel
 class ConfigViewModel @Inject constructor(
@@ -35,8 +37,9 @@ class ConfigViewModel @Inject constructor(
     }
 
     fun delete(profileId: String) {
-        val fallbackId = dependencies.delete(profileId)
-        dependencies.replaceConfigBinding(profileId, fallbackId)
+        viewModelScope.launch {
+            dependencies.deleteConfigProfile(profileId)
+        }
     }
 
     fun resolve(profileId: String): ConfigProfile {

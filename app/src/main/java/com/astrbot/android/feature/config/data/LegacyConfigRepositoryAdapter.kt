@@ -1,10 +1,10 @@
 ﻿package com.astrbot.android.feature.config.data
 
-import com.astrbot.android.feature.config.data.FeatureConfigRepository
 import com.astrbot.android.feature.config.domain.ConfigRepositoryPort
 import com.astrbot.android.model.ConfigProfile
 import kotlinx.coroutines.flow.StateFlow
 
+@Suppress("DEPRECATION")
 class LegacyConfigRepositoryAdapter : ConfigRepositoryPort {
 
     override val profiles: StateFlow<List<ConfigProfile>>

@@ -1,3 +1,5 @@
+@file:Suppress("DEPRECATION")
+
 package com.astrbot.android.ui.settings
 
 import com.astrbot.android.feature.chat.data.FeatureConversationRepository
