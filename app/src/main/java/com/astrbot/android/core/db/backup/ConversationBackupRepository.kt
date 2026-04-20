@@ -2,6 +2,7 @@ package com.astrbot.android.core.db.backup
 
 import android.content.Context
 import android.net.Uri
+import com.astrbot.android.di.ProductionConversationBackupDataPort
 import com.astrbot.android.model.chat.ConversationSession
 import com.astrbot.android.core.common.logging.RuntimeLogRepository
 import kotlinx.coroutines.CoroutineScope
@@ -78,7 +79,7 @@ object ConversationBackupRepository {
         prefs = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         _settings.value = loadSettings()
         refreshBackups()
-        val dataPort = ConversationBackupDataRegistry.port
+        val dataPort = ProductionConversationBackupDataPort
 
         repositoryScope.launch {
             dataPort.isReady.collectLatest { ready ->
@@ -96,7 +97,7 @@ object ConversationBackupRepository {
 
     suspend fun createBackup(trigger: String = "manual"): Result<ConversationBackupItem> = withContext(Dispatchers.IO) {
         runCatching {
-            val sessions = ConversationBackupDataRegistry.port.snapshotSessions()
+            val sessions = ProductionConversationBackupDataPort.snapshotSessions()
             val now = System.currentTimeMillis()
             val dateTime = LocalDateTime.ofInstant(java.time.Instant.ofEpochMilli(now), ZoneId.systemDefault())
             val fileName = "conversation-backup-${timestampFormatter.format(dateTime)}-$trigger.json"
@@ -124,7 +125,7 @@ object ConversationBackupRepository {
         runCatching {
             val file = resolveBackupFile(backupId) ?: error("Backup not found")
             val sessions = loadSessionsFromBackupFile(file)
-            ConversationBackupDataRegistry.port.restoreSessions(sessions)
+            ProductionConversationBackupDataPort.restoreSessions(sessions)
             sessions.size
         }.onFailure { error ->
             RuntimeLogRepository.append("Conversation backup restore failed: ${error.message ?: error.javaClass.simpleName}")
@@ -165,7 +166,7 @@ object ConversationBackupRepository {
             ConversationImportSource(
                 label = file.nameWithoutExtension,
                 sessions = sessions,
-                preview = ConversationBackupDataRegistry.port.previewImportedSessions(sessions),
+                preview = ProductionConversationBackupDataPort.previewImportedSessions(sessions),
             )
         }
     }
@@ -176,7 +177,7 @@ object ConversationBackupRepository {
             ConversationImportSource(
                 label = uri.lastPathSegment?.substringAfterLast('/')?.ifBlank { "external-backup" } ?: "external-backup",
                 sessions = sessions,
-                preview = ConversationBackupDataRegistry.port.previewImportedSessions(sessions),
+                preview = ProductionConversationBackupDataPort.previewImportedSessions(sessions),
             )
         }.onFailure { error ->
             RuntimeLogRepository.append("Conversation backup external import failed: ${error.message ?: error.javaClass.simpleName}")
@@ -188,7 +189,7 @@ object ConversationBackupRepository {
         overwriteDuplicates: Boolean,
     ): Result<ConversationImportResult> = withContext(Dispatchers.IO) {
         runCatching {
-            ConversationBackupDataRegistry.port.importSessionsDurable(
+            ProductionConversationBackupDataPort.importSessionsDurable(
                 importedSessions = sessions,
                 overwriteDuplicates = overwriteDuplicates,
             )
@@ -241,7 +242,7 @@ object ConversationBackupRepository {
     }
 
     private suspend fun maybeRunAutoBackup() {
-        val dataPort = ConversationBackupDataRegistry.port
+        val dataPort = ProductionConversationBackupDataPort
         if (!initialized.get()) return
         autoBackupMutex.withLock {
             val currentSettings = _settings.value
@@ -310,7 +311,7 @@ object ConversationBackupRepository {
     }
 
     private fun parseSessions(array: JSONArray): List<ConversationSession> {
-        val dataPort = ConversationBackupDataRegistry.port
+        val dataPort = ProductionConversationBackupDataPort
         return buildList {
             for (index in 0 until array.length()) {
                 val item = array.optJSONObject(index) ?: continue

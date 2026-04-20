@@ -1,7 +1,7 @@
 package com.astrbot.android.feature.cron.runtime
 
 import com.astrbot.android.core.common.logging.AppLogger
-import com.astrbot.android.core.runtime.context.RuntimeContextResolver
+import com.astrbot.android.core.runtime.context.RuntimeContextResolverPort
 import com.astrbot.android.core.runtime.context.RuntimeIngressEvent
 import com.astrbot.android.core.runtime.context.RuntimePlatform
 import com.astrbot.android.core.runtime.context.SenderInfo
@@ -11,35 +11,27 @@ import com.astrbot.android.feature.chat.domain.ConversationRepositoryPort
 import com.astrbot.android.feature.plugin.runtime.DefaultAppChatPluginRuntime
 import com.astrbot.android.feature.plugin.runtime.PluginV2HostLlmDeliveryResult
 import com.astrbot.android.feature.plugin.runtime.RuntimeLlmOrchestratorPort
+import com.astrbot.android.feature.qq.runtime.QqScheduledMessageSender
 import com.astrbot.android.model.BotProfile
 import com.astrbot.android.model.chat.ConversationMessage
 import com.astrbot.android.model.chat.MessageType
 import com.astrbot.android.model.plugin.PluginTriggerSource
 
 internal data class ScheduledTaskRuntimeDependencies(
+    val llmClient: LlmClientPort,
     val botPort: BotRepositoryPort,
     val conversationPort: ConversationRepositoryPort,
     val orchestrator: RuntimeLlmOrchestratorPort,
+    val runtimeContextResolverPort: RuntimeContextResolverPort,
+    val qqScheduledMessageSender: QqScheduledMessageSender,
 )
 
 internal object ScheduledTaskRuntimeExecutor {
 
-    @Volatile
-    private var llmClientProvider: (() -> LlmClientPort)? = null
-
-    @Volatile
-    private var runtimeDependenciesProvider: (() -> ScheduledTaskRuntimeDependencies)? = null
-
-    fun configureLlmClientProvider(provider: () -> LlmClientPort) {
-        llmClientProvider = provider
-    }
-
-    fun configureRuntimeDependenciesProvider(provider: () -> ScheduledTaskRuntimeDependencies) {
-        runtimeDependenciesProvider = provider
-    }
-
-    suspend fun execute(context: CronJobExecutionContext): CronJobDeliverySummary {
-        val runtimeDependencies = requireRuntimeDependencies()
+    suspend fun execute(
+        context: CronJobExecutionContext,
+        runtimeDependencies: ScheduledTaskRuntimeDependencies,
+    ): CronJobDeliverySummary {
         val conversationPort = runtimeDependencies.conversationPort
         val note = context.note.trim().ifBlank { context.description.trim() }
         if (note.isBlank()) {
@@ -110,7 +102,7 @@ internal object ScheduledTaskRuntimeExecutor {
             ),
         )
 
-        val resolvedContext = RuntimeContextResolver.resolve(
+        val resolvedContext = runtimeDependencies.runtimeContextResolverPort.resolve(
             event = ingressEvent,
             bot = bot,
             overrideProviderId = context.providerId.takeIf { it.isNotBlank() },
@@ -119,7 +111,8 @@ internal object ScheduledTaskRuntimeExecutor {
 
         val callbacks = ScheduledTaskLlmCallbacksFactory(
             conversationPort = conversationPort,
-            providerInvocationService = ScheduledTaskProviderInvocationService(requireLlmClient()),
+            providerInvocationService = ScheduledTaskProviderInvocationService(runtimeDependencies.llmClient),
+            qqScheduledMessageSender = runtimeDependencies.qqScheduledMessageSender,
         ).create(
             context = context,
             platform = platform,
@@ -189,18 +182,6 @@ internal object ScheduledTaskRuntimeExecutor {
         val snapshot = botPort.snapshotProfiles()
         return snapshot.firstOrNull { it.id == botId && it.autoReplyEnabled }
             ?: error("Scheduled task bot not found or auto reply disabled: $botId")
-    }
-
-    private fun requireLlmClient(): LlmClientPort {
-        return llmClientProvider?.invoke()
-            ?: error("ScheduledTaskRuntimeExecutor requires an LLM client provider from the app composition root.")
-    }
-
-    private fun requireRuntimeDependencies(): ScheduledTaskRuntimeDependencies {
-        return runtimeDependenciesProvider?.invoke()
-            ?: error(
-                "ScheduledTaskRuntimeExecutor requires repository ports and orchestrator from the app composition root.",
-            )
     }
 }
 

@@ -1,6 +1,5 @@
 package com.astrbot.android.data
 
-import com.astrbot.android.core.db.backup.AppBackupDataRegistry
 import com.astrbot.android.core.db.backup.AppBackupDataPort
 import com.astrbot.android.core.db.backup.AppBackupExternalState
 import com.astrbot.android.core.db.backup.AppBackupAppState
@@ -9,12 +8,12 @@ import com.astrbot.android.core.db.backup.AppBackupJson
 import com.astrbot.android.core.db.backup.AppBackupManifest
 import com.astrbot.android.core.db.backup.AppBackupModuleSnapshot
 import com.astrbot.android.core.db.backup.AppBackupModules
+import com.astrbot.android.core.db.backup.AppBackupRepository
 import com.astrbot.android.data.db.ConversationAggregate
 import com.astrbot.android.data.db.ConversationAggregateDao
 import com.astrbot.android.data.db.ConversationAttachmentEntity
 import com.astrbot.android.data.db.ConversationEntity
 import com.astrbot.android.data.db.ConversationMessageEntity
-import com.astrbot.android.di.createProductionAppBackupDataPort
 import com.astrbot.android.model.BotProfile
 import com.astrbot.android.model.ConfigProfile
 import com.astrbot.android.model.PersonaProfile
@@ -60,11 +59,6 @@ class AppBackupRepositoryCompatibilityTest {
      * that restore calls actually reach the in-memory state (the registry defaults to a no-op
      * MissingAppBackupDataPort in unit tests).
      */
-    @Before
-    fun wireDataPort() {
-        AppBackupDataRegistry.port = createProductionAppBackupDataPort()
-    }
-
     @After
     fun restoreSnapshot() {
         runBlocking {
@@ -75,7 +69,7 @@ class AppBackupRepositoryCompatibilityTest {
             BotRepository.restoreProfiles(botSnapshot, selectedBotId)
             ConversationRepository.restoreSessions(conversationSnapshot)
         }
-        AppBackupDataRegistry.port = createProductionAppBackupDataPort()
+        AppBackupRepository.setDataPortOverrideForTests(null)
     }
 
     @Test
@@ -137,7 +131,7 @@ class AppBackupRepositoryCompatibilityTest {
             savedAccounts = listOf(SavedQqAccount(uin = "10001", nickName = "Old Account")),
             failAt = RestoreStageFailure.QQ_ACCOUNTS,
         )
-        AppBackupDataRegistry.port = rollbackProbe
+        AppBackupRepository.setDataPortOverrideForTests(rollbackProbe)
         val manifest = AppBackupManifest(
             createdAt = 1L,
             trigger = "rollback-test",

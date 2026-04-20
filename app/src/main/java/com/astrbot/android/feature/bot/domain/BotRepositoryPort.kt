@@ -8,6 +8,7 @@ interface BotRepositoryPort {
     val selectedBotId: StateFlow<String>
     fun currentBot(): BotProfile
     fun snapshotProfiles(): List<BotProfile>
+    fun create(name: String = "New Bot"): BotProfile
     suspend fun save(profile: BotProfile)
     suspend fun create(profile: BotProfile)
     suspend fun delete(id: String)

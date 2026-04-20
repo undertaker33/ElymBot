@@ -1,10 +1,13 @@
 package com.astrbot.android.ui.viewmodel
 
+import com.astrbot.android.MainDispatcherRule
 import com.astrbot.android.core.runtime.llm.ChatCompletionService
 import com.astrbot.android.core.common.profile.ProviderInUseException
 import com.astrbot.android.core.common.profile.ProviderReferenceGuard
 import com.astrbot.android.data.ProviderRepository
-import com.astrbot.android.di.ProviderViewModelDependencies
+import com.astrbot.android.feature.config.domain.ConfigRepositoryPort
+import com.astrbot.android.feature.provider.domain.ProviderRepositoryPort
+import com.astrbot.android.feature.provider.runtime.ProviderRuntimePort
 import org.junit.Assert.assertFalse
 import com.astrbot.android.model.ConfigProfile
 import com.astrbot.android.model.FeatureSupportState
@@ -12,19 +15,32 @@ import com.astrbot.android.model.ProviderCapability
 import com.astrbot.android.model.ProviderProfile
 import com.astrbot.android.model.ProviderType
 import com.astrbot.android.model.chat.ConversationAttachment
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
+import org.junit.Rule
 import org.junit.Test
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class ProviderViewModelTest {
+    private val dispatcher = StandardTestDispatcher()
+
+    @get:Rule
+    val mainDispatcherRule = MainDispatcherRule(dispatcher)
+
     @Test
     fun save_builds_provider_profile_and_delegates() {
-        val deps = FakeProviderDependencies()
-        val viewModel = ProviderViewModel(deps)
+        val providerPort = FakeProviderPort()
+        val viewModel = ProviderViewModel(
+            providerRepository = providerPort,
+            configRepository = FakeConfigPort(),
+            providerRuntime = FakeProviderRuntimePort(),
+        )
 
         viewModel.save(
             id = null,
@@ -39,7 +55,7 @@ class ProviderViewModelTest {
             ttsVoiceOptions = listOf("alloy"),
         )
 
-        val saved = requireNotNull(deps.savedProfile)
+        val saved = requireNotNull(providerPort.savedProfile)
         assertEquals("", saved.id)
         assertEquals(" Vision ", saved.name)
         assertEquals(" https://example.com/v1 ", saved.baseUrl)
@@ -52,31 +68,39 @@ class ProviderViewModelTest {
 
     @Test
     fun probe_stt_support_wraps_dependency_result() = runTest {
-        val deps = FakeProviderDependencies(
+        val runtimePort = FakeProviderRuntimePort(
             sttProbeResult = ChatCompletionService.SttProbeResult(
                 state = FeatureSupportState.SUPPORTED,
                 transcript = "hello",
             ),
         )
-        val viewModel = ProviderViewModel(deps)
+        val viewModel = ProviderViewModel(
+            providerRepository = FakeProviderPort(),
+            configRepository = FakeConfigPort(),
+            providerRuntime = runtimePort,
+        )
 
         val result = viewModel.probeSttSupport(fakeProvider())
 
         assertEquals(FeatureSupportState.SUPPORTED, result.state)
         assertEquals("hello", result.transcript)
-        assertTrue(deps.probedProviders.contains("provider-1"))
+        assertTrue(runtimePort.probedProviders.contains("provider-1"))
     }
 
     @Test
     fun fetch_models_dispatches_off_calling_thread() = runTest {
         val callingThreadId = Thread.currentThread().id
-        val deps = FakeProviderDependencies(
+        val runtimePort = FakeProviderRuntimePort(
             fetchModelsResult = listOf("deepseek-chat"),
             onFetchModels = {
                 assertNotEquals(callingThreadId, Thread.currentThread().id)
             },
         )
-        val viewModel = ProviderViewModel(deps)
+        val viewModel = ProviderViewModel(
+            providerRepository = FakeProviderPort(),
+            configRepository = FakeConfigPort(),
+            providerRuntime = runtimePort,
+        )
 
         val result = viewModel.fetchModels(fakeProvider())
 
@@ -146,7 +170,7 @@ class ProviderViewModelTest {
     @Test
     fun probe_stt_support_dispatches_off_calling_thread() = runTest {
         val callingThreadId = Thread.currentThread().id
-        val deps = FakeProviderDependencies(
+        val runtimePort = FakeProviderRuntimePort(
             sttProbeResult = ChatCompletionService.SttProbeResult(
                 state = FeatureSupportState.SUPPORTED,
                 transcript = "hello",
@@ -155,7 +179,11 @@ class ProviderViewModelTest {
                 assertNotEquals(callingThreadId, Thread.currentThread().id)
             },
         )
-        val viewModel = ProviderViewModel(deps)
+        val viewModel = ProviderViewModel(
+            providerRepository = FakeProviderPort(),
+            configRepository = FakeConfigPort(),
+            providerRuntime = runtimePort,
+        )
 
         val result = viewModel.probeSttSupport(fakeProvider())
 
@@ -173,13 +201,17 @@ class ProviderViewModelTest {
             mimeType = "audio/wav",
             base64Data = "ZmFrZQ==",
         )
-        val deps = FakeProviderDependencies(
+        val runtimePort = FakeProviderRuntimePort(
             synthesizedAttachment = attachment,
             onSynthesizeSpeech = {
                 assertNotEquals(callingThreadId, Thread.currentThread().id)
             },
         )
-        val viewModel = ProviderViewModel(deps)
+        val viewModel = ProviderViewModel(
+            providerRepository = FakeProviderPort(),
+            configRepository = FakeConfigPort(),
+            providerRuntime = runtimePort,
+        )
 
         val result = viewModel.synthesizeSpeech(
             provider = fakeProvider(),
@@ -192,7 +224,53 @@ class ProviderViewModelTest {
         assertEquals("preview.wav", result.fileName)
     }
 
-    private class FakeProviderDependencies(
+    private class FakeProviderPort : ProviderRepositoryPort {
+        override val providers: StateFlow<List<ProviderProfile>> = MutableStateFlow(emptyList())
+
+        var savedProfile: ProviderProfile? = null
+
+        override fun snapshotProfiles(): List<ProviderProfile> = providers.value
+
+        override fun providersWithCapability(capability: ProviderCapability): List<ProviderProfile> =
+            providers.value.filter { capability in it.capabilities }
+
+        override fun toggleEnabled(id: String) = Unit
+
+        override fun updateMultimodalProbeSupport(id: String, support: FeatureSupportState) = Unit
+
+        override fun updateNativeStreamingProbeSupport(id: String, support: FeatureSupportState) = Unit
+
+        override fun updateSttProbeSupport(id: String, support: FeatureSupportState) = Unit
+
+        override fun updateTtsProbeSupport(id: String, support: FeatureSupportState) = Unit
+
+        override suspend fun save(profile: ProviderProfile) {
+            savedProfile = profile
+        }
+
+        override suspend fun delete(id: String) = Unit
+    }
+
+    private class FakeConfigPort : ConfigRepositoryPort {
+        override val profiles: StateFlow<List<ConfigProfile>> = MutableStateFlow(emptyList())
+        override val selectedProfileId: StateFlow<String> = MutableStateFlow("default")
+
+        override fun snapshotProfiles(): List<ConfigProfile> = profiles.value
+
+        override fun create(name: String): ConfigProfile = ConfigProfile(id = "created-config", name = name)
+
+        override fun resolve(id: String): ConfigProfile = ConfigProfile(id = id)
+
+        override fun resolveExistingId(id: String?): String = id ?: selectedProfileId.value
+
+        override suspend fun save(profile: ConfigProfile) = Unit
+
+        override suspend fun delete(id: String) = Unit
+
+        override suspend fun select(id: String) = Unit
+    }
+
+    private class FakeProviderRuntimePort(
         private val sttProbeResult: ChatCompletionService.SttProbeResult = ChatCompletionService.SttProbeResult(
             state = FeatureSupportState.UNKNOWN,
             transcript = "",
@@ -208,31 +286,8 @@ class ProviderViewModelTest {
         private val onFetchModels: () -> Unit = {},
         private val onProbeStt: () -> Unit = {},
         private val onSynthesizeSpeech: () -> Unit = {},
-    ) : ProviderViewModelDependencies {
-        override val providers: StateFlow<List<ProviderProfile>> = MutableStateFlow(emptyList())
-        override val configProfiles: StateFlow<List<ConfigProfile>> = MutableStateFlow(emptyList())
-        override val selectedConfigProfileId: StateFlow<String> = MutableStateFlow("default")
-
-        var savedProfile: ProviderProfile? = null
+    ) : ProviderRuntimePort {
         val probedProviders = mutableListOf<String>()
-
-        override fun save(profile: ProviderProfile) {
-            savedProfile = profile
-        }
-
-        override fun saveConfig(profile: ConfigProfile) = Unit
-
-        override fun toggleEnabled(id: String) = Unit
-
-        override fun delete(id: String) = Unit
-
-        override fun updateMultimodalProbeSupport(id: String, support: FeatureSupportState) = Unit
-
-        override fun updateNativeStreamingProbeSupport(id: String, support: FeatureSupportState) = Unit
-
-        override fun updateSttProbeSupport(id: String, support: FeatureSupportState) = Unit
-
-        override fun updateTtsProbeSupport(id: String, support: FeatureSupportState) = Unit
 
         override fun fetchModels(provider: ProviderProfile): List<String> {
             onFetchModels()

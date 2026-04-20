@@ -13,7 +13,7 @@ import com.astrbot.android.feature.plugin.runtime.PluginV2HostPreparedReply
 import com.astrbot.android.feature.plugin.runtime.PluginV2HostSendResult
 import com.astrbot.android.feature.plugin.runtime.PluginV2LlmPipelineResult
 import com.astrbot.android.feature.plugin.runtime.PluginV2ProviderInvocationResult
-import com.astrbot.android.feature.qq.runtime.QqOneBotBridgeServer
+import com.astrbot.android.feature.qq.runtime.QqScheduledMessageSender
 import com.astrbot.android.model.BotProfile
 import com.astrbot.android.model.chat.ConversationAttachment
 import com.astrbot.android.model.plugin.PluginV2StreamingMode
@@ -21,6 +21,7 @@ import com.astrbot.android.model.plugin.PluginV2StreamingMode
 internal class ScheduledTaskLlmCallbacksFactory(
     private val conversationPort: ConversationRepositoryPort,
     private val providerInvocationService: ScheduledTaskProviderInvocationService,
+    private val qqScheduledMessageSender: QqScheduledMessageSender,
 ) {
     fun create(
         context: CronJobExecutionContext,
@@ -53,7 +54,7 @@ internal class ScheduledTaskLlmCallbacksFactory(
 
             override suspend fun sendReply(prepared: PluginV2HostPreparedReply): PluginV2HostSendResult {
                 return if (platform == RuntimePlatform.QQ_ONEBOT) {
-                    QqOneBotBridgeServer.sendScheduledMessage(
+                    qqScheduledMessageSender.sendScheduledMessage(
                         conversationId = conversationId,
                         text = prepared.text,
                         attachments = prepared.attachments,

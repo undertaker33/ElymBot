@@ -1,7 +1,7 @@
 package com.astrbot.android.feature.qq.runtime
 
 import com.astrbot.android.core.runtime.context.ResolvedRuntimeContext
-import com.astrbot.android.core.runtime.context.RuntimeContextResolver
+import com.astrbot.android.core.runtime.context.RuntimeContextResolverPort
 import com.astrbot.android.core.runtime.context.RuntimeIngressEvent
 import com.astrbot.android.core.runtime.context.RuntimePlatform
 import com.astrbot.android.core.runtime.context.SenderInfo
@@ -44,6 +44,7 @@ internal class QqMessageRuntimeService(
     private val conversationPort: QqConversationPort,
     private val platformConfigPort: QqPlatformConfigPort,
     private val orchestrator: RuntimeLlmOrchestratorPort,
+    private val runtimeContextResolverPort: RuntimeContextResolverPort,
     private val replySender: QqReplySender,
     private val llmRuntime: AppChatLlmPipelineRuntime,
     private val providerInvoker: QqProviderInvoker,
@@ -320,7 +321,7 @@ internal class QqMessageRuntimeService(
                 )
             }
 
-            val runtimeContext = RuntimeContextResolver.resolve(
+            val runtimeContext = runtimeContextResolverPort.resolve(
                 event = RuntimeIngressEvent(
                     platform = RuntimePlatform.QQ_ONEBOT,
                     conversationId = preModelSession.originSessionId.ifBlank { preModelSession.id },

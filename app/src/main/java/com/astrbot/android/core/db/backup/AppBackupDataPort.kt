@@ -28,34 +28,3 @@ interface AppBackupDataPort {
     suspend fun restoreConversations(sessions: List<ConversationSession>)
     fun restoreQqLoginState(quickLoginUin: String, savedAccounts: List<SavedQqAccount>)
 }
-
-object AppBackupDataRegistry {
-    @Volatile
-    var port: AppBackupDataPort = MissingAppBackupDataPort
-}
-
-private object MissingAppBackupDataPort : AppBackupDataPort {
-    override fun snapshotBots(): List<BotProfile> = emptyList()
-
-    override fun snapshotProviders(): List<ProviderProfile> = emptyList()
-
-    override fun snapshotPersonas(): List<PersonaProfile> = emptyList()
-
-    override fun snapshotConfigs(): List<ConfigProfile> = emptyList()
-
-    override fun snapshotConversations(): List<ConversationSession> = emptyList()
-
-    override fun snapshotExternalState(): AppBackupExternalState = AppBackupExternalState()
-
-    override suspend fun restoreBots(profiles: List<BotProfile>, selectedBotId: String) = Unit
-
-    override fun restoreProviders(profiles: List<ProviderProfile>) = Unit
-
-    override fun restorePersonas(profiles: List<PersonaProfile>) = Unit
-
-    override fun restoreConfigs(profiles: List<ConfigProfile>, selectedConfigId: String) = Unit
-
-    override suspend fun restoreConversations(sessions: List<ConversationSession>) = Unit
-
-    override fun restoreQqLoginState(quickLoginUin: String, savedAccounts: List<SavedQqAccount>) = Unit
-}

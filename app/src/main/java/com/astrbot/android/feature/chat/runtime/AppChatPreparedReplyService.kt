@@ -1,7 +1,7 @@
 package com.astrbot.android.feature.chat.runtime
 
 import com.astrbot.android.core.runtime.llm.LlmResponseSegmenter
-import com.astrbot.android.di.ChatViewModelDependencies
+import com.astrbot.android.ui.viewmodel.ChatViewModelRuntimeBindings
 import com.astrbot.android.feature.plugin.runtime.PluginMessageEventResult
 import com.astrbot.android.feature.plugin.runtime.PluginV2AfterSentView
 import com.astrbot.android.feature.plugin.runtime.PluginV2HostPreparedReply
@@ -15,7 +15,7 @@ import kotlinx.coroutines.withContext
 import kotlin.coroutines.CoroutineContext
 
 internal class AppChatPreparedReplyService(
-    private val chatDependencies: ChatViewModelDependencies,
+    private val chatDependencies: ChatViewModelRuntimeBindings,
     private val ioDispatcher: CoroutineContext = Dispatchers.IO,
 ) {
     suspend fun prepareReply(

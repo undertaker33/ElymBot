@@ -7,7 +7,7 @@ import com.astrbot.android.model.chat.ConversationSession
 import com.astrbot.android.model.chat.MessageType
 
 @Suppress("DEPRECATION")
-class LegacyQqConversationAdapter : QqConversationPort {
+open class FeatureQqConversationPortAdapter : QqConversationPort {
 
     override fun sessions(): List<ConversationSession> {
         return com.astrbot.android.feature.chat.data.FeatureConversationRepository.sessions.value
@@ -85,4 +85,6 @@ class LegacyQqConversationAdapter : QqConversationPort {
     }
 }
 
+@Deprecated("Phase-2 residue. Production Hilt binding uses FeatureQqConversationPortAdapter.")
+class LegacyQqConversationAdapter : FeatureQqConversationPortAdapter()
 

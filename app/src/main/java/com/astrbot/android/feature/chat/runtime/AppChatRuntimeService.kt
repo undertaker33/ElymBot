@@ -3,14 +3,13 @@ package com.astrbot.android.feature.chat.runtime
 import kotlinx.coroutines.flow.flow
 
 import com.astrbot.android.core.runtime.llm.LlmResponseSegmenter
-import com.astrbot.android.di.ChatViewModelDependencies
+import com.astrbot.android.ui.viewmodel.ChatViewModelRuntimeBindings
 import com.astrbot.android.feature.chat.domain.AppChatRequest
 import com.astrbot.android.feature.chat.domain.AppChatRuntimeEvent
 import com.astrbot.android.feature.chat.domain.AppChatRuntimePort
 import com.astrbot.android.model.ProviderCapability
 import com.astrbot.android.model.chat.ConversationMessage
 import com.astrbot.android.model.plugin.PluginV2StreamingMode
-import com.astrbot.android.core.runtime.context.RuntimeContextResolver
 import com.astrbot.android.core.runtime.context.RuntimeIngressEvent
 import com.astrbot.android.core.runtime.context.RuntimePlatform
 import com.astrbot.android.core.runtime.context.SenderInfo
@@ -34,7 +33,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlin.coroutines.CoroutineContext
 
 /**
- * Wraps [RuntimeContextResolver] and a shared [RuntimeLlmOrchestratorPort]
+ * Wraps a shared runtime-context resolver seam and [RuntimeLlmOrchestratorPort]
  * behind [AppChatRuntimePort].
  *
  * This service owns the LLM pipeline invocation for App Chat. It resolves runtime
@@ -42,7 +41,7 @@ import kotlin.coroutines.CoroutineContext
  * domain layer to consume.
  */
 internal class AppChatRuntimeService(
-    private val chatDependencies: ChatViewModelDependencies,
+    private val chatDependencies: ChatViewModelRuntimeBindings,
     private val appChatPluginRuntime: AppChatPluginRuntime,
     private val llmOrchestrator: RuntimeLlmOrchestratorPort,
     private val providerInvocationService: AppChatProviderInvocationService,
@@ -50,7 +49,7 @@ internal class AppChatRuntimeService(
 ) : AppChatRuntimePort {
 
     constructor(
-        chatDependencies: ChatViewModelDependencies,
+        chatDependencies: ChatViewModelRuntimeBindings,
         appChatPluginRuntime: AppChatPluginRuntime,
         ioDispatcher: CoroutineContext = Dispatchers.IO,
     ) : this(
@@ -90,7 +89,7 @@ internal class AppChatRuntimeService(
             val llmRuntime = appChatPluginRuntime as? AppChatLlmPipelineRuntime
                 ?: error("AppChatPluginRuntime must implement AppChatLlmPipelineRuntime")
 
-            val runtimeContext = RuntimeContextResolver.resolve(
+            val runtimeContext = chatDependencies.runtimeContextResolverPort.resolve(
                 event = RuntimeIngressEvent(
                     platform = RuntimePlatform.APP_CHAT,
                     conversationId = session.originSessionId.ifBlank { session.id },

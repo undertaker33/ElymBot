@@ -3,6 +3,7 @@ package com.astrbot.android.core.runtime.context
 import com.astrbot.android.data.ConfigRepository
 import com.astrbot.android.data.PersonaRepository
 import com.astrbot.android.data.ProviderRepository
+import com.astrbot.android.di.ProductionRuntimeContextDataPort
 import com.astrbot.android.model.BotProfile
 import com.astrbot.android.model.ConfigProfile
 import com.astrbot.android.model.PersonaProfile
@@ -109,6 +110,7 @@ class PromptAssemblerTest {
                         defaultPersonaId = persona.id,
                         configProfileId = config.id,
                     ),
+                    dataPort = ProductionRuntimeContextDataPort,
                 ),
             )
         } finally {

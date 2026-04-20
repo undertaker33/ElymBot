@@ -3,8 +3,8 @@
 package com.astrbot.android.core.runtime.container
 
 import com.astrbot.android.core.runtime.secret.RuntimeSecretRepository
-
 import com.astrbot.android.core.common.logging.RuntimeLogRepository
+import com.astrbot.android.di.ProductionContainerBridgeStatePort
 
 import android.content.Context
 import android.system.Os
@@ -105,7 +105,7 @@ object ContainerRuntimeInstaller {
         }
 
         val appHome = context.filesDir.absolutePath
-        ContainerBridgeStateRegistry.port.applyRuntimeDefaults(
+        ProductionContainerBridgeStatePort.applyRuntimeDefaults(
             NapCatBridgeConfig(
                 endpoint = "ws://127.0.0.1:6199/ws",
                 healthUrl = "http://127.0.0.1:6099",

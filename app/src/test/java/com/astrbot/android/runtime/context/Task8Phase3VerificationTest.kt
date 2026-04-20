@@ -3,6 +3,7 @@ package com.astrbot.android.core.runtime.context
 import com.astrbot.android.data.ConfigRepository
 import com.astrbot.android.data.ProviderRepository
 import com.astrbot.android.data.ResourceCenterRepository
+import com.astrbot.android.di.ProductionRuntimeContextDataPort
 import com.astrbot.android.model.BotProfile
 import com.astrbot.android.model.ConfigProfile
 import com.astrbot.android.model.ConfigResourceProjection
@@ -190,6 +191,7 @@ class Task8Phase3VerificationTest {
                     configProfileId = config.id,
                     defaultPersonaId = "",
                 ),
+                dataPort = ProductionRuntimeContextDataPort,
             )
 
             assertEquals("phase3-mcp", ctx.mcpServers.single().serverId)

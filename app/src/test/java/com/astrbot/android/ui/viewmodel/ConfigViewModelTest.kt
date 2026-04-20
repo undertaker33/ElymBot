@@ -1,9 +1,14 @@
 package com.astrbot.android.ui.viewmodel
 
 import com.astrbot.android.MainDispatcherRule
-import com.astrbot.android.di.ConfigViewModelDependencies
+import com.astrbot.android.feature.config.domain.Phase3DataTransactionService
+import com.astrbot.android.feature.bot.domain.BotRepositoryPort
+import com.astrbot.android.feature.config.domain.ConfigRepositoryPort
+import com.astrbot.android.feature.provider.domain.ProviderRepositoryPort
 import com.astrbot.android.model.BotProfile
 import com.astrbot.android.model.ConfigProfile
+import com.astrbot.android.model.FeatureSupportState
+import com.astrbot.android.model.ProviderCapability
 import com.astrbot.android.model.ProviderProfile
 import com.astrbot.android.model.TtsVoiceReferenceAsset
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -31,63 +36,116 @@ class ConfigViewModelTest {
      */
     @Test
     fun delete_delegates_to_single_entry_point_not_separate_steps() = runTest(dispatcher) {
-        val deps = FakeConfigDependencies()
-        val viewModel = ConfigViewModel(deps)
+        val configPort = FakeConfigPort()
+        val deleteService = FakePhase3DataTransactionService()
+        val viewModel = ConfigViewModel(
+            configRepository = configPort,
+            providerRepository = FakeProviderPort(),
+            botRepository = FakeBotPort(),
+            ttsVoiceAssetsFlow = MutableStateFlow(emptyList()),
+            phase3DataTransactionService = deleteService,
+        )
 
         viewModel.delete("config-1")
 
-        assertTrue("delete() must defer work to viewModelScope", deps.deleteConfigProfileIds.isEmpty())
+        assertTrue("delete() must defer work to viewModelScope", deleteService.deleteConfigProfileIds.isEmpty())
         advanceUntilIdle()
-        assertEquals("delete() must call deleteConfigProfile() once", listOf("config-1"), deps.deleteConfigProfileIds)
-        assertTrue("delete() must NOT call delete() directly", deps.directDeleteIds.isEmpty())
-        assertEquals("delete() must NOT call replaceConfigBinding() directly", 0, deps.replaceBindingCalls)
+        assertEquals("delete() must call deleteConfigProfile() once", listOf("config-1"), deleteService.deleteConfigProfileIds)
+        assertTrue("delete() must NOT call delete() directly", configPort.directDeleteIds.isEmpty())
     }
 
     @Test
     fun deleteConfigProfile_receives_the_correct_profile_id() = runTest(dispatcher) {
-        val deps = FakeConfigDependencies()
-        val viewModel = ConfigViewModel(deps)
+        val deleteService = FakePhase3DataTransactionService()
+        val viewModel = ConfigViewModel(
+            configRepository = FakeConfigPort(),
+            providerRepository = FakeProviderPort(),
+            botRepository = FakeBotPort(),
+            ttsVoiceAssetsFlow = MutableStateFlow(emptyList()),
+            phase3DataTransactionService = deleteService,
+        )
 
         viewModel.delete("my-special-config")
 
-        assertTrue(deps.deleteConfigProfileIds.isEmpty())
+        assertTrue(deleteService.deleteConfigProfileIds.isEmpty())
         advanceUntilIdle()
-        assertEquals(listOf("my-special-config"), deps.deleteConfigProfileIds)
+        assertEquals(listOf("my-special-config"), deleteService.deleteConfigProfileIds)
     }
 
-    private class FakeConfigDependencies : ConfigViewModelDependencies {
-        override val configProfiles: StateFlow<List<ConfigProfile>> =
+    private class FakeConfigPort : ConfigRepositoryPort {
+        override val profiles: StateFlow<List<ConfigProfile>> =
             MutableStateFlow(listOf(ConfigProfile(id = "config-1"), ConfigProfile(id = "config-2")))
-        override val selectedConfigProfileId: StateFlow<String> = MutableStateFlow("config-1")
-        override val providers: StateFlow<List<ProviderProfile>> = MutableStateFlow(emptyList())
-        override val bots: StateFlow<List<BotProfile>> = MutableStateFlow(emptyList())
-        override val ttsVoiceAssets: StateFlow<List<TtsVoiceReferenceAsset>> = MutableStateFlow(emptyList())
+        override val selectedProfileId: StateFlow<String> = MutableStateFlow("config-1")
 
-        val deleteConfigProfileIds = mutableListOf<String>()
         val directDeleteIds = mutableListOf<String>()
-        var replaceBindingCalls = 0
 
-        override fun select(profileId: String) = Unit
+        override fun snapshotProfiles(): List<ConfigProfile> = profiles.value
 
-        override fun save(profile: ConfigProfile) = Unit
+        override fun create(name: String): ConfigProfile = ConfigProfile(id = "new-config", name = name)
 
-        override fun create(): ConfigProfile = ConfigProfile(id = "new-config")
+        override fun resolve(profileId: String): ConfigProfile {
+            return profiles.value.firstOrNull { it.id == profileId } ?: ConfigProfile(id = profileId)
+        }
 
-        override fun delete(profileId: String): String {
+        override fun resolveExistingId(id: String?): String = id ?: selectedProfileId.value
+
+        override suspend fun save(profile: ConfigProfile) = Unit
+
+        override suspend fun delete(profileId: String) {
             directDeleteIds += profileId
-            return configProfiles.value.firstOrNull { it.id != profileId }?.id ?: profileId
         }
 
-        override fun replaceConfigBinding(deletedConfigId: String, fallbackConfigId: String) {
-            replaceBindingCalls++
-        }
+        override suspend fun select(profileId: String) = Unit
+    }
+
+    private class FakeProviderPort : ProviderRepositoryPort {
+        override val providers: StateFlow<List<ProviderProfile>> = MutableStateFlow(emptyList())
+
+        override fun snapshotProfiles(): List<ProviderProfile> = providers.value
+
+        override fun providersWithCapability(capability: ProviderCapability): List<ProviderProfile> = emptyList()
+
+        override fun toggleEnabled(id: String) = Unit
+
+        override fun updateMultimodalProbeSupport(id: String, support: FeatureSupportState) = Unit
+
+        override fun updateNativeStreamingProbeSupport(id: String, support: FeatureSupportState) = Unit
+
+        override fun updateSttProbeSupport(id: String, support: FeatureSupportState) = Unit
+
+        override fun updateTtsProbeSupport(id: String, support: FeatureSupportState) = Unit
+
+        override suspend fun save(profile: ProviderProfile) = Unit
+
+        override suspend fun delete(id: String) = Unit
+    }
+
+    private class FakeBotPort : BotRepositoryPort {
+        override val bots: StateFlow<List<BotProfile>> = MutableStateFlow(emptyList())
+        override val selectedBotId: StateFlow<String> = MutableStateFlow("bot-1")
+
+        override fun currentBot(): BotProfile = BotProfile(id = "bot-1", displayName = "Bot")
+
+        override fun snapshotProfiles(): List<BotProfile> = bots.value
+
+        override fun create(name: String): BotProfile = BotProfile(id = "created-bot", displayName = name)
+
+        override suspend fun save(profile: BotProfile) = Unit
+
+        override suspend fun create(profile: BotProfile) = Unit
+
+        override suspend fun delete(id: String) = Unit
+
+        override suspend fun select(id: String) = Unit
+    }
+
+    private class FakePhase3DataTransactionService : Phase3DataTransactionService {
+        val deleteConfigProfileIds = mutableListOf<String>()
 
         override suspend fun deleteConfigProfile(profileId: String) {
             deleteConfigProfileIds += profileId
         }
 
-        override fun resolve(profileId: String): ConfigProfile {
-            return configProfiles.value.firstOrNull { it.id == profileId } ?: ConfigProfile(id = profileId)
-        }
+        override suspend fun deleteBotProfile(botId: String) = Unit
     }
 }

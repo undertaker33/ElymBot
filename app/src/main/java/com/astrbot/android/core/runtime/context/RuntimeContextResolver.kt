@@ -9,6 +9,7 @@ import com.astrbot.android.model.ProviderProfile
 import com.astrbot.android.model.hasNativeStreamingSupport
 import com.astrbot.android.model.usesOpenAiStyleChatApi
 import java.util.UUID
+import javax.inject.Inject
 
 /**
  * Resolves a [RuntimeIngressEvent] into a complete [ResolvedRuntimeContext] by
@@ -17,15 +18,43 @@ import java.util.UUID
  * This is the single authoritative place where runtime context is assembled.
  * Neither ChatViewModel nor QqOneBotBridgeServer should duplicate this logic.
  */
-object RuntimeContextResolver {
-
+interface RuntimeContextResolverPort {
     fun resolve(
         event: RuntimeIngressEvent,
         bot: BotProfile,
         overrideProviderId: String? = null,
         overridePersonaId: String? = null,
+    ): ResolvedRuntimeContext
+}
+
+internal class DefaultRuntimeContextResolverPort @Inject constructor(
+    private val dataPort: RuntimeContextDataPort,
+) : RuntimeContextResolverPort {
+    override fun resolve(
+        event: RuntimeIngressEvent,
+        bot: BotProfile,
+        overrideProviderId: String?,
+        overridePersonaId: String?,
     ): ResolvedRuntimeContext {
-        val dataPort = RuntimeContextDataRegistry.port
+        return RuntimeContextResolver.resolve(
+            event = event,
+            bot = bot,
+            dataPort = dataPort,
+            overrideProviderId = overrideProviderId,
+            overridePersonaId = overridePersonaId,
+        )
+    }
+}
+
+object RuntimeContextResolver {
+
+    fun resolve(
+        event: RuntimeIngressEvent,
+        bot: BotProfile,
+        dataPort: RuntimeContextDataPort,
+        overrideProviderId: String? = null,
+        overridePersonaId: String? = null,
+    ): ResolvedRuntimeContext {
         val config = dataPort.resolveConfig(bot.configProfileId)
 
         val chatProviders = dataPort.listProviders()

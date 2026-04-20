@@ -1,6 +1,7 @@
 package com.astrbot.android.core.runtime.container
 
 import com.astrbot.android.core.common.logging.RuntimeLogRepository
+import com.astrbot.android.di.ProductionContainerBridgeStatePort
 
 import android.content.Context
 import android.content.Intent
@@ -9,7 +10,7 @@ import android.os.Build
 @Deprecated("Will move to core/runtime/container. Direct access from feature code is forbidden.")
 object ContainerBridgeController {
     fun start(context: Context) {
-        val bridgeState = ContainerBridgeStateRegistry.port
+        val bridgeState = ProductionContainerBridgeStatePort
         runCatching {
             bridgeState.markStarting()
             RuntimeLogRepository.append("Bridge start requested")
@@ -28,7 +29,7 @@ object ContainerBridgeController {
     }
 
     fun stop(context: Context) {
-        val bridgeState = ContainerBridgeStateRegistry.port
+        val bridgeState = ProductionContainerBridgeStatePort
         runCatching {
             RuntimeLogRepository.append("Bridge stop requested")
             val intent = Intent(context, ContainerBridgeService::class.java).apply {
@@ -42,7 +43,7 @@ object ContainerBridgeController {
     }
 
     fun check(context: Context) {
-        val bridgeState = ContainerBridgeStateRegistry.port
+        val bridgeState = ProductionContainerBridgeStatePort
         runCatching {
             bridgeState.markChecking()
             RuntimeLogRepository.append("Bridge health check requested")

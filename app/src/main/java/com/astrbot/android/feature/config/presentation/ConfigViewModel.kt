@@ -2,47 +2,62 @@ package com.astrbot.android.ui.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.astrbot.android.di.ConfigViewModelDependencies
+import com.astrbot.android.di.hilt.TtsVoiceAssets
+import com.astrbot.android.feature.bot.domain.BotRepositoryPort
+import com.astrbot.android.feature.config.domain.ConfigRepositoryPort
+import com.astrbot.android.feature.config.domain.Phase3DataTransactionService
+import com.astrbot.android.feature.provider.domain.ProviderRepositoryPort
 import com.astrbot.android.model.BotProfile
 import com.astrbot.android.model.ConfigProfile
 import com.astrbot.android.model.ProviderProfile
 import com.astrbot.android.model.TtsVoiceReferenceAsset
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 
 @HiltViewModel
 class ConfigViewModel @Inject constructor(
-    private val dependencies: ConfigViewModelDependencies,
+    private val configRepository: ConfigRepositoryPort,
+    private val providerRepository: ProviderRepositoryPort,
+    private val botRepository: BotRepositoryPort,
+    @TtsVoiceAssets private val ttsVoiceAssetsFlow: StateFlow<@JvmSuppressWildcards List<TtsVoiceReferenceAsset>>,
+    private val phase3DataTransactionService: Phase3DataTransactionService,
 ) : ViewModel() {
-    val configProfiles: StateFlow<List<ConfigProfile>> = dependencies.configProfiles
-    val selectedConfigProfileId: StateFlow<String> = dependencies.selectedConfigProfileId
-    val providers: StateFlow<List<ProviderProfile>> = dependencies.providers
-    val bots: StateFlow<List<BotProfile>> = dependencies.bots
-    val ttsVoiceAssets: StateFlow<List<TtsVoiceReferenceAsset>> = dependencies.ttsVoiceAssets
+    val configProfiles: StateFlow<List<ConfigProfile>> = configRepository.profiles
+    val selectedConfigProfileId: StateFlow<String> = configRepository.selectedProfileId
+    val providers: StateFlow<List<ProviderProfile>> = providerRepository.providers
+    val bots: StateFlow<List<BotProfile>> = botRepository.bots
+    val ttsVoiceAssets: StateFlow<List<TtsVoiceReferenceAsset>> = ttsVoiceAssetsFlow
 
     fun select(profileId: String) {
-        dependencies.select(profileId)
+        viewModelScope.launch(start = CoroutineStart.UNDISPATCHED) {
+            configRepository.select(profileId)
+        }
     }
 
     fun save(profile: ConfigProfile) {
-        dependencies.save(profile)
+        viewModelScope.launch(start = CoroutineStart.UNDISPATCHED) {
+            configRepository.save(profile)
+        }
     }
 
     fun create(): ConfigProfile {
-        val created = dependencies.create()
-        dependencies.select(created.id)
+        val created = configRepository.create()
+        viewModelScope.launch(start = CoroutineStart.UNDISPATCHED) {
+            configRepository.select(created.id)
+        }
         return created
     }
 
     fun delete(profileId: String) {
         viewModelScope.launch {
-            dependencies.deleteConfigProfile(profileId)
+            phase3DataTransactionService.deleteConfigProfile(profileId)
         }
     }
 
     fun resolve(profileId: String): ConfigProfile {
-        return dependencies.resolve(profileId)
+        return configRepository.resolve(profileId)
     }
 }

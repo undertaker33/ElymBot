@@ -5,7 +5,7 @@ import com.astrbot.android.model.BotProfile
 import kotlinx.coroutines.flow.StateFlow
 
 @Suppress("DEPRECATION")
-class LegacyBotRepositoryAdapter : BotRepositoryPort {
+open class FeatureBotRepositoryPortAdapter : BotRepositoryPort {
 
     override val bots: StateFlow<List<BotProfile>>
         get() = FeatureBotRepository.botProfiles
@@ -18,6 +18,9 @@ class LegacyBotRepositoryAdapter : BotRepositoryPort {
 
     override fun snapshotProfiles(): List<BotProfile> =
         FeatureBotRepository.snapshotProfiles()
+
+    override fun create(name: String): BotProfile =
+        FeatureBotRepository.create(name)
 
     override suspend fun save(profile: BotProfile) {
         FeatureBotRepository.save(profile)
@@ -36,5 +39,7 @@ class LegacyBotRepositoryAdapter : BotRepositoryPort {
     }
 }
 
+@Deprecated("Phase-2 residue. Production Hilt binding uses FeatureBotRepositoryPortAdapter.")
+class LegacyBotRepositoryAdapter : FeatureBotRepositoryPortAdapter()
 
 

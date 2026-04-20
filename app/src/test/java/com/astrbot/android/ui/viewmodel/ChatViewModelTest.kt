@@ -2,13 +2,14 @@ package com.astrbot.android.ui.viewmodel
 
 import com.astrbot.android.MainDispatcherRule
 import com.astrbot.android.core.runtime.context.RuntimeContextDataPort
-import com.astrbot.android.core.runtime.context.RuntimeContextDataRegistry
+import com.astrbot.android.core.runtime.context.RuntimeContextResolver
+import com.astrbot.android.core.runtime.context.RuntimeContextResolverPort
 import com.astrbot.android.core.runtime.llm.LlmInvocationResult
 import com.astrbot.android.core.runtime.llm.LlmToolDefinition
 import com.astrbot.android.data.ConfigRepository
 import com.astrbot.android.data.ConversationRepository
 import com.astrbot.android.data.ProviderRepository
-import com.astrbot.android.di.ChatViewModelDependencies
+import com.astrbot.android.ui.viewmodel.ChatViewModelRuntimeBindings
 import com.astrbot.android.feature.chat.domain.AppChatRuntimePort
 import com.astrbot.android.feature.chat.domain.ConversationRepositoryPort
 import com.astrbot.android.feature.chat.domain.SendAppMessageUseCase
@@ -126,7 +127,6 @@ class ChatViewModelTest {
     private var savedConfig: List<ConfigProfile> = emptyList()
     private var savedConfigSelectedId: String? = null
     private var savedSessions: List<ConversationSession> = emptyList()
-    private lateinit var savedRuntimeContextDataPort: RuntimeContextDataPort
 
     @org.junit.Before
     fun setUp() {
@@ -134,7 +134,6 @@ class ChatViewModelTest {
         savedConfig = ConfigRepository.snapshotProfiles()
         savedConfigSelectedId = ConfigRepository.selectedProfileId.value
         savedSessions = ConversationRepository.snapshotSessions()
-        savedRuntimeContextDataPort = RuntimeContextDataRegistry.port
     }
 
     @org.junit.After
@@ -144,7 +143,6 @@ class ChatViewModelTest {
         ProviderRepository.restoreProfiles(savedProviders)
         ConfigRepository.restoreProfiles(savedConfig, savedConfigSelectedId)
         ConversationRepository.restoreSessions(savedSessions)
-        RuntimeContextDataRegistry.port = savedRuntimeContextDataPort
     }
 
     @Test
@@ -1195,32 +1193,7 @@ class ChatViewModelTest {
             id = "config-default",
             defaultChatProviderId = providers.firstOrNull { ProviderCapability.CHAT in it.capabilities }?.id.orEmpty(),
         ),
-    ) : ChatViewModelDependencies {
-        init {
-            RuntimeContextDataRegistry.port = object : RuntimeContextDataPort {
-                override fun resolveConfig(configProfileId: String): ConfigProfile {
-                    return this@FakeChatDependencies.resolveConfig(configProfileId)
-                }
-
-                override fun listProviders(): List<ProviderProfile> {
-                    return this@FakeChatDependencies.providers.value
-                }
-
-                override fun findEnabledPersona(personaId: String): PersonaProfile? {
-                    return this@FakeChatDependencies.personas.value.firstOrNull {
-                        it.id == personaId && it.enabled
-                    }
-                }
-
-                override fun session(sessionId: String): ConversationSession {
-                    return this@FakeChatDependencies.session(sessionId)
-                }
-
-                override fun compatibilitySnapshotForConfig(config: ConfigProfile) =
-                    ResourceCenterCompatibility.projectionsFromConfigProfile(config)
-            }
-        }
-
+    ) : ChatViewModelRuntimeBindings {
         override val defaultSessionId: String = "chat-main"
         override val defaultSessionTitle: String = "Default session"
         override val bots: StateFlow<List<BotProfile>> = MutableStateFlow(bots)
@@ -1229,18 +1202,31 @@ class ChatViewModelTest {
         override val configProfiles: StateFlow<List<ConfigProfile>> = MutableStateFlow(listOf(config))
         override val sessions: MutableStateFlow<List<ConversationSession>> = MutableStateFlow(sessions)
         override val personas: StateFlow<List<PersonaProfile>> = MutableStateFlow(emptyList())
+        private val runtimeContextDataPort = object : RuntimeContextDataPort {
+            override fun resolveConfig(configProfileId: String): ConfigProfile {
+                return this@FakeChatDependencies.resolveConfig(configProfileId)
+            }
 
-        init {
-            // RuntimeContextResolver uses global singletons, so sync test
-            // data into the global repositories for the unified pipeline.
-            ProviderRepository.restoreProfiles(providers)
-            ConfigRepository.restoreProfiles(listOf(config), config.id)
-            ConversationRepository.restoreSessions(sessions)
+            override fun listProviders(): List<ProviderProfile> {
+                return this@FakeChatDependencies.providers.value
+            }
+
+            override fun findEnabledPersona(personaId: String): PersonaProfile? {
+                return this@FakeChatDependencies.personas.value.firstOrNull {
+                    it.id == personaId && it.enabled
+                }
+            }
+
+            override fun session(sessionId: String): ConversationSession {
+                return this@FakeChatDependencies.session(sessionId)
+            }
+
+            override fun compatibilitySnapshotForConfig(config: ConfigProfile) =
+                ResourceCenterCompatibility.projectionsFromConfigProfile(config)
         }
 
         init {
-            // RuntimeContextResolver uses global singletons, so sync test
-            // data into the global repositories for the unified pipeline.
+            // Some plugin/runtime helpers still read global repositories in JVM tests.
             ProviderRepository.restoreProfiles(providers)
             ConfigRepository.restoreProfiles(listOf(config), config.id)
             ConversationRepository.restoreSessions(sessions)
@@ -1471,9 +1457,32 @@ class ChatViewModelTest {
             loggedMessages += message
         }
 
+        override val runtimeContextResolverPort: RuntimeContextResolverPort = object : RuntimeContextResolverPort {
+            override fun resolve(
+                event: com.astrbot.android.core.runtime.context.RuntimeIngressEvent,
+                bot: BotProfile,
+                overrideProviderId: String?,
+                overridePersonaId: String?,
+            ) = RuntimeContextResolver.resolve(
+                event = event,
+                bot = bot,
+                dataPort = runtimeContextDataPort,
+                overrideProviderId = overrideProviderId,
+                overridePersonaId = overridePersonaId,
+            )
+        }
+
         override val conversationRepositoryPort: ConversationRepositoryPort = object : ConversationRepositoryPort {
+            override val defaultSessionId: String
+                get() = this@FakeChatDependencies.defaultSessionId
             override val sessions: StateFlow<List<ConversationSession>>
                 get() = this@FakeChatDependencies.sessions
+
+            override fun contextPreview(sessionId: String): String {
+                return session(sessionId).messages.joinToString(separator = "\n") { message ->
+                    "${message.role}: ${message.content}"
+                }
+            }
 
             override fun session(sessionId: String): ConversationSession {
                 return this@FakeChatDependencies.session(sessionId)
@@ -1495,6 +1504,10 @@ class ChatViewModelTest {
                 attachments: List<ConversationAttachment>?,
             ) {
                 this@FakeChatDependencies.updateMessage(sessionId, messageId, content, attachments)
+            }
+
+            override fun replaceMessages(sessionId: String, messages: List<ConversationMessage>) {
+                this@FakeChatDependencies.replaceMessages(sessionId, messages)
             }
 
             override fun renameSession(sessionId: String, title: String) {

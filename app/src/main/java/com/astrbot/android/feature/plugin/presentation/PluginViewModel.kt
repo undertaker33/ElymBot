@@ -1,12 +1,24 @@
+@file:Suppress("DEPRECATION")
+
 package com.astrbot.android.ui.viewmodel
 
+import android.content.Context
+import android.net.Uri
+import android.provider.OpenableColumns
 import kotlinx.coroutines.flow.collect
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.astrbot.android.R
+import com.astrbot.android.core.common.logging.RuntimeLogRepository
 import com.astrbot.android.feature.plugin.data.PluginUninstallResult
-import com.astrbot.android.di.PluginViewModelDependencies
+import com.astrbot.android.di.hilt.PluginCatalogEntries
+import com.astrbot.android.di.hilt.PluginGovernanceReadModels
+import com.astrbot.android.di.hilt.PluginRecords
+import com.astrbot.android.di.hilt.PluginRepositorySources
+import com.astrbot.android.feature.plugin.data.FeaturePluginRepository as PluginRepository
+import com.astrbot.android.feature.plugin.data.PluginCatalogVersionGateResult
+import com.astrbot.android.feature.plugin.data.PluginStoragePaths
 import com.astrbot.android.feature.plugin.domain.PluginGovernancePort
 import com.astrbot.android.feature.plugin.domain.PluginManagementUseCases
 import com.astrbot.android.feature.plugin.domain.PluginRepositoryPort
@@ -26,6 +38,8 @@ import com.astrbot.android.model.plugin.NoOp
 import com.astrbot.android.model.plugin.PluginBotSummary
 import com.astrbot.android.model.plugin.PluginCardAction
 import com.astrbot.android.model.plugin.PluginCardSchema
+import com.astrbot.android.model.plugin.PluginCatalogSyncState
+import com.astrbot.android.model.plugin.PluginCatalogSyncStatus
 import com.astrbot.android.model.plugin.PluginCatalogEntryRecord
 import com.astrbot.android.model.plugin.PluginCatalogVersion
 import com.astrbot.android.model.plugin.PluginCompatibilityState
@@ -33,6 +47,7 @@ import com.astrbot.android.model.plugin.PluginCompatibilityStatus
 import com.astrbot.android.model.plugin.PluginConfigSummary
 import com.astrbot.android.model.plugin.PluginExecutionContext
 import com.astrbot.android.model.plugin.PluginExecutionResult
+import com.astrbot.android.model.plugin.PluginConfigStoreSnapshot
 import com.astrbot.android.model.plugin.PluginGovernanceSnapshot
 import com.astrbot.android.model.plugin.PluginHostAction
 import com.astrbot.android.model.plugin.PluginDownloadProgress
@@ -44,6 +59,7 @@ import com.astrbot.android.model.plugin.PluginPackageValidationIssue
 import com.astrbot.android.model.plugin.PluginPermissionGrant
 import com.astrbot.android.model.plugin.PluginConfigStorageBoundary
 import com.astrbot.android.model.plugin.PluginExecutionProtocolJson
+import com.astrbot.android.model.plugin.PluginRepositorySource
 import com.astrbot.android.model.plugin.PluginSettingsField
 import com.astrbot.android.model.plugin.PluginSettingsSchema
 import com.astrbot.android.model.plugin.PluginStaticConfigField
@@ -51,6 +67,7 @@ import com.astrbot.android.model.plugin.PluginStaticConfigFieldType
 import com.astrbot.android.model.plugin.PluginStaticConfigSchema
 import com.astrbot.android.model.plugin.PluginStaticConfigValue
 import com.astrbot.android.model.plugin.PluginHostWorkspaceSnapshot
+import com.astrbot.android.model.plugin.ExternalPluginWorkspacePolicy
 import com.astrbot.android.model.plugin.PluginSourceType
 import com.astrbot.android.model.plugin.toStorageBoundary
 import com.astrbot.android.model.plugin.PluginUpdateAvailability
@@ -70,13 +87,19 @@ import com.astrbot.android.feature.plugin.runtime.PluginExecutionEngine
 import com.astrbot.android.feature.plugin.runtime.PluginFailureGuard
 import com.astrbot.android.feature.plugin.runtime.PluginGovernanceFailureProjection
 import com.astrbot.android.feature.plugin.runtime.PluginGovernanceReadModel
+import com.astrbot.android.feature.plugin.runtime.PluginGovernanceRepository
 import com.astrbot.android.feature.plugin.runtime.PluginGovernanceRecoveryStatus
+import com.astrbot.android.feature.plugin.runtime.PluginInstaller
 import com.astrbot.android.feature.plugin.runtime.PluginObservabilitySummary
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimePlugin
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimeDispatcher
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimeFailureStateStoreProvider
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimeRegistry
+import com.astrbot.android.feature.plugin.runtime.PluginRuntimeLogBus
 import com.astrbot.android.feature.plugin.runtime.compareVersions
+import com.astrbot.android.feature.plugin.runtime.catalog.PluginCatalogSynchronizer
+import com.astrbot.android.feature.plugin.runtime.catalog.PluginInstallIntentHandler
+import com.astrbot.android.feature.plugin.runtime.catalog.PluginRepositorySubscriptionManager
 import com.astrbot.android.feature.plugin.runtime.publishPluginRecoveryCompleted
 import com.astrbot.android.feature.plugin.runtime.publishPluginRecoveryFailed
 import com.astrbot.android.feature.plugin.runtime.publishPluginRecoveryRequested
@@ -89,15 +112,19 @@ import java.text.DateFormat
 import java.util.Date
 import java.util.Locale
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.json.JSONObject
 
@@ -367,12 +394,430 @@ data class PluginHostWorkspaceUiState(
     val isImportActionRunning: Boolean = false,
 )
 
+private const val OFFICIAL_MARKET_CATALOG_URL =
+    "https://raw.githubusercontent.com/undertaker33/ElymBot-plugin-market/main/catalog.json"
+private const val LEGACY_OFFICIAL_MARKET_CATALOG_URL =
+    "https://raw.githubusercontent.com/undertaker33/astrbot-android-plugin-market/main/catalog.json"
+
+interface PluginViewModelBindings {
+    val records: StateFlow<List<PluginInstallRecord>>
+    val repositorySources: StateFlow<List<PluginRepositorySource>>
+    val catalogEntries: StateFlow<List<PluginCatalogEntryRecord>>
+    val governanceReadModels: Flow<Map<String, PluginGovernanceReadModel>>
+    val logBus: PluginRuntimeLogBus
+
+    suspend fun handleInstallIntent(
+        intent: PluginInstallIntent,
+        onDownloadProgress: (PluginDownloadProgress) -> Unit = {},
+    ): PluginInstallIntentResult
+
+    suspend fun installFromLocalPackageUri(uri: String): PluginInstallIntentResult
+
+    suspend fun ensureOfficialMarketCatalogSubscribed(): PluginCatalogSyncState
+
+    suspend fun refreshMarketCatalog(): List<PluginCatalogSyncState>
+
+    fun getHostVersion(): String
+
+    fun evaluateCatalogVersion(version: PluginCatalogVersion): PluginCatalogVersionGateResult
+
+    fun getUpdateAvailability(pluginId: String): PluginUpdateAvailability?
+
+    fun getPluginGovernance(pluginId: String): PluginGovernanceReadModel?
+
+    fun getPluginGovernanceSilently(pluginId: String): PluginGovernanceReadModel?
+
+    suspend fun upgradePlugin(update: PluginUpdateAvailability): PluginInstallRecord
+
+    fun getPluginStaticConfigSchema(pluginId: String): PluginStaticConfigSchema?
+
+    fun resolvePluginSettingsSchemaPath(pluginId: String): String?
+
+    fun resolvePluginConfigSnapshot(
+        pluginId: String,
+        boundary: PluginConfigStorageBoundary,
+    ): PluginConfigStoreSnapshot
+
+    fun savePluginCoreConfig(
+        pluginId: String,
+        boundary: PluginConfigStorageBoundary,
+        coreValues: Map<String, PluginStaticConfigValue>,
+    ): PluginConfigStoreSnapshot
+
+    fun savePluginExtensionConfig(
+        pluginId: String,
+        boundary: PluginConfigStorageBoundary,
+        extensionValues: Map<String, PluginStaticConfigValue>,
+    ): PluginConfigStoreSnapshot
+
+    fun resolvePluginWorkspaceSnapshot(pluginId: String): PluginHostWorkspaceSnapshot
+
+    suspend fun importPluginWorkspaceFile(
+        pluginId: String,
+        uri: String,
+    ): PluginHostWorkspaceSnapshot
+
+    fun deletePluginWorkspaceFile(
+        pluginId: String,
+        relativePath: String,
+    ): PluginHostWorkspaceSnapshot
+
+    fun clearPluginFailureState(pluginId: String): PluginInstallRecord
+
+    fun recoverPluginFailureState(pluginId: String): PluginInstallRecord
+
+    fun setPluginEnabled(pluginId: String, enabled: Boolean): PluginInstallRecord
+
+    fun uninstallPlugin(pluginId: String, policy: PluginUninstallPolicy): PluginUninstallResult
+}
+
+internal class DefaultPluginViewModelBindings @Inject constructor(
+    @ApplicationContext private val appContext: Context,
+    @PluginRecords override val records: StateFlow<@JvmSuppressWildcards List<PluginInstallRecord>>,
+    @PluginRepositorySources override val repositorySources: StateFlow<@JvmSuppressWildcards List<PluginRepositorySource>>,
+    @PluginCatalogEntries override val catalogEntries: StateFlow<@JvmSuppressWildcards List<PluginCatalogEntryRecord>>,
+    @PluginGovernanceReadModels override val governanceReadModels: Flow<@JvmSuppressWildcards Map<String, PluginGovernanceReadModel>>,
+    private val pluginInstaller: PluginInstaller,
+    private val pluginCatalogSynchronizer: PluginCatalogSynchronizer,
+    private val pluginInstallIntentHandler: PluginInstallIntentHandler,
+    private val pluginRepositorySubscriptionManager: PluginRepositorySubscriptionManager,
+    private val pluginGovernanceRepository: PluginGovernanceRepository,
+    private val pluginFailureGuard: PluginFailureGuard,
+    override val logBus: PluginRuntimeLogBus,
+) : PluginViewModelBindings {
+    override suspend fun handleInstallIntent(
+        intent: PluginInstallIntent,
+        onDownloadProgress: (PluginDownloadProgress) -> Unit,
+    ): PluginInstallIntentResult {
+        return withContext(Dispatchers.IO) {
+            pluginInstallIntentHandler.handle(
+                intent = intent,
+                onDownloadProgress = onDownloadProgress,
+            )
+        }
+    }
+
+    override suspend fun installFromLocalPackageUri(uri: String): PluginInstallIntentResult {
+        return withContext(Dispatchers.IO) {
+            val contentUri = Uri.parse(uri)
+            val importDir = File(appContext.cacheDir, "plugin-import").apply { mkdirs() }
+            val tempFile = File.createTempFile("plugin-import-", ".zip", importDir)
+            try {
+                appContext.contentResolver.openInputStream(contentUri)?.use { input ->
+                    tempFile.outputStream().use { output ->
+                        input.copyTo(output)
+                    }
+                } ?: error("Unable to open selected file.")
+
+                val validation = runCatching {
+                    PluginRepository.validateLocalPackage(
+                        packageFile = tempFile,
+                        hostVersion = getHostVersion(),
+                    )
+                }.getOrElse { error ->
+                    throw PluginRepository.buildLocalPackageInstallBlockedException(error)
+                }
+                if (!validation.installable) {
+                    throw PluginRepository.buildLocalPackageInstallBlockedException(validation)
+                }
+                PluginInstallIntentResult.Installed(
+                    record = pluginInstaller.installFromLocalPackage(tempFile),
+                )
+            } finally {
+                if (tempFile.exists()) {
+                    tempFile.delete()
+                }
+            }
+        }
+    }
+
+    override suspend fun ensureOfficialMarketCatalogSubscribed(): PluginCatalogSyncState {
+        return withContext(Dispatchers.IO) {
+            val existing = repositorySources.value.firstOrNull { source ->
+                source.catalogUrl == OFFICIAL_MARKET_CATALOG_URL
+            } ?: repositorySources.value.firstOrNull { source ->
+                source.catalogUrl == LEGACY_OFFICIAL_MARKET_CATALOG_URL
+            }
+            RuntimeLogRepository.append(
+                "Plugin market ensure-official start: " +
+                    "existing=${existing != null} " +
+                    "sourceCount=${repositorySources.value.size} " +
+                    "url=$OFFICIAL_MARKET_CATALOG_URL",
+            )
+            val syncState = if (existing != null) {
+                val source = if (existing.catalogUrl == LEGACY_OFFICIAL_MARKET_CATALOG_URL) {
+                    existing.copy(catalogUrl = OFFICIAL_MARKET_CATALOG_URL)
+                        .also(PluginRepository::upsertRepositorySource)
+                } else {
+                    existing
+                }
+                pluginCatalogSynchronizer.sync(source.sourceId)
+            } else {
+                pluginRepositorySubscriptionManager
+                    .subscribeAndSync(OFFICIAL_MARKET_CATALOG_URL)
+                    .syncState
+            }
+            RuntimeLogRepository.append(
+                "Plugin market ensure-official finished: " +
+                    "sourceId=${syncState.sourceId} " +
+                    "status=${syncState.lastSyncStatus.name}",
+            )
+            syncState
+        }
+    }
+
+    override suspend fun refreshMarketCatalog(): List<PluginCatalogSyncState> {
+        return withContext(Dispatchers.IO) {
+            val existingSources = repositorySources.value
+            RuntimeLogRepository.append(
+                "Plugin market refresh flow start: sourceCount=${existingSources.size}",
+            )
+            val states = if (existingSources.isEmpty()) {
+                listOf(ensureOfficialMarketCatalogSubscribed())
+            } else {
+                existingSources.map { source ->
+                    pluginCatalogSynchronizer.sync(source.sourceId)
+                }
+            }
+            RuntimeLogRepository.append(
+                "Plugin market refresh flow finished: " +
+                    "resultCount=${states.size} " +
+                    "statuses=${states.joinToString(separator = ",") { "${it.sourceId}:${it.lastSyncStatus.name}" }}",
+            )
+            if (states.any { it.lastSyncStatus == PluginCatalogSyncStatus.FAILED }) {
+                RuntimeLogRepository.append("Plugin market refresh flow failed: at least one source sync failed")
+                error("Market catalog refresh failed.")
+            }
+            states
+        }
+    }
+
+    override fun getHostVersion(): String {
+        return runCatching {
+            appContext.packageManager.getPackageInfo(appContext.packageName, 0).versionName
+        }.getOrNull().orEmpty().ifBlank { "0.0.0" }
+    }
+
+    override fun evaluateCatalogVersion(version: PluginCatalogVersion): PluginCatalogVersionGateResult {
+        return PluginRepository.evaluateCatalogVersion(
+            version = version,
+            hostVersion = getHostVersion(),
+        )
+    }
+
+    override fun getUpdateAvailability(pluginId: String): PluginUpdateAvailability? {
+        return PluginRepository.getUpdateAvailability(
+            pluginId = pluginId,
+            hostVersion = getHostVersion(),
+        )
+    }
+
+    override fun getPluginGovernance(pluginId: String): PluginGovernanceReadModel? {
+        return pluginGovernanceRepository.get(pluginId)
+    }
+
+    override fun getPluginGovernanceSilently(pluginId: String): PluginGovernanceReadModel? {
+        return pluginGovernanceRepository.getSilently(pluginId)
+    }
+
+    override suspend fun upgradePlugin(update: PluginUpdateAvailability): PluginInstallRecord {
+        return withContext(Dispatchers.IO) {
+            pluginInstaller.upgrade(update)
+        }
+    }
+
+    override fun getPluginStaticConfigSchema(pluginId: String): PluginStaticConfigSchema? {
+        return PluginRepository.getInstalledStaticConfigSchema(pluginId)
+    }
+
+    override fun resolvePluginSettingsSchemaPath(pluginId: String): String? {
+        return PluginRepository.resolveInstalledSettingsSchemaPath(pluginId)
+    }
+
+    override fun resolvePluginConfigSnapshot(
+        pluginId: String,
+        boundary: PluginConfigStorageBoundary,
+    ): PluginConfigStoreSnapshot {
+        return PluginRepository.resolveConfigSnapshot(pluginId, boundary)
+    }
+
+    override fun savePluginCoreConfig(
+        pluginId: String,
+        boundary: PluginConfigStorageBoundary,
+        coreValues: Map<String, PluginStaticConfigValue>,
+    ): PluginConfigStoreSnapshot {
+        return PluginRepository.saveCoreConfig(pluginId, boundary, coreValues)
+    }
+
+    override fun savePluginExtensionConfig(
+        pluginId: String,
+        boundary: PluginConfigStorageBoundary,
+        extensionValues: Map<String, PluginStaticConfigValue>,
+    ): PluginConfigStoreSnapshot {
+        return PluginRepository.saveExtensionConfig(pluginId, boundary, extensionValues)
+    }
+
+    override fun resolvePluginWorkspaceSnapshot(pluginId: String): PluginHostWorkspaceSnapshot {
+        return ExternalPluginWorkspacePolicy.snapshot(
+            storagePaths = PluginStoragePaths.fromFilesDir(appContext.filesDir),
+            pluginId = pluginId,
+        )
+    }
+
+    override suspend fun importPluginWorkspaceFile(
+        pluginId: String,
+        uri: String,
+    ): PluginHostWorkspaceSnapshot {
+        return withContext(Dispatchers.IO) {
+            val storagePaths = PluginStoragePaths.fromFilesDir(appContext.filesDir)
+            val paths = ExternalPluginWorkspacePolicy.ensureWorkspace(
+                storagePaths = storagePaths,
+                pluginId = pluginId,
+            )
+            val contentUri = Uri.parse(uri)
+            val targetFile = ExternalPluginWorkspacePolicy.buildImportTarget(
+                importsDirPath = paths.importsDir.absolutePath,
+                displayName = queryDisplayName(contentUri)
+                    ?: contentUri.lastPathSegment
+                    ?: "imported-file",
+            )
+            targetFile.parentFile?.mkdirs()
+            appContext.contentResolver.openInputStream(contentUri)?.use { input ->
+                targetFile.outputStream().use { output ->
+                    input.copyTo(output)
+                }
+            } ?: error("Unable to open selected workspace file.")
+            ExternalPluginWorkspacePolicy.snapshot(
+                storagePaths = storagePaths,
+                pluginId = pluginId,
+            )
+        }
+    }
+
+    override fun deletePluginWorkspaceFile(
+        pluginId: String,
+        relativePath: String,
+    ): PluginHostWorkspaceSnapshot {
+        val storagePaths = PluginStoragePaths.fromFilesDir(appContext.filesDir)
+        val snapshot = ExternalPluginWorkspacePolicy.snapshot(
+            storagePaths = storagePaths,
+            pluginId = pluginId,
+        )
+        val targetFile = ExternalPluginWorkspacePolicy.resolveWorkspaceFile(
+            privateRootPath = snapshot.privateRootPath,
+            relativePath = relativePath,
+        )
+        if (targetFile.exists()) {
+            targetFile.deleteRecursively()
+        }
+        return ExternalPluginWorkspacePolicy.snapshot(
+            storagePaths = storagePaths,
+            pluginId = pluginId,
+        )
+    }
+
+    override fun clearPluginFailureState(pluginId: String): PluginInstallRecord {
+        return PluginRepository.updateFailureState(pluginId, com.astrbot.android.model.plugin.PluginFailureState.none())
+    }
+
+    override fun recoverPluginFailureState(pluginId: String): PluginInstallRecord {
+        pluginFailureGuard.recover(pluginId)
+        return requireNotNull(PluginRepository.findByPluginId(pluginId)) {
+            "Plugin $pluginId is not installed."
+        }
+    }
+
+    override fun setPluginEnabled(pluginId: String, enabled: Boolean): PluginInstallRecord {
+        return PluginRepository.setEnabled(pluginId, enabled)
+    }
+
+    override fun uninstallPlugin(pluginId: String, policy: PluginUninstallPolicy): PluginUninstallResult {
+        return PluginRepository.uninstall(pluginId, policy)
+    }
+
+    private fun queryDisplayName(uri: Uri): String? {
+        return appContext.contentResolver.query(
+            uri,
+            arrayOf(OpenableColumns.DISPLAY_NAME),
+            null,
+            null,
+            null,
+        )?.use { cursor ->
+            if (!cursor.moveToFirst()) return@use null
+            val columnIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+            if (columnIndex < 0) return@use null
+            cursor.getString(columnIndex)
+        }
+    }
+}
+
 @HiltViewModel
 class PluginViewModel @Inject constructor(
-    private val dependencies: PluginViewModelDependencies,
+    private val bindings: PluginViewModelBindings,
 ) : ViewModel() {
+    private val records = bindings.records
+    private val repositorySources = bindings.repositorySources
+    private val catalogEntries = bindings.catalogEntries
+    private val governanceReadModels = bindings.governanceReadModels
+    private val logBus = bindings.logBus
+
     private companion object {
         const val MARKET_REFRESH_TIMEOUT_MILLIS = 15_000L
+    }
+
+    private suspend fun handleInstallIntent(
+        intent: PluginInstallIntent,
+        onDownloadProgress: (PluginDownloadProgress) -> Unit = {},
+    ): PluginInstallIntentResult {
+        return bindings.handleInstallIntent(intent, onDownloadProgress)
+    }
+
+    private suspend fun installFromLocalPackageUri(uri: String): PluginInstallIntentResult {
+        return bindings.installFromLocalPackageUri(uri)
+    }
+
+    private suspend fun ensureOfficialMarketCatalogSubscribed(): com.astrbot.android.model.plugin.PluginCatalogSyncState {
+        return bindings.ensureOfficialMarketCatalogSubscribed()
+    }
+
+    private suspend fun syncMarketCatalog(): List<com.astrbot.android.model.plugin.PluginCatalogSyncState> {
+        return bindings.refreshMarketCatalog()
+    }
+
+    private fun getHostVersion(): String = bindings.getHostVersion()
+
+    private fun evaluateCatalogVersion(version: PluginCatalogVersion): PluginCatalogVersionGateResult {
+        return bindings.evaluateCatalogVersion(version)
+    }
+
+    private fun getUpdateAvailability(pluginId: String): PluginUpdateAvailability? {
+        return bindings.getUpdateAvailability(pluginId)
+    }
+
+    private suspend fun upgradePlugin(update: PluginUpdateAvailability): PluginInstallRecord {
+        return bindings.upgradePlugin(update)
+    }
+
+    private fun resolvePluginWorkspaceSnapshot(pluginId: String): PluginHostWorkspaceSnapshot {
+        return bindings.resolvePluginWorkspaceSnapshot(pluginId)
+    }
+
+    private suspend fun importPluginWorkspaceFile(
+        pluginId: String,
+        uri: String,
+    ): PluginHostWorkspaceSnapshot {
+        return bindings.importPluginWorkspaceFile(pluginId, uri)
+    }
+
+    private fun deletePluginWorkspaceFile(
+        pluginId: String,
+        relativePath: String,
+    ): PluginHostWorkspaceSnapshot {
+        return bindings.deletePluginWorkspaceFile(pluginId, relativePath)
+    }
+
+    private fun recoverPluginFailureState(pluginId: String): PluginInstallRecord {
+        return bindings.recoverPluginFailureState(pluginId)
     }
 
     private val hostCapabilityGateway = DefaultPluginHostCapabilityGateway(
@@ -382,7 +827,7 @@ class PluginViewModel @Inject constructor(
         PluginManagementUseCases(
             repository = object : PluginRepositoryPort {
                 override fun findByPluginId(pluginId: String): PluginInstallRecord? {
-                    return dependencies.records.value.firstOrNull { it.pluginId == pluginId }
+                    return records.value.firstOrNull { it.pluginId == pluginId }
                 }
 
                 override fun upsert(record: PluginInstallRecord) {
@@ -394,7 +839,7 @@ class PluginViewModel @Inject constructor(
                 }
 
                 override fun setEnabled(pluginId: String, enabled: Boolean): PluginInstallRecord {
-                    return dependencies.setPluginEnabled(pluginId, enabled)
+                    return bindings.setPluginEnabled(pluginId, enabled)
                 }
 
                 override fun updateFailureState(
@@ -408,7 +853,7 @@ class PluginViewModel @Inject constructor(
                     pluginId: String,
                     policy: PluginUninstallPolicy,
                 ): FeaturePluginUninstallResult {
-                    val result = dependencies.uninstallPlugin(pluginId, policy)
+                    val result = bindings.uninstallPlugin(pluginId, policy)
                     return FeaturePluginUninstallResult(
                         success = true,
                         pluginId = result.pluginId,
@@ -417,7 +862,7 @@ class PluginViewModel @Inject constructor(
                 }
 
                 override fun getInstalledStaticConfigSchema(pluginId: String): PluginStaticConfigSchema? {
-                    return dependencies.getPluginStaticConfigSchema(pluginId)
+                    return bindings.getPluginStaticConfigSchema(pluginId)
                 }
 
                 override fun saveCoreConfig(
@@ -445,7 +890,7 @@ class PluginViewModel @Inject constructor(
             },
             governance = object : PluginGovernancePort {
                 override fun isSuspended(pluginId: String): Boolean {
-                    return dependencies.records.value
+                    return records.value
                         .firstOrNull { it.pluginId == pluginId }
                         ?.failureState
                         ?.let { state ->
@@ -454,7 +899,7 @@ class PluginViewModel @Inject constructor(
                 }
 
                 override fun recoverPlugin(pluginId: String) {
-                    dependencies.recoverPluginFailureState(pluginId)
+                    recoverPluginFailureState(pluginId)
                 }
 
                 override fun suspendPlugin(pluginId: String, reason: String) {
@@ -462,7 +907,7 @@ class PluginViewModel @Inject constructor(
                 }
 
                 override fun currentFailureState(pluginId: String) =
-                    dependencies.records.value.firstOrNull { it.pluginId == pluginId }?.failureState
+                    records.value.firstOrNull { it.pluginId == pluginId }?.failureState
             },
         ),
     )
@@ -493,9 +938,9 @@ class PluginViewModel @Inject constructor(
 
     val uiState: StateFlow<PluginScreenUiState> = combine(
         combine(
-            dependencies.records,
-            dependencies.repositorySources,
-            dependencies.catalogEntries,
+            records,
+            repositorySources,
+            catalogEntries,
             selectedPluginId,
             showingDetail,
         ) { records, repositorySources, catalogEntries, selectedId, isShowingDetail ->
@@ -510,14 +955,14 @@ class PluginViewModel @Inject constructor(
         lastActionMessage,
         schemaUiState,
         staticConfigUiState,
-        dependencies.governanceReadModels,
+        governanceReadModels,
     ) { snapshot, actionMessage, schemaState, staticSchemaState, governanceReadModels ->
         val selectedPlugin = snapshot.records.firstOrNull { it.pluginId == snapshot.selectedId }
         val governanceByPluginId = governanceReadModels.mapValues { (_, readModel) ->
             readModel.toUiState()
         }
         val updateAvailabilities = snapshot.records.mapNotNull { record ->
-            dependencies.getUpdateAvailability(record.pluginId)?.let { record.pluginId to it }
+            getUpdateAvailability(record.pluginId)?.let { record.pluginId to it }
         }.toMap()
         val failureStates = buildFailureStates(
             records = snapshot.records,
@@ -555,7 +1000,7 @@ class PluginViewModel @Inject constructor(
             ),
             staticConfigUiState = staticSchemaState,
             schemaUiState = schemaState,
-            hostVersion = dependencies.getHostVersion(),
+            hostVersion = getHostVersion(),
         )
     }.combine(
         combine(
@@ -613,7 +1058,7 @@ class PluginViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            dependencies.records.collect { records ->
+            records.collect { records ->
                 val resolvedSelection = resolveSelection(
                     records = records,
                     requestedPluginId = selectedPluginId.value,
@@ -633,7 +1078,7 @@ class PluginViewModel @Inject constructor(
             }
         }
         viewModelScope.launch {
-            dependencies.repositorySources.collect { sources ->
+            repositorySources.collect { sources ->
                 if (officialMarketBootstrapAttempted) return@collect
                 if (sources.isNotEmpty()) {
                     officialMarketBootstrapAttempted = true
@@ -645,7 +1090,7 @@ class PluginViewModel @Inject constructor(
                 officialMarketBootstrapAttempted = true
                 AppLogger.append("Plugin market bootstrap requested: sourceCount=0")
                 runCatching {
-                    dependencies.ensureOfficialMarketCatalogSubscribed()
+                    ensureOfficialMarketCatalogSubscribed()
                 }.onSuccess { syncState ->
                     AppLogger.append(
                         "Plugin market bootstrap finished: " +
@@ -667,7 +1112,7 @@ class PluginViewModel @Inject constructor(
 
     fun selectPluginForDetail(pluginId: String) {
         val selected = resolveSelection(
-            records = dependencies.records.value,
+            records = records.value,
             requestedPluginId = pluginId,
         ) ?: return
         selectedPluginId.value = selected
@@ -683,7 +1128,7 @@ class PluginViewModel @Inject constructor(
 
     fun selectPluginForConfig(pluginId: String) {
         val selectedId = resolveSelection(
-            records = dependencies.records.value,
+            records = records.value,
             requestedPluginId = pluginId,
         ) ?: return
         selectedPluginId.value = selectedId
@@ -700,10 +1145,10 @@ class PluginViewModel @Inject constructor(
 
     fun selectPluginForWorkspace(pluginId: String) {
         val selectedId = resolveSelection(
-            records = dependencies.records.value,
+            records = records.value,
             requestedPluginId = pluginId,
         ) ?: return
-        val selectedRecord = dependencies.records.value.firstOrNull { it.pluginId == selectedId } ?: return
+        val selectedRecord = records.value.firstOrNull { it.pluginId == selectedId } ?: return
         selectedPluginId.value = selectedId
         showingDetail.value = true
         lastActionMessage.value = null
@@ -785,11 +1230,11 @@ class PluginViewModel @Inject constructor(
         marketRefreshFeedback.value = null
         return try {
             AppLogger.append(
-                "Plugin market refresh requested: sourceCount=${dependencies.repositorySources.value.size}",
+                "Plugin market refresh requested: sourceCount=${repositorySources.value.size}",
             )
             runCatching {
                 withTimeout(MARKET_REFRESH_TIMEOUT_MILLIS) {
-                    dependencies.refreshMarketCatalog()
+                    syncMarketCatalog()
                 }
             }.fold(
                 onSuccess = { states ->
@@ -832,7 +1277,7 @@ class PluginViewModel @Inject constructor(
         viewModelScope.launch {
             installActionRunning.value = true
             runCatching {
-                dependencies.installFromLocalPackageUri(uri)
+                installFromLocalPackageUri(uri)
             }.onSuccess { result ->
                 installFollowUpGuide.value = toInstallFollowUpGuide(result)
                 lastActionMessage.value = result.toFeedback()
@@ -855,7 +1300,7 @@ class PluginViewModel @Inject constructor(
                 val refreshSucceeded = refreshMarketCatalogInternal()
                 if (!refreshSucceeded) return@launch
             }
-            val availability = dependencies.getUpdateAvailability(selected.pluginId)
+            val availability = getUpdateAvailability(selected.pluginId)
                 ?: uiState.value.updateAvailabilitiesByPluginId[selected.pluginId]
             if (availability == null || !availability.updateAvailable) {
                 lastActionMessage.value = PluginActionFeedback.Resource(R.string.plugin_action_feedback_no_update_available)
@@ -889,7 +1334,7 @@ class PluginViewModel @Inject constructor(
         viewModelScope.launch {
             upgradeDialogState.value = dialog.copy(isInstalling = true)
             runCatching {
-                dependencies.upgradePlugin(dialog.availability)
+                upgradePlugin(dialog.availability)
             }.onSuccess { record ->
                 lastActionMessage.value = PluginActionFeedback.Text(
                     "Updated ${record.manifestSnapshot.title} to ${record.installedVersion}.",
@@ -923,7 +1368,7 @@ class PluginViewModel @Inject constructor(
             )
             return
         }
-        dependencies.logBus.publishPluginRecoveryRequested(
+        logBus.publishPluginRecoveryRequested(
             pluginId = selected.pluginId,
             pluginVersion = selected.installedVersion,
             occurredAtEpochMillis = System.currentTimeMillis(),
@@ -936,7 +1381,7 @@ class PluginViewModel @Inject constructor(
         runCatching {
             pluginPresentationController.recoverPlugin(selected.pluginId)
         }.onSuccess {
-            dependencies.logBus.publishPluginRecoveryCompleted(
+            logBus.publishPluginRecoveryCompleted(
                 pluginId = selected.pluginId,
                 pluginVersion = selected.installedVersion,
                 occurredAtEpochMillis = System.currentTimeMillis(),
@@ -945,7 +1390,7 @@ class PluginViewModel @Inject constructor(
                 "Plugin recovered from suspension. You can enable it again.",
             )
         }.onFailure { error ->
-            dependencies.logBus.publishPluginRecoveryFailed(
+            logBus.publishPluginRecoveryFailed(
                 pluginId = selected.pluginId,
                 pluginVersion = selected.installedVersion,
                 occurredAtEpochMillis = System.currentTimeMillis(),
@@ -1058,7 +1503,7 @@ class PluginViewModel @Inject constructor(
     fun uninstallSelectedPlugin(): Boolean {
         val selected = uiState.value.selectedPlugin ?: return false
         return runCatching {
-            dependencies.uninstallPlugin(selected.pluginId, PluginUninstallPolicy.REMOVE_DATA)
+            bindings.uninstallPlugin(selected.pluginId, PluginUninstallPolicy.REMOVE_DATA)
         }.onSuccess { result ->
             lastActionMessage.value = result.toUserMessage()
         }.onFailure { error ->
@@ -1074,7 +1519,7 @@ class PluginViewModel @Inject constructor(
             var failureCount = 0
             pluginIds.forEach { pluginId ->
                 runCatching {
-                    dependencies.uninstallPlugin(pluginId, PluginUninstallPolicy.REMOVE_DATA)
+                    bindings.uninstallPlugin(pluginId, PluginUninstallPolicy.REMOVE_DATA)
                 }.onSuccess {
                     successCount += 1
                 }.onFailure { error ->
@@ -1121,7 +1566,7 @@ class PluginViewModel @Inject constructor(
             installActionRunning.value = true
             downloadProgress.value = null
             runCatching {
-                dependencies.handleInstallIntent(
+                handleInstallIntent(
                     intent = intent,
                     onDownloadProgress = { progress ->
                         downloadProgress.value = progress
@@ -1326,10 +1771,10 @@ class PluginViewModel @Inject constructor(
         runtime: PluginRuntimePlugin,
         entryPoint: String,
     ): PluginExecutionContext {
-        val staticBoundary = dependencies.getPluginStaticConfigSchema(record.pluginId)?.toStorageBoundary()
+        val staticBoundary = bindings.getPluginStaticConfigSchema(record.pluginId)?.toStorageBoundary()
         val configSnapshot = staticBoundary?.let { boundary ->
             runCatching {
-                dependencies.resolvePluginConfigSnapshot(
+                bindings.resolvePluginConfigSnapshot(
                     pluginId = record.pluginId,
                     boundary = boundary,
                 )
@@ -1372,7 +1817,7 @@ class PluginViewModel @Inject constructor(
         return PluginExecutionHostApi.inject(
             context = base,
             hostSnapshot = PluginExecutionHostSnapshot(
-                workspaceSnapshot = dependencies.resolvePluginWorkspaceSnapshot(record.pluginId),
+                workspaceSnapshot = resolvePluginWorkspaceSnapshot(record.pluginId),
                 configBoundary = staticBoundary,
                 configSnapshot = configSnapshot,
             ),
@@ -1396,7 +1841,7 @@ class PluginViewModel @Inject constructor(
                         val resolved = ExternalPluginMediaSourceResolver.resolve(
                             item = item,
                             extractedDir = record.extractedDir,
-                            privateRootPath = dependencies.resolvePluginWorkspaceSnapshot(record.pluginId).privateRootPath,
+                            privateRootPath = resolvePluginWorkspaceSnapshot(record.pluginId).privateRootPath,
                         )
                         PluginSchemaMediaItem(
                             label = resolved.altText.ifBlank { resolved.source.substringAfterLast('/') },
@@ -1435,7 +1880,7 @@ class PluginViewModel @Inject constructor(
     }
 
     private fun loadWorkspaceState(record: PluginInstallRecord) {
-        hostWorkspaceSnapshot.value = dependencies.resolvePluginWorkspaceSnapshot(record.pluginId)
+        hostWorkspaceSnapshot.value = resolvePluginWorkspaceSnapshot(record.pluginId)
         hostWorkspaceSchemaUiState.value = loadPackagedSettingsSchemaState(record.pluginId)
         hostWorkspaceActionMessage.value = null
         hostWorkspaceImportRunning.value = false
@@ -1451,7 +1896,7 @@ class PluginViewModel @Inject constructor(
         viewModelScope.launch {
             hostWorkspaceImportRunning.value = true
             runCatching {
-                dependencies.importPluginWorkspaceFile(
+                importPluginWorkspaceFile(
                     pluginId = pluginId,
                     uri = uri,
                 )
@@ -1474,7 +1919,7 @@ class PluginViewModel @Inject constructor(
             return
         }
         runCatching {
-            dependencies.deletePluginWorkspaceFile(
+            deletePluginWorkspaceFile(
                 pluginId = pluginId,
                 relativePath = relativePath,
             )
@@ -1533,7 +1978,7 @@ class PluginViewModel @Inject constructor(
         }
         runCatching {
             cacheFiles.fold(hostWorkspaceSnapshot.value) { _, relativePath ->
-                dependencies.deletePluginWorkspaceFile(
+                deletePluginWorkspaceFile(
                     pluginId = pluginId,
                     relativePath = relativePath,
                 )
@@ -1584,13 +2029,13 @@ class PluginViewModel @Inject constructor(
         pluginId: String,
         runtimeSchemaState: PluginSchemaUiState,
     ) {
-        val staticSchema = dependencies.getPluginStaticConfigSchema(pluginId)
+        val staticSchema = bindings.getPluginStaticConfigSchema(pluginId)
         val boundary = buildConfigStorageBoundary(
             staticSchema = staticSchema,
             runtimeSchemaState = runtimeSchemaState,
         )
         currentConfigBoundary = boundary
-        val snapshot = dependencies.resolvePluginConfigSnapshot(
+        val snapshot = bindings.resolvePluginConfigSnapshot(
             pluginId = pluginId,
             boundary = boundary,
         )
@@ -1614,7 +2059,7 @@ class PluginViewModel @Inject constructor(
     }
 
     private fun loadPackagedSettingsSchemaState(pluginId: String): PluginSchemaUiState {
-        val schemaPath = dependencies.resolvePluginSettingsSchemaPath(pluginId)
+        val schemaPath = bindings.resolvePluginSettingsSchemaPath(pluginId)
             ?.takeIf { path -> path.isNotBlank() }
             ?: return PluginSchemaUiState.None
         return runCatching {
@@ -1665,7 +2110,7 @@ class PluginViewModel @Inject constructor(
     private fun persistStaticConfig(state: PluginStaticConfigUiState) {
         val pluginId = uiState.value.selectedPluginId ?: return
         val boundary = currentConfigBoundary ?: return
-        val staticSchema = dependencies.getPluginStaticConfigSchema(pluginId) ?: return
+        val staticSchema = bindings.getPluginStaticConfigSchema(pluginId) ?: return
         val runtimeDrafts = (schemaUiState.value as? PluginSchemaUiState.Settings)
             ?.draftValues.orEmpty()
         val displayedFieldKeys = state.schema.fields.map { it.fieldKey }.toSet()
@@ -1678,7 +2123,7 @@ class PluginViewModel @Inject constructor(
             draft?.toStaticConfigValue(field.fieldType)
                 ?.let { value -> field.fieldKey to value }
         }.toMap()
-        dependencies.savePluginCoreConfig(
+        bindings.savePluginCoreConfig(
             pluginId = pluginId,
             boundary = boundary,
             coreValues = coreValues,
@@ -1691,7 +2136,7 @@ class PluginViewModel @Inject constructor(
 
         val overlappingCoreKeys = state.schema.allFieldIds().intersect(boundary.coreFieldKeys)
         if (overlappingCoreKeys.isNotEmpty()) {
-            val staticSchema = dependencies.getPluginStaticConfigSchema(pluginId)
+            val staticSchema = bindings.getPluginStaticConfigSchema(pluginId)
             if (staticSchema != null) {
                 val staticDrafts = staticConfigUiState.value?.draftValues.orEmpty()
                 val coreValues = staticSchema.fields.mapNotNull { field ->
@@ -1703,7 +2148,7 @@ class PluginViewModel @Inject constructor(
                     draft?.toStaticConfigValue(field.fieldType)
                         ?.let { value -> field.fieldKey to value }
                 }.toMap()
-                dependencies.savePluginCoreConfig(
+                bindings.savePluginCoreConfig(
                     pluginId = pluginId,
                     boundary = boundary,
                     coreValues = coreValues,
@@ -1720,7 +2165,7 @@ class PluginViewModel @Inject constructor(
             }
             .toMap()
         if (extensionValues.isNotEmpty()) {
-            dependencies.savePluginExtensionConfig(
+            bindings.savePluginExtensionConfig(
                 pluginId = pluginId,
                 boundary = boundary,
                 extensionValues = extensionValues,
@@ -1934,7 +2379,7 @@ class PluginViewModel @Inject constructor(
             return
         }
         lastGovernanceProjectionLogKey = projectionKey
-        dependencies.logBus.publishUiGovernanceProjectionBuilt(
+        logBus.publishUiGovernanceProjectionBuilt(
             occurredAtEpochMillis = System.currentTimeMillis(),
             pluginCount = records.size,
             selectedPluginId = selectedPlugin?.pluginId,
@@ -2189,7 +2634,7 @@ class PluginViewModel @Inject constructor(
             ),
             sourceName = record.sourceTitle,
             versions = record.entry.versions.map { version ->
-                val gate = dependencies.evaluateCatalogVersion(version)
+                val gate = evaluateCatalogVersion(version)
                 PluginCatalogEntryVersionUiState(
                     version = version.version,
                     packageUrl = version.resolvePackageUrl(record.catalogUrl),
@@ -2210,7 +2655,7 @@ class PluginViewModel @Inject constructor(
         pluginId: String,
         selectedVersionKey: String?,
     ): PluginInstallIntent.CatalogVersion {
-        val entries = dependencies.catalogEntries.value
+        val entries = catalogEntries.value
             .filter { record -> record.entry.pluginId == pluginId }
             .map(::toCatalogEntryCardUiState)
         if (entries.isEmpty()) {
@@ -2344,7 +2789,7 @@ class PluginViewModel @Inject constructor(
     private fun toInstallFollowUpGuide(result: PluginInstallIntentResult): PluginInstallFollowUpGuideState? {
         return when (result) {
             is PluginInstallIntentResult.Installed -> {
-                val governanceSummary = dependencies.getPluginGovernanceSilently(result.record.pluginId)?.toUiState()
+                val governanceSummary = bindings.getPluginGovernanceSilently(result.record.pluginId)?.toUiState()
                 val governanceSnapshot = governanceSummary?.snapshot
                 PluginInstallFollowUpGuideState(
                     pluginId = result.record.pluginId,

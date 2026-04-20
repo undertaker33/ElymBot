@@ -1,6 +1,7 @@
 package com.astrbot.android.core.runtime.container
 
 import com.astrbot.android.core.common.logging.RuntimeLogRepository
+import com.astrbot.android.di.ProductionContainerBridgeStatePort
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -53,7 +54,7 @@ class ContainerBridgeService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     private suspend fun handleStartBridge() {
-        val bridgeState = ContainerBridgeStateRegistry.port
+        val bridgeState = ProductionContainerBridgeStatePort
         stopHealthMonitor()
         bridgeState.markStarting()
         ContainerRuntimeInstaller.ensureInstalled(applicationContext)
@@ -127,7 +128,7 @@ class ContainerBridgeService : Service() {
     }
 
     private suspend fun waitForHealthy(url: String, pidHint: String) {
-        val bridgeState = ContainerBridgeStateRegistry.port
+        val bridgeState = ProductionContainerBridgeStatePort
         val config = bridgeState.config.value
         val startedAt = System.currentTimeMillis()
         var lastActivityAt = runtimeActivityTimestamp().takeIf { it > 0L } ?: startedAt
@@ -201,7 +202,7 @@ class ContainerBridgeService : Service() {
     }
 
     private suspend fun handleStopBridge() {
-        val bridgeState = ContainerBridgeStateRegistry.port
+        val bridgeState = ProductionContainerBridgeStatePort
         ContainerRuntimeInstaller.ensureInstalled(applicationContext)
         val config = bridgeState.config.value
         stopHealthMonitor()
@@ -219,7 +220,7 @@ class ContainerBridgeService : Service() {
     }
 
     private suspend fun handleCheckBridge() {
-        val bridgeState = ContainerBridgeStateRegistry.port
+        val bridgeState = ProductionContainerBridgeStatePort
         ContainerRuntimeInstaller.ensureInstalled(applicationContext)
         val config = bridgeState.config.value
         bridgeState.markChecking()
@@ -286,7 +287,7 @@ class ContainerBridgeService : Service() {
     }
 
     private fun syncProgressFromRuntimeFiles(): RuntimeProgressSnapshot {
-        val bridgeState = ContainerBridgeStateRegistry.port
+        val bridgeState = ProductionContainerBridgeStatePort
         val snapshot = ContainerBridgeRuntimeSupport.loadProgressSnapshot(filesDir)
 
         bridgeState.markInstallerCached(snapshot.installerCached)
@@ -303,7 +304,7 @@ class ContainerBridgeService : Service() {
     }
 
     private fun buildProgressNotificationText(): String {
-        return ContainerBridgeRuntimeSupport.buildProgressNotificationText(ContainerBridgeStateRegistry.port.runtimeState.value)
+        return ContainerBridgeRuntimeSupport.buildProgressNotificationText(ProductionContainerBridgeStatePort.runtimeState.value)
     }
 
     private fun buildPendingHealthDetails(

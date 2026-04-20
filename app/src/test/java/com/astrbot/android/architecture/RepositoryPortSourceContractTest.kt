@@ -219,14 +219,45 @@ class RepositoryPortSourceContractTest {
     }
 
     @Test
-    fun app_backup_wiring_uses_shared_production_port_with_durable_conversation_restore() {
-        val source = appBootstrapperSource()
-        val bootstrapBody = functionBody(source, "bootstrap")
-        val productionPortBody = functionBody(source, "createProductionAppBackupDataPort")
+    fun bot_repository_initializer_runs_before_qq_bridge_server_start() {
+        val bootstrapBody = functionBody(appBootstrapperSource(), "bootstrap")
+        val botInitializerIndex = bootstrapBody.indexOf("BotRepositoryInitializer()")
+        val qqBridgeStartIndex = bootstrapBody.indexOf("qqBridgeRuntime.start()")
 
         assertTrue(
-            "AppBootstrapper must install the shared production AppBackupDataPort factory instead of duplicating inline wiring",
-            bootstrapBody.contains("createProductionAppBackupDataPort()"),
+            "AppBootstrapper.bootstrap must wire BotRepositoryInitializer before starting the QQ bridge server",
+            botInitializerIndex >= 0 && qqBridgeStartIndex >= 0 && botInitializerIndex < qqBridgeStartIndex,
+        )
+    }
+
+    @Test
+    fun bot_repository_initializer_shares_a_coordinator_with_config_initializer() {
+        val bootstrapBody = functionBody(appBootstrapperSource(), "bootstrap")
+        val coordinatorBlocks = """InitializationCoordinator\(\s*listOf\((.*?)\)\s*,?\s*\)\.initializeAll\(application\)"""
+            .toRegex(setOf(RegexOption.DOT_MATCHES_ALL))
+            .findAll(bootstrapBody)
+            .map { it.groupValues[1] }
+            .toList()
+
+        val botBlocksWithoutConfig = coordinatorBlocks.filter { block ->
+            block.contains("BotRepositoryInitializer()") && !block.contains("ConfigRepositoryInitializer()")
+        }
+
+        assertTrue(
+            "BotRepositoryInitializer must be initialized in the same coordinator pass as ConfigRepositoryInitializer: $botBlocksWithoutConfig",
+            botBlocksWithoutConfig.isEmpty(),
+        )
+    }
+
+    @Test
+    fun app_backup_wiring_uses_shared_production_port_with_durable_conversation_restore() {
+        val bootstrapBody = functionBody(appBootstrapperSource(), "bootstrap")
+        val dataPortSource = mainRoot.resolve("di/BackupDataPorts.kt").readText()
+        val productionPortBody = objectBody(dataPortSource, "ProductionAppBackupDataPort")
+
+        assertTrue(
+            "AppBootstrapper must not install AppBackupDataPort through bootstrap once the production path is closed",
+            !bootstrapBody.contains("createProductionAppBackupDataPort()"),
         )
         assertTrue(
             "Production AppBackupDataPort must route conversation restore through restoreSessionsDurable()",
@@ -381,41 +412,264 @@ class RepositoryPortSourceContractTest {
     }
 
     @Test
-    fun view_model_dependency_delete_shells_delegate_to_phase3_transaction_service() {
-        val source = mainRoot.resolve("di/AstrBotViewModelDependencies.kt").readText()
-        val botDeleteBody = functionBody(objectBody(source, "HiltBotViewModelDependencies"), "delete")
-        val configDeleteBody = functionBody(objectBody(source, "HiltConfigViewModelDependencies"), "deleteConfigProfile")
+    fun production_view_models_do_not_depend_on_phase1_dependency_facades() {
+        val forbiddenByFile = listOf(
+            "feature/bot/presentation/BotViewModel.kt" to "BotViewModelDependencies",
+            "feature/config/presentation/ConfigViewModel.kt" to "ConfigViewModelDependencies",
+            "feature/provider/presentation/ProviderViewModel.kt" to "ProviderViewModelDependencies",
+            "feature/chat/presentation/ConversationViewModel.kt" to "ConversationViewModelDependencies",
+            "feature/chat/presentation/ChatViewModel.kt" to "ChatViewModelDependencies",
+            "feature/persona/presentation/PersonaViewModel.kt" to "PersonaViewModelDependencies",
+            "feature/plugin/presentation/PluginViewModel.kt" to "PluginViewModelDependencies",
+            "feature/qq/presentation/QQLoginViewModel.kt" to "QQLoginViewModelDependencies",
+            "ui/viewmodel/BridgeViewModel.kt" to "BridgeViewModelDependencies",
+            "ui/viewmodel/RuntimeAssetViewModel.kt" to "RuntimeAssetViewModelDependencies",
+        )
+
+        val dependencySource = mainRoot.resolve("di/AstrBotViewModelDependencies.kt")
+            .takeIf { it.exists() }
+            ?.readText()
+            .orEmpty()
+        val facadeViolations = forbiddenByFile.mapNotNull { (relativePath, forbiddenType) ->
+            val source = mainRoot.resolve(relativePath).readText()
+            if (source.contains(forbiddenType)) "$relativePath still references $forbiddenType" else null
+        }
+        val dependencyFileViolations = forbiddenByFile.mapNotNull { (_, forbiddenType) ->
+            if (dependencySource.contains("interface $forbiddenType")) {
+                "AstrBotViewModelDependencies.kt still declares $forbiddenType"
+            } else {
+                null
+            }
+        }
+        val aggregateImportViolations = forbiddenByFile.mapNotNull { (relativePath, _) ->
+            val source = mainRoot.resolve(relativePath).readText()
+            if (source.contains("com.astrbot.android.di.AstrBotViewModelDependencies")) {
+                "$relativePath imports AstrBotViewModelDependencies"
+            } else {
+                null
+            }
+        }
+        val violations = facadeViolations + dependencyFileViolations + aggregateImportViolations
+
+        assertTrue(
+            "Production ViewModels must stop depending on phase-1 facade shells: $violations",
+            violations.isEmpty(),
+        )
+    }
+
+    @Test
+    fun production_sources_do_not_import_view_model_dependency_facade_contract_types() {
+        val forbiddenImports = listOf(
+            "import com.astrbot.android.di.Phase3DataTransactionService",
+            "import com.astrbot.android.di.RoomPhase3DataTransactionService",
+            "import com.astrbot.android.di.FeatureRepositoryPhase3DataTransactionService",
+            "import com.astrbot.android.di.ChatViewModelRuntimeBindings",
+            "import com.astrbot.android.di.AstrBotViewModelDependencies",
+        )
+        val violations = kotlinFilesUnder(".").flatMap { file ->
+            val relative = mainRoot.relativize(file).toString().replace('\\', '/')
+            val source = file.readText()
+            forbiddenImports.mapNotNull { forbidden ->
+                if (source.contains(forbidden)) "$relative imports $forbidden" else null
+            }
+        }
+
+        assertTrue(
+            "Production source must not import contracts from AstrBotViewModelDependencies.kt: $violations",
+            violations.isEmpty(),
+        )
+
+        val facade = mainRoot.resolve("di/AstrBotViewModelDependencies.kt")
+        if (facade.exists()) {
+            val facadeSource = facade.readText()
+            val forbiddenDeclarations = listOf(
+                "interface Phase3DataTransactionService",
+                "class RoomPhase3DataTransactionService",
+                "object FeatureRepositoryPhase3DataTransactionService",
+                "interface ChatViewModelRuntimeBindings",
+            ).filter(facadeSource::contains)
+
+            assertTrue(
+                "AstrBotViewModelDependencies.kt must not declare production transaction or Chat runtime contracts: $forbiddenDeclarations",
+                forbiddenDeclarations.isEmpty(),
+            )
+        }
+    }
+
+    @Test
+    fun view_model_dependency_module_does_not_rebind_phase1_facades_into_hilt() {
+        val source = mainRoot.resolve("di/hilt/ViewModelDependencyModule.kt").readText()
+        val forbiddenTokens = listOf(
+            "provideBridgeViewModelDependencies",
+            "provideBotViewModelDependencies",
+            "provideProviderViewModelDependencies",
+            "provideConfigViewModelDependencies",
+            "provideConversationViewModelDependencies",
+            "providePersonaViewModelDependencies",
+            "providePluginViewModelDependencies",
+            "provideQqLoginViewModelDependencies",
+            "provideRuntimeAssetViewModelDependencies",
+            "provideChatViewModelDependencies",
+            "HiltBridgeViewModelDependencies",
+            "HiltBotViewModelDependencies",
+            "HiltProviderViewModelDependencies",
+            "HiltConfigViewModelDependencies",
+            "HiltConversationViewModelDependencies",
+            "HiltPersonaViewModelDependencies",
+            "HiltPluginViewModelDependencies",
+            "HiltQQLoginViewModelDependencies",
+            "HiltRuntimeAssetViewModelDependencies",
+            "HiltChatViewModelDependencies",
+        )
+
+        val violations = forbiddenTokens.filter(source::contains)
+
+        assertTrue(
+            "ViewModelDependencyModule must not rebind phase-1 facade shells into Hilt: $violations",
+            violations.isEmpty(),
+        )
+    }
+
+    @Test
+    fun chat_runtime_bindings_do_not_use_static_configure_callback_in_production_path() {
+        val dependencySource = mainRoot.resolve("di/AstrBotViewModelDependencies.kt")
+            .takeIf { it.exists() }
+            ?.readText()
+            .orEmpty()
+        val contractSource = mainRoot.resolve("feature/chat/presentation/ChatViewModelRuntimeBindings.kt").readText()
+        val bindingSource = mainRoot.resolve("di/hilt/DefaultChatViewModelRuntimeBindings.kt").readText()
+        val moduleSource = mainRoot.resolve("di/hilt/ViewModelDependencyModule.kt").readText()
+
+        assertTrue(
+            "AstrBotViewModelDependencies.kt must not keep production Chat runtime binding implementations or plugin helper factories",
+            !dependencySource.contains("HiltChatViewModelRuntimeBindings") &&
+                !dependencySource.contains("defaultPluginInstaller(") &&
+                !dependencySource.contains("defaultPluginCatalogSynchronizer(") &&
+                !dependencySource.contains("defaultPluginRepositorySubscriptionManager(") &&
+                !dependencySource.contains("createPluginInstallIntentHandler("),
+        )
+        assertTrue(
+            "ChatViewModelRuntimeBindings must live with the chat presentation/runtime owner",
+            contractSource.contains("interface ChatViewModelRuntimeBindings"),
+        )
+        assertTrue(
+            "DefaultChatViewModelRuntimeBindings must not keep a static runtime binding callback in the production path",
+            !bindingSource.contains("runtimeBindingsProvider") &&
+                !bindingSource.contains("configureRuntimeBindingsProvider("),
+        )
+        assertTrue(
+            "ViewModelDependencyModule must not configure Chat runtime bindings through a static callback",
+            !moduleSource.contains("configureRuntimeBindingsProvider") &&
+                !moduleSource.contains("HiltChatViewModelRuntimeBindings"),
+        )
+    }
+
+    @Test
+    fun repository_port_module_does_not_bind_production_ports_to_legacy_adapters() {
+        val source = mainRoot.resolve("di/hilt/RepositoryPortModule.kt").readText()
+        val forbiddenTokens = listOf(
+            "LegacyBotRepositoryAdapter",
+            "LegacyConfigRepositoryAdapter",
+            "LegacyPersonaRepositoryAdapter",
+            "LegacyProviderRepositoryAdapter",
+            "LegacyConversationRepositoryAdapter",
+            "LegacyQqConversationAdapter",
+            "LegacyQqPlatformConfigAdapter",
+        )
+
+        val violations = forbiddenTokens.filter(source::contains)
+
+        assertTrue(
+            "RepositoryPortModule must bind production ports to Hilt-owned production boundaries, not legacy adapters: $violations",
+            violations.isEmpty(),
+        )
+    }
+
+    @Test
+    fun runtime_services_module_does_not_bind_core_services_to_legacy_compat_adapters() {
+        val source = mainRoot.resolve("di/hilt/RuntimeServicesModule.kt").readText()
+        val forbiddenTokens = listOf(
+            "LegacyChatCompletionServiceAdapter",
+            "LegacyRuntimeOrchestratorAdapter",
+        )
+
+        val violations = forbiddenTokens.filter(source::contains)
+
+        assertTrue(
+            "RuntimeServicesModule must bind core runtime services through Hilt-owned production services, not legacy compat adapters: $violations",
+            violations.isEmpty(),
+        )
+    }
+
+    @Test
+    fun production_runtime_mainline_does_not_use_static_dependency_provider_callbacks() {
         val bootstrapBody = functionBody(appBootstrapperSource(), "bootstrap")
+        val scheduledTaskExecutorSource = mainRoot.resolve("feature/cron/runtime/ScheduledTaskRuntimeExecutor.kt").readText()
+        val qqBridgeSource = mainRoot.resolve("feature/qq/runtime/QqOneBotBridgeServer.kt").readText()
+        val forbiddenBootstrapCalls = listOf(
+            "ScheduledTaskRuntimeExecutor.configureLlmClientProvider",
+            "ScheduledTaskRuntimeExecutor.configureRuntimeDependenciesProvider",
+            "QqOneBotBridgeServer.configureRuntimeDependenciesProvider",
+        )
+        val forbiddenRuntimeTokens = listOf(
+            "runtimeDependenciesProvider",
+            "llmClientProvider",
+        )
+
+        val bootstrapViolations = forbiddenBootstrapCalls.filter(bootstrapBody::contains)
+        val runtimeViolations = forbiddenRuntimeTokens.flatMap { token ->
+            listOf(
+                "feature/cron/runtime/ScheduledTaskRuntimeExecutor.kt" to scheduledTaskExecutorSource,
+                "feature/qq/runtime/QqOneBotBridgeServer.kt" to qqBridgeSource,
+            ).mapNotNull { (path, source) ->
+                if (source.contains(token)) "$path contains $token" else null
+            }
+        }
+        val violations = bootstrapViolations + runtimeViolations
 
         assertTrue(
-            "HiltBotViewModelDependencies.delete must delegate to a single phase-3 transaction service",
-            botDeleteBody.contains("Phase3DataTransactionServiceRegistry.service.deleteBotProfile(botId)"),
+            "Runtime dependency selection must come from Hilt wiring, not static provider/configure callbacks: $violations",
+            violations.isEmpty(),
+        )
+    }
+
+    @Test
+    fun view_model_dependency_delete_shells_delegate_to_phase3_transaction_service() {
+        val botViewModelSource = mainRoot.resolve("feature/bot/presentation/BotViewModel.kt").readText()
+        val configViewModelSource = mainRoot.resolve("feature/config/presentation/ConfigViewModel.kt").readText()
+        val configDeleteBody = functionBody(configViewModelSource, "delete")
+        val moduleSource = mainRoot.resolve("di/hilt/ViewModelDependencyModule.kt").readText()
+
+        assertTrue(
+            "BotViewModel delete path must delegate to the injected phase-3 transaction service",
+            botViewModelSource.contains("phase3DataTransactionService.deleteBotProfile(botId)"),
         )
         assertTrue(
-            "HiltBotViewModelDependencies must not keep hand-rolled conversation cleanup sequencing",
-            !botDeleteBody.contains("ConversationRepository.deleteSessionsForBot(") &&
-                !botDeleteBody.contains("ConversationRepository.restoreSessions(") &&
-                !botDeleteBody.contains("BotRepository.delete(botId)"),
+            "BotViewModel must not keep hand-rolled conversation cleanup sequencing",
+            !botViewModelSource.contains("ConversationRepository.deleteSessionsForBot(") &&
+                !botViewModelSource.contains("ConversationRepository.restoreSessions(") &&
+                !botViewModelSource.contains("BotRepository.delete(botId)"),
         )
 
         assertTrue(
-            "HiltConfigViewModelDependencies.deleteConfigProfile must delegate to a single phase-3 transaction service",
-            configDeleteBody.contains("Phase3DataTransactionServiceRegistry.service.deleteConfigProfile(profileId)"),
+            "ConfigViewModel delete path must delegate to the injected phase-3 transaction service",
+            configDeleteBody.contains("phase3DataTransactionService.deleteConfigProfile(profileId)"),
         )
         assertTrue(
-            "HiltConfigViewModelDependencies must not keep hand-rolled config delete / bot rebind sequencing",
+            "ConfigViewModel must not keep hand-rolled config delete / bot rebind sequencing",
             !configDeleteBody.contains("BotRepository.replaceConfigBinding(") &&
                 !configDeleteBody.contains("ConfigRepository.delete(profileId)"),
         )
         assertTrue(
-            "AppBootstrapper must install the production phase-3 transaction service for delete shells",
-            bootstrapBody.contains("installProductionPhase3DataTransactionService("),
+            "ViewModelDependencyModule must provide the production phase-3 transaction service through Hilt",
+            moduleSource.contains("RoomPhase3DataTransactionService(database)"),
         )
     }
 
     @Test
     fun phase3_delete_transaction_service_is_suspend_and_does_not_use_runblocking() {
-        val source = mainRoot.resolve("di/AstrBotViewModelDependencies.kt").readText()
+        val source = mainRoot.resolve("feature/config/domain/Phase3DataTransactionService.kt").readText()
+        val implementationSource = mainRoot.resolve("feature/config/data/RoomPhase3DataTransactionService.kt").readText()
         val serviceBody = interfaceBody(source, "Phase3DataTransactionService")
 
         assertTrue(
@@ -428,7 +682,133 @@ class RepositoryPortSourceContractTest {
         )
         assertTrue(
             "Phase3 delete transaction service must not use runBlocking in the service file",
-            !source.contains("runBlocking"),
+            !source.contains("runBlocking") && !implementationSource.contains("runBlocking"),
+        )
+    }
+
+    @Test
+    fun phase3_bootstrap_does_not_manually_install_transaction_or_qq_runtime_dependencies() {
+        val bootstrapBody = functionBody(appBootstrapperSource(), "bootstrap")
+
+        assertTrue(
+            "AppBootstrapper must not install Phase3 transaction services manually once Hilt owns the production path",
+            !bootstrapBody.contains("installProductionPhase3DataTransactionService("),
+        )
+        assertTrue(
+            "AppBootstrapper must not manually install QQ runtime dependencies once Hilt owns the production path",
+            !bootstrapBody.contains("QqOneBotBridgeServer.installRuntimeDependencies("),
+        )
+        assertTrue(
+            "AppBootstrapper must not call QQ bridge test override hooks on the production path",
+            !bootstrapBody.contains("QqOneBotBridgeServer.setAppChatPluginRuntimeOverrideForTests("),
+        )
+    }
+
+    @Test
+    fun phase3_transaction_service_must_not_come_from_a_registry_service_locator() {
+        val dependencySource = mainRoot.resolve("di/AstrBotViewModelDependencies.kt")
+            .takeIf { it.exists() }
+            ?.readText()
+            .orEmpty()
+        val moduleSource = mainRoot.resolve("di/hilt/ViewModelDependencyModule.kt").readText()
+
+        assertTrue(
+            "AstrBotViewModelDependencies.kt must not keep Phase3DataTransactionServiceRegistry in the production path",
+            !dependencySource.contains("Phase3DataTransactionServiceRegistry"),
+        )
+        assertTrue(
+            "ViewModelDependencyModule must not source Phase3DataTransactionService from a registry service locator",
+            !moduleSource.contains("Phase3DataTransactionServiceRegistry"),
+        )
+    }
+
+    @Test
+    fun phase3_bootstrap_must_not_install_registry_ports_for_runtime_backup_or_container_state() {
+        val bootstrapBody = functionBody(appBootstrapperSource(), "bootstrap")
+        val forbiddenAssignments = listOf(
+            "RuntimeContextDataRegistry.port =",
+            "ContainerBridgeStateRegistry.port =",
+            "ConversationBackupDataRegistry.port =",
+            "AppBackupDataRegistry.port =",
+        )
+
+        val violations = forbiddenAssignments.filter(bootstrapBody::contains)
+
+        assertTrue(
+            "AppBootstrapper must not install production registry ports once Hilt owns DI closure: $violations",
+            violations.isEmpty(),
+        )
+    }
+
+    @Test
+    fun runtime_context_resolution_in_production_must_not_depend_on_registry_service_locator() {
+        val runtimeContextPortSource = mainRoot.resolve("core/runtime/context/RuntimeContextDataPort.kt").readText()
+        val runtimeContextResolverSource = mainRoot.resolve("core/runtime/context/RuntimeContextResolver.kt").readText()
+        val appChatRuntimeSource = mainRoot.resolve("feature/chat/runtime/AppChatRuntimeService.kt").readText()
+        val scheduledTaskRuntimeSource = mainRoot.resolve("feature/cron/runtime/ScheduledTaskRuntimeExecutor.kt").readText()
+        val qqRuntimeSource = mainRoot.resolve("feature/qq/runtime/QqMessageRuntimeService.kt").readText()
+
+        assertTrue(
+            "RuntimeContextDataPort production seam must not keep RuntimeContextDataRegistry service locator",
+            !runtimeContextPortSource.contains("object RuntimeContextDataRegistry"),
+        )
+        assertTrue(
+            "RuntimeContextResolver must not read RuntimeContextDataRegistry in the production path",
+            !runtimeContextResolverSource.contains("RuntimeContextDataRegistry"),
+        )
+
+        val serviceViolations = listOf(
+            "feature/chat/runtime/AppChatRuntimeService.kt" to appChatRuntimeSource,
+            "feature/cron/runtime/ScheduledTaskRuntimeExecutor.kt" to scheduledTaskRuntimeSource,
+            "feature/qq/runtime/QqMessageRuntimeService.kt" to qqRuntimeSource,
+        ).mapNotNull { (path, source) ->
+            if (source.contains("RuntimeContextResolver.resolve(")) "$path still calls RuntimeContextResolver directly" else null
+        }
+
+        assertTrue(
+            "Production runtime entry points must resolve context through an injected seam instead of a static resolver: $serviceViolations",
+            serviceViolations.isEmpty(),
+        )
+    }
+
+    @Test
+    fun runtime_backup_and_container_mainline_must_not_depend_on_registry_service_locators() {
+        val targetFiles = listOf(
+            "core/db/backup/AppBackupDataPort.kt",
+            "core/db/backup/AppBackupRepository.kt",
+            "core/db/backup/ConversationBackupDataPort.kt",
+            "core/db/backup/ConversationBackupRepository.kt",
+            "core/runtime/container/ContainerBridgeStatePort.kt",
+            "core/runtime/container/ContainerBridgeController.kt",
+            "core/runtime/container/ContainerBridgeService.kt",
+            "core/runtime/container/ContainerRuntimeInstaller.kt",
+        )
+        val forbiddenTokens = listOf(
+            "AppBackupDataRegistry",
+            "ConversationBackupDataRegistry",
+            "ContainerBridgeStateRegistry",
+        )
+
+        val violations = targetFiles.flatMap { relativePath ->
+            val source = mainRoot.resolve(relativePath).readText()
+            forbiddenTokens.mapNotNull { token ->
+                if (source.contains(token)) "$relativePath contains $token" else null
+            }
+        }
+
+        assertTrue(
+            "Backup/container production mainline must not read registry service locators: $violations",
+            violations.isEmpty(),
+        )
+    }
+
+    @Test
+    fun scheduled_task_runtime_must_not_call_qq_bridge_through_static_singleton() {
+        val source = mainRoot.resolve("feature/cron/runtime/ScheduledTaskLlmCallbacksFactory.kt").readText()
+
+        assertTrue(
+            "ScheduledTaskLlmCallbacksFactory must use an injected QQ sender, not QqOneBotBridgeServer singleton",
+            !source.contains("QqOneBotBridgeServer."),
         )
     }
 
@@ -493,6 +873,15 @@ class RepositoryPortSourceContractTest {
         assertNotEquals("Missing object: $objectName", -1, signatureIndex)
         val bodyStart = source.indexOf('{', signatureIndex)
         assertNotEquals("Missing body for object: $objectName", -1, bodyStart)
+        val bodyEnd = matchingBraceIndex(source, bodyStart)
+        return source.substring(bodyStart + 1, bodyEnd)
+    }
+
+    private fun classBody(source: String, className: String): String {
+        val signatureIndex = source.indexOf("class $className")
+        assertNotEquals("Missing class: $className", -1, signatureIndex)
+        val bodyStart = source.indexOf('{', signatureIndex)
+        assertNotEquals("Missing body for class: $className", -1, bodyStart)
         val bodyEnd = matchingBraceIndex(source, bodyStart)
         return source.substring(bodyStart + 1, bodyEnd)
     }

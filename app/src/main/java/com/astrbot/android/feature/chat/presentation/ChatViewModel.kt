@@ -5,7 +5,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.astrbot.android.AppStrings
 import com.astrbot.android.R
-import com.astrbot.android.di.ChatViewModelDependencies
 import com.astrbot.android.di.hilt.IoDispatcher
 import com.astrbot.android.feature.chat.presentation.AppChatRuntimeDecision
 import com.astrbot.android.feature.chat.presentation.AppChatSendEvent
@@ -91,7 +90,7 @@ private fun ConversationSession.isAppSession(): Boolean = platformId != "qq"
 
 @HiltViewModel
 class ChatViewModel @Inject constructor(
-    private val dependencies: ChatViewModelDependencies,
+    private val dependencies: ChatViewModelRuntimeBindings,
     private val appChatPluginRuntime: AppChatPluginRuntime = DefaultAppChatPluginRuntime,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : ViewModel() {

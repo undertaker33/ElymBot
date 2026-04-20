@@ -51,6 +51,7 @@ class QqOneBotOutboundGatewayTest {
         override val selectedBotId: StateFlow<String> = MutableStateFlow(bot.id)
         override fun currentBot(): BotProfile = bot
         override fun snapshotProfiles(): List<BotProfile> = listOf(bot)
+        override fun create(name: String): BotProfile = bot.copy(displayName = name)
         override suspend fun save(profile: BotProfile) = Unit
         override suspend fun create(profile: BotProfile) = Unit
         override suspend fun delete(id: String) = Unit
@@ -61,6 +62,7 @@ class QqOneBotOutboundGatewayTest {
         override val profiles: StateFlow<List<ConfigProfile>> = MutableStateFlow(listOf(config))
         override val selectedProfileId: StateFlow<String> = MutableStateFlow(config.id)
         override fun snapshotProfiles(): List<ConfigProfile> = listOf(config)
+        override fun create(name: String): ConfigProfile = config.copy(name = name)
         override fun resolve(id: String): ConfigProfile = config
         override fun resolveExistingId(id: String?): String = config.id
         override suspend fun save(profile: ConfigProfile) = Unit

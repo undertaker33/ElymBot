@@ -38,6 +38,7 @@ class LlmSourceContractTest {
     fun runtime_llm_adapters_exist() {
         val required = listOf(
             "runtime/llm/LegacyChatCompletionServiceAdapter.kt",
+            "feature/chat/presentation/ChatViewModelRuntimeBindings.kt", // chat runtime contract declarations
             "runtime/llm/LegacyRuntimeOrchestratorAdapter.kt",
             "feature/plugin/runtime/DefaultRuntimeLlmOrchestrator.kt",
         )
@@ -103,8 +104,8 @@ class LlmSourceContractTest {
     fun sendConfiguredChatWithTools_only_called_from_allowed_locations() {
         val allowedFiles = setOf(
             "runtime/llm/LegacyChatCompletionServiceAdapter.kt",
-            // Legacy files not yet migrated — allowlist with phase notes:
-            "di/AstrBotViewModelDependencies.kt",                     // legacy bridge, future migration
+            "feature/chat/presentation/ChatViewModelRuntimeBindings.kt", // chat runtime contract declarations
+            "di/hilt/DefaultChatViewModelRuntimeBindings.kt",         // phase 3 Hilt bridge
             "feature/chat/runtime/AppChatProviderInvocationService.kt", // phase 3 provider adapter
             "core/runtime/llm/ChatCompletionService.kt",              // definition site
         )
@@ -136,8 +137,8 @@ class LlmSourceContractTest {
     fun sendConfiguredChatStreamWithTools_only_called_from_allowed_locations() {
         val allowedFiles = setOf(
             "runtime/llm/LegacyChatCompletionServiceAdapter.kt",
-            // Legacy files not yet migrated — allowlist with phase notes:
-            "di/AstrBotViewModelDependencies.kt",                     // legacy bridge, future migration
+            "feature/chat/presentation/ChatViewModelRuntimeBindings.kt", // chat runtime contract declarations
+            "di/hilt/DefaultChatViewModelRuntimeBindings.kt",         // phase 3 Hilt bridge
             "feature/chat/runtime/AppChatProviderInvocationService.kt", // phase 3 provider adapter
             "core/runtime/llm/ChatCompletionService.kt",              // definition site
         )

@@ -3,7 +3,6 @@ package com.astrbot.android.ui.viewmodel
 import com.astrbot.android.R
 import com.astrbot.android.MainDispatcherRule
 import com.astrbot.android.data.PluginUninstallResult
-import com.astrbot.android.di.PluginViewModelDependencies
 import com.astrbot.android.data.PluginRepository
 import com.astrbot.android.model.plugin.CardResult
 import com.astrbot.android.model.plugin.MediaResult
@@ -163,8 +162,10 @@ class PluginViewModelTest {
         assertTrue(repositoryField != null)
         assertEquals(PluginRepository.SUPPORTED_PROTOCOL_VERSION, repositoryField!!.getInt(null))
         assertFalse(
-            Class.forName("com.astrbot.android.di.AstrBotViewModelDependenciesKt")
-                .declaredFields
+            runCatching { Class.forName("com.astrbot.android.di.AstrBotViewModelDependenciesKt") }
+                .getOrNull()
+                ?.declaredFields
+                .orEmpty()
                 .any { field -> field.name == "SUPPORTED_PLUGIN_PROTOCOL_VERSION" },
         )
         assertFalse(
@@ -2855,7 +2856,7 @@ class PluginViewModelTest {
         private val hostVersion: String = "9.9.9",
         override val logBus: PluginRuntimeLogBus = NoOpPluginRuntimeLogBus,
         private val governanceReadsLogBus: Boolean = false,
-    ) : PluginViewModelDependencies {
+    ) : PluginViewModelBindings {
         private val recordsFlow = MutableStateFlow(records.map(::projectInstalledRecord))
         private val repositorySourcesFlow = MutableStateFlow(repositorySources)
         private val catalogEntriesFlow = MutableStateFlow(catalogEntries)

@@ -6,7 +6,7 @@ import com.astrbot.android.model.PersonaToolEnablementSnapshot
 import kotlinx.coroutines.flow.StateFlow
 
 @Suppress("DEPRECATION")
-class LegacyPersonaRepositoryAdapter : PersonaRepositoryPort {
+open class FeaturePersonaRepositoryPortAdapter : PersonaRepositoryPort {
 
     override val personas: StateFlow<List<PersonaProfile>>
         get() = FeaturePersonaRepository.personas
@@ -57,5 +57,7 @@ class LegacyPersonaRepositoryAdapter : PersonaRepositoryPort {
     }
 }
 
+@Deprecated("Phase-2 residue. Production Hilt binding uses FeaturePersonaRepositoryPortAdapter.")
+class LegacyPersonaRepositoryAdapter : FeaturePersonaRepositoryPortAdapter()
 
 

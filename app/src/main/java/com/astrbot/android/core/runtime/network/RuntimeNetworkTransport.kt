@@ -85,6 +85,8 @@ class OkHttpRuntimeNetworkTransport(
     internal val baseClient: OkHttpClient = OkHttpClient.Builder()
         .followRedirects(true)
         .retryOnConnectionFailure(true)
+        // Keep idle provider/runtime sockets from silently dying behind NAT/LB/OEM background networking.
+        .pingInterval(30, TimeUnit.SECONDS)
         .build(),
 ) : RuntimeNetworkTransport {
 

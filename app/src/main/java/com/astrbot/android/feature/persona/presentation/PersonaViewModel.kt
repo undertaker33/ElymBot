@@ -1,17 +1,20 @@
 package com.astrbot.android.ui.viewmodel
 
 import androidx.lifecycle.ViewModel
-import com.astrbot.android.di.PersonaViewModelDependencies
+import androidx.lifecycle.viewModelScope
+import com.astrbot.android.feature.persona.domain.PersonaRepositoryPort
 import com.astrbot.android.model.PersonaProfile
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
 
 @HiltViewModel
 class PersonaViewModel @Inject constructor(
-    private val dependencies: PersonaViewModelDependencies,
+    private val personaRepository: PersonaRepositoryPort,
 ) : ViewModel() {
-    val personas: StateFlow<List<PersonaProfile>> = dependencies.personas
+    val personas: StateFlow<List<PersonaProfile>> = personaRepository.personas
 
     fun add(
         name: String,
@@ -21,20 +24,38 @@ class PersonaViewModel @Inject constructor(
         defaultProviderId: String,
         maxContextMessages: Int,
     ) {
-        dependencies.add(name, tag, systemPrompt, enabledTools, defaultProviderId, maxContextMessages)
+        viewModelScope.launch(start = CoroutineStart.UNDISPATCHED) {
+            personaRepository.add(
+                PersonaProfile(
+                    id = "",
+                    name = name,
+                    tag = tag,
+                    systemPrompt = systemPrompt,
+                    enabledTools = enabledTools,
+                    defaultProviderId = defaultProviderId,
+                    maxContextMessages = maxContextMessages,
+                ),
+            )
+        }
     }
 
     fun update(profile: PersonaProfile) {
-        dependencies.update(profile)
+        viewModelScope.launch(start = CoroutineStart.UNDISPATCHED) {
+            personaRepository.update(profile)
+        }
     }
 
     fun toggleEnabled(id: String) {
-        dependencies.toggleEnabled(id)
+        viewModelScope.launch(start = CoroutineStart.UNDISPATCHED) {
+            personaRepository.toggleEnabled(id)
+        }
     }
 
     fun delete(id: String): Result<Unit> {
         return runCatching {
-            dependencies.delete(id)
+            viewModelScope.launch(start = CoroutineStart.UNDISPATCHED) {
+                personaRepository.delete(id)
+            }
         }
     }
 }

@@ -185,6 +185,14 @@ class RuntimeNetworkTransportTest {
     }
 
     @Test
+    fun shared_base_client_enables_keepalive_pings_for_idle_runtime_connections() {
+        val transport = OkHttpRuntimeNetworkTransport()
+
+        assertEquals(30_000, transport.baseClient.pingIntervalMillis.toLong())
+        assertTrue(transport.baseClient.retryOnConnectionFailure)
+    }
+
+    @Test
     fun sse_parser_handles_multiline_data() {
         val input = "event: update\ndata: line1\ndata: line2\n\n"
         val events = mutableListOf<SseEvent>()

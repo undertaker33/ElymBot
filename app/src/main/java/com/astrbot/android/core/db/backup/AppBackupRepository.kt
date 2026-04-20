@@ -1,6 +1,7 @@
 package com.astrbot.android.core.db.backup
 
 import com.astrbot.android.core.runtime.audio.TtsVoiceAssetRepository
+import com.astrbot.android.di.ProductionAppBackupDataPort
 
 import android.content.Context
 import android.net.Uri
@@ -66,6 +67,8 @@ import java.util.concurrent.atomic.AtomicBoolean
 object AppBackupRepository {
     private val initialized = AtomicBoolean(false)
     private val timestampFormatter = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss")
+    @Volatile
+    private var dataPortOverrideForTests: AppBackupDataPort? = null
 
     private lateinit var appContext: Context
     private lateinit var backupDirectory: File
@@ -88,6 +91,10 @@ object AppBackupRepository {
 
     fun backupsForModule(module: AppBackupModuleKind): StateFlow<List<ModuleBackupItem>> {
         return moduleBackupFlows.getValue(module).asStateFlow()
+    }
+
+    internal fun setDataPortOverrideForTests(dataPort: AppBackupDataPort?) {
+        dataPortOverrideForTests = dataPort
     }
 
     suspend fun createBackup(trigger: String = "manual"): Result<AppBackupItem> = withContext(Dispatchers.IO) {
@@ -428,7 +435,7 @@ object AppBackupRepository {
 
     private fun buildManifest(trigger: String): AppBackupManifest {
         val now = System.currentTimeMillis()
-        val dataPort = AppBackupDataRegistry.port
+        val dataPort = resolveDataPort()
         val botProfiles = dataPort.snapshotBots()
         val providerProfiles = dataPort.snapshotProviders()
         val personaProfiles = dataPort.snapshotPersonas()
@@ -493,7 +500,7 @@ object AppBackupRepository {
         val incoming = manifestToSnapshot(manifest, materializeTtsFiles = true, extractedFiles = extractedFiles)
         val current = buildCurrentSnapshot()
         val resolved = AppBackupImportPlanner.merge(current, incoming, plan)
-        val dataPort = AppBackupDataRegistry.port
+        val dataPort = resolveDataPort()
         val appliedStages = mutableListOf<AppBackupRestoreStage>()
         val stages = listOf(
             AppBackupRestoreStage(
@@ -705,7 +712,7 @@ object AppBackupRepository {
     }
 
     private fun buildCurrentSnapshot(): AppBackupSnapshot {
-        val dataPort = AppBackupDataRegistry.port
+        val dataPort = resolveDataPort()
         val externalState = dataPort.snapshotExternalState()
         return AppBackupSnapshot(
             bots = dataPort.snapshotBots(),
@@ -858,6 +865,10 @@ object AppBackupRepository {
                     }
                 },
             )
+    }
+
+    private fun resolveDataPort(): AppBackupDataPort {
+        return dataPortOverrideForTests ?: ProductionAppBackupDataPort
     }
 
     private fun ttsAssetToJson(asset: TtsVoiceReferenceAsset): JSONObject {

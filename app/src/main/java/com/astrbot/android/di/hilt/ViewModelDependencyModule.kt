@@ -1,105 +1,174 @@
+@file:Suppress("DEPRECATION")
+
 package com.astrbot.android.di.hilt
 
 import android.content.Context
-import com.astrbot.android.di.BotViewModelDependencies
-import com.astrbot.android.di.BridgeViewModelDependencies
-import com.astrbot.android.di.ChatViewModelDependencies
-import com.astrbot.android.di.ChatViewModelRuntimeBindings
-import com.astrbot.android.di.ConfigViewModelDependencies
-import com.astrbot.android.di.ConversationViewModelDependencies
-import com.astrbot.android.di.HiltBotViewModelDependencies
-import com.astrbot.android.di.HiltBridgeViewModelDependencies
-import com.astrbot.android.di.HiltChatViewModelDependencies
-import com.astrbot.android.di.HiltChatViewModelRuntimeBindings
-import com.astrbot.android.di.HiltConfigViewModelDependencies
-import com.astrbot.android.di.HiltConversationViewModelDependencies
-import com.astrbot.android.di.HiltPersonaViewModelDependencies
-import com.astrbot.android.di.HiltPluginViewModelDependencies
-import com.astrbot.android.di.HiltProviderViewModelDependencies
-import com.astrbot.android.di.HiltQQLoginViewModelDependencies
-import com.astrbot.android.di.HiltRuntimeAssetViewModelDependencies
-import com.astrbot.android.di.PersonaViewModelDependencies
-import com.astrbot.android.di.PluginViewModelDependencies
-import com.astrbot.android.di.ProviderViewModelDependencies
-import com.astrbot.android.di.QQLoginViewModelDependencies
-import com.astrbot.android.di.RuntimeAssetViewModelDependencies
-import com.astrbot.android.di.createPluginInstallIntentHandler
+import com.astrbot.android.core.runtime.context.RuntimeContextResolverPort
+import com.astrbot.android.core.runtime.llm.LlmClientPort
+import com.astrbot.android.data.RuntimeAssetRepository
+import com.astrbot.android.data.db.AstrBotDatabase
+import com.astrbot.android.feature.config.data.RoomPhase3DataTransactionService
+import com.astrbot.android.feature.config.domain.Phase3DataTransactionService
+import com.astrbot.android.feature.provider.runtime.DefaultProviderRuntimePort
+import com.astrbot.android.feature.provider.runtime.ProviderRuntimePort
 import com.astrbot.android.feature.chat.domain.ConversationRepositoryPort
-import com.astrbot.android.feature.plugin.runtime.catalog.PluginInstallIntentHandler
+import com.astrbot.android.feature.plugin.data.FeaturePluginRepository
+import com.astrbot.android.ui.viewmodel.DefaultPluginViewModelBindings
+import com.astrbot.android.ui.viewmodel.DefaultQQLoginViewModelBindings
+import com.astrbot.android.ui.viewmodel.PluginViewModelBindings
+import com.astrbot.android.ui.viewmodel.QQLoginViewModelBindings
+import com.astrbot.android.feature.plugin.runtime.PluginFailureGuard
+import com.astrbot.android.feature.plugin.runtime.PluginGovernanceReadModel
+import com.astrbot.android.feature.plugin.runtime.PluginGovernanceRepository
+import com.astrbot.android.feature.plugin.runtime.PluginRuntimeFailureStateStoreProvider
+import com.astrbot.android.feature.plugin.runtime.PluginRuntimeLogBus
+import com.astrbot.android.feature.plugin.runtime.PluginRuntimeLogBusProvider
+import com.astrbot.android.feature.qq.data.NapCatLoginRepository
+import com.astrbot.android.feature.qq.data.NapCatBridgeRepository
 import com.astrbot.android.feature.plugin.runtime.RuntimeLlmOrchestratorPort
+import com.astrbot.android.core.runtime.audio.TtsVoiceAssetRepository
+import com.astrbot.android.model.NapCatBridgeConfig
+import com.astrbot.android.model.NapCatLoginState
+import com.astrbot.android.model.NapCatRuntimeState
+import com.astrbot.android.model.RuntimeAssetState
+import com.astrbot.android.model.TtsVoiceReferenceAsset
+import com.astrbot.android.model.plugin.PluginCatalogEntryRecord
+import com.astrbot.android.model.plugin.PluginInstallRecord
+import com.astrbot.android.model.plugin.PluginRepositorySource
+import com.astrbot.android.ui.viewmodel.ChatViewModelRuntimeBindings
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
-import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import javax.inject.Singleton
+import javax.inject.Qualifier
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.StateFlow
+
+@Qualifier
+@Retention(AnnotationRetention.BINARY)
+internal annotation class BotLoginState
+
+@Qualifier
+@Retention(AnnotationRetention.BINARY)
+internal annotation class QqLoginState
+
+@Qualifier
+@Retention(AnnotationRetention.BINARY)
+internal annotation class BridgeConfig
+
+@Qualifier
+@Retention(AnnotationRetention.BINARY)
+internal annotation class BridgeRuntimeState
+
+@Qualifier
+@Retention(AnnotationRetention.BINARY)
+internal annotation class RuntimeAssetStateFlow
+
+@Qualifier
+@Retention(AnnotationRetention.BINARY)
+internal annotation class PluginRecords
+
+@Qualifier
+@Retention(AnnotationRetention.BINARY)
+internal annotation class PluginRepositorySources
+
+@Qualifier
+@Retention(AnnotationRetention.BINARY)
+internal annotation class PluginCatalogEntries
+
+@Qualifier
+@Retention(AnnotationRetention.BINARY)
+internal annotation class PluginGovernanceReadModels
+
+@Qualifier
+@Retention(AnnotationRetention.BINARY)
+internal annotation class TtsVoiceAssets
 
 @Module
 @InstallIn(SingletonComponent::class)
 internal object ViewModelDependencyModule {
 
     @Provides
-    @Singleton
-    fun provideBridgeViewModelDependencies(): BridgeViewModelDependencies = HiltBridgeViewModelDependencies
+    @BridgeConfig
+    fun provideBridgeConfig(): StateFlow<NapCatBridgeConfig> = NapCatBridgeRepository.config
+
+    @Provides
+    @BridgeRuntimeState
+    fun provideBridgeRuntimeState(): StateFlow<NapCatRuntimeState> = NapCatBridgeRepository.runtimeState
+
+    @Provides
+    @PluginRecords
+    fun providePluginRecords(): StateFlow<@JvmSuppressWildcards List<PluginInstallRecord>> = FeaturePluginRepository.records
+
+    @Provides
+    @PluginRepositorySources
+    fun providePluginRepositorySources(): StateFlow<@JvmSuppressWildcards List<PluginRepositorySource>> = FeaturePluginRepository.repositorySources
+
+    @Provides
+    @PluginCatalogEntries
+    fun providePluginCatalogEntries(): StateFlow<@JvmSuppressWildcards List<PluginCatalogEntryRecord>> = FeaturePluginRepository.catalogEntries
 
     @Provides
     @Singleton
-    fun provideBotViewModelDependencies(): BotViewModelDependencies = HiltBotViewModelDependencies
+    fun providePluginGovernanceRepository(): PluginGovernanceRepository = PluginGovernanceRepository()
+
+    @Provides
+    @PluginGovernanceReadModels
+    fun providePluginGovernanceReadModels(
+        repository: PluginGovernanceRepository,
+    ): Flow<@JvmSuppressWildcards Map<String, PluginGovernanceReadModel>> = repository.observeReadModels()
 
     @Provides
     @Singleton
-    fun provideProviderViewModelDependencies(): ProviderViewModelDependencies = HiltProviderViewModelDependencies
+    fun providePluginFailureGuard(): PluginFailureGuard =
+        PluginFailureGuard(store = PluginRuntimeFailureStateStoreProvider.store())
 
     @Provides
     @Singleton
-    fun provideConfigViewModelDependencies(): ConfigViewModelDependencies = HiltConfigViewModelDependencies
+    fun providePluginRuntimeLogBus(): PluginRuntimeLogBus = PluginRuntimeLogBusProvider.bus()
 
     @Provides
     @Singleton
-    fun provideConversationViewModelDependencies(): ConversationViewModelDependencies = HiltConversationViewModelDependencies
+    fun providePluginViewModelBindings(
+        bindings: DefaultPluginViewModelBindings,
+    ): PluginViewModelBindings = bindings
 
     @Provides
     @Singleton
-    fun providePersonaViewModelDependencies(): PersonaViewModelDependencies = HiltPersonaViewModelDependencies
+    fun provideQqLoginViewModelBindings(
+        bindings: DefaultQQLoginViewModelBindings,
+    ): QQLoginViewModelBindings = bindings
+
+    @Provides
+    @RuntimeAssetStateFlow
+    fun provideRuntimeAssetState(): StateFlow<RuntimeAssetState> = RuntimeAssetRepository.state
+
+    @Provides
+    @BotLoginState
+    fun provideBotLoginState(): StateFlow<NapCatLoginState> = NapCatLoginRepository.loginState
+
+    @Provides
+    @QqLoginState
+    fun provideQqLoginState(): StateFlow<NapCatLoginState> = NapCatLoginRepository.loginState
+
+    @Provides
+    @TtsVoiceAssets
+    fun provideTtsVoiceAssets(): StateFlow<@JvmSuppressWildcards List<TtsVoiceReferenceAsset>> = TtsVoiceAssetRepository.assets
 
     @Provides
     @Singleton
-    fun providePluginViewModelDependencies(): PluginViewModelDependencies = HiltPluginViewModelDependencies
+    fun providePhase3DataTransactionService(
+        database: AstrBotDatabase,
+    ): Phase3DataTransactionService = RoomPhase3DataTransactionService(database)
 
     @Provides
     @Singleton
-    fun provideQqLoginViewModelDependencies(): QQLoginViewModelDependencies = HiltQQLoginViewModelDependencies
-
-    @Provides
-    fun providePluginInstallIntentHandler(): PluginInstallIntentHandler = createPluginInstallIntentHandler()
-
-    @Provides
-    @Singleton
-    fun provideRuntimeAssetViewModelDependencies(
-        @ApplicationContext appContext: Context,
-    ): RuntimeAssetViewModelDependencies {
-        return HiltRuntimeAssetViewModelDependencies(appContext)
-    }
+    fun provideProviderRuntimePort(): ProviderRuntimePort = DefaultProviderRuntimePort()
 
     @Provides
     @Singleton
     fun provideChatViewModelRuntimeBindings(
-        conversationRepositoryPort: ConversationRepositoryPort,
-        runtimeLlmOrchestrator: RuntimeLlmOrchestratorPort,
-    ): ChatViewModelRuntimeBindings {
-        return HiltChatViewModelRuntimeBindings(
-            dependencies = HiltChatViewModelDependencies,
-            runtimeLlmOrchestrator = runtimeLlmOrchestrator,
-            conversationRepositoryPort = conversationRepositoryPort,
-        )
-    }
-
-    @Provides
-    @Singleton
-    fun provideChatViewModelDependencies(
-        runtimeBindings: ChatViewModelRuntimeBindings,
-    ): ChatViewModelDependencies {
-        HiltChatViewModelDependencies.configureRuntimeBindingsProvider { runtimeBindings }
-        return HiltChatViewModelDependencies
-    }
+        bindings: DefaultChatViewModelRuntimeBindings,
+    ): ChatViewModelRuntimeBindings = bindings
 }
