@@ -1,12 +1,13 @@
 ﻿package com.astrbot.android.feature.provider.data
 
 import com.astrbot.android.feature.provider.domain.ProviderRepositoryPort
+import com.astrbot.android.model.FeatureSupportState
 import com.astrbot.android.model.ProviderCapability
 import com.astrbot.android.model.ProviderProfile
 import kotlinx.coroutines.flow.StateFlow
 
 @Suppress("DEPRECATION")
-class LegacyProviderRepositoryAdapter : ProviderRepositoryPort {
+open class FeatureProviderRepositoryPortAdapter : ProviderRepositoryPort {
 
     override val providers: StateFlow<List<ProviderProfile>>
         get() = FeatureProviderRepository.providers
@@ -16,6 +17,26 @@ class LegacyProviderRepositoryAdapter : ProviderRepositoryPort {
 
     override fun providersWithCapability(capability: ProviderCapability): List<ProviderProfile> =
         FeatureProviderRepository.providers.value.filter { capability in it.capabilities }
+
+    override fun toggleEnabled(id: String) {
+        FeatureProviderRepository.toggleEnabled(id)
+    }
+
+    override fun updateMultimodalProbeSupport(id: String, support: FeatureSupportState) {
+        FeatureProviderRepository.updateMultimodalProbeSupport(id, support)
+    }
+
+    override fun updateNativeStreamingProbeSupport(id: String, support: FeatureSupportState) {
+        FeatureProviderRepository.updateNativeStreamingProbeSupport(id, support)
+    }
+
+    override fun updateSttProbeSupport(id: String, support: FeatureSupportState) {
+        FeatureProviderRepository.updateSttProbeSupport(id, support)
+    }
+
+    override fun updateTtsProbeSupport(id: String, support: FeatureSupportState) {
+        FeatureProviderRepository.updateTtsProbeSupport(id, support)
+    }
 
     override suspend fun save(profile: ProviderProfile) {
         FeatureProviderRepository.save(
@@ -42,5 +63,7 @@ class LegacyProviderRepositoryAdapter : ProviderRepositoryPort {
     }
 }
 
+@Deprecated("Phase-2 residue. Production Hilt binding uses FeatureProviderRepositoryPortAdapter.")
+class LegacyProviderRepositoryAdapter : FeatureProviderRepositoryPortAdapter()
 
 

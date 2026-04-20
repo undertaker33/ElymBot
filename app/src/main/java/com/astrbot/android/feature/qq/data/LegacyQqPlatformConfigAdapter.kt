@@ -5,7 +5,7 @@ import com.astrbot.android.model.BotProfile
 import com.astrbot.android.model.chat.MessageType
 
 @Suppress("DEPRECATION")
-class LegacyQqPlatformConfigAdapter : QqPlatformConfigPort {
+open class FeatureQqPlatformConfigPortAdapter : QqPlatformConfigPort {
 
     override fun resolveQqBot(selfId: String): BotProfile? {
         return com.astrbot.android.feature.bot.data.FeatureBotRepository.resolveBoundBot(selfId)
@@ -68,4 +68,6 @@ class LegacyQqPlatformConfigAdapter : QqPlatformConfigPort {
     }
 }
 
+@Deprecated("Phase-2 residue. Production Hilt binding uses FeatureQqPlatformConfigPortAdapter.")
+class LegacyQqPlatformConfigAdapter : FeatureQqPlatformConfigPortAdapter()
 

@@ -1,6 +1,5 @@
 package com.astrbot.android.ui.viewmodel
 
-import com.astrbot.android.di.ChatViewModelDependencies
 import com.astrbot.android.model.BotProfile
 import com.astrbot.android.model.ProviderCapability
 import com.astrbot.android.model.chat.ConversationSession
@@ -11,7 +10,7 @@ data class ChatSessionControllerResult(
 )
 
 class ChatSessionController(
-    private val dependencies: ChatViewModelDependencies,
+    private val dependencies: ChatViewModelRuntimeBindings,
 ) {
     fun selectBot(state: ChatUiState, botId: String): ChatUiState {
         val bot = dependencies.bots.value.firstOrNull { it.id == botId }

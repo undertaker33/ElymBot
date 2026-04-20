@@ -96,6 +96,7 @@ internal class QqOneBotRuntimeGraph(
             conversationPort = dependencies.conversationPort,
             platformConfigPort = dependencies.platformConfigPort,
             orchestrator = dependencies.orchestrator,
+            runtimeContextResolverPort = dependencies.runtimeContextResolverPort,
             replySender = replySender,
             llmRuntime = appChatPluginRuntime,
             providerInvoker = dependencies.providerInvoker,

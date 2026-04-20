@@ -1,7 +1,9 @@
 package com.astrbot.android.ui.viewmodel
 
 import androidx.lifecycle.ViewModel
-import com.astrbot.android.di.BridgeViewModelDependencies
+import com.astrbot.android.di.hilt.BridgeConfig
+import com.astrbot.android.di.hilt.BridgeRuntimeState
+import com.astrbot.android.feature.qq.data.NapCatBridgeRepository
 import com.astrbot.android.model.NapCatBridgeConfig
 import com.astrbot.android.model.NapCatRuntimeState
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -10,12 +12,11 @@ import kotlinx.coroutines.flow.StateFlow
 
 @HiltViewModel
 class BridgeViewModel @Inject constructor(
-    private val dependencies: BridgeViewModelDependencies,
+    @BridgeConfig val config: StateFlow<NapCatBridgeConfig>,
+    @BridgeRuntimeState val runtimeState: StateFlow<NapCatRuntimeState>,
 ) : ViewModel() {
-    val config: StateFlow<NapCatBridgeConfig> = dependencies.config
-    val runtimeState: StateFlow<NapCatRuntimeState> = dependencies.runtimeState
 
     fun saveConfig(config: NapCatBridgeConfig) {
-        dependencies.saveConfig(config)
+        NapCatBridgeRepository.updateConfig(config)
     }
 }

@@ -59,6 +59,7 @@ object RuntimeLogRepository {
             ring.fill(null)
             head = 0
             size = 0
+            lastEmitMs = 0L
             dirty = false
         }
         _logs.value = emptyList()

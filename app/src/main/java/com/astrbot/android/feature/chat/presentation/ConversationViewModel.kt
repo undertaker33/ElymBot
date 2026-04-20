@@ -1,7 +1,7 @@
 package com.astrbot.android.ui.viewmodel
 
 import androidx.lifecycle.ViewModel
-import com.astrbot.android.di.ConversationViewModelDependencies
+import com.astrbot.android.feature.chat.domain.ConversationRepositoryPort
 import com.astrbot.android.model.chat.ConversationMessage
 import com.astrbot.android.model.chat.ConversationSession
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -10,23 +10,23 @@ import kotlinx.coroutines.flow.StateFlow
 
 @HiltViewModel
 class ConversationViewModel @Inject constructor(
-    private val dependencies: ConversationViewModelDependencies,
+    private val conversationRepository: ConversationRepositoryPort,
 ) : ViewModel() {
-    val sessions: StateFlow<List<ConversationSession>> = dependencies.sessions
+    val sessions: StateFlow<List<ConversationSession>> = conversationRepository.sessions
 
     fun contextPreview(sessionId: String): String {
-        return dependencies.contextPreview(sessionId)
+        return conversationRepository.contextPreview(sessionId)
     }
 
-    fun session(sessionId: String = dependencies.defaultSessionId): ConversationSession {
-        return dependencies.session(sessionId)
+    fun session(sessionId: String = conversationRepository.defaultSessionId): ConversationSession {
+        return conversationRepository.session(sessionId)
     }
 
     fun appendMessage(sessionId: String, role: String, content: String) {
-        dependencies.appendMessage(sessionId, role, content)
+        conversationRepository.appendMessage(sessionId, role, content)
     }
 
     fun replaceMessages(sessionId: String, messages: List<ConversationMessage>) {
-        dependencies.replaceMessages(sessionId, messages)
+        conversationRepository.replaceMessages(sessionId, messages)
     }
 }

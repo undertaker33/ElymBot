@@ -5,7 +5,7 @@ import com.astrbot.android.model.ConfigProfile
 import kotlinx.coroutines.flow.StateFlow
 
 @Suppress("DEPRECATION")
-class LegacyConfigRepositoryAdapter : ConfigRepositoryPort {
+open class FeatureConfigRepositoryPortAdapter : ConfigRepositoryPort {
 
     override val profiles: StateFlow<List<ConfigProfile>>
         get() = FeatureConfigRepository.profiles
@@ -15,6 +15,9 @@ class LegacyConfigRepositoryAdapter : ConfigRepositoryPort {
 
     override fun snapshotProfiles(): List<ConfigProfile> =
         FeatureConfigRepository.snapshotProfiles()
+
+    override fun create(name: String): ConfigProfile =
+        FeatureConfigRepository.create(name)
 
     override fun resolve(id: String): ConfigProfile =
         FeatureConfigRepository.resolve(id)
@@ -35,4 +38,6 @@ class LegacyConfigRepositoryAdapter : ConfigRepositoryPort {
     }
 }
 
+@Deprecated("Phase-2 residue. Production Hilt binding uses FeatureConfigRepositoryPortAdapter.")
+class LegacyConfigRepositoryAdapter : FeatureConfigRepositoryPortAdapter()
 

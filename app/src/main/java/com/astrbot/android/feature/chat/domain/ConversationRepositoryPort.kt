@@ -1,11 +1,15 @@
 package com.astrbot.android.feature.chat.domain
 
 import com.astrbot.android.model.chat.ConversationAttachment
+import com.astrbot.android.model.chat.ConversationMessage
 import com.astrbot.android.model.chat.ConversationSession
 import kotlinx.coroutines.flow.StateFlow
 
 interface ConversationRepositoryPort {
+    val defaultSessionId: String
     val sessions: StateFlow<List<ConversationSession>>
+
+    fun contextPreview(sessionId: String): String
 
     fun session(sessionId: String): ConversationSession
 
@@ -22,6 +26,8 @@ interface ConversationRepositoryPort {
         content: String? = null,
         attachments: List<ConversationAttachment>? = null,
     )
+
+    fun replaceMessages(sessionId: String, messages: List<ConversationMessage>)
 
     fun renameSession(sessionId: String, title: String)
 

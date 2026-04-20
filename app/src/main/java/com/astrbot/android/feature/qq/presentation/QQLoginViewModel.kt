@@ -2,9 +2,11 @@ package com.astrbot.android.ui.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.astrbot.android.core.common.logging.RuntimeLogRepository
 import com.astrbot.android.feature.qq.data.NapCatLoginService
-import com.astrbot.android.di.QQLoginViewModelDependencies
+import com.astrbot.android.feature.qq.data.NapCatLoginRepository
 import com.astrbot.android.di.hilt.IoDispatcher
+import com.astrbot.android.di.hilt.QqLoginState
 import com.astrbot.android.model.NapCatLoginState
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -16,12 +18,93 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+interface QQLoginViewModelBindings {
+    val loginState: StateFlow<NapCatLoginState>
+
+    suspend fun refresh(manual: Boolean = false)
+
+    suspend fun refreshQrCode()
+
+    suspend fun quickLoginSavedAccount(uin: String? = null)
+
+    suspend fun saveQuickLoginAccount(uin: String)
+
+    suspend fun logoutCurrentAccount()
+
+    suspend fun passwordLogin(uin: String, password: String)
+
+    suspend fun captchaLogin(uin: String, password: String, ticket: String, randstr: String, sid: String)
+
+    suspend fun newDeviceLogin(uin: String, password: String, verifiedToken: String?)
+
+    suspend fun getNewDeviceQRCode(): NapCatLoginService.NewDeviceQrCodeResult
+
+    suspend fun pollNewDeviceQRCode(bytesToken: String): NapCatLoginService.NewDeviceQrPollResult
+
+    fun log(message: String)
+}
+
+internal class DefaultQQLoginViewModelBindings @Inject constructor(
+    @QqLoginState override val loginState: StateFlow<NapCatLoginState>,
+) : QQLoginViewModelBindings {
+    override suspend fun refresh(manual: Boolean) {
+        NapCatLoginRepository.refresh(manual)
+    }
+
+    override suspend fun refreshQrCode() {
+        NapCatLoginRepository.refreshQrCode()
+    }
+
+    override suspend fun quickLoginSavedAccount(uin: String?) {
+        NapCatLoginRepository.quickLoginSavedAccount(uin)
+    }
+
+    override suspend fun saveQuickLoginAccount(uin: String) {
+        NapCatLoginRepository.saveQuickLoginAccount(uin)
+    }
+
+    override suspend fun logoutCurrentAccount() {
+        NapCatLoginRepository.logoutCurrentAccount()
+    }
+
+    override suspend fun passwordLogin(uin: String, password: String) {
+        NapCatLoginRepository.passwordLogin(uin, password)
+    }
+
+    override suspend fun captchaLogin(
+        uin: String,
+        password: String,
+        ticket: String,
+        randstr: String,
+        sid: String,
+    ) {
+        NapCatLoginRepository.captchaLogin(uin, password, ticket, randstr, sid)
+    }
+
+    override suspend fun newDeviceLogin(uin: String, password: String, verifiedToken: String?) {
+        NapCatLoginRepository.newDeviceLogin(uin, password, verifiedToken)
+    }
+
+    override suspend fun getNewDeviceQRCode(): NapCatLoginService.NewDeviceQrCodeResult {
+        return NapCatLoginRepository.getNewDeviceQRCode()
+    }
+
+    override suspend fun pollNewDeviceQRCode(bytesToken: String): NapCatLoginService.NewDeviceQrPollResult {
+        return NapCatLoginRepository.pollNewDeviceQRCode(bytesToken)
+    }
+
+    override fun log(message: String) {
+        RuntimeLogRepository.append(message)
+    }
+}
+
 @HiltViewModel
 class QQLoginViewModel @Inject constructor(
-    private val dependencies: QQLoginViewModelDependencies,
+    private val bindings: QQLoginViewModelBindings,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
 ) : ViewModel() {
-    val loginState: StateFlow<NapCatLoginState> = dependencies.loginState
+    val loginState: StateFlow<NapCatLoginState> = bindings.loginState
+
     private val pollingTracker = QQLoginPollingTracker()
     private var pollingJob: Job? = null
     private var buildMarkerLogged = false
@@ -30,7 +113,7 @@ class QQLoginViewModel @Inject constructor(
         when (pollingTracker.onScreenVisible(screenTag)) {
             QQLoginPollingTransition.START -> {
                 logBuildMarkerIfNeeded(versionMarker)
-                dependencies.log(
+                log(
                     "QQ login polling started: screens=${pollingTracker.activeScreenSummary()} intervalLoggedOutMs=3000 intervalLoggedInMs=5000",
                 )
                 startPollingLoop()
@@ -48,7 +131,7 @@ class QQLoginViewModel @Inject constructor(
             QQLoginPollingTransition.STOP -> {
                 pollingJob?.cancel()
                 pollingJob = null
-                dependencies.log("QQ login polling stopped: no visible QQ login screens remain")
+                log("QQ login polling stopped: no visible QQ login screens remain")
             }
 
             QQLoginPollingTransition.START,
@@ -70,7 +153,7 @@ class QQLoginViewModel @Inject constructor(
             while (isActive) {
                 runCatching {
                     withContext(ioDispatcher) {
-                        dependencies.refresh()
+                        bindings.refresh()
                     }
                 }
                 delay(if (loginState.value.isLogin) 5000 else 3000)
@@ -79,27 +162,27 @@ class QQLoginViewModel @Inject constructor(
     }
 
     fun refreshNow() {
-        launchIo { dependencies.refresh(manual = true) }
+        launchIo { bindings.refresh(manual = true) }
     }
 
     fun refreshQrCode() {
-        launchIo { dependencies.refreshQrCode() }
+        launchIo { bindings.refreshQrCode() }
     }
 
     fun quickLoginSavedAccount(uin: String? = null) {
-        launchIo { dependencies.quickLoginSavedAccount(uin) }
+        launchIo { bindings.quickLoginSavedAccount(uin) }
     }
 
     fun saveQuickLoginAccount(uin: String) {
-        launchIo { dependencies.saveQuickLoginAccount(uin) }
+        launchIo { bindings.saveQuickLoginAccount(uin) }
     }
 
     fun logoutCurrentAccount() {
-        launchIo { dependencies.logoutCurrentAccount() }
+        launchIo { bindings.logoutCurrentAccount() }
     }
 
     fun passwordLogin(uin: String, password: String) {
-        launchIo { dependencies.passwordLogin(uin, password) }
+        launchIo { bindings.passwordLogin(uin, password) }
     }
 
     fun captchaLogin(
@@ -109,22 +192,22 @@ class QQLoginViewModel @Inject constructor(
         randstr: String,
         sid: String,
     ) {
-        launchIo { dependencies.captchaLogin(uin, password, ticket, randstr, sid) }
+        launchIo { bindings.captchaLogin(uin, password, ticket, randstr, sid) }
     }
 
     fun newDeviceLogin(uin: String, password: String, verifiedToken: String? = null) {
-        launchIo { dependencies.newDeviceLogin(uin, password, verifiedToken) }
+        launchIo { bindings.newDeviceLogin(uin, password, verifiedToken) }
     }
 
     suspend fun getNewDeviceQRCode(): NapCatLoginService.NewDeviceQrCodeResult {
         return withContext(ioDispatcher) {
-            dependencies.getNewDeviceQRCode()
+            bindings.getNewDeviceQRCode()
         }
     }
 
     suspend fun pollNewDeviceQRCode(bytesToken: String): NapCatLoginService.NewDeviceQrPollResult {
         return withContext(ioDispatcher) {
-            dependencies.pollNewDeviceQRCode(bytesToken)
+            bindings.pollNewDeviceQRCode(bytesToken)
         }
     }
 
@@ -137,7 +220,11 @@ class QQLoginViewModel @Inject constructor(
     private fun logBuildMarkerIfNeeded(versionMarker: String) {
         if (buildMarkerLogged) return
         buildMarkerLogged = true
-        dependencies.log(versionMarker)
+        log(versionMarker)
+    }
+
+    private fun log(message: String) {
+        bindings.log(message)
     }
 }
 

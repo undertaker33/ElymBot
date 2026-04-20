@@ -3,6 +3,7 @@ package com.astrbot.android.feature.qq.runtime
 import android.content.Context
 import androidx.appcompat.app.AppCompatDelegate
 import com.astrbot.android.core.common.logging.AppLogger
+import com.astrbot.android.core.runtime.context.RuntimeContextResolverPort
 import com.astrbot.android.core.runtime.llm.LlmMediaService
 import com.astrbot.android.feature.bot.domain.BotRepositoryPort
 import com.astrbot.android.feature.config.domain.ConfigRepositoryPort
@@ -25,6 +26,8 @@ import org.json.JSONObject
 import java.util.LinkedHashMap
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
+import javax.inject.Inject
+import javax.inject.Singleton
 
 internal data class OneBotSendResult(
     val success: Boolean,
@@ -56,14 +59,31 @@ internal data class QqOneBotRuntimeDependencies(
     val conversationPort: QqConversationPort,
     val platformConfigPort: QqPlatformConfigPort,
     val orchestrator: RuntimeLlmOrchestratorPort,
+    val runtimeContextResolverPort: RuntimeContextResolverPort,
     val providerInvoker: QqProviderInvoker,
 )
 
-object QqOneBotBridgeServer {
-    private const val PORT = 6199
-    private const val PATH = "/ws"
-    private const val AUTH_TOKEN = "astrbot_android_bridge"
-    private const val MAX_RECENT_MESSAGE_IDS = 512
+internal interface QqScheduledMessageSender {
+    fun sendScheduledMessage(
+        conversationId: String,
+        text: String,
+        attachments: List<ConversationAttachment> = emptyList(),
+        botId: String = "",
+    ): OneBotSendResult
+}
+
+internal interface QqBridgeRuntime : QqScheduledMessageSender {
+    fun initialize(context: Context)
+    fun start()
+}
+
+internal abstract class BaseQqOneBotBridgeRuntime : QqBridgeRuntime {
+    private companion object {
+        const val PORT = 6199
+        const val PATH = "/ws"
+        const val AUTH_TOKEN = "astrbot_android_bridge"
+        const val MAX_RECENT_MESSAGE_IDS = 512
+    }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val started = AtomicBoolean(false)
@@ -81,35 +101,18 @@ object QqOneBotBridgeServer {
     @Volatile
     private var appContext: Context? = null
 
-    @Volatile
-    private var appChatPluginRuntime: AppChatLlmPipelineRuntime = DefaultAppChatPluginRuntime
+    protected abstract fun requireRuntimeDependencies(): QqOneBotRuntimeDependencies
 
-    @Volatile
-    private var runtimeDependenciesProvider: (() -> QqOneBotRuntimeDependencies)? = null
+    protected open fun currentAppChatPluginRuntime(): AppChatLlmPipelineRuntime = DefaultAppChatPluginRuntime
 
-    @Volatile
-    private var replySenderOverrideForTests: ((IncomingMessageEvent, String, List<ConversationAttachment>) -> OneBotSendResult)? =
-        null
+    protected open fun currentReplySenderOverride():
+        ((IncomingMessageEvent, String, List<ConversationAttachment>) -> OneBotSendResult)? = null
 
-    internal fun setAppChatPluginRuntimeOverrideForTests(runtime: AppChatLlmPipelineRuntime?) {
-        appChatPluginRuntime = runtime ?: DefaultAppChatPluginRuntime
-    }
-
-    internal fun setReplySenderOverrideForTests(
-        sender: ((IncomingMessageEvent, String, List<ConversationAttachment>) -> OneBotSendResult)?,
-    ) {
-        replySenderOverrideForTests = sender
-    }
-
-    internal fun configureRuntimeDependenciesProvider(provider: () -> QqOneBotRuntimeDependencies) {
-        runtimeDependenciesProvider = provider
-    }
-
-    fun initialize(context: Context) {
+    override fun initialize(context: Context) {
         appContext = context.applicationContext
     }
 
-    fun start() {
+    override fun start() {
         if (started.get()) return
         synchronized(this) {
             if (started.get()) return
@@ -119,11 +122,11 @@ object QqOneBotBridgeServer {
         }
     }
 
-    internal fun sendScheduledMessage(
+    override fun sendScheduledMessage(
         conversationId: String,
         text: String,
-        attachments: List<ConversationAttachment> = emptyList(),
-        botId: String = "",
+        attachments: List<ConversationAttachment>,
+        botId: String,
     ): OneBotSendResult {
         val dependencies = requireRuntimeDependencies()
         return buildRuntimeGraph(dependencies).outboundGateway().sendScheduledMessage(
@@ -174,8 +177,8 @@ object QqOneBotBridgeServer {
         return QqOneBotRuntimeGraph(
             dependencies = dependencies,
             transport = ensureTransport(),
-            appChatPluginRuntime = appChatPluginRuntime,
-            replyOverrideProvider = { replySenderOverrideForTests },
+            appChatPluginRuntime = currentAppChatPluginRuntime(),
+            replyOverrideProvider = { currentReplySenderOverride() },
             filesDirProvider = { appContext?.filesDir },
             rateLimiter = rateLimiter,
             markMessageId = ::markMessageId,
@@ -202,11 +205,6 @@ object QqOneBotBridgeServer {
                 log = AppLogger::append,
             ).also { transport = it }
         }
-    }
-
-    private fun requireRuntimeDependencies(): QqOneBotRuntimeDependencies {
-        return runtimeDependenciesProvider?.invoke()
-            ?: error("QqOneBotBridgeServer requires runtime dependencies from the app composition root.")
     }
 
     private fun scheduleStashReplay(
@@ -274,4 +272,47 @@ object QqOneBotBridgeServer {
             return !existed
         }
     }
+}
+
+internal object QqOneBotBridgeServer : BaseQqOneBotBridgeRuntime() {
+    @Volatile
+    private var appChatPluginRuntime: AppChatLlmPipelineRuntime = DefaultAppChatPluginRuntime
+
+    @Volatile
+    private var runtimeDependencies: QqOneBotRuntimeDependencies? = null
+
+    @Volatile
+    private var replySenderOverrideForTests: ((IncomingMessageEvent, String, List<ConversationAttachment>) -> OneBotSendResult)? =
+        null
+
+    internal fun setAppChatPluginRuntimeOverrideForTests(runtime: AppChatLlmPipelineRuntime?) {
+        appChatPluginRuntime = runtime ?: DefaultAppChatPluginRuntime
+    }
+
+    internal fun setReplySenderOverrideForTests(
+        sender: ((IncomingMessageEvent, String, List<ConversationAttachment>) -> OneBotSendResult)?,
+    ) {
+        replySenderOverrideForTests = sender
+    }
+
+    internal fun installRuntimeDependencies(dependencies: QqOneBotRuntimeDependencies) {
+        runtimeDependencies = dependencies
+    }
+
+    override fun requireRuntimeDependencies(): QqOneBotRuntimeDependencies {
+        return runtimeDependencies
+            ?: error("QqOneBotBridgeServer requires runtime dependencies from the Hilt runtime graph.")
+    }
+
+    override fun currentAppChatPluginRuntime(): AppChatLlmPipelineRuntime = appChatPluginRuntime
+
+    override fun currentReplySenderOverride():
+        ((IncomingMessageEvent, String, List<ConversationAttachment>) -> OneBotSendResult)? = replySenderOverrideForTests
+}
+
+@Singleton
+internal class HiltQqOneBotBridgeRuntime @Inject constructor(
+    private val runtimeDependencies: QqOneBotRuntimeDependencies,
+) : BaseQqOneBotBridgeRuntime() {
+    override fun requireRuntimeDependencies(): QqOneBotRuntimeDependencies = runtimeDependencies
 }

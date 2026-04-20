@@ -1,8 +1,6 @@
 package com.astrbot.android.data
 
 import com.astrbot.android.core.common.profile.LastProfileDeletionBlockedException
-import com.astrbot.android.di.HiltBotViewModelDependencies
-import com.astrbot.android.di.HiltConfigViewModelDependencies
 import com.astrbot.android.model.BotProfile
 import com.astrbot.android.model.ConfigProfile
 import com.astrbot.android.model.chat.ConversationSession
@@ -78,7 +76,7 @@ class HiltViewModelDependenciesTransactionTest {
             selectedBotId = "bot-a",
         )
 
-        HiltConfigViewModelDependencies.deleteConfigProfile(deletedConfigId)
+        FeatureRepositoryPhase3DataTransactionService.deleteConfigProfile(deletedConfigId)
 
         // Bot must now reference the fallback, not the deleted config
         val botProfiles = BotRepository.botProfiles.value
@@ -105,7 +103,7 @@ class HiltViewModelDependenciesTransactionTest {
         )
 
         // Should not throw; should be a silent no-op
-        HiltConfigViewModelDependencies.deleteConfigProfile(onlyConfigId)
+        FeatureRepositoryPhase3DataTransactionService.deleteConfigProfile(onlyConfigId)
 
         val remaining = ConfigRepository.profiles.value
         assertTrue(
@@ -152,7 +150,7 @@ class HiltViewModelDependenciesTransactionTest {
 
         var exceptionThrown = false
         try {
-            HiltBotViewModelDependencies.delete(onlyBotId)
+            FeatureRepositoryPhase3DataTransactionService.deleteBotProfile(onlyBotId)
         } catch (e: LastProfileDeletionBlockedException) {
             exceptionThrown = true
         }

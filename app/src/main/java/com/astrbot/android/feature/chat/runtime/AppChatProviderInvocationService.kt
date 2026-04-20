@@ -2,7 +2,7 @@ package com.astrbot.android.feature.chat.runtime
 
 import com.astrbot.android.core.runtime.context.ResolvedRuntimeContext
 import com.astrbot.android.core.runtime.llm.LlmToolDefinition
-import com.astrbot.android.di.ChatViewModelDependencies
+import com.astrbot.android.ui.viewmodel.ChatViewModelRuntimeBindings
 import com.astrbot.android.feature.plugin.runtime.MessageConverters.toConversationMessages
 import com.astrbot.android.feature.plugin.runtime.PluginLlmResponse
 import com.astrbot.android.feature.plugin.runtime.PluginLlmToolCall
@@ -20,7 +20,7 @@ import kotlinx.coroutines.withContext
 import kotlin.coroutines.CoroutineContext
 
 internal class AppChatProviderInvocationService(
-    private val chatDependencies: ChatViewModelDependencies,
+    private val chatDependencies: ChatViewModelRuntimeBindings,
     private val ioDispatcher: CoroutineContext = Dispatchers.IO,
 ) {
     suspend fun invokeProvider(

@@ -15,8 +15,8 @@ class AppChatRuntimeServiceContractTest {
     private val sourceRoot = File("src/main/java/com/astrbot/android")
 
     /**
-     * AppChatRuntimeService must import RuntimeContextResolver
-     * and RuntimeLlmOrchestratorPort (the classes it now owns).
+     * AppChatRuntimeService must depend on the injected runtime context resolver seam
+     * and RuntimeLlmOrchestratorPort, not the old static resolver.
      */
     @Test
     fun `service imports runtime context resolver and orchestrator port`() {
@@ -24,16 +24,17 @@ class AppChatRuntimeServiceContractTest {
         assertTrue("AppChatRuntimeService.kt must exist", serviceFile.exists())
         val text = serviceFile.readText()
         assertTrue(
-            "Must import RuntimeContextResolver",
-            text.contains("import com.astrbot.android.core.runtime.context.RuntimeContextResolver"),
+            "AppChatRuntimeService must use the injected runtime context resolver port",
+            text.contains("chatDependencies.runtimeContextResolverPort.resolve("),
         )
         assertTrue(
             "Must import RuntimeLlmOrchestratorPort",
             text.contains("import com.astrbot.android.feature.plugin.runtime.RuntimeLlmOrchestratorPort"),
         )
         assertTrue(
-            "AppChatRuntimeService must not import the static RuntimeOrchestrator compatibility shell",
-            !text.contains("import com.astrbot.android.feature.plugin.runtime.RuntimeOrchestrator"),
+            "AppChatRuntimeService must not import the static RuntimeContextResolver or RuntimeOrchestrator compatibility shell",
+            !text.contains("import com.astrbot.android.core.runtime.context.RuntimeContextResolver") &&
+                !text.contains("import com.astrbot.android.feature.plugin.runtime.RuntimeOrchestrator"),
         )
     }
 

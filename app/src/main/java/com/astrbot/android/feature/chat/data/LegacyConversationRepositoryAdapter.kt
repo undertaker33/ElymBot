@@ -2,12 +2,17 @@
 
 import com.astrbot.android.feature.chat.domain.ConversationRepositoryPort
 import com.astrbot.android.model.chat.ConversationAttachment
+import com.astrbot.android.model.chat.ConversationMessage
 import com.astrbot.android.model.chat.ConversationSession
 import kotlinx.coroutines.flow.StateFlow
 
 @Suppress("DEPRECATION")
-class LegacyConversationRepositoryAdapter : ConversationRepositoryPort {
+open class FeatureConversationRepositoryPortAdapter : ConversationRepositoryPort {
+    override val defaultSessionId: String = FeatureConversationRepository.DEFAULT_SESSION_ID
     override val sessions: StateFlow<List<ConversationSession>> = FeatureConversationRepository.sessions
+
+    override fun contextPreview(sessionId: String): String =
+        FeatureConversationRepository.buildContextPreview(sessionId)
 
     override fun session(sessionId: String): ConversationSession = FeatureConversationRepository.session(sessionId)
 
@@ -37,6 +42,10 @@ class LegacyConversationRepositoryAdapter : ConversationRepositoryPort {
         )
     }
 
+    override fun replaceMessages(sessionId: String, messages: List<ConversationMessage>) {
+        FeatureConversationRepository.replaceMessages(sessionId, messages)
+    }
+
     override fun renameSession(sessionId: String, title: String) {
         FeatureConversationRepository.renameSession(sessionId, title)
     }
@@ -46,5 +55,7 @@ class LegacyConversationRepositoryAdapter : ConversationRepositoryPort {
     }
 }
 
+@Deprecated("Phase-2 residue. Production Hilt binding uses FeatureConversationRepositoryPortAdapter.")
+class LegacyConversationRepositoryAdapter : FeatureConversationRepositoryPortAdapter()
 
 

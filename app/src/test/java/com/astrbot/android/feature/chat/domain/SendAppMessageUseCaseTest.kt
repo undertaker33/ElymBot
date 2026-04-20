@@ -1,6 +1,7 @@
 package com.astrbot.android.feature.chat.domain
 
 import com.astrbot.android.model.chat.ConversationAttachment
+import com.astrbot.android.model.chat.ConversationMessage
 import com.astrbot.android.model.chat.ConversationSession
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
@@ -236,7 +237,10 @@ class SendAppMessageUseCaseTest {
         val updateCalls = mutableListOf<UpdateCall>()
         private var appendCounter = 0
 
+        override val defaultSessionId: String = "s1"
         override val sessions: StateFlow<List<ConversationSession>> = MutableStateFlow(emptyList())
+
+        override fun contextPreview(sessionId: String): String = ""
 
         override fun session(sessionId: String): ConversationSession {
             return ConversationSession(
@@ -271,6 +275,8 @@ class SendAppMessageUseCaseTest {
             updateCalls.add(UpdateCall(sessionId, messageId, content, attachments))
             signals += "update:$messageId"
         }
+
+        override fun replaceMessages(sessionId: String, messages: List<ConversationMessage>) {}
 
         override fun renameSession(sessionId: String, title: String) {}
         override fun deleteSession(sessionId: String) {}

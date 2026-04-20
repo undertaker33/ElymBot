@@ -2,7 +2,7 @@ package com.astrbot.android.feature.chat.runtime
 
 import com.astrbot.android.AppStrings
 import com.astrbot.android.R
-import com.astrbot.android.di.ChatViewModelDependencies
+import com.astrbot.android.ui.viewmodel.ChatViewModelRuntimeBindings
 import com.astrbot.android.feature.plugin.data.PluginStoragePaths
 import com.astrbot.android.feature.plugin.runtime.AppChatPluginRuntime
 import com.astrbot.android.feature.plugin.runtime.DefaultPluginHostCapabilityGateway
@@ -45,7 +45,7 @@ import kotlinx.coroutines.runBlocking
 
 @Suppress("DEPRECATION")
 class AppChatPluginCommandService(
-    private val dependencies: ChatViewModelDependencies,
+    private val dependencies: ChatViewModelRuntimeBindings,
     private val appChatPluginRuntime: AppChatPluginRuntime,
     private val hostCapabilityGateway: DefaultPluginHostCapabilityGateway = DefaultPluginHostCapabilityGateway(),
 ) {

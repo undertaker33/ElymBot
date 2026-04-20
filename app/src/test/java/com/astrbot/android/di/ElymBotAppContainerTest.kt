@@ -25,12 +25,12 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
-class ElymBotAppContainerTest {
+class AppBootstrapperTest {
     @Test
     fun bootstrap_runs_config_initializer_before_resource_center_repository() {
         val sourceFile = listOf(
-            File("src/main/java/com/astrbot/android/di/ElymBotAppContainer.kt"),
-            File("app/src/main/java/com/astrbot/android/di/ElymBotAppContainer.kt"),
+            File("src/main/java/com/astrbot/android/di/AppBootstrapper.kt"),
+            File("app/src/main/java/com/astrbot/android/di/AppBootstrapper.kt"),
         ).first { it.exists() }
         val source = sourceFile.readText()
 

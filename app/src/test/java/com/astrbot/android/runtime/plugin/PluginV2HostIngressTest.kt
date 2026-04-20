@@ -10,7 +10,8 @@ import com.astrbot.android.data.http.HttpRequestSpec
 import com.astrbot.android.data.http.HttpResponsePayload
 import com.astrbot.android.data.http.MultipartPartSpec
 import com.astrbot.android.core.runtime.context.RuntimeContextDataPort
-import com.astrbot.android.core.runtime.context.RuntimeContextDataRegistry
+import com.astrbot.android.core.runtime.context.RuntimeContextResolver
+import com.astrbot.android.core.runtime.context.RuntimeContextResolverPort
 import com.astrbot.android.model.BotProfile
 import com.astrbot.android.model.ConfigProfile
 import com.astrbot.android.model.FeatureSupportState
@@ -1244,7 +1245,33 @@ class PluginV2HostIngressTest {
         val providerSnapshot = ProviderRepository.snapshotProfiles()
         val sessionSnapshot = ConversationRepository.snapshotSessions()
         val runtimeLogsSnapshot = RuntimeLogRepository.logs.value
-        val runtimeContextDataPortSnapshot = RuntimeContextDataRegistry.port
+        val runtimeContextDataPort = object : RuntimeContextDataPort {
+            override fun resolveConfig(configProfileId: String) = ConfigRepository.resolve(configProfileId)
+
+            override fun listProviders() = ProviderRepository.providers.value
+
+            override fun findEnabledPersona(personaId: String) =
+                PersonaRepository.personas.value.firstOrNull { it.id == personaId && it.enabled }
+
+            override fun session(sessionId: String) = ConversationRepository.session(sessionId)
+
+            override fun compatibilitySnapshotForConfig(config: ConfigProfile) =
+                ResourceCenterRepository.compatibilitySnapshotForConfig(config)
+        }
+        val runtimeContextResolverPort = object : RuntimeContextResolverPort {
+            override fun resolve(
+                event: com.astrbot.android.core.runtime.context.RuntimeIngressEvent,
+                bot: BotProfile,
+                overrideProviderId: String?,
+                overridePersonaId: String?,
+            ) = RuntimeContextResolver.resolve(
+                event = event,
+                bot = bot,
+                dataPort = runtimeContextDataPort,
+                overrideProviderId = overrideProviderId,
+                overridePersonaId = overridePersonaId,
+            )
+        }
         try {
             PluginRuntimeScopedFailureStateStoreProvider.setStoreOverrideForTests(
                 InMemoryPluginScopedFailureStateStore(),
@@ -1253,7 +1280,7 @@ class PluginV2HostIngressTest {
             ConfigRepository.restoreProfiles(listOf(config), config.id)
             ProviderRepository.restoreProfiles(providers)
             ConversationRepository.restoreSessions(emptyList())
-            QqOneBotBridgeServer.configureRuntimeDependenciesProvider {
+            QqOneBotBridgeServer.installRuntimeDependencies(
                 QqOneBotRuntimeDependencies(
                     botPort = LegacyBotRepositoryAdapter(),
                     configPort = LegacyConfigRepositoryAdapter(),
@@ -1262,22 +1289,10 @@ class PluginV2HostIngressTest {
                     conversationPort = LegacyQqConversationAdapter(),
                     platformConfigPort = LegacyQqPlatformConfigAdapter(),
                     orchestrator = LegacyRuntimeOrchestratorAdapter(),
+                    runtimeContextResolverPort = runtimeContextResolverPort,
                     providerInvoker = DefaultQqProviderInvoker(LegacyChatCompletionServiceAdapter()),
-                )
-            }
-            RuntimeContextDataRegistry.port = object : RuntimeContextDataPort {
-                override fun resolveConfig(configProfileId: String) = ConfigRepository.resolve(configProfileId)
-
-                override fun listProviders() = ProviderRepository.providers.value
-
-                override fun findEnabledPersona(personaId: String) =
-                    PersonaRepository.personas.value.firstOrNull { it.id == personaId && it.enabled }
-
-                override fun session(sessionId: String) = ConversationRepository.session(sessionId)
-
-                override fun compatibilitySnapshotForConfig(config: ConfigProfile) =
-                    ResourceCenterRepository.compatibilitySnapshotForConfig(config)
-            }
+                ),
+            )
             RuntimeLogRepository.clear()
             block()
         } finally {
@@ -1289,7 +1304,6 @@ class PluginV2HostIngressTest {
             PluginRuntimeFailureStateStoreProvider.setStoreOverrideForTests(null)
             PluginRuntimeScopedFailureStateStoreProvider.setStoreOverrideForTests(null)
             PluginV2LifecycleManagerProvider.setManagerOverrideForTests(null)
-            RuntimeContextDataRegistry.port = runtimeContextDataPortSnapshot
             BotRepository.restoreProfiles(botSnapshot, selectedBotIdSnapshot)
             ConfigRepository.restoreProfiles(configSnapshot, selectedConfigIdSnapshot)
             ProviderRepository.restoreProfiles(providerSnapshot)

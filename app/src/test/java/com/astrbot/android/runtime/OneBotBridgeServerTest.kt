@@ -3,7 +3,8 @@ package com.astrbot.android.core.runtime.container
 import com.astrbot.android.data.BotRepository
 import com.astrbot.android.core.runtime.llm.ChatCompletionService
 import com.astrbot.android.core.runtime.context.RuntimeContextDataPort
-import com.astrbot.android.core.runtime.context.RuntimeContextDataRegistry
+import com.astrbot.android.core.runtime.context.RuntimeContextResolver
+import com.astrbot.android.core.runtime.context.RuntimeContextResolverPort
 import com.astrbot.android.data.ConfigRepository
 import com.astrbot.android.data.ConversationRepository
 import com.astrbot.android.data.ProviderRepository
@@ -789,7 +790,33 @@ class QqOneBotBridgeServerTest {
         val selectedConfigIdSnapshot = ConfigRepository.selectedProfileId.value
         val providerSnapshot = ProviderRepository.snapshotProfiles()
         val sessionSnapshot = ConversationRepository.snapshotSessions()
-        val runtimeContextDataPortSnapshot = RuntimeContextDataRegistry.port
+        val runtimeContextDataPort = object : RuntimeContextDataPort {
+            override fun resolveConfig(configProfileId: String) = ConfigRepository.resolve(configProfileId)
+
+            override fun listProviders() = ProviderRepository.providers.value
+
+            override fun findEnabledPersona(personaId: String) =
+                PersonaRepository.personas.value.firstOrNull { it.id == personaId && it.enabled }
+
+            override fun session(sessionId: String) = ConversationRepository.session(sessionId)
+
+            override fun compatibilitySnapshotForConfig(config: ConfigProfile) =
+                ResourceCenterRepository.compatibilitySnapshotForConfig(config)
+        }
+        val runtimeContextResolverPort = object : RuntimeContextResolverPort {
+            override fun resolve(
+                event: com.astrbot.android.core.runtime.context.RuntimeIngressEvent,
+                bot: BotProfile,
+                overrideProviderId: String?,
+                overridePersonaId: String?,
+            ) = RuntimeContextResolver.resolve(
+                event = event,
+                bot = bot,
+                dataPort = runtimeContextDataPort,
+                overrideProviderId = overrideProviderId,
+                overridePersonaId = overridePersonaId,
+            )
+        }
         try {
             PluginRuntimeScopedFailureStateStoreProvider.setStoreOverrideForTests(
                 InMemoryPluginScopedFailureStateStore(),
@@ -797,7 +824,7 @@ class QqOneBotBridgeServerTest {
             QqOneBotBridgeServer.setReplySenderOverrideForTests { _, _, _ ->
                 OneBotSendResult.success(listOf("test-receipt"))
             }
-            QqOneBotBridgeServer.configureRuntimeDependenciesProvider {
+            QqOneBotBridgeServer.installRuntimeDependencies(
                 QqOneBotRuntimeDependencies(
                     botPort = LegacyBotRepositoryAdapter(),
                     configPort = LegacyConfigRepositoryAdapter(),
@@ -806,22 +833,10 @@ class QqOneBotBridgeServerTest {
                     conversationPort = LegacyQqConversationAdapter(),
                     platformConfigPort = LegacyQqPlatformConfigAdapter(),
                     orchestrator = LegacyRuntimeOrchestratorAdapter(),
+                    runtimeContextResolverPort = runtimeContextResolverPort,
                     providerInvoker = DefaultQqProviderInvoker(LegacyChatCompletionServiceAdapter()),
-                )
-            }
-            RuntimeContextDataRegistry.port = object : RuntimeContextDataPort {
-                override fun resolveConfig(configProfileId: String) = ConfigRepository.resolve(configProfileId)
-
-                override fun listProviders() = ProviderRepository.providers.value
-
-                override fun findEnabledPersona(personaId: String) =
-                    PersonaRepository.personas.value.firstOrNull { it.id == personaId && it.enabled }
-
-                override fun session(sessionId: String) = ConversationRepository.session(sessionId)
-
-                override fun compatibilitySnapshotForConfig(config: ConfigProfile) =
-                    ResourceCenterRepository.compatibilitySnapshotForConfig(config)
-            }
+                ),
+            )
             BotRepository.restoreProfiles(listOf(bot), bot.id)
             ConfigRepository.restoreProfiles(listOf(config), config.id)
             ProviderRepository.restoreProfiles(providers)
@@ -833,7 +848,6 @@ class QqOneBotBridgeServerTest {
             PluginRuntimeRegistry.reset()
             PluginRuntimeFailureStateStoreProvider.setStoreOverrideForTests(null)
             PluginRuntimeScopedFailureStateStoreProvider.setStoreOverrideForTests(null)
-            RuntimeContextDataRegistry.port = runtimeContextDataPortSnapshot
             BotRepository.restoreProfiles(botSnapshot, selectedBotIdSnapshot)
             ConfigRepository.restoreProfiles(configSnapshot, selectedConfigIdSnapshot)
             ProviderRepository.restoreProfiles(providerSnapshot)
