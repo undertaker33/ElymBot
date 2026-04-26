@@ -34,6 +34,20 @@ class QqNewsReplyFormatterTest {
     }
 
     @Test
+    fun defaults_news_segment_limit_to_450_chars() {
+        val text = listOf(
+            "1. ${"A".repeat(190)}",
+            "2. ${"B".repeat(190)}",
+        ).joinToString("\n")
+
+        val segments = QqNewsReplyFormatter.formatSegments(text)
+
+        assertEquals(1, segments.size)
+        assertTrue(segments.single().length > 150)
+        assertTrue(segments.single().length <= 450)
+    }
+
+    @Test
     fun keeps_single_existing_bullet_marker_without_nested_numbering() {
         val segments = QqNewsReplyFormatter.formatSegments(
             "1. Major update: confirmed fact.",

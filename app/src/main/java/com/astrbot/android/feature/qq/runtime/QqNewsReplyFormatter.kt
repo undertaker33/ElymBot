@@ -114,7 +114,7 @@ internal object QqNewsReplyFormatter {
         return take(limit).trimEnd() + "..."
     }
 
-    private const val DEFAULT_MAX_CHARS = 150
+    private const val DEFAULT_MAX_CHARS = 450
     private const val DEFAULT_MAX_RESULTS = 5
     private const val MAX_FACT_SNIPPET_CHARS = 120
     private const val SOURCE_LABEL = "\u6765\u6e90"
