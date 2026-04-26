@@ -9,21 +9,26 @@ import com.astrbot.android.feature.qq.domain.QqReplyPayload
 import com.astrbot.android.model.ConfigProfile
 import com.astrbot.android.model.chat.MessageType
 import com.astrbot.android.model.plugin.PluginV2StreamingMode
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.currentTime
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class QqStreamingReplyServiceTest {
     @Test
-    fun news_reply_uses_bullet_segments_and_bypasses_pseudo_streaming() = runBlocking {
+    fun news_reply_uses_bullet_segments_and_bypasses_pseudo_streaming() = runTest {
         val sentPayloads = mutableListOf<QqReplyPayload>()
+        val sentTimes = mutableListOf<Long>()
         val service = QqStreamingReplyService(
             replySender = QqReplySender(
                 socketSender = {},
                 resolveReplyConfig = { null },
                 sendOverride = { payload, _ ->
                     sentPayloads += payload
+                    sentTimes += currentTime
                     PluginV2HostSendResult(success = true)
                 },
             ),
@@ -31,14 +36,14 @@ class QqStreamingReplyServiceTest {
         )
         val prepared = PluginV2HostPreparedReply(
             text = listOf(
-                "1. ${"A".repeat(80)}",
-                "2. ${"B".repeat(80)}",
-                "3. ${"C".repeat(80)}",
+                "1. ${"A".repeat(260)}",
+                "2. ${"B".repeat(260)}",
+                "3. ${"C".repeat(260)}",
             ).joinToString("\n"),
         )
 
         val result = service.sendPreparedReply(
-            message = incomingMessage("今天新闻有哪些"),
+            message = incomingMessage("today news"),
             prepared = prepared,
             config = ConfigProfile(streamingMessageIntervalMs = 0),
             streamingMode = PluginV2StreamingMode.NATIVE_STREAM,
@@ -46,14 +51,15 @@ class QqStreamingReplyServiceTest {
 
         assertTrue(result.success)
         assertEquals(3, sentPayloads.size)
-        assertTrue(sentPayloads.all { it.text.length <= 150 })
+        assertEquals(listOf(0L, 2_000L, 4_000L), sentTimes)
+        assertTrue(sentPayloads.all { it.text.length <= 450 })
         assertTrue(sentPayloads[0].text.startsWith("1."))
         assertTrue(sentPayloads[1].text.startsWith("2."))
         assertTrue(sentPayloads[2].text.startsWith("3."))
     }
 
     @Test
-    fun news_search_tool_result_is_sent_as_facts_and_rewritten_for_commentary_only_followup() = runBlocking {
+    fun news_search_tool_result_is_sent_as_facts_and_rewritten_for_commentary_only_followup() = runTest {
         val sentPayloads = mutableListOf<QqReplyPayload>()
         val service = QqStreamingReplyService(
             replySender = QqReplySender(
@@ -102,7 +108,7 @@ class QqStreamingReplyServiceTest {
     }
 
     @Test
-    fun news_commentary_followup_uses_regular_streaming_instead_of_news_fact_segmentation() = runBlocking {
+    fun news_commentary_followup_uses_regular_streaming_instead_of_news_fact_segmentation() = runTest {
         val sentPayloads = mutableListOf<QqReplyPayload>()
         val service = QqStreamingReplyService(
             replySender = QqReplySender(

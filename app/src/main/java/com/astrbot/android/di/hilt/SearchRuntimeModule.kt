@@ -8,7 +8,20 @@ import com.astrbot.android.core.runtime.search.api.BaiduAiSearchProvider
 import com.astrbot.android.core.runtime.search.api.BoChaSearchProvider
 import com.astrbot.android.core.runtime.search.api.BraveSearchProvider
 import com.astrbot.android.core.runtime.search.api.TavilySearchProvider
-import com.astrbot.android.core.runtime.search.html.HtmlFallbackSearchProvider
+import com.astrbot.android.core.runtime.search.local.LocalMetaSearchFallbackProvider
+import com.astrbot.android.core.runtime.search.local.crawl.ContentCrawlerLite
+import com.astrbot.android.core.runtime.search.local.crawl.DefaultContentCrawlerLite
+import com.astrbot.android.core.runtime.search.local.engine.BaiduWebLiteEngineAdapter
+import com.astrbot.android.core.runtime.search.local.engine.BingEngineAdapter
+import com.astrbot.android.core.runtime.search.local.engine.BingNewsEngineAdapter
+import com.astrbot.android.core.runtime.search.local.engine.DuckDuckGoLiteEngineAdapter
+import com.astrbot.android.core.runtime.search.local.engine.SearchEngineAdapter
+import com.astrbot.android.core.runtime.search.local.engine.SogouEngineAdapter
+import com.astrbot.android.core.runtime.search.local.parser.BaiduWebParser
+import com.astrbot.android.core.runtime.search.local.parser.BingNewsResultParser
+import com.astrbot.android.core.runtime.search.local.parser.BingResultParser
+import com.astrbot.android.core.runtime.search.local.parser.DuckDuckGoLiteParser
+import com.astrbot.android.core.runtime.search.local.parser.SogouResultParser
 import com.astrbot.android.feature.provider.domain.ProviderRepositoryPort
 import com.astrbot.android.feature.provider.runtime.search.ProviderRepositorySearchProvider
 import dagger.Module
@@ -41,13 +54,33 @@ internal object SearchRuntimeModule {
 
     @Provides
     @Singleton
+    fun provideLocalSearchEngines(
+        transport: RuntimeNetworkTransport,
+    ): List<SearchEngineAdapter> {
+        return listOf(
+            SogouEngineAdapter(transport, SogouResultParser()),
+            BingEngineAdapter(transport, BingResultParser()),
+            BaiduWebLiteEngineAdapter(transport, BaiduWebParser()),
+            DuckDuckGoLiteEngineAdapter(transport, DuckDuckGoLiteParser()),
+            BingNewsEngineAdapter(transport, BingNewsResultParser()),
+        )
+    }
+
+    @Provides
+    @Singleton
+    fun provideContentCrawlerLite(
+        crawler: DefaultContentCrawlerLite,
+    ): ContentCrawlerLite = crawler
+
+    @Provides
+    @Singleton
     fun provideUnifiedSearchPort(
         providerRepositorySearchProvider: ProviderRepositorySearchProvider,
-        transport: RuntimeNetworkTransport,
+        localMetaSearchFallbackProvider: LocalMetaSearchFallbackProvider,
     ): UnifiedSearchPort {
         val providers: List<SearchProvider> = listOf(
             providerRepositorySearchProvider,
-            HtmlFallbackSearchProvider(transport),
+            localMetaSearchFallbackProvider,
         )
         return UnifiedSearchCoordinator(providers)
     }

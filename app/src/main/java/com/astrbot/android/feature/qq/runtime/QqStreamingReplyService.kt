@@ -122,7 +122,7 @@ internal class QqStreamingReplyService(
         }
     }
 
-    fun deliverNewsSearchResultIfNeeded(
+    suspend fun deliverNewsSearchResultIfNeeded(
         message: IncomingQqMessage,
         toolName: String,
         result: PluginToolResult,
@@ -147,7 +147,7 @@ internal class QqStreamingReplyService(
         )
     }
 
-    private fun sendNewsReplyWithOutcome(
+    private suspend fun sendNewsReplyWithOutcome(
         message: IncomingQqMessage,
         response: String,
     ): PluginV2HostSendResult {
@@ -159,12 +159,15 @@ internal class QqStreamingReplyService(
             "QQ news reply segmented: target=${message.conversationId} segments=${segments.size} chars=${response.length}",
         )
         val receiptIds = mutableListOf<String>()
-        for (segment in segments) {
+        for ((index, segment) in segments.withIndex()) {
             val sendResult = sendReplyWithOutcome(message, segment)
             if (!sendResult.success) {
                 return sendResult
             }
             receiptIds += sendResult.receiptIds
+            if (index < segments.lastIndex) {
+                delay(NEWS_SEGMENT_DELAY_MS)
+            }
         }
         return PluginV2HostSendResult(success = true, receiptIds = receiptIds)
     }
@@ -386,6 +389,7 @@ internal class QqStreamingReplyService(
         internal const val NEWS_COMMENTARY_FOLLOWUP_TAG = "news_commentary_followup"
         private const val WEB_SEARCH_TOOL_NAME = "web_search"
         private const val NEWS_DIRECT_DELIVERY_MARKER = "[host_direct_news_delivery]"
+        private const val NEWS_SEGMENT_DELAY_MS = 2_000L
         private const val KEYWORD_BLOCK_NOTICE = "你的消息或者大模型的响应中包含不适当的内容，已被屏蔽。"
     }
 }
