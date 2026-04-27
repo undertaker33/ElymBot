@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - master
+      - "codex/**"
+  pull_request:
+    branches:
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android:
+    name: Android unit and architecture checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up JDK
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Install Android SDK 36
+        run: |
+          yes | sdkmanager --licenses >/dev/null
+          sdkmanager "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Make Gradle wrapper executable
+        run: chmod +x ./gradlew
+
+      - name: Verify Gradle wrapper
+        run: ./gradlew --version --console=plain --no-daemon
+
+      - name: Run debug compile and stable architecture contracts
+        run: >
+          ./gradlew :app:compileDebugKotlin :app:testDebugUnitTest
+          --tests com.astrbot.android.architecture.BuildBaselineContractTest
+          --tests com.astrbot.android.architecture.ModuleDependencyGraphContractTest
+          --tests com.astrbot.android.architecture.AppModelsOwnershipContractTest
+          --console=plain --no-daemon --stacktrace
