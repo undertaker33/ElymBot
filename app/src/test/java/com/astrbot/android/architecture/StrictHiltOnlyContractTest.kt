@@ -12,6 +12,10 @@ class StrictHiltOnlyContractTest {
 
     private val projectRoot: Path = detectProjectRoot()
     private val mainRoot: Path = projectRoot.resolve("app/src/main/java/com/astrbot/android")
+    private val productionSourceRoots: List<Path> = listOf(
+        projectRoot.resolve("app/src/main/java/com/astrbot/android"),
+        projectRoot.resolve("core/runtime/src/main/java/com/astrbot/android"),
+    ).filter { root -> root.exists() }
     private val contractDoc: Path = projectRoot.resolve("docs/architecture/post-hilt-a-round1-contract.md")
 
     @Test
@@ -202,7 +206,7 @@ class StrictHiltOnlyContractTest {
 
         val violations = buildList {
             forbiddenTokensByFile.forEach { (relativePath, forbiddenTokens) ->
-                val text = mainRoot.resolve(relativePath).readText()
+                val text = resolveProductionFile(relativePath).readText()
                 forbiddenTokens.forEach { token ->
                     if (text.contains(token)) {
                         add("$relativePath -> $token")
@@ -349,7 +353,7 @@ class StrictHiltOnlyContractTest {
 
         val violations = buildList {
             forbiddenTokensByFile.forEach { (relativePath, forbiddenTokens) ->
-                val text = mainRoot.resolve(relativePath).readText()
+                val text = resolveProductionFile(relativePath).readText()
                 forbiddenTokens.forEach { token ->
                     if (text.contains(token)) {
                         add("$relativePath -> $token")
@@ -431,6 +435,13 @@ class StrictHiltOnlyContractTest {
                 .filter { it.isRegularFile() && it.fileName.toString().endsWith(".kt") }
                 .toList()
         }
+    }
+
+    private fun resolveProductionFile(relativePath: String): Path {
+        return productionSourceRoots
+            .map { root -> root.resolve(relativePath) }
+            .firstOrNull { file -> file.exists() }
+            ?: mainRoot.resolve(relativePath)
     }
 
     private fun detectProjectRoot(): Path {

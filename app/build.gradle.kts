@@ -90,7 +90,6 @@ val prepareFilteredAssets by tasks.registering(Sync::class) {
 
 android {
     namespace = "com.astrbot.android"
-    compileSdk = 36
 
     signingConfigs {
         if (hasReleaseSigning) {
@@ -105,10 +104,9 @@ android {
 
     defaultConfig {
         applicationId = "com.astrbot.android"
-        minSdk = 29
         targetSdk = 36
-        versionCode = 63
-        versionName = "0.8.6"
+        versionCode = 64
+        versionName = "0.8.7"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -127,15 +125,6 @@ android {
                 "proguard-rules.pro",
             )
         }
-    }
-
-    compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
-    }
-
-    kotlinOptions {
-        jvmTarget = "17"
     }
 
     buildFeatures {
@@ -190,11 +179,6 @@ tasks.matching {
     dependsOn(prepareFilteredAssets)
 }
 
-ksp {
-    arg("room.schemaLocation", "$projectDir/schemas")
-    arg("room.incremental", "true")
-}
-
 listOf("debug", "release").forEach { variantName ->
     val capitalizedVariant = variantName.replaceFirstChar { it.uppercase() }
     tasks.register<Sync>("export${capitalizedVariant}ApkByBranch") {
@@ -220,13 +204,27 @@ dependencies {
     val androidxHiltVersion = "1.2.0"
 
     implementation(project(":core:common"))
+    implementation(project(":core:db"))
+    implementation(project(":core:runtime"))
+    implementation(project(":app-integration"))
     implementation(project(":feature:bot:api"))
+    implementation(project(":feature:bot:impl"))
+    implementation(project(":feature:chat:api"))
+    implementation(project(":feature:chat:impl"))
     implementation(project(":feature:config:api"))
+    implementation(project(":feature:config:impl"))
     implementation(project(":feature:cron:api"))
+    implementation(project(":feature:cron:impl"))
     implementation(project(":feature:persona:api"))
+    implementation(project(":feature:persona:impl"))
     implementation(project(":feature:plugin:api"))
+    implementation(project(":feature:plugin:impl"))
     implementation(project(":feature:provider:api"))
+    implementation(project(":feature:provider:impl"))
+    implementation(project(":feature:qq:api"))
+    implementation(project(":feature:qq:impl"))
     implementation(project(":feature:resource:api"))
+    implementation(project(":feature:resource:impl"))
 
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.appcompat:appcompat:1.7.0")

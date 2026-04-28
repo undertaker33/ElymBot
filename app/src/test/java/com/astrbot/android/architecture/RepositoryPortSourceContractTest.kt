@@ -10,19 +10,51 @@ import org.junit.Test
 
 class RepositoryPortSourceContractTest {
 
-    private val mainRoot: Path = listOf(
-        Path.of("src/main/java/com/astrbot/android"),
-        Path.of("app/src/main/java/com/astrbot/android"),
-    ).first { it.exists() }
+    private val projectRoot: Path = detectProjectRoot()
+    private val mainRoot: Path = projectRoot.resolve("app/src/main/java/com/astrbot/android")
+
+    private val productionSourceRoots: List<Path> = listOf(
+        "app/src/main/java/com/astrbot/android",
+        "app-integration/src/main/java/com/astrbot/android",
+        "feature/bot/impl/src/main/java/com/astrbot/android",
+        "feature/chat/api/src/main/java/com/astrbot/android",
+        "feature/chat/impl/src/main/java/com/astrbot/android",
+        "feature/config/impl/src/main/java/com/astrbot/android",
+        "feature/cron/impl/src/main/java/com/astrbot/android",
+        "feature/persona/impl/src/main/java/com/astrbot/android",
+        "feature/plugin/impl/src/main/java/com/astrbot/android",
+        "feature/provider/impl/src/main/java/com/astrbot/android",
+        "feature/qq/impl/src/main/java/com/astrbot/android",
+        "feature/resource/impl/src/main/java/com/astrbot/android",
+    ).map(projectRoot::resolve).filter { root -> root.exists() }
 
     @Test
     fun repository_port_module_binds_only_semantic_feature_port_adapters() {
-        val source = mainRoot.resolve("di/hilt/RepositoryPortModule.kt").readText()
+        val source = listOf(
+            mainRoot.resolve("di/hilt/RepositoryPortModule.kt"),
+            mainRoot.resolve("di/hilt/QqRepositoryPortModule.kt"),
+            projectRoot.resolve("app-integration/src/main/java"),
+        ).joinToString(separator = "\n") { sourcePath ->
+            if (sourcePath.isRegularFile()) {
+                sourcePath.readText()
+            } else if (sourcePath.exists()) {
+                Files.walk(sourcePath).use { stream ->
+                    stream
+                        .filter { path -> path.isRegularFile() && path.fileName.toString().endsWith(".kt") }
+                        .map { path -> path.readText() }
+                        .toList()
+                        .joinToString(separator = "\n")
+                }
+            } else {
+                ""
+            }
+        }
 
         val requiredTokens = listOf(
             "FeatureBotRepositoryPortAdapter",
             "FeatureConfigRepositoryPortAdapter",
             "FeatureConversationRepositoryPortAdapter",
+            "FeatureCronJobRepositoryPortAdapter",
             "FeaturePersonaRepositoryPortAdapter",
             "FeatureProviderRepositoryPortAdapter",
             "FeatureQqConversationPortAdapter",
@@ -74,8 +106,8 @@ class RepositoryPortSourceContractTest {
             "feature/resource/data/LegacyResourceCenterRepositoryAdapter.kt",
         )
 
-        val missingSemantic = semanticFiles.filterNot { relativePath -> mainRoot.resolve(relativePath).exists() }
-        val remainingLegacy = legacyFiles.filter { relativePath -> mainRoot.resolve(relativePath).exists() }
+        val missingSemantic = semanticFiles.filterNot(::productionFileExists)
+        val remainingLegacy = legacyFiles.filter(::productionFileExists)
 
         assertTrue("Missing semantic adapter files: $missingSemantic", missingSemantic.isEmpty())
         assertTrue("Legacy adapter files must be removed from production: $remainingLegacy", remainingLegacy.isEmpty())
@@ -126,7 +158,7 @@ class RepositoryPortSourceContractTest {
         val violations = buildList {
             tokenToAllowedPaths.forEach { (token, allowedPaths) ->
                 kotlinFilesUnder("feature").forEach { file ->
-                    val relative = mainRoot.relativize(file).toString().replace('\\', '/')
+                    val relative = relativeProductionPath(file)
                     if (file.readText().contains(token) && relative !in allowedPaths) {
                         add("$relative contains $token")
                     }
@@ -182,11 +214,38 @@ class RepositoryPortSourceContractTest {
     }
 
     private fun kotlinFilesUnder(relativeRoot: String): List<Path> {
-        val root = mainRoot.resolve(relativeRoot)
-        return Files.walk(root).use { stream ->
-            stream
-                .filter { it.isRegularFile() && it.fileName.toString().endsWith(".kt") }
-                .toList()
+        return productionSourceRoots.flatMap { sourceRoot ->
+            val root = sourceRoot.resolve(relativeRoot)
+            if (!root.exists()) {
+                emptyList()
+            } else {
+                Files.walk(root).use { stream ->
+                    stream
+                        .filter { it.isRegularFile() && it.fileName.toString().endsWith(".kt") }
+                        .toList()
+                }
+            }
+        }
+    }
+
+    private fun productionFileExists(relativePath: String): Boolean {
+        return productionSourceRoots.any { sourceRoot -> sourceRoot.resolve(relativePath).exists() }
+    }
+
+    private fun relativeProductionPath(file: Path): String {
+        val sourceRoot = productionSourceRoots.firstOrNull { root -> file.startsWith(root) }
+            ?: error("File $file is not under configured production source roots")
+        return sourceRoot.relativize(file).toString().replace('\\', '/')
+    }
+
+    private fun detectProjectRoot(): Path {
+        val cwd = Path.of("").toAbsolutePath()
+        return when {
+            cwd.resolve("app/src/main/java/com/astrbot/android").exists() -> cwd
+            cwd.resolve("src/main/java/com/astrbot/android").exists() &&
+                cwd.parent?.resolve("settings.gradle.kts")?.exists() == true -> cwd.parent
+            cwd.parent?.resolve("app/src/main/java/com/astrbot/android")?.exists() == true -> cwd.parent
+            else -> error("Unable to resolve project root from $cwd")
         }
     }
 }

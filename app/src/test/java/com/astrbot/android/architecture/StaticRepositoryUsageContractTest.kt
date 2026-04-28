@@ -13,6 +13,20 @@ class StaticRepositoryUsageContractTest {
 
     private val projectRoot: Path = detectProjectRoot()
     private val mainRoot: Path = projectRoot.resolve("app/src/main/java/com/astrbot/android")
+    private val productionSourceRoots: List<Path> = listOf(
+        "app/src/main/java/com/astrbot/android",
+        "app-integration/src/main/java/com/astrbot/android",
+        "feature/bot/impl/src/main/java/com/astrbot/android",
+        "feature/chat/api/src/main/java/com/astrbot/android",
+        "feature/chat/impl/src/main/java/com/astrbot/android",
+        "feature/config/impl/src/main/java/com/astrbot/android",
+        "feature/cron/impl/src/main/java/com/astrbot/android",
+        "feature/persona/impl/src/main/java/com/astrbot/android",
+        "feature/plugin/impl/src/main/java/com/astrbot/android",
+        "feature/provider/impl/src/main/java/com/astrbot/android",
+        "feature/qq/impl/src/main/java/com/astrbot/android",
+        "feature/resource/impl/src/main/java/com/astrbot/android",
+    ).map(projectRoot::resolve).filter { root -> root.exists() }
     private val allowlistFile: Path =
         projectRoot.resolve("app/src/test/resources/architecture/static-repository-usage-allowlist.txt")
 
@@ -66,7 +80,7 @@ class StaticRepositoryUsageContractTest {
         val missing = allowlist.entries
             .map { entry -> entry.path }
             .distinct()
-            .filterNot { path -> mainRoot.resolve(path).exists() }
+            .filterNot(::productionFileExists)
 
         assertTrue(
             "Static repository usage allowlist points to missing production files: $missing",
@@ -99,7 +113,7 @@ class StaticRepositoryUsageContractTest {
     }
 
     private fun findStaticRepositoryUsages(): List<StaticRepositoryUsage> {
-        return kotlinFilesUnder(mainRoot).flatMap { file ->
+        return productionSourceRoots.flatMap(::kotlinFilesUnder).flatMap { file ->
             val relative = relativePath(file)
             val text = file.readText()
 
@@ -175,7 +189,13 @@ class StaticRepositoryUsageContractTest {
     }
 
     private fun relativePath(file: Path): String {
-        return mainRoot.relativize(file).toString().replace('\\', '/')
+        val sourceRoot = productionSourceRoots.firstOrNull { root -> file.startsWith(root) }
+            ?: error("File $file is not under configured production source roots")
+        return sourceRoot.relativize(file).toString().replace('\\', '/')
+    }
+
+    private fun productionFileExists(relativePath: String): Boolean {
+        return productionSourceRoots.any { sourceRoot -> sourceRoot.resolve(relativePath).exists() }
     }
 
     private fun detectProjectRoot(): Path {

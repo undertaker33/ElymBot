@@ -10,6 +10,17 @@ class StrictHiltOnlyFinalContractTest {
 
     private val projectRoot: Path = detectProjectRoot()
     private val mainRoot: Path = projectRoot.resolve("app/src/main/java/com/astrbot/android")
+    private val productionSourceRoots: List<Path> = listOf(
+        projectRoot.resolve("app/src/main/java/com/astrbot/android"),
+        projectRoot.resolve("app-integration/src/main/java/com/astrbot/android"),
+        projectRoot.resolve("core/runtime/src/main/java/com/astrbot/android"),
+        projectRoot.resolve("feature/bot/impl/src/main/java/com/astrbot/android"),
+        projectRoot.resolve("feature/config/impl/src/main/java/com/astrbot/android"),
+        projectRoot.resolve("feature/cron/impl/src/main/java/com/astrbot/android"),
+        projectRoot.resolve("feature/provider/impl/src/main/java/com/astrbot/android"),
+        projectRoot.resolve("feature/qq/impl/src/main/java/com/astrbot/android"),
+        projectRoot.resolve("feature/resource/impl/src/main/java/com/astrbot/android"),
+    )
 
     @Test
     fun startup_and_runtime_hotspots_must_not_retain_out_of_graph_bypass_tokens() {
@@ -29,7 +40,7 @@ class StrictHiltOnlyFinalContractTest {
                 "@ApplicationContext",
                 "FeatureProviderRepository.initialize(",
             ),
-            "di/hilt/DatabaseModule.kt" to listOf("AstrBotDatabase.get("),
+            "../app-integration/src/main/java/com/astrbot/android/app/integration/db/DatabaseModule.kt" to listOf("AstrBotDatabase.get("),
             "core/runtime/container/ContainerRuntimeEntryPoint.kt" to listOf(
                 "EntryPointAccessors.fromApplication(",
                 "EntryPoints.get(",
@@ -64,7 +75,11 @@ class StrictHiltOnlyFinalContractTest {
 
         val violations = buildList {
             forbiddenTokensByFile.forEach { (relativePath, forbiddenTokens) ->
-                val file = mainRoot.resolve(relativePath)
+                val file = if (relativePath.startsWith("../")) {
+                    projectRoot.resolve(relativePath.removePrefix("../"))
+                } else {
+                    resolveProductionHotspot(relativePath)
+                }
                 assertTrue("Expected strict-Hilt hotspot to exist: ${file.toAbsolutePath()}", file.exists())
                 val text = file.readText()
                 forbiddenTokens.forEach { token ->
@@ -137,5 +152,12 @@ class StrictHiltOnlyFinalContractTest {
             cwd.parent?.resolve("app/src/main/java/com/astrbot/android")?.exists() == true -> cwd.parent
             else -> error("Unable to resolve project root from $cwd")
         }
+    }
+
+    private fun resolveProductionHotspot(relativePath: String): Path {
+        return productionSourceRoots
+            .map { root -> root.resolve(relativePath) }
+            .firstOrNull { file -> file.exists() }
+            ?: mainRoot.resolve(relativePath)
     }
 }

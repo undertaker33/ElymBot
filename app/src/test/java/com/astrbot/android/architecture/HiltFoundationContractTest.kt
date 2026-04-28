@@ -66,12 +66,18 @@ class HiltFoundationContractTest {
     @Test
     fun di_hilt_foundation_files_must_exist() {
         val required = listOf(
-            "di/hilt/AppDispatchersModule.kt",
-            "di/hilt/RuntimeServicesModule.kt",
-            "di/hilt/RepositoryPortModule.kt",
-            "di/hilt/ViewModelDependencyModule.kt",
+            listOf(
+                mainRoot.resolve("di/hilt/AppDispatchersModule.kt"),
+                projectRoot.resolve("app-integration/src/main/java/com/astrbot/android/di/hilt/AppDispatchersModule.kt"),
+            ),
+            listOf(mainRoot.resolve("di/hilt/RuntimeServicesModule.kt")),
+            listOf(
+                mainRoot.resolve("di/hilt/RepositoryPortModule.kt"),
+                projectRoot.resolve("app-integration/src/main/java/com/astrbot/android/di/hilt/RepositoryPortModule.kt"),
+            ),
+            listOf(mainRoot.resolve("di/hilt/ViewModelDependencyModule.kt")),
         )
-        val missing = required.filterNot { mainRoot.resolve(it).exists() }
+        val missing = required.filterNot { candidates -> candidates.any { it.exists() } }
         assertTrue("Missing Hilt foundation files: $missing", missing.isEmpty())
     }
 

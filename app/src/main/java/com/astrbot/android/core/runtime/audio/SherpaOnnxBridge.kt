@@ -208,8 +208,9 @@ object SherpaOnnxBridge {
     ): Int {
         val normalizedModel = model.trim().lowercase()
         val resolvedVoice = OnDeviceTtsCatalog.voice(normalizedModel, voiceId)
-        if (resolvedVoice?.speakerId != null) {
-            return resolvedVoice.speakerId
+        val speakerId = resolvedVoice?.speakerId
+        if (speakerId != null) {
+            return speakerId
         }
         return OnDeviceTtsCatalog.defaultVoice(normalizedModel)?.speakerId ?: 0
     }

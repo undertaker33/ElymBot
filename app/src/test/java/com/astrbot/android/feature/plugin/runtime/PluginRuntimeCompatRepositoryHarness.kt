@@ -51,10 +51,12 @@ import com.astrbot.android.data.db.resource.ResourceCenterItemEntity
 import com.astrbot.android.data.db.resource.toEntity
 import com.astrbot.android.data.db.toWriteModel
 import com.astrbot.android.feature.bot.data.FeatureBotRepository
+import com.astrbot.android.feature.bot.data.FeatureBotRepositoryPortAdapter
 import com.astrbot.android.feature.bot.data.FeatureBotRepositoryStore
 import com.astrbot.android.feature.chat.data.FeatureConversationRepository
 import com.astrbot.android.feature.chat.data.FeatureConversationRepositoryStore
 import com.astrbot.android.feature.config.data.FeatureConfigRepository
+import com.astrbot.android.feature.config.data.FeatureConfigRepositoryPortAdapter
 import com.astrbot.android.feature.config.data.FeatureConfigRepositoryStore
 import com.astrbot.android.feature.persona.data.FeaturePersonaRepository
 import com.astrbot.android.feature.persona.data.FeaturePersonaRepositoryStore
@@ -129,7 +131,7 @@ internal object PluginRuntimeCompatRepositoryHarness {
             botDao = botDao,
             appPreferenceDao = botPreferenceDao,
             bindingsPreferences = InMemorySharedPreferences(),
-            configRepositoryProvider = Provider { configStore },
+            configRepositoryProvider = Provider { FeatureConfigRepositoryPortAdapter(configStore) },
         )
 
         providerDao = InMemoryProviderAggregateDao()
@@ -148,7 +150,7 @@ internal object PluginRuntimeCompatRepositoryHarness {
         conversationStore = FeatureConversationRepositoryStore(
             conversationAggregateDao = conversationDao,
             legacyStorageFile = File.createTempFile("plugin-runtime-compat", ".json").apply { deleteOnExit() },
-            botRepositoryProvider = Provider { botStore },
+            botRepositoryProvider = Provider { FeatureBotRepositoryPortAdapter(botStore) },
         )
 
         resourceCenterDao = InMemoryResourceCenterDao()

@@ -5,6 +5,7 @@ import com.astrbot.android.feature.resource.domain.ResourceCompatibilityUseCase
 import com.astrbot.android.model.ConfigProfile
 import com.astrbot.android.model.ConfigResourceProjection
 import com.astrbot.android.model.ResourceCenterCompatibilitySnapshot
+import com.astrbot.android.model.ResourceConfigSnapshot
 import com.astrbot.android.model.ResourceCenterItem
 import com.astrbot.android.model.ResourceCenterKind
 
@@ -28,5 +29,12 @@ class ResourceCenterPresentationController(
         port.projectionsForConfig(configId)
 
     fun compatibilitySnapshotForConfig(profile: ConfigProfile): ResourceCenterCompatibilitySnapshot =
-        compatibilityUseCase.snapshotForConfig(profile)
+        compatibilityUseCase.snapshotForConfig(profile.toResourceConfigSnapshot())
+
+    private fun ConfigProfile.toResourceConfigSnapshot(): ResourceConfigSnapshot =
+        ResourceConfigSnapshot(
+            id = id,
+            mcpServers = mcpServers,
+            skills = skills,
+        )
 }

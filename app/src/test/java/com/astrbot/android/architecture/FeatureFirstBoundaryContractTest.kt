@@ -9,10 +9,13 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class FeatureFirstBoundaryContractTest {
-    private val mainRoot: Path = listOf(
-        Path.of("src/main/java/com/astrbot/android"),
-        Path.of("app/src/main/java/com/astrbot/android"),
-    ).first { it.exists() }
+    private val projectRoot: Path = detectProjectRoot()
+    private val mainRoot: Path = projectRoot.resolve("app/src/main/java/com/astrbot/android")
+    private val productionSourceRoots: List<Path> = listOf(
+        "app/src/main/java/com/astrbot/android",
+        "feature/chat/api/src/main/java/com/astrbot/android",
+        "feature/chat/impl/src/main/java/com/astrbot/android",
+    ).map(projectRoot::resolve).filter { root -> root.exists() }
 
     @Test
     fun feature_first_anchor_directories_exist() {
@@ -27,7 +30,9 @@ class FeatureFirstBoundaryContractTest {
             "feature/qq/data",
             "feature/resource/data",
         )
-        val missing = required.filterNot { mainRoot.resolve(it).exists() }
+        val missing = required.filterNot { relativePath ->
+            productionSourceRoots.any { root -> root.resolve(relativePath).exists() }
+        }
         assertTrue("Missing feature-first anchors: $missing", missing.isEmpty())
     }
 
@@ -35,7 +40,7 @@ class FeatureFirstBoundaryContractTest {
     fun feature_presentation_and_domain_stay_off_root_singletons() {
         val violations = kotlinFilesUnder("feature")
             .flatMap { file ->
-                val relative = mainRoot.relativize(file).toString().replace('\\', '/')
+                val relative = relativeProductionPath(file)
                 val text = file.readText()
                 when {
                     "/presentation/" in relative -> presentationForbiddenImports.mapNotNull { forbidden ->
@@ -61,7 +66,7 @@ class FeatureFirstBoundaryContractTest {
         val legacyAdapterPattern = Regex("""\bLegacy[A-Za-z0-9_]*Adapter\b""")
         val violations = kotlinFilesUnder("feature")
             .flatMap { file ->
-                val relative = mainRoot.relativize(file).toString().replace('\\', '/')
+                val relative = relativeProductionPath(file)
                 legacyAdapterPattern.findAll(file.readText())
                     .map { match -> "$relative references ${match.value}" }
                     .toList()
@@ -104,10 +109,10 @@ class FeatureFirstBoundaryContractTest {
     fun production_code_does_not_wire_native_search_providers() {
         val violations = kotlinFilesUnder("")
             .filterNot { file ->
-                mainRoot.relativize(file).toString().replace('\\', '/').startsWith("core/runtime/search/native/")
+                relativeProductionPath(file).startsWith("core/runtime/search/native/")
             }
             .mapNotNull { file ->
-                val relative = mainRoot.relativize(file).toString().replace('\\', '/')
+                val relative = relativeProductionPath(file)
                 if (file.readText().contains("com.astrbot.android.core.runtime.search.native")) {
                     "$relative imports native search provider"
                 } else {
@@ -122,11 +127,32 @@ class FeatureFirstBoundaryContractTest {
     }
 
     private fun kotlinFilesUnder(relativeRoot: String): List<Path> {
-        val root = mainRoot.resolve(relativeRoot)
-        return Files.walk(root).use { stream ->
-            stream
-                .filter { it.isRegularFile() && it.fileName.toString().endsWith(".kt") }
-                .toList()
+        return productionSourceRoots.flatMap { sourceRoot ->
+            val root = sourceRoot.resolve(relativeRoot)
+            if (!root.exists()) {
+                emptyList()
+            } else {
+                Files.walk(root).use { stream ->
+                    stream
+                        .filter { it.isRegularFile() && it.fileName.toString().endsWith(".kt") }
+                        .toList()
+                }
+            }
+        }
+    }
+
+    private fun relativeProductionPath(file: Path): String {
+        val sourceRoot = productionSourceRoots.firstOrNull { root -> file.startsWith(root) }
+            ?: error("File $file is not under configured production source roots")
+        return sourceRoot.relativize(file).toString().replace('\\', '/')
+    }
+
+    private fun detectProjectRoot(): Path {
+        val cwd = Path.of("").toAbsolutePath()
+        return when {
+            cwd.resolve("app/src/main/java/com/astrbot/android").exists() -> cwd
+            cwd.parent?.resolve("app/src/main/java/com/astrbot/android")?.exists() == true -> cwd.parent
+            else -> error("Unable to resolve project root from $cwd")
         }
     }
 

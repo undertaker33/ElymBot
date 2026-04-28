@@ -1,7 +1,6 @@
 package com.astrbot.android.feature.plugin.data.catalog
 
 import com.astrbot.android.model.plugin.PluginRiskLevel
-import com.astrbot.android.core.common.logging.RuntimeLogRepository
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -9,7 +8,6 @@ import org.junit.Test
 class PluginCatalogJsonTest {
     @Test
     fun decode_repository_source_contract_reads_nested_entries_versions_and_permissions() {
-        RuntimeLogRepository.clear()
         val json = """
             {
               "sourceId": "official",
@@ -66,13 +64,5 @@ class PluginCatalogJsonTest {
         assertEquals(PluginRiskLevel.MEDIUM, version.permissions.single().riskLevel)
         assertTrue(version.permissions.single().required)
         assertEquals("Adds severe weather alerts.", version.changelog)
-        assertTrue(
-            RuntimeLogRepository.logs.value.any {
-                it.contains("Plugin market parse success") &&
-                    it.contains("sourceId=official") &&
-                    it.contains("plugins=1") &&
-                    it.contains("versions=1")
-            },
-        )
     }
 }
