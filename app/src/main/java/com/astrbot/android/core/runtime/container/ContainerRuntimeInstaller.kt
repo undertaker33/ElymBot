@@ -3,7 +3,7 @@ package com.astrbot.android.core.runtime.container
 
 import android.content.Context
 import android.system.Os
-import com.astrbot.android.core.common.logging.RuntimeLogRepository
+import com.astrbot.android.core.common.logging.RuntimeLogger
 import com.astrbot.android.core.runtime.secret.RuntimeSecretRepository
 import com.astrbot.android.model.NapCatBridgeConfig
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -22,6 +22,7 @@ import kotlinx.coroutines.sync.withLock
 class ContainerRuntimeInstaller @Inject constructor(
     @ApplicationContext private val appContext: Context,
     private val bridgeStatePort: ContainerBridgeStatePort,
+    private val runtimeLogger: RuntimeLogger,
 ) {
     private val scriptNames = listOf(
         "container_env.sh",
@@ -94,9 +95,9 @@ class ContainerRuntimeInstaller @Inject constructor(
         }
 
         val nativeLibraryDir = appContext.applicationInfo.nativeLibraryDir
-        RuntimeLogRepository.append("nativeLibraryDir=$nativeLibraryDir")
+        runtimeLogger.append("nativeLibraryDir=$nativeLibraryDir")
         installRuntimeLinks(binDir, nativeLibraryDir)
-        RuntimeLogRepository.append("Using native binaries from runtime symlinks")
+        runtimeLogger.append("Using native binaries from runtime symlinks")
 
         bundledAssetNames.forEach { name ->
             copyBundledAsset(appContext, "runtime/assets/$name", File(assetsDir, name))
@@ -106,11 +107,11 @@ class ContainerRuntimeInstaller @Inject constructor(
 
         val rootfsDir = File(runtimeDir, "rootfs/ubuntu")
         try {
-            RootfsExtractor.ensureExtracted(ubuntuArchive, rootfsDir)
-            RuntimeLogRepository.append("Network install mode enabled: only Ubuntu rootfs is bundled")
-            RuntimeLogRepository.append("Ubuntu rootfs ready at ${rootfsDir.absolutePath}")
+            RootfsExtractor.ensureExtracted(ubuntuArchive, rootfsDir, runtimeLogger)
+            runtimeLogger.append("Network install mode enabled: only Ubuntu rootfs is bundled")
+            runtimeLogger.append("Ubuntu rootfs ready at ${rootfsDir.absolutePath}")
         } catch (error: Exception) {
-            RuntimeLogRepository.append("Rootfs extraction failed: ${error.message ?: error.javaClass.simpleName}")
+            runtimeLogger.append("Rootfs extraction failed: ${error.message ?: error.javaClass.simpleName}")
         }
 
         val appHome = appContext.filesDir.absolutePath
@@ -125,7 +126,7 @@ class ContainerRuntimeInstaller @Inject constructor(
                 commandPreview = "/system/bin/sh ${File(scriptDir, "start_napcat.sh").absolutePath} $appHome $nativeLibraryDir",
             ),
         )
-        RuntimeLogRepository.append("Runtime scripts installed to ${scriptDir.absolutePath}")
+        runtimeLogger.append("Runtime scripts installed to ${scriptDir.absolutePath}")
     }
 
     private fun copyBundledAsset(context: Context, assetPath: String, target: File) {
@@ -133,9 +134,9 @@ class ContainerRuntimeInstaller @Inject constructor(
             context.assets.open(assetPath).use { input ->
                 target.outputStream().use { output -> input.copyTo(output) }
             }
-            RuntimeLogRepository.append("Bundled asset ready: ${target.name}")
+            runtimeLogger.append("Bundled asset ready: ${target.name}")
         }.onFailure { error ->
-            RuntimeLogRepository.append(
+            runtimeLogger.append(
                 "Bundled asset missing or skipped: ${target.name} (${error.message ?: error.javaClass.simpleName})",
             )
         }
@@ -154,7 +155,7 @@ class ContainerRuntimeInstaller @Inject constructor(
         linkMap.forEach { (linkName, targetName) ->
             val targetFile = File(nativeLibraryDir, targetName)
             if (!targetFile.exists()) {
-                RuntimeLogRepository.append("Native dependency missing: ${targetFile.absolutePath}")
+                runtimeLogger.append("Native dependency missing: ${targetFile.absolutePath}")
                 return@forEach
             }
 
@@ -164,9 +165,9 @@ class ContainerRuntimeInstaller @Inject constructor(
                     linkFile.delete()
                 }
                 Os.symlink(targetFile.absolutePath, linkFile.absolutePath)
-                RuntimeLogRepository.append("Linked $linkName -> $targetName")
+                runtimeLogger.append("Linked $linkName -> $targetName")
             }.onFailure { error ->
-                RuntimeLogRepository.append("Failed to link $linkName: ${error.message ?: error.javaClass.simpleName}")
+                runtimeLogger.append("Failed to link $linkName: ${error.message ?: error.javaClass.simpleName}")
             }
         }
     }

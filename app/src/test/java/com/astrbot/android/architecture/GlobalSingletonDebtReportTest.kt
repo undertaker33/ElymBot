@@ -13,9 +13,36 @@ import org.junit.Test
 class GlobalSingletonDebtReportTest {
 
     private val projectRoot: Path = detectProjectRoot()
-    private val mainRoot: Path = projectRoot.resolve("app/src/main/java/com/astrbot/android")
+    private val sourceRoots: List<Path> = listOf(
+        "app/src/main/java/com/astrbot/android",
+        "app-integration/src/main/java/com/astrbot/android",
+        "core/common/src/main/java/com/astrbot/android",
+        "core/db/src/main/java/com/astrbot/android",
+        "core/logging/src/main/java/com/astrbot/android",
+        "core/runtime/src/main/java/com/astrbot/android",
+        "feature/bot/api/src/main/java/com/astrbot/android",
+        "feature/bot/impl/src/main/java/com/astrbot/android",
+        "feature/chat/api/src/main/java/com/astrbot/android",
+        "feature/chat/impl/src/main/java/com/astrbot/android",
+        "feature/config/api/src/main/java/com/astrbot/android",
+        "feature/config/impl/src/main/java/com/astrbot/android",
+        "feature/cron/api/src/main/java/com/astrbot/android",
+        "feature/cron/impl/src/main/java/com/astrbot/android",
+        "feature/persona/api/src/main/java/com/astrbot/android",
+        "feature/persona/impl/src/main/java/com/astrbot/android",
+        "feature/plugin/api/src/main/java/com/astrbot/android",
+        "feature/plugin/impl/src/main/java/com/astrbot/android",
+        "feature/provider/api/src/main/java/com/astrbot/android",
+        "feature/provider/impl/src/main/java/com/astrbot/android",
+        "feature/qq/api/src/main/java/com/astrbot/android",
+        "feature/qq/impl/src/main/java/com/astrbot/android",
+        "feature/resource/api/src/main/java/com/astrbot/android",
+        "feature/resource/impl/src/main/java/com/astrbot/android",
+    ).map(projectRoot::resolve).filter { root -> root.exists() }
     private val allowlistFile: Path =
         projectRoot.resolve("app/src/test/resources/architecture/global-singleton-allowlist.txt")
+    private val staticRepositoryAllowlistFile: Path =
+        projectRoot.resolve("app/src/test/resources/architecture/static-repository-usage-allowlist.txt")
     private val reportFile: Path =
         projectRoot.resolve("app/build/reports/architecture/global-singleton-debt.txt")
 
@@ -55,10 +82,16 @@ class GlobalSingletonDebtReportTest {
     @Test
     fun generate_global_singleton_debt_report() {
         val allowlist = loadAllowlist()
-        val productionFiles = kotlinFilesUnder(mainRoot)
+        val staticRepositoryAllowlist = loadStaticRepositoryAllowlist()
+        val productionFiles = sourceRoots.flatMap(::kotlinFilesUnder)
 
         val businessObjects = productionFiles
             .filter { file -> containsBusinessObjectDeclaration(file.readText(UTF_8)) }
+            .map(::relativePath)
+            .sorted()
+
+        val suspiciousObjects = productionFiles
+            .filter { file -> containsSuspiciousObjectDeclaration(file.readText(UTF_8)) }
             .map(::relativePath)
             .sorted()
 
@@ -86,11 +119,16 @@ class GlobalSingletonDebtReportTest {
         val missingProductionFiles = allowlist.entries
             .map { entry -> entry.path }
             .distinct()
-            .filterNot { path -> mainRoot.resolve(path).exists() }
+            .filterNot { path -> sourceRoots.any { root -> root.resolve(path).exists() } }
             .sorted()
 
         val report = buildString {
             appendLine("Global Singleton Debt Report")
+            appendLine()
+            appendSection(
+                "source roots",
+                sourceRoots.map { root -> projectRoot.relativize(root).toString().replace('\\', '/') },
+            )
             appendLine()
             appendLine("total: ${allowlist.entries.size}")
             appendLine("temporary: ${allowlist.countByCategory("temporary")}")
@@ -109,6 +147,12 @@ class GlobalSingletonDebtReportTest {
                 allowlist.isAllowed(path, "object")
             })
             appendLine()
+            appendSection("suspicious object before allowlist", suspiciousObjects)
+            appendLine()
+            appendSection("suspicious object after allowlist", suspiciousObjects.filterNot { path ->
+                allowlist.isAllowed(path, "object")
+            })
+            appendLine()
             appendSection("suspicious companion before allowlist", suspiciousCompanions)
             appendLine()
             appendSection("suspicious companion after allowlist", suspiciousCompanions.filterNot { path ->
@@ -120,6 +164,13 @@ class GlobalSingletonDebtReportTest {
             appendSection("volatile delegate files", volatileDelegateFiles)
             appendLine()
             appendSection("manual AstrBotDatabase.get callers", manualDatabaseGetCallers)
+            appendLine()
+            appendLine("Static Repository Usage Allowlist")
+            appendLine()
+            appendLine("total: ${staticRepositoryAllowlist.entries.size}")
+            appendSection("by owner", staticRepositoryAllowlist.countsBy { it.owner })
+            appendLine()
+            appendSection("by symbol", staticRepositoryAllowlist.countsBy { it.symbol })
         }
 
         Files.createDirectories(reportFile.parent)
@@ -137,10 +188,12 @@ class GlobalSingletonDebtReportTest {
                 "by expires",
                 "missing production file",
                 "business object before allowlist",
+                "suspicious object before allowlist",
                 "suspicious companion before allowlist",
                 "graphInstance files",
                 "volatile delegate files",
                 "manual AstrBotDatabase.get callers",
+                "Static Repository Usage Allowlist",
             ).all(report::contains),
         )
     }
@@ -185,6 +238,39 @@ class GlobalSingletonDebtReportTest {
         }
     }
 
+    private fun containsSuspiciousObjectDeclaration(text: String): Boolean {
+        if (text.contains("@Module") && text.contains("@InstallIn")) {
+            return false
+        }
+
+        return namedObjectBlocks(text).any { block ->
+            suspiciousObjectTokens.any(block::contains) ||
+                objectOwnsWeakGlobalState(block)
+        }
+    }
+
+    private fun namedObjectBlocks(text: String): List<String> {
+        val objectRegex = Regex("""(?m)^\s*(?:(?:internal|private|public)\s+)?(data\s+)?object\s+([A-Za-z0-9_]+)[^{]*\{""")
+        return objectRegex.findAll(text).mapNotNull { match ->
+            if (match.groupValues[1].isNotBlank()) return@mapNotNull null
+            val openingBrace = text.indexOf('{', startIndex = match.range.first)
+            if (openingBrace < 0) return@mapNotNull null
+            var depth = 0
+            for (index in openingBrace until text.length) {
+                when (text[index]) {
+                    '{' -> depth += 1
+                    '}' -> {
+                        depth -= 1
+                        if (depth == 0) {
+                            return@mapNotNull text.substring(match.range.first, index + 1)
+                        }
+                    }
+                }
+            }
+            null
+        }.toList()
+    }
+
     private fun companionObjectBlocks(text: String): List<String> {
         val companionRegex = Regex("""companion\s+object(?:\s+[A-Za-z0-9_]+)?\s*\{""")
         return companionRegex.findAll(text).mapNotNull { match ->
@@ -207,6 +293,14 @@ class GlobalSingletonDebtReportTest {
     }
 
     private fun companionOwnsWeakGlobalState(block: String): Boolean {
+        val weakStateRegexes = listOf(
+            Regex("""(?m)^\s*(?:(?:private|internal|public)\s+)?(?:lateinit\s+)?var\s+[A-Za-z0-9_]+\s*:\s*.*\b(?:Context|Database|Dao|instance)\b"""),
+            Regex("""(?m)^\s*(?:(?:private|internal|public)\s+)?(?:val|var)\s+[A-Za-z0-9_]*instance[A-Za-z0-9_]*\b""", RegexOption.IGNORE_CASE),
+        )
+        return weakStateRegexes.any { regex -> regex.containsMatchIn(block) }
+    }
+
+    private fun objectOwnsWeakGlobalState(block: String): Boolean {
         val weakStateRegexes = listOf(
             Regex("""(?m)^\s*(?:(?:private|internal|public)\s+)?(?:lateinit\s+)?var\s+[A-Za-z0-9_]+\s*:\s*.*\b(?:Context|Database|Dao|instance)\b"""),
             Regex("""(?m)^\s*(?:(?:private|internal|public)\s+)?(?:val|var)\s+[A-Za-z0-9_]*instance[A-Za-z0-9_]*\b""", RegexOption.IGNORE_CASE),
@@ -249,6 +343,35 @@ class GlobalSingletonDebtReportTest {
         return SingletonAllowlist(entries)
     }
 
+    private fun loadStaticRepositoryAllowlist(): StaticRepositoryAllowlist {
+        if (!staticRepositoryAllowlistFile.exists()) {
+            return StaticRepositoryAllowlist(emptyList())
+        }
+
+        val entries = staticRepositoryAllowlistFile.readLines(UTF_8)
+            .asSequence()
+            .map { line -> line.trim() }
+            .filter { line -> line.isNotBlank() && !line.startsWith("#") }
+            .mapIndexed { index, line ->
+                val parts = line.split("|").map { part -> part.trim() }
+                require(parts.size == 7) {
+                    "Invalid static repository usage allowlist entry at line ${index + 1}: $line"
+                }
+                StaticRepositoryAllowlistEntry(
+                    path = parts[0],
+                    symbol = parts[1],
+                    owner = parts[2],
+                    target = parts[3],
+                    reason = parts[4],
+                    expires = parts[5],
+                    issue = parts[6],
+                )
+            }
+            .toList()
+
+        return StaticRepositoryAllowlist(entries)
+    }
+
     private fun kotlinFilesUnder(root: Path): List<Path> {
         return Files.walk(root).use { stream ->
             stream
@@ -258,7 +381,9 @@ class GlobalSingletonDebtReportTest {
     }
 
     private fun relativePath(file: Path): String {
-        return mainRoot.relativize(file).toString().replace('\\', '/')
+        val sourceRoot = sourceRoots.firstOrNull { root -> file.startsWith(root) }
+            ?: error("File $file is not under a configured production source root")
+        return sourceRoot.relativize(file).toString().replace('\\', '/')
     }
 
     private fun detectProjectRoot(): Path {
@@ -297,7 +422,46 @@ class GlobalSingletonDebtReportTest {
         val issue: String,
     )
 
+    private data class StaticRepositoryAllowlist(
+        val entries: List<StaticRepositoryAllowlistEntry>,
+    ) {
+        fun countsBy(selector: (StaticRepositoryAllowlistEntry) -> String): Map<String, Int> {
+            return entries.groupingBy(selector).eachCount()
+        }
+    }
+
+    private data class StaticRepositoryAllowlistEntry(
+        val path: String,
+        val symbol: String,
+        val owner: String,
+        val target: String,
+        val reason: String,
+        val expires: String,
+        val issue: String,
+    )
+
     private companion object {
+        private val suspiciousObjectTokens = listOf(
+            "@Volatile",
+            "MutableStateFlow",
+            "MutableSharedFlow",
+            "CoroutineScope",
+            "SupervisorJob",
+            "graphInstance",
+            "initialize(",
+            "installDelegateIfAbsent",
+            "OverrideForTests",
+            "setLoaderOverrideForTests",
+            "installCompat",
+            "installProviderFromHilt",
+            "RuntimeLogRepository",
+            "AppLogger",
+            "ContainerBridgeController",
+            "TextToSpeech",
+            "HttpURLConnection",
+            "ProcessBuilder",
+        )
+
         private val weakCompanionTokens = setOf(
             "Context",
             "Database",

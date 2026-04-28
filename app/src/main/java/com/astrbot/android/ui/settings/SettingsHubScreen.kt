@@ -44,21 +44,21 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.os.LocaleListCompat
+import androidx.hilt.navigation.compose.hiltViewModel
 import com.astrbot.android.R
 import com.astrbot.android.data.AppLanguage
 import com.astrbot.android.data.AppPreferencesRepository
-import com.astrbot.android.data.RuntimeCacheRepository
 import com.astrbot.android.data.ThemeMode
 import com.astrbot.android.ui.app.MonochromeUi
 import com.astrbot.android.ui.common.runWithAppUiTransition
-import kotlinx.coroutines.Dispatchers
+import com.astrbot.android.ui.viewmodel.RuntimeCacheViewModel
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 @Composable
 fun SettingsHubScreen(
     onBack: () -> Unit,
     onOpenRuntime: () -> Unit,
+    runtimeCacheViewModel: RuntimeCacheViewModel = hiltViewModel(),
 ) {
     val context = LocalContext.current
     LocalConfiguration.current
@@ -72,7 +72,7 @@ fun SettingsHubScreen(
     )
     val scope = rememberCoroutineScope()
     val currentLanguage = currentApplicationLanguage()
-    val cacheCleanupState by RuntimeCacheRepository.state.collectAsState()
+    val cacheCleanupState by runtimeCacheViewModel.state.collectAsState()
     var showCacheCleanupConfirm by remember { mutableStateOf(false) }
 
     SubPageScaffold(
@@ -169,9 +169,7 @@ fun SettingsHubScreen(
                         showCacheCleanupConfirm = false
                         scope.launch {
                             runCatching {
-                                withContext(Dispatchers.IO) {
-                                    RuntimeCacheRepository.clearSafeRuntimeCaches(context)
-                                }
+                                runtimeCacheViewModel.clearSafeRuntimeCaches()
                             }.onSuccess { summary ->
                                 Toast.makeText(context, summary, Toast.LENGTH_LONG).show()
                             }.onFailure { error ->

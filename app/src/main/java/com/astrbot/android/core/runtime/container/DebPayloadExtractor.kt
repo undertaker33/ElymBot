@@ -1,8 +1,7 @@
 package com.astrbot.android.core.runtime.container
 
-import com.astrbot.android.core.common.logging.RuntimeLogRepository
-
 import android.system.Os
+import com.astrbot.android.core.common.logging.RuntimeLogger
 import org.apache.commons.compress.archivers.ar.ArArchiveInputStream
 import org.apache.commons.compress.archivers.tar.TarArchiveEntry
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream
@@ -19,19 +18,19 @@ object DebPayloadExtractor {
     private const val offlineMarkerName = ".astrbot_offline_payload_v1"
     private const val qqMarkerName = ".astrbot_qq_payload_v1"
 
-    fun ensurePrepared(rootfsDir: File, offlineDebTar: File?, qqDeb: File?) {
+    fun ensurePrepared(rootfsDir: File, offlineDebTar: File?, qqDeb: File?, logger: RuntimeLogger) {
         if (offlineDebTar?.exists() == true && !isOfflinePayloadReady(rootfsDir)) {
-            RuntimeLogRepository.append("Extracting bundled offline deb payloads into rootfs")
-            extractOfflineBundle(offlineDebTar, rootfsDir)
+            logger.append("Extracting bundled offline deb payloads into rootfs")
+            extractOfflineBundle(offlineDebTar, rootfsDir, logger)
             File(rootfsDir, offlineMarkerName).writeText("ok")
-            RuntimeLogRepository.append("Bundled offline deb payloads ready")
+            logger.append("Bundled offline deb payloads ready")
         }
 
         if (qqDeb?.exists() == true && !isQqPayloadReady(rootfsDir)) {
-            RuntimeLogRepository.append("Extracting bundled QQ payload into rootfs")
-            extractDebFile(qqDeb, rootfsDir)
+            logger.append("Extracting bundled QQ payload into rootfs")
+            extractDebFile(qqDeb, rootfsDir, logger)
             File(rootfsDir, qqMarkerName).writeText("ok")
-            RuntimeLogRepository.append("Bundled QQ payload ready")
+            logger.append("Bundled QQ payload ready")
         }
     }
 
@@ -52,7 +51,7 @@ object DebPayloadExtractor {
         return File(rootfsDir, "opt/QQ/qq").exists() || marker.exists()
     }
 
-    private fun extractOfflineBundle(bundleTar: File, rootfsDir: File) {
+    private fun extractOfflineBundle(bundleTar: File, rootfsDir: File, logger: RuntimeLogger) {
         val tempDir = File(rootfsDir.parentFile, ".tmp_offline_debs")
         tempDir.deleteRecursively()
         tempDir.mkdirs()
@@ -63,7 +62,7 @@ object DebPayloadExtractor {
                 if (!entry.isDirectory && entry.name.endsWith(".deb")) {
                     val tempDeb = File(tempDir, File(entry.name).name)
                     tempDeb.outputStream().use { output -> tarInput.copyTo(output) }
-                    extractDebFile(tempDeb, rootfsDir)
+                    extractDebFile(tempDeb, rootfsDir, logger)
                 }
                 entry = tarInput.nextTarEntry
             }
@@ -72,13 +71,13 @@ object DebPayloadExtractor {
         tempDir.deleteRecursively()
     }
 
-    private fun extractDebFile(debFile: File, rootfsDir: File) {
+    private fun extractDebFile(debFile: File, rootfsDir: File, logger: RuntimeLogger) {
         FileInputStream(debFile).use { input ->
-            extractDebStream(input, rootfsDir, debFile.name)
+            extractDebStream(input, rootfsDir, debFile.name, logger)
         }
     }
 
-    private fun extractDebStream(input: InputStream, rootfsDir: File, label: String) {
+    private fun extractDebStream(input: InputStream, rootfsDir: File, label: String, logger: RuntimeLogger) {
         ArArchiveInputStream(input).use { arInput ->
             while (true) {
                 val entry = arInput.nextArEntry ?: break
@@ -94,7 +93,7 @@ object DebPayloadExtractor {
                     name.endsWith(".tar") -> arInput
                     else -> throw IllegalStateException("Unsupported deb payload format: $name")
                 }
-                extractTarPayload(payloadStream, rootfsDir, "$label:$name")
+                extractTarPayload(payloadStream, rootfsDir, "$label:$name", logger)
                 return
             }
         }
@@ -102,7 +101,7 @@ object DebPayloadExtractor {
         throw IllegalStateException("Missing data payload in deb: $label")
     }
 
-    private fun extractTarPayload(input: InputStream, rootfsDir: File, label: String) {
+    private fun extractTarPayload(input: InputStream, rootfsDir: File, label: String, logger: RuntimeLogger) {
         TarArchiveInputStream(input).use { tarInput ->
             var entry = tarInput.nextTarEntry
             while (entry != null) {
@@ -138,7 +137,7 @@ object DebPayloadExtractor {
                 entry = tarInput.nextTarEntry
             }
         }
-        RuntimeLogRepository.append("Extracted deb payload: $label")
+        logger.append("Extracted deb payload: $label")
     }
 
     private fun resolveEntryFile(baseDir: File, entry: TarArchiveEntry): File {

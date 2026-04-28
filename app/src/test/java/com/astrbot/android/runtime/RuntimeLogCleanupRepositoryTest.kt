@@ -15,6 +15,7 @@ class RuntimeLogCleanupRepositoryTest {
 
     @Test
     fun update_settings_starts_baseline_timestamp_when_enabled_for_first_time() {
+        val settingsFlow = RuntimeLogCleanupRepository.settings
         RuntimeLogCleanupRepository.setStoreOverrideForTests(InMemoryRuntimeLogCleanupSettingsStore())
 
         RuntimeLogCleanupRepository.updateSettings(
@@ -24,7 +25,7 @@ class RuntimeLogCleanupRepositoryTest {
             now = 12_000L,
         )
 
-        val settings = RuntimeLogCleanupRepository.settings.value
+        val settings = settingsFlow.value
         assertTrue(settings.enabled)
         assertEquals(2, settings.intervalHours)
         assertEquals(30, settings.intervalMinutes)

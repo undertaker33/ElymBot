@@ -37,20 +37,20 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import com.astrbot.android.R
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.astrbot.android.core.common.logging.RuntimeLogCleanupRepository
-import com.astrbot.android.core.common.logging.RuntimeLogRepository
 import com.astrbot.android.ui.app.MonochromeUi
 import com.astrbot.android.ui.viewmodel.ChatViewModel
 import com.astrbot.android.ui.viewmodel.ConversationViewModel
+import com.astrbot.android.ui.viewmodel.RuntimeLogViewModel
 
 @Composable
 fun LogScreen(
     conversationViewModel: ConversationViewModel = hiltViewModel(),
     chatViewModel: ChatViewModel = hiltViewModel(),
+    runtimeLogViewModel: RuntimeLogViewModel = hiltViewModel(),
     showContext: Boolean,
 ) {
-    val logs by RuntimeLogRepository.logs.collectAsState()
-    val cleanupSettings by RuntimeLogCleanupRepository.settings.collectAsState()
+    val logs by runtimeLogViewModel.logs.collectAsState()
+    val cleanupSettings by runtimeLogViewModel.cleanupSettings.collectAsState()
     val sessions by conversationViewModel.sessions.collectAsState()
     val uiState by chatViewModel.uiState.collectAsState()
     val clipboardManager = LocalClipboardManager.current
@@ -69,9 +69,6 @@ fun LogScreen(
         joinedLogs.ifBlank { context.getString(R.string.log_screen_logs_empty) }
     }
 
-    LaunchedEffect(context) {
-        RuntimeLogCleanupRepository.initialize(context.applicationContext)
-    }
     LaunchedEffect(
         showContext,
         cleanupSettings.enabled,
@@ -80,9 +77,7 @@ fun LogScreen(
         cleanupSettings.lastCleanupAtEpochMillis,
     ) {
         if (!showContext) {
-            RuntimeLogCleanupRepository.maybeAutoClear {
-                RuntimeLogRepository.clear()
-            }
+            runtimeLogViewModel.maybeAutoClear()
         }
     }
 
@@ -125,8 +120,7 @@ fun LogScreen(
                             Toast.LENGTH_SHORT,
                         ).show()
                     } else {
-                        RuntimeLogRepository.clear()
-                        RuntimeLogCleanupRepository.recordCleanup()
+                        runtimeLogViewModel.clearLogs()
                         Toast.makeText(
                             context,
                             context.getString(R.string.log_screen_logs_clear_success),
@@ -179,7 +173,7 @@ fun LogScreen(
             dialogTag = "runtime-log-cleanup-dialog",
             onDismiss = { showCleanupDialog = false },
             onConfirm = { enabled, hours, minutes ->
-                RuntimeLogCleanupRepository.updateSettings(
+                runtimeLogViewModel.updateCleanupSettings(
                     enabled = enabled,
                     intervalHours = hours,
                     intervalMinutes = minutes,

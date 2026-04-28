@@ -1,8 +1,7 @@
 package com.astrbot.android.core.runtime.container
 
-import com.astrbot.android.core.common.logging.RuntimeLogRepository
-
 import android.system.Os
+import com.astrbot.android.core.common.logging.RuntimeLogger
 import org.apache.commons.compress.archivers.tar.TarArchiveEntry
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream
 import org.tukaani.xz.XZInputStream
@@ -16,7 +15,7 @@ import java.nio.file.StandardCopyOption
 object RootfsExtractor {
     private const val extractionMarkerName = ".astrbot_rootfs_v4_embedded"
 
-    fun ensureExtracted(archiveFile: File, rootfsDir: File) {
+    fun ensureExtracted(archiveFile: File, rootfsDir: File, logger: RuntimeLogger) {
         if (isValidRootfs(rootfsDir)) {
             return
         }
@@ -26,7 +25,7 @@ object RootfsExtractor {
         }
 
         if (rootfsDir.exists()) {
-            RuntimeLogRepository.append("Rebuilding invalid Ubuntu rootfs")
+            logger.append("Rebuilding invalid Ubuntu rootfs")
             rootfsDir.deleteRecursively()
         }
 
@@ -34,7 +33,7 @@ object RootfsExtractor {
         tempDir.deleteRecursively()
         tempDir.mkdirs()
 
-        RuntimeLogRepository.append("Extracting Ubuntu rootfs with embedded extractor")
+        logger.append("Extracting Ubuntu rootfs with embedded extractor")
         extractWithEmbeddedTar(archiveFile, tempDir)
 
         val sourceRoot = selectSourceRoot(tempDir)

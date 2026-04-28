@@ -1,8 +1,7 @@
 package com.astrbot.android.core.runtime.container
 
-import com.astrbot.android.core.common.logging.RuntimeLogRepository
-
 import android.system.Os
+import com.astrbot.android.core.common.logging.RuntimeLogger
 import java.io.File
 import org.apache.commons.compress.archivers.tar.TarArchiveEntry
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream
@@ -14,7 +13,7 @@ import java.nio.file.Files
 object RootfsOverlayExtractor {
     private const val markerName = ".astrbot_overlay_v1"
 
-    fun ensureApplied(overlayFile: File, rootfsDir: File) {
+    fun ensureApplied(overlayFile: File, rootfsDir: File, logger: RuntimeLogger) {
         if (!overlayFile.exists()) {
             return
         }
@@ -25,7 +24,7 @@ object RootfsOverlayExtractor {
         extractOverlay(overlayFile, rootfsDir)
 
         File(rootfsDir, markerName).writeText("ok")
-        RuntimeLogRepository.append("Bundled rootfs overlay applied")
+        logger.append("Bundled rootfs overlay applied")
     }
 
     private fun extractOverlay(overlayFile: File, rootfsDir: File) {

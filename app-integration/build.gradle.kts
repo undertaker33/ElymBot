@@ -14,6 +14,7 @@ dependencies {
 
     implementation(project(":core:common"))
     implementation(project(":core:db"))
+    implementation(project(":core:logging"))
     implementation(project(":core:runtime"))
     implementation(project(":feature:bot:api"))
     implementation(project(":feature:bot:impl"))

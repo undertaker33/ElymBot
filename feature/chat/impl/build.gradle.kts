@@ -10,6 +10,7 @@ android {
 dependencies {
     implementation(project(":core:common"))
     implementation(project(":core:db"))
+    implementation(project(":core:logging"))
     implementation(project(":feature:bot:api"))
     implementation(project(":feature:chat:api"))
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.1")

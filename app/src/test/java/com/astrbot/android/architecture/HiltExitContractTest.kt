@@ -144,6 +144,7 @@ class HiltExitContractTest {
             "feature/qq/presentation/QQLoginViewModel.kt",
             "feature/chat/presentation/ChatViewModel.kt",
             "ui/viewmodel/RuntimeAssetViewModel.kt",
+            "ui/viewmodel/RuntimeLogViewModel.kt",
             "feature/cron/presentation/CronJobsViewModel.kt",
         ).map { relativePath -> mainRoot.resolve(relativePath) }
             .onEach { file -> assertTrue("${mainRoot.relativize(file)} must exist", file.exists()) }

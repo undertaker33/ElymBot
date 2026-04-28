@@ -12,6 +12,7 @@ android {
 dependencies {
     implementation(project(":core:common"))
     implementation(project(":core:db"))
+    implementation(project(":core:logging"))
     implementation(project(":core:runtime"))
     implementation(project(":feature:cron:api"))
     implementation("androidx.work:work-runtime-ktx:2.9.1")
