@@ -105,8 +105,8 @@ android {
     defaultConfig {
         applicationId = "com.astrbot.android"
         targetSdk = 36
-        versionCode = 64
-        versionName = "0.8.7"
+        versionCode = 65
+        versionName = "0.8.8"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -205,6 +205,7 @@ dependencies {
 
     implementation(project(":core:common"))
     implementation(project(":core:db"))
+    implementation(project(":core:logging"))
     implementation(project(":core:runtime"))
     implementation(project(":app-integration"))
     implementation(project(":feature:bot:api"))

@@ -134,8 +134,24 @@ class BuildBaselineContractTest {
             rootBuildText.contains("""dependsOn("architectureSourceRootsReport")"""),
         )
         assertTrue(
+            "architectureCheck must depend on the repo-wide debt report task.",
+            rootBuildText.contains("""dependsOn("architectureDebtReport")"""),
+        )
+        assertTrue(
+            "architectureDebugUnitTest must generate architecture reports before source-level contracts run.",
+            rootBuildText.contains("""dependsOn(":architectureSourceRootsReport", ":architectureDebtReport")"""),
+        )
+        assertTrue(
+            "Architecture report tasks must stay fresh during architectureCheck.",
+            rootBuildText.contains("""outputs.upToDateWhen { false }"""),
+        )
+        assertTrue(
             "architecture source root report must be written under build/reports/architecture.",
             rootBuildText.contains("build/reports/architecture/source-roots.txt"),
+        )
+        assertTrue(
+            "architecture debt report must be written under build/reports/architecture.",
+            rootBuildText.contains("build/reports/architecture/debt.txt"),
         )
 
         val expectedRoots = listOf(
@@ -143,6 +159,7 @@ class BuildBaselineContractTest {
             "app-integration/src/main/java",
             "core/common/src/main/java",
             "core/db/src/main/java",
+            "core/logging/src/main/java",
             "core/runtime/src/main/java",
             "feature/bot/api/src/main/java",
             "feature/bot/impl/src/main/java",

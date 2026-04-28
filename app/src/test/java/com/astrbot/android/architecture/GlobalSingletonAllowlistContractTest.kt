@@ -18,6 +18,7 @@ class GlobalSingletonAllowlistContractTest {
         "app-integration/src/main/java/com/astrbot/android",
         "core/common/src/main/java/com/astrbot/android",
         "core/db/src/main/java/com/astrbot/android",
+        "core/logging/src/main/java/com/astrbot/android",
         "core/runtime/src/main/java/com/astrbot/android",
         "feature/bot/api/src/main/java/com/astrbot/android",
         "feature/bot/impl/src/main/java/com/astrbot/android",
@@ -195,6 +196,22 @@ class GlobalSingletonAllowlistContractTest {
     }
 
     @Test
+    fun production_suspicious_objects_must_be_explicitly_allowlisted() {
+        val violations = productionKotlinFiles()
+            .filter { file ->
+                val text = file.readText(UTF_8)
+                containsSuspiciousObjectDeclaration(text)
+            }
+            .map(::relativePath)
+            .filterNot { path -> allowlist.isAllowed(path, "object") }
+
+        assertTrue(
+            "Suspicious Kotlin object singletons must be explicitly allowlisted. Found: $violations",
+            violations.isEmpty(),
+        )
+    }
+
+    @Test
     fun production_suspicious_companion_objects_must_be_explicitly_allowlisted() {
         val violations = productionKotlinFiles()
             .filter { file ->
@@ -252,6 +269,59 @@ class GlobalSingletonAllowlistContractTest {
         )
     }
 
+    @Test
+    fun ui_sources_must_not_read_legacy_runtime_logging_facades() {
+        val forbiddenImports = listOf(
+            "import com.astrbot.android.core.common.logging.RuntimeLogRepository",
+            "import com.astrbot.android.core.common.logging.RuntimeLogCleanupRepository",
+        )
+        val violations = productionKotlinFiles()
+            .filter { file ->
+                relativePath(file).startsWith("ui/")
+            }
+            .flatMap { file ->
+                val relative = relativePath(file)
+                val text = file.readText(UTF_8)
+                forbiddenImports.mapNotNull { token ->
+                    if (text.contains(token)) "$relative contains $token" else null
+                }
+            }
+
+        assertTrue(
+            "UI sources must use injected RuntimeLogStore/RuntimeLogMaintenanceService via ViewModels instead of legacy runtime logging facades. Found: $violations",
+            violations.isEmpty(),
+        )
+    }
+
+    @Test
+    fun container_extractors_must_not_read_legacy_runtime_logging_facades() {
+        val extractorPaths = setOf(
+            "core/runtime/container/RootfsExtractor.kt",
+            "core/runtime/container/DebPayloadExtractor.kt",
+            "core/runtime/container/RootfsOverlayExtractor.kt",
+        )
+        val forbiddenReferences = listOf(
+            "import com.astrbot.android.core.common.logging.RuntimeLogRepository",
+            "import com.astrbot.android.core.common.logging.AppLogger",
+            "com.astrbot.android.core.common.logging.RuntimeLogRepository",
+            "com.astrbot.android.core.common.logging.AppLogger",
+        )
+        val violations = productionKotlinFiles()
+            .filter { file -> relativePath(file) in extractorPaths }
+            .flatMap { file ->
+                val relative = relativePath(file)
+                val text = file.readText(UTF_8)
+                forbiddenReferences.mapNotNull { token ->
+                    if (text.contains(token)) "$relative contains $token" else null
+                }
+            }
+
+        assertTrue(
+            "Container extractors must receive RuntimeLogger explicitly instead of reading legacy runtime logging facades. Found: $violations",
+            violations.isEmpty(),
+        )
+    }
+
     private fun containsBusinessObjectDeclaration(text: String): Boolean {
         val objectRegex = Regex("""(?m)^\s*(?:(?:internal|private|public)\s+)?(data\s+)?object\s+([A-Za-z0-9_]+)""")
         return objectRegex.findAll(text).any { match ->
@@ -268,6 +338,39 @@ class GlobalSingletonAllowlistContractTest {
                 .any(block::contains) ||
                 companionOwnsWeakGlobalState(block)
         }
+    }
+
+    private fun containsSuspiciousObjectDeclaration(text: String): Boolean {
+        if (text.contains("@Module") && text.contains("@InstallIn")) {
+            return false
+        }
+
+        return namedObjectBlocks(text).any { block ->
+            suspiciousObjectTokens.any(block::contains) ||
+                objectOwnsWeakGlobalState(block)
+        }
+    }
+
+    private fun namedObjectBlocks(text: String): List<String> {
+        val objectRegex = Regex("""(?m)^\s*(?:(?:internal|private|public)\s+)?(data\s+)?object\s+([A-Za-z0-9_]+)[^{]*\{""")
+        return objectRegex.findAll(text).mapNotNull { match ->
+            if (match.groupValues[1].isNotBlank()) return@mapNotNull null
+            val openingBrace = text.indexOf('{', startIndex = match.range.first)
+            if (openingBrace < 0) return@mapNotNull null
+            var depth = 0
+            for (index in openingBrace until text.length) {
+                when (text[index]) {
+                    '{' -> depth += 1
+                    '}' -> {
+                        depth -= 1
+                        if (depth == 0) {
+                            return@mapNotNull text.substring(match.range.first, index + 1)
+                        }
+                    }
+                }
+            }
+            null
+        }.toList()
     }
 
     private fun companionObjectBlocks(text: String): List<String> {
@@ -289,6 +392,14 @@ class GlobalSingletonAllowlistContractTest {
             }
             null
         }.toList()
+    }
+
+    private fun objectOwnsWeakGlobalState(block: String): Boolean {
+        val weakStateRegexes = listOf(
+            Regex("""(?m)^\s*(?:(?:private|internal|public)\s+)?(?:lateinit\s+)?var\s+[A-Za-z0-9_]+\s*:\s*.*\b(?:Context|Database|Dao|instance)\b"""),
+            Regex("""(?m)^\s*(?:(?:private|internal|public)\s+)?(?:val|var)\s+[A-Za-z0-9_]*instance[A-Za-z0-9_]*\b""", RegexOption.IGNORE_CASE),
+        )
+        return weakStateRegexes.any { regex -> regex.containsMatchIn(block) }
     }
 
     private fun companionOwnsWeakGlobalState(block: String): Boolean {
@@ -385,6 +496,27 @@ class GlobalSingletonAllowlistContractTest {
     )
 
     private companion object {
+        private val suspiciousObjectTokens = listOf(
+            "@Volatile",
+            "MutableStateFlow",
+            "MutableSharedFlow",
+            "CoroutineScope",
+            "SupervisorJob",
+            "graphInstance",
+            "initialize(",
+            "installDelegateIfAbsent",
+            "OverrideForTests",
+            "setLoaderOverrideForTests",
+            "installCompat",
+            "installProviderFromHilt",
+            "RuntimeLogRepository",
+            "AppLogger",
+            "ContainerBridgeController",
+            "TextToSpeech",
+            "HttpURLConnection",
+            "ProcessBuilder",
+        )
+
         private val weakCompanionTokens = setOf(
             "Context",
             "Database",
