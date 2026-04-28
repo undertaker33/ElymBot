@@ -30,9 +30,9 @@ class FeaturePluginRepositoryHiltOnlySeamTest {
     @Test
     fun phase1_plugin_config_state_and_cleanup_boundaries_must_exist_outside_feature_plugin_repository() {
         val requiredFiles = listOf(
-            "app/src/main/java/com/astrbot/android/feature/plugin/data/config/PluginConfigStorage.kt",
+            "feature/plugin/impl/src/main/java/com/astrbot/android/feature/plugin/data/config/PluginConfigStorage.kt",
             "app/src/main/java/com/astrbot/android/feature/plugin/data/config/PluginHostConfigResolver.kt",
-            "app/src/main/java/com/astrbot/android/feature/plugin/data/state/PluginStateStore.kt",
+            "feature/plugin/impl/src/main/java/com/astrbot/android/feature/plugin/data/state/PluginStateStore.kt",
             "app/src/main/java/com/astrbot/android/feature/plugin/domain/cleanup/PluginDataCleanupService.kt",
         )
         val missing = requiredFiles.filterNot { relativePath ->

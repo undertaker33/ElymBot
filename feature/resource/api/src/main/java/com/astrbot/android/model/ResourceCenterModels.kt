@@ -73,3 +73,9 @@ data class ResourceCenterCompatibilitySnapshot(
     val resources: List<ResourceCenterItem>,
     val projections: List<ConfigResourceProjection>,
 )
+
+data class ResourceConfigSnapshot(
+    val id: String,
+    val mcpServers: List<McpServerEntry>,
+    val skills: List<SkillEntry>,
+)

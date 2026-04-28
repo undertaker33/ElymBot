@@ -105,7 +105,7 @@ class PluginStateStoreTest {
     fun plugin_state_entry_dao_like_queries_must_use_escape_clause() {
         val projectRoot = detectProjectRoot()
         val source = projectRoot
-            .resolve("app/src/main/java/com/astrbot/android/data/db/plugin/PluginStateEntryDao.kt")
+            .resolve("core/db/src/main/java/com/astrbot/android/data/db/plugin/PluginStateEntryDao.kt")
             .readText()
 
         val escapeToken = "LIKE :escapedPrefix || '%' ESCAPE '\\'"

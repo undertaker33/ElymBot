@@ -1,0 +1,245 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - master
+      - "codex/**"
+  pull_request:
+    branches:
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GRADLE_OPTS: -Dorg.gradle.daemon=false
+
+jobs:
+  architecture:
+    name: Architecture contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up JDK
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4.0.1
+
+      - name: Install Android SDK 36
+        run: |
+          yes | sdkmanager --licenses >/dev/null
+          sdkmanager "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Make Gradle wrapper executable
+        run: chmod +x ./gradlew
+
+      - name: Verify Gradle wrapper
+        run: ./gradlew --version --console=plain --no-daemon
+
+      - name: Run architecture contracts
+        run: ./gradlew architectureCheck --console=plain --no-daemon --stacktrace
+
+  core:
+    name: Core module tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: architecture
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up JDK
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4.0.1
+
+      - name: Install Android SDK 36
+        run: |
+          yes | sdkmanager --licenses >/dev/null
+          sdkmanager "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Make Gradle wrapper executable
+        run: chmod +x ./gradlew
+
+      - name: Run core module tests
+        run: >
+          ./gradlew
+          :core:common:testDebugUnitTest
+          :core:db:testDebugUnitTest
+          :core:runtime:testDebugUnitTest
+          --console=plain --no-daemon --stacktrace
+
+  feature-api:
+    name: Feature API module tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: architecture
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up JDK
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4.0.1
+
+      - name: Install Android SDK 36
+        run: |
+          yes | sdkmanager --licenses >/dev/null
+          sdkmanager "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Make Gradle wrapper executable
+        run: chmod +x ./gradlew
+
+      - name: Run feature API tests
+        run: >
+          ./gradlew
+          :feature:bot:api:testDebugUnitTest
+          :feature:chat:api:testDebugUnitTest
+          :feature:config:api:testDebugUnitTest
+          :feature:cron:api:testDebugUnitTest
+          :feature:persona:api:testDebugUnitTest
+          :feature:plugin:api:testDebugUnitTest
+          :feature:provider:api:testDebugUnitTest
+          :feature:qq:api:testDebugUnitTest
+          :feature:resource:api:testDebugUnitTest
+          --console=plain --no-daemon --stacktrace
+
+  feature-impl:
+    name: Feature implementation module tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    needs:
+      - architecture
+      - feature-api
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up JDK
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4.0.1
+
+      - name: Install Android SDK 36
+        run: |
+          yes | sdkmanager --licenses >/dev/null
+          sdkmanager "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Make Gradle wrapper executable
+        run: chmod +x ./gradlew
+
+      - name: Run feature implementation tests
+        run: >
+          ./gradlew
+          :feature:bot:impl:testDebugUnitTest
+          :feature:chat:impl:testDebugUnitTest
+          :feature:config:impl:testDebugUnitTest
+          :feature:cron:impl:testDebugUnitTest
+          :feature:persona:impl:testDebugUnitTest
+          :feature:plugin:impl:testDebugUnitTest
+          :feature:provider:impl:testDebugUnitTest
+          :feature:qq:impl:testDebugUnitTest
+          :feature:resource:impl:testDebugUnitTest
+          --console=plain --no-daemon --stacktrace
+
+  integration:
+    name: App integration compile
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs:
+      - core
+      - feature-api
+      - feature-impl
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up JDK
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4.0.1
+
+      - name: Install Android SDK 36
+        run: |
+          yes | sdkmanager --licenses >/dev/null
+          sdkmanager "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Make Gradle wrapper executable
+        run: chmod +x ./gradlew
+
+      - name: Compile integration module
+        run: ./gradlew :app-integration:compileDebugKotlin --console=plain --no-daemon --stacktrace
+
+  app:
+    name: App unit tests and debug assemble
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    needs: integration
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up JDK
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4.0.1
+
+      - name: Install Android SDK 36
+        run: |
+          yes | sdkmanager --licenses >/dev/null
+          sdkmanager "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Make Gradle wrapper executable
+        run: chmod +x ./gradlew
+
+      - name: Run app unit tests
+        run: ./gradlew :app:testDebugUnitTest --console=plain --no-daemon --stacktrace
+
+      - name: Assemble debug APK
+        run: ./gradlew :app:assembleDebug --console=plain --no-daemon --stacktrace

@@ -3,9 +3,10 @@ package com.astrbot.android.ui.viewmodel
 import com.astrbot.android.MainDispatcherRule
 import com.astrbot.android.core.runtime.llm.SttProbeResult
 import com.astrbot.android.core.common.profile.ProviderInUseException
-import com.astrbot.android.core.common.profile.ProviderReferenceGuard
+import com.astrbot.android.core.common.profile.ProviderReferenceChecker
 import com.astrbot.android.data.ProviderRepository
 import com.astrbot.android.feature.config.domain.ConfigRepositoryPort
+import com.astrbot.android.feature.provider.data.FeatureProviderRepository
 import com.astrbot.android.feature.provider.domain.ProviderRepositoryPort
 import com.astrbot.android.feature.provider.runtime.ProviderRuntimePort
 import org.junit.Assert.assertFalse
@@ -116,7 +117,7 @@ class ProviderViewModelTest {
     @Test
     fun delete_referenced_provider_is_blocked_by_reference_guard() {
         val inUseId = "provider-in-use"
-        ProviderReferenceGuard.register { providerId -> providerId == inUseId }
+        installProviderReferenceChecker { providerId -> providerId == inUseId }
         val originalProviders = ProviderRepository.snapshotProfiles()
 
         try {
@@ -139,14 +140,14 @@ class ProviderViewModelTest {
                 ProviderRepository.snapshotProfiles().any { it.id == inUseId },
             )
         } finally {
-            ProviderReferenceGuard.register { false }
+            installProviderReferenceChecker { false }
             ProviderRepository.restoreProfiles(originalProviders)
         }
     }
 
     @Test
     fun delete_unreferenced_provider_succeeds() {
-        ProviderReferenceGuard.register { false }
+        installProviderReferenceChecker { false }
         val originalProviders = ProviderRepository.snapshotProfiles()
 
         try {
@@ -163,7 +164,7 @@ class ProviderViewModelTest {
                 ProviderRepository.snapshotProfiles().any { it.id == "provider-a" },
             )
         } finally {
-            ProviderReferenceGuard.register { false }
+            installProviderReferenceChecker { false }
             ProviderRepository.restoreProfiles(originalProviders)
         }
     }
@@ -369,5 +370,15 @@ class ProviderViewModelTest {
             apiKey = "secret",
             capabilities = setOf(ProviderCapability.CHAT),
         )
+    }
+
+    private fun installProviderReferenceChecker(checker: ProviderReferenceChecker) {
+        ProviderRepository.snapshotProfiles()
+        val delegateField = FeatureProviderRepository::class.java.getDeclaredField("delegate")
+        delegateField.isAccessible = true
+        val store = checkNotNull(delegateField.get(FeatureProviderRepository))
+        val checkerField = store.javaClass.getDeclaredField("providerReferenceChecker")
+        checkerField.isAccessible = true
+        checkerField.set(store, checker)
     }
 }

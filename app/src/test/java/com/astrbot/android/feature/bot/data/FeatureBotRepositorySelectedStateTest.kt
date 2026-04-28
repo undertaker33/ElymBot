@@ -21,6 +21,7 @@ import com.astrbot.android.data.db.ConfigWhitelistEntryEntity
 import com.astrbot.android.data.db.ConfigWriteModel
 import com.astrbot.android.data.db.toWriteModel
 import com.astrbot.android.feature.config.data.FeatureConfigRepository
+import com.astrbot.android.feature.config.data.FeatureConfigRepositoryPortAdapter
 import com.astrbot.android.feature.config.data.FeatureConfigRepositoryStore
 import com.astrbot.android.model.BotProfile
 import com.astrbot.android.model.ConfigProfile
@@ -50,7 +51,7 @@ class FeatureBotRepositorySelectedStateTest {
             botDao = botDao,
             appPreferenceDao = appPreferenceDao,
             bindingsPreferences = InMemorySharedPreferences(),
-            configRepositoryProvider = Provider { configStore },
+            configRepositoryProvider = Provider { FeatureConfigRepositoryPortAdapter(configStore) },
         )
 
         waitUntil("initial bot state should sync from fake persistence") {

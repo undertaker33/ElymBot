@@ -1,7 +1,8 @@
 package com.astrbot.android.data
 
 import com.astrbot.android.core.common.profile.PersonaInUseException
-import com.astrbot.android.core.common.profile.PersonaReferenceGuard
+import com.astrbot.android.core.common.profile.PersonaReferenceChecker
+import com.astrbot.android.feature.persona.data.FeaturePersonaRepository
 import com.astrbot.android.model.PersonaProfile
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -40,7 +41,7 @@ class PersonaRepositoryTest {
     fun delete_referenced_persona_throws_PersonaInUseException() {
         val original = PersonaRepository.snapshotProfiles()
         val inUseId = "persona-in-use"
-        PersonaReferenceGuard.register { personaId -> personaId == inUseId }
+        installPersonaReferenceChecker { personaId -> personaId == inUseId }
 
         try {
             PersonaRepository.restoreProfiles(
@@ -60,7 +61,7 @@ class PersonaRepositoryTest {
             // Persona must still be present
             assertTrue(PersonaRepository.snapshotProfiles().any { it.id == inUseId })
         } finally {
-            PersonaReferenceGuard.register { false }
+            installPersonaReferenceChecker { false }
             PersonaRepository.restoreProfiles(original)
         }
     }
@@ -71,7 +72,7 @@ class PersonaRepositoryTest {
     @Test
     fun delete_unreferenced_persona_succeeds() {
         val original = PersonaRepository.snapshotProfiles()
-        PersonaReferenceGuard.register { false }  // no references
+        installPersonaReferenceChecker { false }
 
         try {
             PersonaRepository.restoreProfiles(
@@ -85,9 +86,19 @@ class PersonaRepositoryTest {
 
             assertFalse(PersonaRepository.snapshotProfiles().any { it.id == "persona-a" })
         } finally {
-            PersonaReferenceGuard.register { false }
+            installPersonaReferenceChecker { false }
             PersonaRepository.restoreProfiles(original)
         }
+    }
+
+    private fun installPersonaReferenceChecker(checker: PersonaReferenceChecker) {
+        RepositoryCompatibilityTestHarness.ensureInstalled()
+        val delegateField = FeaturePersonaRepository::class.java.getDeclaredField("delegate")
+        delegateField.isAccessible = true
+        val store = checkNotNull(delegateField.get(FeaturePersonaRepository))
+        val checkerField = store.javaClass.getDeclaredField("personaReferenceChecker")
+        checkerField.isAccessible = true
+        checkerField.set(store, checker)
     }
 }
 

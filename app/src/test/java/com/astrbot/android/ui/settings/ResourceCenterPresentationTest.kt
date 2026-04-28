@@ -7,6 +7,7 @@ import com.astrbot.android.model.ConfigProfile
 import com.astrbot.android.model.ConfigResourceProjection
 import com.astrbot.android.model.ResourceCenterItem
 import com.astrbot.android.model.ResourceCenterCompatibilitySnapshot
+import com.astrbot.android.model.ResourceConfigSnapshot
 import com.astrbot.android.model.ResourceCenterKind
 import com.astrbot.android.model.SkillResourceKind
 import com.astrbot.android.R
@@ -179,10 +180,10 @@ class ResourceCenterPresentationTest {
                 return projections.value.filter { projection -> projection.configId == configId }
             }
 
-            override fun compatibilitySnapshotForConfig(profile: ConfigProfile): ResourceCenterCompatibilitySnapshot {
+            override fun compatibilitySnapshotForConfig(config: ResourceConfigSnapshot): ResourceCenterCompatibilitySnapshot {
                 return ResourceCenterCompatibilitySnapshot(
                     resources = listResources(),
-                    projections = projectionsForConfig(profile.id),
+                    projections = projectionsForConfig(config.id),
                 )
             }
         }

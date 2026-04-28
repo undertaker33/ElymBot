@@ -8,9 +8,10 @@ import org.junit.Test
 
 class AppStartupChainContractTest {
 
+    private val projectRoot: Path = detectProjectRoot()
     private val mainRoot: Path = listOf(
-        Path.of("src/main/java/com/astrbot/android"),
-        Path.of("app/src/main/java/com/astrbot/android"),
+        projectRoot.resolve("src/main/java/com/astrbot/android"),
+        projectRoot.resolve("app/src/main/java/com/astrbot/android"),
     ).first { it.exists() }
 
     @Test
@@ -106,8 +107,12 @@ class AppStartupChainContractTest {
 
     @Test
     fun database_module_must_not_use_legacy_static_database_get() {
-        val file = mainRoot.resolve("di/hilt/DatabaseModule.kt")
-        assertTrue("DatabaseModule.kt must exist under di/hilt", file.exists())
+        val file = listOf(
+            mainRoot.resolve("di/hilt/DatabaseModule.kt"),
+            projectRoot.resolve("app-integration/src/main/java/com/astrbot/android/app/integration/db/DatabaseModule.kt"),
+        ).firstOrNull { it.exists() }
+        assertTrue("DatabaseModule.kt must exist in app DI or app-integration wiring", file != null)
+        checkNotNull(file)
         val source = file.readText()
 
         assertTrue(
@@ -120,6 +125,15 @@ class AppStartupChainContractTest {
         val file = mainRoot.resolve("di/startup/$fileName")
         assertTrue("$fileName must exist under di/startup", file.exists())
         return file.readText()
+    }
+
+    private fun detectProjectRoot(): Path {
+        val cwd = Path.of("").toAbsolutePath()
+        return when {
+            cwd.resolve("settings.gradle.kts").exists() -> cwd
+            cwd.parent?.resolve("settings.gradle.kts")?.exists() == true -> cwd.parent
+            else -> error("Unable to resolve project root from $cwd")
+        }
     }
 
     private fun functionBody(source: String, functionName: String): String {

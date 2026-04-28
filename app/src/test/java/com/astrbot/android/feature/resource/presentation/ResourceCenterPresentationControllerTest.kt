@@ -5,6 +5,7 @@ import com.astrbot.android.feature.resource.domain.ResourceCompatibilityUseCase
 import com.astrbot.android.model.ConfigProfile
 import com.astrbot.android.model.ConfigResourceProjection
 import com.astrbot.android.model.ResourceCenterCompatibilitySnapshot
+import com.astrbot.android.model.ResourceConfigSnapshot
 import com.astrbot.android.model.ResourceCenterItem
 import com.astrbot.android.model.ResourceCenterKind
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -51,8 +52,8 @@ class ResourceCenterPresentationControllerTest {
 
         override fun projectionsForConfig(configId: String): List<ConfigResourceProjection> = emptyList()
 
-        override fun compatibilitySnapshotForConfig(profile: ConfigProfile): ResourceCenterCompatibilitySnapshot {
-            compatibilityRequests += profile.id
+        override fun compatibilitySnapshotForConfig(config: ResourceConfigSnapshot): ResourceCenterCompatibilitySnapshot {
+            compatibilityRequests += config.id
             return snapshot
         }
     }

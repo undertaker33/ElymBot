@@ -13,7 +13,31 @@ import org.junit.Test
 class GlobalSingletonAllowlistContractTest {
 
     private val projectRoot: Path = detectProjectRoot()
-    private val mainRoot: Path = projectRoot.resolve("app/src/main/java/com/astrbot/android")
+    private val sourceRoots: List<Path> = listOf(
+        "app/src/main/java/com/astrbot/android",
+        "app-integration/src/main/java/com/astrbot/android",
+        "core/common/src/main/java/com/astrbot/android",
+        "core/db/src/main/java/com/astrbot/android",
+        "core/runtime/src/main/java/com/astrbot/android",
+        "feature/bot/api/src/main/java/com/astrbot/android",
+        "feature/bot/impl/src/main/java/com/astrbot/android",
+        "feature/chat/api/src/main/java/com/astrbot/android",
+        "feature/chat/impl/src/main/java/com/astrbot/android",
+        "feature/config/api/src/main/java/com/astrbot/android",
+        "feature/config/impl/src/main/java/com/astrbot/android",
+        "feature/cron/api/src/main/java/com/astrbot/android",
+        "feature/cron/impl/src/main/java/com/astrbot/android",
+        "feature/persona/api/src/main/java/com/astrbot/android",
+        "feature/persona/impl/src/main/java/com/astrbot/android",
+        "feature/plugin/api/src/main/java/com/astrbot/android",
+        "feature/plugin/impl/src/main/java/com/astrbot/android",
+        "feature/provider/api/src/main/java/com/astrbot/android",
+        "feature/provider/impl/src/main/java/com/astrbot/android",
+        "feature/qq/api/src/main/java/com/astrbot/android",
+        "feature/qq/impl/src/main/java/com/astrbot/android",
+        "feature/resource/api/src/main/java/com/astrbot/android",
+        "feature/resource/impl/src/main/java/com/astrbot/android",
+    ).map(projectRoot::resolve).filter { root -> root.exists() }
     private val allowlistFile: Path =
         projectRoot.resolve("app/src/test/resources/architecture/global-singleton-allowlist.txt")
 
@@ -107,7 +131,7 @@ class GlobalSingletonAllowlistContractTest {
         val missing = allowlist.entries
             .map { entry -> entry.path }
             .distinct()
-            .filterNot { path -> mainRoot.resolve(path).exists() }
+            .filterNot { path -> sourceRoots.any { root -> root.resolve(path).exists() } }
 
         assertTrue(
             "Global singleton allowlist points to missing production files: $missing",
@@ -156,7 +180,7 @@ class GlobalSingletonAllowlistContractTest {
 
     @Test
     fun production_business_objects_must_be_explicitly_allowlisted() {
-        val violations = kotlinFilesUnder(mainRoot)
+        val violations = productionKotlinFiles()
             .filter { file ->
                 val text = file.readText(UTF_8)
                 containsBusinessObjectDeclaration(text)
@@ -172,7 +196,7 @@ class GlobalSingletonAllowlistContractTest {
 
     @Test
     fun production_suspicious_companion_objects_must_be_explicitly_allowlisted() {
-        val violations = kotlinFilesUnder(mainRoot)
+        val violations = productionKotlinFiles()
             .filter { file ->
                 val text = file.readText(UTF_8)
                 containsSuspiciousCompanionObject(text)
@@ -188,7 +212,7 @@ class GlobalSingletonAllowlistContractTest {
 
     @Test
     fun production_code_must_not_add_new_graph_instance_singletons() {
-        val violations = kotlinFilesUnder(mainRoot)
+        val violations = productionKotlinFiles()
             .filter { file -> file.readText(UTF_8).contains("graphInstance") }
             .map(::relativePath)
             .filterNot { path -> allowlist.containsPath(path) }
@@ -201,7 +225,7 @@ class GlobalSingletonAllowlistContractTest {
 
     @Test
     fun production_code_must_not_add_new_delegate_singletons() {
-        val violations = kotlinFilesUnder(mainRoot)
+        val violations = productionKotlinFiles()
             .filter { file ->
                 val text = file.readText(UTF_8)
                 containsVolatileDelegate(text)
@@ -217,7 +241,7 @@ class GlobalSingletonAllowlistContractTest {
 
     @Test
     fun production_code_must_not_add_new_manual_database_singleton_access() {
-        val violations = kotlinFilesUnder(mainRoot)
+        val violations = productionKotlinFiles()
             .filter { file -> file.readText(UTF_8).contains("AstrBotDatabase.get(") }
             .map(::relativePath)
             .filterNot { path -> path == "data/db/AstrBotDatabase.kt" }
@@ -318,8 +342,14 @@ class GlobalSingletonAllowlistContractTest {
         }
     }
 
+    private fun productionKotlinFiles(): List<Path> {
+        return sourceRoots.flatMap(::kotlinFilesUnder)
+    }
+
     private fun relativePath(file: Path): String {
-        return mainRoot.relativize(file).toString().replace('\\', '/')
+        val sourceRoot = sourceRoots.firstOrNull { root -> file.startsWith(root) }
+            ?: error("File $file is not under a configured production source root")
+        return sourceRoot.relativize(file).toString().replace('\\', '/')
     }
 
     private fun detectProjectRoot(): Path {

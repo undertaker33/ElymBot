@@ -6,6 +6,8 @@ import com.astrbot.android.core.runtime.context.RuntimeSkillProjectionResolver
 import com.astrbot.android.core.runtime.tool.ToolSourceRequestContext
 import com.astrbot.android.feature.config.domain.ConfigRepositoryPort
 import com.astrbot.android.feature.resource.domain.ResourceCenterPort
+import com.astrbot.android.feature.config.domain.model.ConfigProfile
+import com.astrbot.android.model.ResourceConfigSnapshot
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -28,7 +30,7 @@ class PortBackedFutureToolSourceContextResolver @Inject constructor(
     override fun resolveForConfig(configProfileId: String): ToolSourceContext {
         val config = configPort.resolve(configProfileId)
         val resourceProjection = RuntimeSkillProjectionResolver.fromResourceCenterSnapshot(
-            snapshot = resourceCenterPort.compatibilitySnapshotForConfig(config),
+            snapshot = resourceCenterPort.compatibilitySnapshotForConfig(config.toResourceConfigSnapshot()),
             platform = RuntimePlatform.APP_CHAT,
             trigger = IngressTrigger.USER_MESSAGE,
         )
@@ -39,4 +41,11 @@ class PortBackedFutureToolSourceContextResolver @Inject constructor(
             toolSkills = resourceProjection.toolSkills,
         )
     }
+
+    private fun ConfigProfile.toResourceConfigSnapshot(): ResourceConfigSnapshot =
+        ResourceConfigSnapshot(
+            id = id,
+            mcpServers = mcpServers,
+            skills = skills,
+        )
 }
