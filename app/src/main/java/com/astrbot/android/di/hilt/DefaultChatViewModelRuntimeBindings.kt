@@ -9,7 +9,12 @@ import com.astrbot.android.core.runtime.llm.LlmInvocationResult
 import com.astrbot.android.core.runtime.llm.LlmProviderProbePort
 import com.astrbot.android.core.runtime.llm.LlmStreamEvent
 import com.astrbot.android.core.runtime.llm.LlmToolDefinition
-import com.astrbot.android.core.runtime.session.ConversationSessionLockManager
+import com.astrbot.android.core.runtime.session.SessionLockCoordinator
+import com.astrbot.android.di.runtime.llm.toConversationAttachment
+import com.astrbot.android.di.runtime.llm.toLlmConversationAttachment
+import com.astrbot.android.di.runtime.llm.toLlmConversationMessages
+import com.astrbot.android.di.runtime.llm.toLlmProviderProfile
+import com.astrbot.android.di.runtime.llm.toLlmRuntimeConfig
 import com.astrbot.android.feature.bot.data.FeatureBotRepository as BotRepository
 import com.astrbot.android.feature.chat.data.FeatureConversationRepository as ConversationRepository
 import com.astrbot.android.feature.chat.domain.AppChatRuntimePort
@@ -50,6 +55,7 @@ internal class DefaultChatViewModelRuntimeBindings @Inject constructor(
     private val sendAppMessageUseCaseFactory: SendAppMessageUseCaseFactory,
     private val appChatSendHandlerFactory: AppChatSendHandlerFactory,
     private val appChatPluginCommandServiceFactory: AppChatPluginCommandServiceFactory,
+    private val sessionLockCoordinator: SessionLockCoordinator,
 ) : ChatViewModelRuntimeBindings {
 
     override val defaultSessionId: String = ConversationRepository.DEFAULT_SESSION_ID
@@ -142,7 +148,10 @@ internal class DefaultChatViewModelRuntimeBindings @Inject constructor(
     }
 
     override suspend fun transcribeAudio(provider: ProviderProfile, attachment: ConversationAttachment): String {
-        return llmProviderProbePort.transcribeAudio(provider, attachment)
+        return llmProviderProbePort.transcribeAudio(
+            provider = provider.toLlmProviderProfile(),
+            attachment = attachment.toLlmConversationAttachment(),
+        )
     }
 
     override suspend fun sendConfiguredChat(
@@ -192,11 +201,11 @@ internal class DefaultChatViewModelRuntimeBindings @Inject constructor(
     ): LlmInvocationResult {
         return llmClientPort.sendWithTools(
             LlmInvocationRequest(
-                provider = provider,
-                messages = messages,
+                provider = provider.toLlmProviderProfile(),
+                messages = messages.toLlmConversationMessages(),
                 systemPrompt = systemPrompt,
-                config = config,
-                availableProviders = availableProviders,
+                config = config?.toLlmRuntimeConfig(),
+                availableProviders = availableProviders.map { it.toLlmProviderProfile() },
                 tools = tools,
             ),
         )
@@ -217,11 +226,11 @@ internal class DefaultChatViewModelRuntimeBindings @Inject constructor(
         val accumulatedText = StringBuilder()
         llmClientPort.streamWithTools(
             LlmInvocationRequest(
-                provider = provider,
-                messages = messages,
+                provider = provider.toLlmProviderProfile(),
+                messages = messages.toLlmConversationMessages(),
                 systemPrompt = systemPrompt,
-                config = config,
-                availableProviders = availableProviders,
+                config = config?.toLlmRuntimeConfig(),
+                availableProviders = availableProviders.map { it.toLlmProviderProfile() },
                 tools = tools,
             ),
         ).collect { event ->
@@ -253,11 +262,16 @@ internal class DefaultChatViewModelRuntimeBindings @Inject constructor(
         voiceId: String,
         readBracketedContent: Boolean,
     ): ConversationAttachment {
-        return llmProviderProbePort.synthesizeSpeech(provider, text, voiceId, readBracketedContent)
+        return llmProviderProbePort.synthesizeSpeech(
+            provider = provider.toLlmProviderProfile(),
+            text = text,
+            voiceId = voiceId,
+            readBracketedContent = readBracketedContent,
+        ).toConversationAttachment()
     }
 
     override suspend fun <T> withSessionLock(sessionId: String, block: suspend () -> T): T {
-        return ConversationSessionLockManager.withLock(sessionId, block)
+        return sessionLockCoordinator.withLock(sessionId, block)
     }
 
     override fun log(message: String) {

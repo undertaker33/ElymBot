@@ -17,6 +17,16 @@ class ModuleDependencyGraphContractTest {
 
     private val phase3Modules = listOf(
         ":core:common",
+        ":core:network",
+        ":core:runtime-audio",
+        ":core:runtime-cache",
+        ":core:runtime-container",
+        ":core:runtime-context",
+        ":core:runtime-llm",
+        ":core:runtime-search",
+        ":core:runtime-secret",
+        ":core:runtime-session",
+        ":core:runtime-tool",
         ":feature:bot:api",
         ":feature:config:api",
         ":feature:cron:api",
@@ -65,6 +75,44 @@ class ModuleDependencyGraphContractTest {
 
         assertTrue(
             "Core modules must not depend on app or feature modules: $violations",
+            violations.isEmpty(),
+        )
+    }
+
+    @Test
+    fun foundational_core_modules_must_not_depend_on_runtime_or_business_modules() {
+        val foundationalModules = listOf(
+            "core/common/build.gradle.kts",
+            "core/logging/build.gradle.kts",
+            "core/network/build.gradle.kts",
+            "core/runtime-audio/build.gradle.kts",
+            "core/runtime-cache/build.gradle.kts",
+            "core/runtime-container/build.gradle.kts",
+            "core/runtime-context/build.gradle.kts",
+            "core/runtime-llm/build.gradle.kts",
+            "core/runtime-search/build.gradle.kts",
+            "core/runtime-secret/build.gradle.kts",
+            "core/runtime-session/build.gradle.kts",
+            "core/runtime-tool/build.gradle.kts",
+        )
+        val forbiddenDependencyPatterns = mapOf(
+            ":core:runtime" to Regex("""project\(":core:runtime"\)"""),
+            ":app" to Regex("""project\(":app"\)"""),
+            ":app-integration" to Regex("""project\(":app-integration"\)"""),
+            ":feature:*" to Regex("""project\(":feature:"""),
+        )
+        val violations = foundationalModules
+            .map { path -> projectRoot.resolve(path) }
+            .filter { file -> file.exists() }
+            .flatMap { file ->
+                val text = file.readText(UTF_8)
+                forbiddenDependencyPatterns
+                    .filter { (_, pattern) -> pattern.containsMatchIn(text) }
+                    .map { (dependency, _) -> "${relativePath(file)} depends on $dependency" }
+            }
+
+        assertTrue(
+            "Foundational core modules must stay independent from runtime/app/feature modules: $violations",
             violations.isEmpty(),
         )
     }

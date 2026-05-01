@@ -114,10 +114,9 @@ class RepositoryPortSourceContractTest {
     }
 
     @Test
-    fun feature_repository_singleton_usage_is_limited_to_semantic_adapters_and_initializers() {
+    fun feature_repository_singleton_usage_is_limited_to_semantic_adapters() {
         val tokenToAllowedPaths = mapOf(
             "FeatureBotRepository." to setOf(
-                "feature/bot/data/BotRepositoryInitializer.kt",
                 "feature/bot/data/FeatureBotRepository.kt",
                 "feature/bot/data/FeatureBotRepositoryPortAdapter.kt",
                 "feature/qq/data/FeatureQqPlatformConfigPortAdapter.kt",
@@ -130,7 +129,6 @@ class RepositoryPortSourceContractTest {
             ),
             "FeatureConfigRepository." to setOf(
                 "feature/bot/data/FeatureBotRepository.kt",
-                "feature/config/data/ConfigRepositoryInitializer.kt",
                 "feature/config/data/FeatureConfigRepository.kt",
                 "feature/config/data/FeatureConfigRepositoryPortAdapter.kt",
                 "feature/qq/data/FeatureQqPlatformConfigPortAdapter.kt",
@@ -141,7 +139,6 @@ class RepositoryPortSourceContractTest {
             ),
             "FeaturePersonaRepository." to setOf(
                 "feature/persona/data/FeaturePersonaRepository.kt",
-                "feature/persona/data/PersonaRepositoryInitializer.kt",
                 "feature/persona/data/FeaturePersonaRepositoryPortAdapter.kt",
             ),
             "FeatureProviderRepository." to setOf(
@@ -167,7 +164,7 @@ class RepositoryPortSourceContractTest {
         }
 
         assertTrue(
-            "Feature singleton repository usage must stay confined to semantic adapters/initializers: $violations",
+            "Feature singleton repository usage must stay confined to semantic adapters: $violations",
             violations.isEmpty(),
         )
     }

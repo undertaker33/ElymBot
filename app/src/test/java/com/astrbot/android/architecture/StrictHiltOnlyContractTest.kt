@@ -14,7 +14,10 @@ class StrictHiltOnlyContractTest {
     private val mainRoot: Path = projectRoot.resolve("app/src/main/java/com/astrbot/android")
     private val productionSourceRoots: List<Path> = listOf(
         projectRoot.resolve("app/src/main/java/com/astrbot/android"),
+        projectRoot.resolve("core/network/src/main/java/com/astrbot/android"),
         projectRoot.resolve("core/runtime/src/main/java/com/astrbot/android"),
+        projectRoot.resolve("core/runtime-search/src/main/java/com/astrbot/android"),
+        projectRoot.resolve("core/runtime-tool/src/main/java/com/astrbot/android"),
     ).filter { root -> root.exists() }
     private val contractDoc: Path = projectRoot.resolve("docs/architecture/post-hilt-a-round1-contract.md")
 
@@ -61,9 +64,7 @@ class StrictHiltOnlyContractTest {
     @Test
     fun explicit_runtime_seams_must_stay_confined_to_tiny_allowlists() {
         val explicitSeams = mapOf(
-            "EntryPointAccessors.fromApplication(" to setOf(
-                "core/runtime/container/ContainerRuntimeEntryPoint.kt",
-            ),
+            "EntryPointAccessors.fromApplication(" to emptySet(),
             "installRuntimeDependencies(" to setOf(
                 "feature/qq/runtime/QqOneBotBridgeServer.kt",
             ),
@@ -83,9 +84,9 @@ class StrictHiltOnlyContractTest {
 
         val violations = buildList {
             compatTokens.forEach { token ->
-                val actualPaths = kotlinFilesUnder(mainRoot)
+                val actualPaths = productionKotlinFiles()
                     .filter { file -> file.readText().contains(token) }
-                    .map { file -> mainRoot.relativize(file).toString().replace('\\', '/') }
+                    .map(::relativeProductionPath)
                     .toSet()
                 if (actualPaths.isNotEmpty()) {
                     add("$token -> $actualPaths")
@@ -105,18 +106,17 @@ class StrictHiltOnlyContractTest {
             "NapCatBridgeRepository",
             setOf(
                 "MainActivity.kt",
-                "di/ContainerBridgeStatePorts.kt",
                 "di/hilt/ViewModelDependencyModule.kt",
                 "di/startup/BootstrapPrerequisitesStartupChain.kt",
                 "feature/qq/data/NapCatBridgeRepository.kt",
                 "feature/qq/data/NapCatLoginRepository.kt",
+                "feature/qq/runtime/ProductionContainerBridgeStatePort.kt",
             ),
         )
         assertTokenConfinedToAllowedProductionFiles(
             "RuntimeAssetRepository",
             setOf(
                 "data/RuntimeAssetRepository.kt",
-                "di/ContainerBridgeStatePorts.kt",
                 "di/hilt/ViewModelDependencyModule.kt",
                 "di/startup/BootstrapPrerequisitesStartupChain.kt",
                 "feature/provider/runtime/ProviderRuntimePort.kt",
@@ -127,9 +127,9 @@ class StrictHiltOnlyContractTest {
 
     @Test
     fun plugin_runtime_dependency_bridge_residue_must_be_absent_from_production() {
-        val actualPaths = kotlinFilesUnder(mainRoot)
+        val actualPaths = productionKotlinFiles()
             .filter { file -> file.readText().contains("PluginRuntimeDependencyBridge.") }
-            .map { file -> mainRoot.relativize(file).toString().replace('\\', '/') }
+            .map(::relativeProductionPath)
             .toSet()
 
         assertTrue(
@@ -276,7 +276,7 @@ class StrictHiltOnlyContractTest {
                 "TtsVoiceAssetRepository.deleteReferenceClip",
                 "RuntimeAssetRepository.ttsAssetState(",
             ),
-            "di/ContainerBridgeStatePorts.kt" to listOf(
+            "feature/qq/runtime/ProductionContainerBridgeStatePort.kt" to listOf(
                 "NapCatBridgeRepository.config",
                 "NapCatBridgeRepository.runtimeState",
                 "NapCatBridgeRepository.applyRuntimeDefaults",
@@ -417,9 +417,9 @@ class StrictHiltOnlyContractTest {
         token: String,
         allowedPaths: Set<String>,
     ) {
-        val actualPaths = kotlinFilesUnder(mainRoot)
+        val actualPaths = productionKotlinFiles()
             .filter { file -> file.readText().contains(token) }
-            .map { file -> mainRoot.relativize(file).toString().replace('\\', '/') }
+            .map(::relativeProductionPath)
             .toSet()
         val unexpectedPaths = actualPaths - allowedPaths
 
@@ -435,6 +435,16 @@ class StrictHiltOnlyContractTest {
                 .filter { it.isRegularFile() && it.fileName.toString().endsWith(".kt") }
                 .toList()
         }
+    }
+
+    private fun productionKotlinFiles(): List<Path> {
+        return productionSourceRoots.flatMap(::kotlinFilesUnder)
+    }
+
+    private fun relativeProductionPath(file: Path): String {
+        val ownerRoot = productionSourceRoots.firstOrNull { root -> file.startsWith(root) }
+            ?: mainRoot
+        return ownerRoot.relativize(file).toString().replace('\\', '/')
     }
 
     private fun resolveProductionFile(relativePath: String): Path {

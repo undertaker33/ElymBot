@@ -10,6 +10,7 @@ import com.astrbot.android.feature.plugin.runtime.PluginV2DispatchEngine
 import com.astrbot.android.feature.plugin.runtime.RuntimeLlmOrchestratorPort
 import com.astrbot.android.feature.qq.domain.QqConversationPort
 import com.astrbot.android.feature.qq.domain.QqPlatformConfigPort
+import com.astrbot.android.core.runtime.session.SessionLockCoordinator
 import com.astrbot.android.model.BotProfile
 import com.astrbot.android.model.ConfigProfile
 import com.astrbot.android.model.ProviderProfile
@@ -90,6 +91,7 @@ internal class QqMessageRuntimeServiceFactory @Inject constructor(
     private val providerInvoker: DefaultQqProviderInvoker,
     private val gatewayFactory: PluginHostCapabilityGatewayFactory,
     private val scheduledTaskFallbackResponder: ScheduledTaskIntentFallbackResponder,
+    private val sessionLockCoordinator: SessionLockCoordinator,
 ) {
     fun create(
         replySender: QqReplySender,
@@ -126,6 +128,7 @@ internal class QqMessageRuntimeServiceFactory @Inject constructor(
             streamingReplyService = streamingReplyService,
             gatewayFactory = gatewayFactory,
             scheduledTaskFallbackResponder = scheduledTaskFallbackResponder,
+            sessionLockCoordinator = sessionLockCoordinator,
             executeLegacyPluginsDuringLlmDispatch = executeLegacyPluginsDuringLlmDispatch,
             log = log,
         )

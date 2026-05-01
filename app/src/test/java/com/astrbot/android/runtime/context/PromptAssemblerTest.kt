@@ -3,9 +3,13 @@ package com.astrbot.android.core.runtime.context
 import com.astrbot.android.data.ConfigRepository
 import com.astrbot.android.data.PersonaRepository
 import com.astrbot.android.data.ProviderRepository
-import com.astrbot.android.di.ProductionRuntimeContextDataPort
-import com.astrbot.android.core.runtime.search.WebSearchPromptStringProvider
-import com.astrbot.android.core.runtime.search.WebSearchTriggerIntent
+import com.astrbot.android.di.runtime.context.toRuntimeBotSnapshot
+import com.astrbot.android.di.runtime.context.toRuntimeConfigSnapshot
+import com.astrbot.android.di.runtime.context.toRuntimeConversationSessionSnapshot
+import com.astrbot.android.di.runtime.context.toRuntimeMessageType
+import com.astrbot.android.di.runtime.context.toRuntimePersonaSnapshot
+import com.astrbot.android.di.runtime.context.toRuntimeProviderSnapshot
+import com.astrbot.android.di.runtime.context.toRuntimeResourceCenterCompatibilitySnapshot
 import com.astrbot.android.model.BotProfile
 import com.astrbot.android.model.ConfigProfile
 import com.astrbot.android.model.PersonaProfile
@@ -57,7 +61,7 @@ class PromptAssemblerTest {
                 conversationId = "conversation-1",
                 messageId = "message-1",
                 sender = SenderInfo(userId = "user-1"),
-                messageType = MessageType.OtherMessage,
+                messageType = MessageType.OtherMessage.toRuntimeMessageType(),
                 text = "today news",
                 trigger = IngressTrigger.USER_MESSAGE,
             ),
@@ -208,7 +212,7 @@ class PromptAssemblerTest {
                         conversationId = "conversation-1",
                         messageId = "message-1",
                         sender = SenderInfo(userId = "user-1"),
-                        messageType = MessageType.OtherMessage,
+                        messageType = MessageType.OtherMessage.toRuntimeMessageType(),
                         text = "remind me tomorrow morning",
                         trigger = IngressTrigger.SCHEDULED_TASK,
                     ),
@@ -218,8 +222,34 @@ class PromptAssemblerTest {
                         defaultProviderId = provider.id,
                         defaultPersonaId = persona.id,
                         configProfileId = config.id,
-                    ),
-                    dataPort = ProductionRuntimeContextDataPort,
+                    ).toRuntimeBotSnapshot(),
+                    dataPort = object : RuntimeContextDataPort {
+                        override fun resolveConfig(configProfileId: String): RuntimeConfigSnapshot =
+                            config.toRuntimeConfigSnapshot()
+
+                        override fun listProviders(): List<RuntimeProviderSnapshot> =
+                            listOf(provider.toRuntimeProviderSnapshot())
+
+                        override fun findEnabledPersona(personaId: String): RuntimePersonaSnapshot? =
+                            persona.toRuntimePersonaSnapshot()
+
+                        override fun session(sessionId: String): RuntimeConversationSessionSnapshot =
+                            ConversationSession(
+                                id = sessionId,
+                                title = "Session",
+                                botId = "bot-1",
+                                personaId = persona.id,
+                                providerId = provider.id,
+                                maxContextMessages = 10,
+                                messages = emptyList(),
+                            ).toRuntimeConversationSessionSnapshot()
+
+                        override fun compatibilitySnapshotForConfig(
+                            config: RuntimeConfigSnapshot,
+                        ): RuntimeResourceCenterCompatibilitySnapshot =
+                            ResourceCenterCompatibilitySnapshot(resources = emptyList(), projections = emptyList())
+                                .toRuntimeResourceCenterCompatibilitySnapshot()
+                    },
                 ),
             )
         } finally {
@@ -266,16 +296,23 @@ class PromptAssemblerTest {
             messages = messages,
         )
         val dataPort = object : RuntimeContextDataPort {
-            override fun resolveConfig(configProfileId: String): ConfigProfile = config
+            override fun resolveConfig(configProfileId: String): RuntimeConfigSnapshot =
+                config.toRuntimeConfigSnapshot()
 
-            override fun listProviders(): List<ProviderProfile> = listOf(provider)
+            override fun listProviders(): List<RuntimeProviderSnapshot> =
+                listOf(provider.toRuntimeProviderSnapshot())
 
-            override fun findEnabledPersona(personaId: String): PersonaProfile? = persona
+            override fun findEnabledPersona(personaId: String): RuntimePersonaSnapshot? =
+                persona.toRuntimePersonaSnapshot()
 
-            override fun session(sessionId: String): ConversationSession = session
+            override fun session(sessionId: String): RuntimeConversationSessionSnapshot =
+                session.toRuntimeConversationSessionSnapshot()
 
-            override fun compatibilitySnapshotForConfig(config: ConfigProfile): ResourceCenterCompatibilitySnapshot =
+            override fun compatibilitySnapshotForConfig(
+                config: RuntimeConfigSnapshot,
+            ): RuntimeResourceCenterCompatibilitySnapshot =
                 ResourceCenterCompatibilitySnapshot(resources = emptyList(), projections = emptyList())
+                    .toRuntimeResourceCenterCompatibilitySnapshot()
         }
         return RuntimeContextResolver.resolve(
             event = event,
@@ -285,7 +322,7 @@ class PromptAssemblerTest {
                 defaultProviderId = provider.id,
                 defaultPersonaId = persona.id,
                 configProfileId = config.id,
-            ),
+            ).toRuntimeBotSnapshot(),
             dataPort = dataPort,
         )
     }
@@ -299,31 +336,26 @@ class PromptAssemblerTest {
             conversationId = "conversation-1",
             messageId = "cron:job-1",
             sender = SenderInfo(userId = "cron:job-1", nickname = "scheduled-task"),
-            messageType = MessageType.OtherMessage,
+            messageType = MessageType.OtherMessage.toRuntimeMessageType(),
             text = "提醒用户该喝水了",
             trigger = trigger,
             rawPlatformPayload = rawPlatformPayload,
         )
     }
 
-    private object TestWebSearchPromptStrings : WebSearchPromptStringProvider {
-        override fun guidanceFor(intent: WebSearchTriggerIntent): String? {
+    private object TestWebSearchPromptStrings : RuntimeWebSearchPromptStringProvider {
+        override fun guidanceFor(intent: RuntimeWebSearchPromptIntent): String? {
             return when (intent) {
-                WebSearchTriggerIntent.NEWS ->
+                RuntimeWebSearchPromptIntent.NEWS ->
                     "The latest user message matches a news intent. You must call web_search before answering. " +
                         "The host may send the factual news summary directly from tool results. " +
                         "After tool results are available, do not repeat news items. " +
                         "Provide only a brief evaluation in the configured persona."
-                WebSearchTriggerIntent.WEATHER ->
+                RuntimeWebSearchPromptIntent.WEATHER ->
                     "The latest user message asks for weather. You must call web_search before answering."
-                WebSearchTriggerIntent.REALTIME -> "Prefer calling web_search before answering."
-                WebSearchTriggerIntent.NONE -> null
+                RuntimeWebSearchPromptIntent.REALTIME -> "Prefer calling web_search before answering."
+                RuntimeWebSearchPromptIntent.NONE -> null
             }
         }
-
-        override fun newsDirectDeliveryCommentary(
-            factText: String,
-            sent: Boolean,
-        ): String = "Do not repeat the news items. Only provide a brief evaluation. $factText $sent"
     }
 }

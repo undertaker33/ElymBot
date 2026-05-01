@@ -2,7 +2,6 @@ package com.astrbot.android.data
 
 import com.astrbot.android.feature.qq.data.NapCatLoginService
 import com.astrbot.android.model.NapCatLoginState
-import com.astrbot.android.core.runtime.secret.RuntimeSecretRepository
 import org.json.JSONObject
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.After
@@ -12,12 +11,13 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class NapCatLoginRepositoryTest {
+    private val runtimeWebUiTokenProvider = NapCatLoginService.WebUiTokenProvider { "runtime-webui-token" }
+
     @After
     fun tearDown() {
         NapCatBridgeRepository.resetRuntimeStateForTests()
         NapCatLoginRepository.resetQrRefreshGuardsForTests()
         NapCatLoginService.resetForTests()
-        RuntimeSecretRepository.setSecretsOverrideForTests(null)
         setLoginState(NapCatLoginState())
     }
 
@@ -35,7 +35,7 @@ class NapCatLoginRepositoryTest {
             ),
         )
 
-        val state = NapCatLoginRepository.refresh()
+        val state = NapCatLoginRepository.refresh(webUiTokenProvider = runtimeWebUiTokenProvider)
 
         assertTrue(state.isLogin)
         assertFalse(state.bridgeReady)
@@ -57,13 +57,6 @@ class NapCatLoginRepositoryTest {
                 statusText = "Waiting for login QR code",
             ),
         )
-        RuntimeSecretRepository.setSecretsOverrideForTests(
-            RuntimeSecretRepository.RuntimeSecrets(
-                webUiToken = "runtime-webui-token",
-                webUiJwtSecret = "runtime-jwt-secret",
-            ),
-        )
-
         var refreshQrCodeCalls = 0
         NapCatLoginService.setPostJsonOverrideForTests { endpoint, _, _ ->
             when {
@@ -95,8 +88,8 @@ class NapCatLoginRepositoryTest {
             }
         }
 
-        NapCatLoginRepository.refreshQrCode()
-        NapCatLoginRepository.refreshQrCode()
+        NapCatLoginRepository.refreshQrCode(webUiTokenProvider = runtimeWebUiTokenProvider)
+        NapCatLoginRepository.refreshQrCode(webUiTokenProvider = runtimeWebUiTokenProvider)
 
         assertEquals(1, refreshQrCodeCalls)
     }

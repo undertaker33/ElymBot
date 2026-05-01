@@ -19,7 +19,17 @@ class GlobalSingletonAllowlistContractTest {
         "core/common/src/main/java/com/astrbot/android",
         "core/db/src/main/java/com/astrbot/android",
         "core/logging/src/main/java/com/astrbot/android",
+        "core/network/src/main/java/com/astrbot/android",
         "core/runtime/src/main/java/com/astrbot/android",
+        "core/runtime-audio/src/main/java/com/astrbot/android",
+        "core/runtime-cache/src/main/java/com/astrbot/android",
+        "core/runtime-container/src/main/java/com/astrbot/android",
+        "core/runtime-context/src/main/java/com/astrbot/android",
+        "core/runtime-llm/src/main/java/com/astrbot/android",
+        "core/runtime-search/src/main/java/com/astrbot/android",
+        "core/runtime-secret/src/main/java/com/astrbot/android",
+        "core/runtime-session/src/main/java/com/astrbot/android",
+        "core/runtime-tool/src/main/java/com/astrbot/android",
         "feature/bot/api/src/main/java/com/astrbot/android",
         "feature/bot/impl/src/main/java/com/astrbot/android",
         "feature/chat/api/src/main/java/com/astrbot/android",
@@ -53,7 +63,7 @@ class GlobalSingletonAllowlistContractTest {
     )
 
     private val ownerPattern =
-        Regex("""^(feature-[a-z0-9-]+|core-[a-z0-9-]+|download|app-shell|app-integration)$""")
+        Regex("""^(feature-[a-z0-9-]+(?::[a-z0-9-]+)?|feature:[a-z0-9-]+(?::[a-z0-9-]+)?|core-[a-z0-9-]+(?::[a-z0-9-]+)?|core:[a-z0-9-]+(?::[a-z0-9-]+)?|download|app-shell|app-integration)$""")
 
     private val issuePattern =
         Regex("""^(ARCH-DEBT-[A-Za-z0-9_-]+|#[0-9]+|GH-[0-9]+)$""")

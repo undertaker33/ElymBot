@@ -22,7 +22,7 @@ env:
 
 jobs:
   architecture:
-    name: Architecture contracts
+    name: Phase 01 - Architecture contracts
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -123,11 +123,63 @@ jobs:
       - name: Run module slice tests
         run: ./gradlew ${{ matrix.gradle_tasks }} --console=plain --no-daemon --stacktrace
 
+  phase-02-05:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    needs: architecture
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Phase 02 - Core logging
+            gradle_tasks: >-
+              :core:logging:compileDebugKotlin
+              :core:logging:testDebugUnitTest
+          - name: Phase 03 - Runtime log screen
+            gradle_tasks: >-
+              :app:testDebugUnitTest
+              --tests
+              'com.astrbot.android.core.common.logging.*'
+          - name: Phase 04 - Container extractor logging
+            gradle_tasks: >-
+              :app:compileDebugKotlin
+          - name: Phase 05 - Runtime cache maintenance
+            gradle_tasks: >-
+              :app:testDebugUnitTest
+              --tests
+              '*RuntimeCache*'
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up JDK
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4.0.1
+
+      - name: Install Android SDK 36
+        run: |
+          yes | sdkmanager --licenses >/dev/null
+          sdkmanager "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Make Gradle wrapper executable
+        run: chmod +x ./gradlew
+
+      - name: Run phase verification
+        run: ./gradlew ${{ matrix.gradle_tasks }} --console=plain --no-daemon --stacktrace
+
   integration:
     name: App integration compile
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    needs: module-slices
+    needs: [module-slices, phase-02-05]
 
     steps:
       - name: Check out repository

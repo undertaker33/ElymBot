@@ -1,7 +1,6 @@
 package com.astrbot.android.ui.viewmodel
 
 import com.astrbot.android.MainDispatcherRule
-import com.astrbot.android.core.runtime.llm.SttProbeResult
 import com.astrbot.android.core.common.profile.ProviderInUseException
 import com.astrbot.android.core.common.profile.ProviderReferenceChecker
 import com.astrbot.android.data.ProviderRepository
@@ -9,6 +8,7 @@ import com.astrbot.android.feature.config.domain.ConfigRepositoryPort
 import com.astrbot.android.feature.provider.data.FeatureProviderRepository
 import com.astrbot.android.feature.provider.domain.ProviderRepositoryPort
 import com.astrbot.android.feature.provider.runtime.ProviderRuntimePort
+import com.astrbot.android.feature.provider.runtime.ProviderRuntimeSttProbeResult
 import org.junit.Assert.assertFalse
 import com.astrbot.android.model.ConfigProfile
 import com.astrbot.android.model.FeatureSupportState
@@ -71,7 +71,7 @@ class ProviderViewModelTest {
     @Test
     fun probe_stt_support_wraps_dependency_result() = runTest {
         val runtimePort = FakeProviderRuntimePort(
-            sttProbeResult = SttProbeResult(
+            sttProbeResult = ProviderRuntimeSttProbeResult(
                 state = FeatureSupportState.SUPPORTED,
                 transcript = "hello",
             ),
@@ -173,7 +173,7 @@ class ProviderViewModelTest {
     fun probe_stt_support_dispatches_off_calling_thread() = runTest {
         val callingThreadId = Thread.currentThread().id
         val runtimePort = FakeProviderRuntimePort(
-            sttProbeResult = SttProbeResult(
+            sttProbeResult = ProviderRuntimeSttProbeResult(
                 state = FeatureSupportState.SUPPORTED,
                 transcript = "hello",
             ),
@@ -273,7 +273,7 @@ class ProviderViewModelTest {
     }
 
     private class FakeProviderRuntimePort(
-        private val sttProbeResult: SttProbeResult = SttProbeResult(
+        private val sttProbeResult: ProviderRuntimeSttProbeResult = ProviderRuntimeSttProbeResult(
             state = FeatureSupportState.UNKNOWN,
             transcript = "",
         ),
@@ -305,7 +305,7 @@ class ProviderViewModelTest {
 
         override fun probeNativeStreamingSupport(provider: ProviderProfile): FeatureSupportState = FeatureSupportState.UNKNOWN
 
-        override fun probeSttSupport(provider: ProviderProfile): SttProbeResult {
+        override fun probeSttSupport(provider: ProviderProfile): ProviderRuntimeSttProbeResult {
             onProbeStt()
             probedProviders += provider.id
             return sttProbeResult

@@ -97,7 +97,8 @@ class BuildBaselineContractTest {
             "compileSdk = ELYMBOT_COMPILE_SDK",
             "minSdk = ELYMBOT_MIN_SDK",
             "JavaVersion.VERSION_17",
-            """jvmTarget = "17"""",
+            """val ELYMBOT_JVM_TARGET = "17"""",
+            "jvmTarget = ELYMBOT_JVM_TARGET",
         ).forEach { requiredToken ->
             assertTrue(
                 "Root build file must own shared Android/Kotlin baseline token: $requiredToken",
@@ -160,7 +161,13 @@ class BuildBaselineContractTest {
             "core/common/src/main/java",
             "core/db/src/main/java",
             "core/logging/src/main/java",
+            "core/network/src/main/java",
             "core/runtime/src/main/java",
+            "core/runtime-audio/src/main/java",
+            "core/runtime-context/src/main/java",
+            "core/runtime-llm/src/main/java",
+            "core/runtime-search/src/main/java",
+            "core/runtime-tool/src/main/java",
             "feature/bot/api/src/main/java",
             "feature/bot/impl/src/main/java",
             "feature/chat/api/src/main/java",

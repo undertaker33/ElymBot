@@ -5,6 +5,8 @@ import androidx.appcompat.app.AppCompatDelegate
 import com.astrbot.android.core.common.logging.AppLogger
 import com.astrbot.android.core.runtime.context.RuntimeContextResolverPort
 import com.astrbot.android.core.runtime.llm.LlmProviderProbePort
+import com.astrbot.android.di.runtime.llm.toLlmConversationAttachment
+import com.astrbot.android.di.runtime.llm.toLlmProviderProfile
 import com.astrbot.android.feature.bot.domain.BotRepositoryPort
 import com.astrbot.android.feature.config.domain.ConfigRepositoryPort
 import com.astrbot.android.feature.persona.domain.PersonaRepositoryPort
@@ -209,7 +211,12 @@ internal abstract class BaseQqOneBotBridgeRuntime : QqBridgeRuntime {
             markMessageId = ::markMessageId,
             scheduleStashReplay = ::scheduleStashReplay,
             currentLanguageTag = ::currentLanguageTag,
-            transcribeAudio = dependencies.llmProviderProbePort::transcribeAudio,
+            transcribeAudio = { provider, attachment ->
+                dependencies.llmProviderProbePort.transcribeAudio(
+                    provider = provider.toLlmProviderProfile(),
+                    attachment = attachment.toLlmConversationAttachment(),
+                )
+            },
             resolvePluginPrivateRootPath = ::resolvePluginPrivateRootPath,
             log = AppLogger::append,
         )

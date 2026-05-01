@@ -1,6 +1,7 @@
 package com.astrbot.android.di.hilt.runtime
 
 import android.content.Context
+import com.astrbot.android.core.runtime.audio.AudioRuntimePort
 import com.astrbot.android.core.runtime.llm.ChatCompletionServiceLlmClient
 import com.astrbot.android.core.runtime.llm.HiltLlmProviderProbePort
 import com.astrbot.android.core.runtime.llm.LlmClientPort
@@ -28,7 +29,8 @@ internal object LlmRuntimeModule {
     @Singleton
     fun provideLlmProviderProbePort(
         @ApplicationContext appContext: Context,
-    ): LlmProviderProbePort = HiltLlmProviderProbePort(appContext)
+        audioRuntimePort: AudioRuntimePort,
+    ): LlmProviderProbePort = HiltLlmProviderProbePort(appContext, audioRuntimePort)
 
     @Provides
     @Singleton

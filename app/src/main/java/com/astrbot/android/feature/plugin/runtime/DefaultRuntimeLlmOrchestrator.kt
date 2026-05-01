@@ -1,8 +1,13 @@
 package com.astrbot.android.feature.plugin.runtime
 
 import com.astrbot.android.core.runtime.context.ResolvedRuntimeContext
+import com.astrbot.android.core.runtime.context.PromptAssembler
 import com.astrbot.android.core.runtime.context.StreamingModeResolver
-import com.astrbot.android.core.runtime.context.SystemPromptBuilder
+import com.astrbot.android.core.runtime.search.AndroidWebSearchPromptStringProvider
+import com.astrbot.android.di.runtime.context.toConversationMessages
+import com.astrbot.android.di.runtime.context.toMessageType
+import com.astrbot.android.di.runtime.context.toPersonaToolEnablementSnapshot
+import com.astrbot.android.di.runtime.context.toPluginStreamingMode
 import com.astrbot.android.feature.plugin.runtime.MessageConverters.toPluginProviderMessages
 import com.astrbot.android.model.chat.ConversationMessage
 import com.astrbot.android.model.plugin.PluginTriggerSource
@@ -23,9 +28,9 @@ internal class DefaultRuntimeLlmOrchestrator : RuntimeLlmOrchestratorPort {
         userMessage: ConversationMessage,
         preBuiltPluginEvent: PluginMessageEvent?,
     ): PluginV2HostLlmDeliveryResult {
-        val systemPrompt = SystemPromptBuilder.build(ctx)
-        val streamingMode = StreamingModeResolver.resolve(ctx)
-        val messages = ctx.messageWindow.toPluginProviderMessages()
+        val systemPrompt = PromptAssembler.assemble(ctx, AndroidWebSearchPromptStringProvider())
+        val streamingMode = StreamingModeResolver.resolve(ctx).toPluginStreamingMode()
+        val messages = ctx.messageWindow.toConversationMessages().toPluginProviderMessages()
 
         val llmEvent = preBuiltPluginEvent ?: buildPluginMessageEvent(ctx, userMessage)
 
@@ -41,7 +46,7 @@ internal class DefaultRuntimeLlmOrchestrator : RuntimeLlmOrchestratorPort {
             selectedModelId = ctx.provider.model,
             systemPrompt = systemPrompt,
             messages = messages,
-            personaToolEnablementSnapshot = ctx.personaToolSnapshot,
+            personaToolEnablementSnapshot = ctx.personaToolSnapshot?.toPersonaToolEnablementSnapshot(),
             configProfileId = ctx.config.id,
             toolSourceContext = ctx.toolSourceContext,
             supportsToolCalling = ctx.providerCapabilities.supportsToolCalling,
@@ -79,7 +84,7 @@ internal class DefaultRuntimeLlmOrchestrator : RuntimeLlmOrchestratorPort {
         return PluginMessageEvent(
             eventId = "${trigger.wireValue}:${ctx.conversationId}:${message.id}",
             platformAdapterType = ctx.ingressEvent.platform.wireValue,
-            messageType = ctx.ingressEvent.messageType,
+            messageType = ctx.ingressEvent.messageType.toMessageType(),
             conversationId = ctx.conversationId,
             senderId = ctx.ingressEvent.sender.userId,
             timestampEpochMillis = message.timestamp,

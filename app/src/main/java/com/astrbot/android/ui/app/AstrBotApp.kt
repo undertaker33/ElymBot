@@ -38,7 +38,6 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.astrbot.android.R
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.astrbot.android.core.runtime.container.ContainerBridgeController
 import com.astrbot.android.ui.navigation.AstrBotAppNavGraph
 import com.astrbot.android.ui.navigation.AstrBotAppTopBar
 import com.astrbot.android.ui.navigation.activeMainDestination
@@ -304,8 +303,8 @@ fun AstrBotApp(bridgeViewModel: BridgeViewModel = hiltViewModel()) {
             progressLabel = runtimeState.progressLabel,
             progressPercent = runtimeState.progressPercent,
             installerCached = runtimeState.installerCached,
-            onStart = { ContainerBridgeController.start(context) },
-            onStop = { ContainerBridgeController.stop(context) },
+            onStart = bridgeViewModel::startBridge,
+            onStop = bridgeViewModel::stopBridge,
         )
     }
 }

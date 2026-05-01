@@ -5,6 +5,11 @@ import com.astrbot.android.core.runtime.context.RuntimeContextDataPort
 import com.astrbot.android.core.runtime.context.RuntimeContextResolver
 import com.astrbot.android.core.runtime.context.RuntimeContextResolverPort
 import com.astrbot.android.core.runtime.context.RuntimeIngressEvent
+import com.astrbot.android.core.runtime.context.RuntimeBotSnapshot
+import com.astrbot.android.core.runtime.context.RuntimeConfigSnapshot
+import com.astrbot.android.core.runtime.context.RuntimeConversationSessionSnapshot
+import com.astrbot.android.core.runtime.context.RuntimeProviderSnapshot
+import com.astrbot.android.core.runtime.context.RuntimeResourceCenterCompatibilitySnapshot
 import com.astrbot.android.core.runtime.llm.LlmClientPort
 import com.astrbot.android.core.runtime.llm.LlmInvocationRequest
 import com.astrbot.android.core.runtime.llm.LlmInvocationResult
@@ -30,6 +35,11 @@ import com.astrbot.android.feature.plugin.runtime.PluginV2LlmPipelineResult
 import com.astrbot.android.feature.plugin.runtime.PluginV2LlmStageDispatchResult
 import com.astrbot.android.feature.plugin.runtime.RuntimeLlmOrchestratorPort
 import com.astrbot.android.feature.plugin.runtime.createCompatPluginHostCapabilityGateway
+import com.astrbot.android.di.runtime.context.toRuntimeBotSnapshot
+import com.astrbot.android.di.runtime.context.toRuntimeConfigSnapshot
+import com.astrbot.android.di.runtime.context.toRuntimeConversationSessionSnapshot
+import com.astrbot.android.di.runtime.context.toRuntimeProviderSnapshot
+import com.astrbot.android.di.runtime.context.toRuntimeResourceCenterCompatibilitySnapshot
 import com.astrbot.android.model.BotProfile
 import com.astrbot.android.model.ConfigProfile
 import com.astrbot.android.model.ProviderCapability
@@ -371,21 +381,27 @@ private class FakeRuntimeContextResolverPort(
 
     override fun resolve(
         event: RuntimeIngressEvent,
-        bot: BotProfile,
+        bot: RuntimeBotSnapshot,
         overrideProviderId: String?,
         overridePersonaId: String?,
     ): ResolvedRuntimeContext {
         val dataPort = object : RuntimeContextDataPort {
-            override fun resolveConfig(configProfileId: String): ConfigProfile = config
+            override fun resolveConfig(configProfileId: String): RuntimeConfigSnapshot =
+                config.toRuntimeConfigSnapshot()
 
-            override fun listProviders(): List<ProviderProfile> = listOf(provider)
+            override fun listProviders(): List<RuntimeProviderSnapshot> =
+                listOf(provider.toRuntimeProviderSnapshot())
 
             override fun findEnabledPersona(personaId: String) = null
 
-            override fun session(sessionId: String): ConversationSession = conversationPort.session(sessionId)
+            override fun session(sessionId: String): RuntimeConversationSessionSnapshot =
+                conversationPort.session(sessionId).toRuntimeConversationSessionSnapshot()
 
-            override fun compatibilitySnapshotForConfig(config: ConfigProfile): ResourceCenterCompatibilitySnapshot =
+            override fun compatibilitySnapshotForConfig(
+                config: RuntimeConfigSnapshot,
+            ): RuntimeResourceCenterCompatibilitySnapshot =
                 ResourceCenterCompatibilitySnapshot(resources = emptyList(), projections = emptyList())
+                    .toRuntimeResourceCenterCompatibilitySnapshot()
         }
         return RuntimeContextResolver.resolve(
             event = event,

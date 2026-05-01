@@ -3,7 +3,13 @@ package com.astrbot.android.core.runtime.context
 import com.astrbot.android.data.ConfigRepository
 import com.astrbot.android.data.ProviderRepository
 import com.astrbot.android.data.ResourceCenterRepository
-import com.astrbot.android.di.ProductionRuntimeContextDataPort
+import com.astrbot.android.di.runtime.context.toRuntimeBotSnapshot
+import com.astrbot.android.di.runtime.context.toConfigProfile
+import com.astrbot.android.di.runtime.context.toRuntimeConfigSnapshot
+import com.astrbot.android.di.runtime.context.toRuntimeConversationSessionSnapshot
+import com.astrbot.android.di.runtime.context.toRuntimeMessageType
+import com.astrbot.android.di.runtime.context.toRuntimeProviderSnapshot
+import com.astrbot.android.di.runtime.context.toRuntimeResourceCenterCompatibilitySnapshot
 import com.astrbot.android.model.BotProfile
 import com.astrbot.android.model.ConfigProfile
 import com.astrbot.android.model.ConfigResourceProjection
@@ -13,6 +19,7 @@ import com.astrbot.android.model.ProviderType
 import com.astrbot.android.model.ResourceCenterItem
 import com.astrbot.android.model.ResourceCenterKind
 import com.astrbot.android.model.SkillResourceKind
+import com.astrbot.android.model.chat.ConversationSession
 import com.astrbot.android.model.chat.MessageType
 import com.astrbot.android.feature.plugin.runtime.PluginV2LlmPipelineInput
 import com.astrbot.android.feature.plugin.runtime.toolsource.ToolSourceAvailabilityContext
@@ -182,7 +189,7 @@ class Task8Phase3VerificationTest {
                     conversationId = "phase3-conversation",
                     messageId = "msg-1",
                     sender = SenderInfo(userId = "user-1"),
-                    messageType = MessageType.OtherMessage,
+                    messageType = MessageType.OtherMessage.toRuntimeMessageType(),
                     text = "hello",
                 ),
                 bot = BotProfile(
@@ -190,8 +197,33 @@ class Task8Phase3VerificationTest {
                     defaultProviderId = provider.id,
                     configProfileId = config.id,
                     defaultPersonaId = "",
-                ),
-                dataPort = ProductionRuntimeContextDataPort,
+                ).toRuntimeBotSnapshot(),
+                dataPort = object : RuntimeContextDataPort {
+                    override fun resolveConfig(configProfileId: String): RuntimeConfigSnapshot =
+                        config.toRuntimeConfigSnapshot()
+
+                    override fun listProviders(): List<RuntimeProviderSnapshot> =
+                        ProviderRepository.snapshotProfiles().map { it.toRuntimeProviderSnapshot() }
+
+                    override fun findEnabledPersona(personaId: String) = null
+
+                    override fun session(sessionId: String): RuntimeConversationSessionSnapshot =
+                        ConversationSession(
+                            id = sessionId,
+                            title = "Session",
+                            botId = "phase3-bot",
+                            personaId = "",
+                            providerId = provider.id,
+                            maxContextMessages = 10,
+                            messages = emptyList(),
+                        ).toRuntimeConversationSessionSnapshot()
+
+                    override fun compatibilitySnapshotForConfig(
+                        config: RuntimeConfigSnapshot,
+                    ): RuntimeResourceCenterCompatibilitySnapshot =
+                        ResourceCenterRepository.compatibilitySnapshotForConfig(config.toConfigProfile())
+                            .toRuntimeResourceCenterCompatibilitySnapshot()
+                },
             )
 
             assertEquals("phase3-mcp", ctx.mcpServers.single().serverId)

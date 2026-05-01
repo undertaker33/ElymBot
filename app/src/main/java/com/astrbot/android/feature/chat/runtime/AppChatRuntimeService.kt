@@ -14,6 +14,9 @@ import com.astrbot.android.core.runtime.context.RuntimeIngressEvent
 import com.astrbot.android.core.runtime.context.RuntimePlatform
 import com.astrbot.android.core.runtime.context.SenderInfo
 import com.astrbot.android.core.runtime.context.StreamingModeResolver
+import com.astrbot.android.di.runtime.context.toPluginStreamingMode
+import com.astrbot.android.di.runtime.context.toRuntimeBotSnapshot
+import com.astrbot.android.di.runtime.context.toRuntimeMessageType
 import com.astrbot.android.feature.plugin.runtime.AppChatLlmPipelineRuntime
 import com.astrbot.android.feature.plugin.runtime.AppChatPluginRuntime
 import com.astrbot.android.feature.plugin.runtime.PluginHostCapabilityGatewayFactory
@@ -79,15 +82,15 @@ internal class AppChatRuntimeService(
                     conversationId = session.originSessionId.ifBlank { session.id },
                     messageId = userMessage.id,
                     sender = SenderInfo(userId = "app-user"),
-                    messageType = session.messageType,
+                    messageType = session.messageType.toRuntimeMessageType(),
                     text = userMessage.content,
                 ),
-                bot = bot,
+                bot = bot.toRuntimeBotSnapshot(),
                 overrideProviderId = provider.id,
                 overridePersonaId = session.personaId,
             )
 
-            val streamingMode = StreamingModeResolver.resolve(runtimeContext)
+            val streamingMode = StreamingModeResolver.resolve(runtimeContext).toPluginStreamingMode()
 
             val wantsTts = config?.ttsEnabled == true &&
                 session.sessionTtsEnabled &&

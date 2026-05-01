@@ -44,7 +44,6 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.astrbot.android.R
 import com.astrbot.android.model.NapCatBridgeConfig
-import com.astrbot.android.core.runtime.container.ContainerBridgeController
 import com.astrbot.android.ui.app.MonochromeUi
 import com.astrbot.android.ui.app.RegisterSecondaryTopBar
 import com.astrbot.android.ui.app.SecondaryTopBarPlaceholder
@@ -205,14 +204,14 @@ fun SettingsScreen(
                     Text(stringResource(R.string.settings_runtime_details_value, runtimeState.details))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(
-                            onClick = { ContainerBridgeController.start(context) },
+                            onClick = bridgeViewModel::startBridge,
                             colors = monochromeButtonColors(),
                         ) {
                             Icon(Icons.Outlined.PlayArrow, contentDescription = null)
                             Text(stringResource(R.string.runtime_start))
                         }
                         OutlinedButton(
-                            onClick = { ContainerBridgeController.stop(context) },
+                            onClick = bridgeViewModel::stopBridge,
                             colors = ButtonDefaults.outlinedButtonColors(contentColor = MonochromeUi.textPrimary),
                         ) {
                             Icon(Icons.Outlined.Stop, contentDescription = null)

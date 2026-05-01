@@ -4,7 +4,9 @@ import com.astrbot.android.core.runtime.search.SearchProviderResult
 import com.astrbot.android.core.runtime.search.UnifiedSearchCoordinator
 import com.astrbot.android.core.runtime.search.UnifiedSearchRequest
 import com.astrbot.android.core.runtime.search.UnifiedSearchResult
+import com.astrbot.android.core.runtime.search.profile.ConfiguredSearchProfile
 import com.astrbot.android.core.runtime.search.profile.ConfiguredSearchProvider
+import com.astrbot.android.core.runtime.search.profile.ConfiguredSearchProviderType
 import com.astrbot.android.feature.provider.domain.ProviderRepositoryPort
 import com.astrbot.android.feature.provider.runtime.search.ProviderRepositorySearchProvider
 import com.astrbot.android.model.FeatureSupportState
@@ -21,7 +23,7 @@ class ProviderRepositorySearchProviderTest {
     @Test
     fun chat_provider_is_ignored_when_native_providers_are_empty() = runBlocking {
         val calls = mutableListOf<String>()
-        val api = fakeConfiguredProvider("api") {
+        val api = fakeConfiguredProvider("api") { _ ->
             calls += "api"
             SearchProviderResult.Success(
                 results = listOf(searchResult("https://api.test")),
@@ -35,7 +37,6 @@ class ProviderRepositorySearchProviderTest {
                     profile("api", ProviderType.TAVILY_SEARCH, ProviderCapability.SEARCH),
                 ),
             ),
-            nativeProviders = emptyList(),
             apiProviders = listOf(api),
         )
 
@@ -51,8 +52,10 @@ class ProviderRepositorySearchProviderTest {
     @Test
     fun search_capability_provider_is_used_without_native_attempt() = runBlocking {
         val calls = mutableListOf<String>()
-        val api = fakeConfiguredProvider("api") {
+        val capturedProfiles = mutableListOf<ConfiguredSearchProfile>()
+        val api = fakeConfiguredProvider("api") { profile ->
             calls += "api"
+            capturedProfiles += profile
             SearchProviderResult.Success(
                 results = listOf(searchResult("https://api.test")),
                 providerOverride = "api",
@@ -65,7 +68,6 @@ class ProviderRepositorySearchProviderTest {
                     profile("api", ProviderType.TAVILY_SEARCH, ProviderCapability.SEARCH),
                 ),
             ),
-            nativeProviders = emptyList(),
             apiProviders = listOf(api),
         )
 
@@ -74,6 +76,8 @@ class ProviderRepositorySearchProviderTest {
         )
 
         assertEquals(listOf("api"), calls)
+        assertEquals(ConfiguredSearchProviderType.TAVILY_SEARCH, capturedProfiles.single().providerType)
+        assertEquals("key-1", capturedProfiles.single().apiKey)
         assertEquals("api", response.provider)
         assertEquals(false, response.fallbackUsed)
         assertEquals("https://api.test", response.results.single().url)
@@ -82,7 +86,7 @@ class ProviderRepositorySearchProviderTest {
     @Test
     fun url_less_configured_api_result_is_accepted() = runBlocking {
         val calls = mutableListOf<String>()
-        val api = fakeConfiguredProvider("api") {
+        val api = fakeConfiguredProvider("api") { _ ->
             calls += "api"
             SearchProviderResult.Success(
                 results = listOf(
@@ -103,7 +107,6 @@ class ProviderRepositorySearchProviderTest {
                     profile("api", ProviderType.TAVILY_SEARCH, ProviderCapability.SEARCH),
                 ),
             ),
-            nativeProviders = emptyList(),
             apiProviders = listOf(api),
         )
 
@@ -119,18 +122,18 @@ class ProviderRepositorySearchProviderTest {
 
     private fun fakeConfiguredProvider(
         id: String,
-        block: suspend () -> SearchProviderResult,
+        block: suspend (ConfiguredSearchProfile) -> SearchProviderResult,
     ): ConfiguredSearchProvider {
         return object : ConfiguredSearchProvider {
             override val providerId: String = id
             override val providerName: String = id
 
-            override fun supports(profile: ProviderProfile): Boolean = true
+            override fun supports(profile: ConfiguredSearchProfile): Boolean = true
 
             override suspend fun search(
-                profile: ProviderProfile,
+                profile: ConfiguredSearchProfile,
                 request: UnifiedSearchRequest,
-            ): SearchProviderResult = block()
+            ): SearchProviderResult = block(profile)
         }
     }
 

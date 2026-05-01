@@ -6,6 +6,11 @@ import com.astrbot.android.core.runtime.llm.LlmInvocationRequest
 import com.astrbot.android.core.runtime.llm.LlmInvocationResult
 import com.astrbot.android.core.runtime.llm.LlmStreamEvent
 import com.astrbot.android.core.runtime.llm.LlmToolDefinition
+import com.astrbot.android.di.runtime.context.toConfigProfile
+import com.astrbot.android.di.runtime.context.toProviderProfile
+import com.astrbot.android.di.runtime.llm.toLlmConversationMessages
+import com.astrbot.android.di.runtime.llm.toLlmProviderProfile
+import com.astrbot.android.di.runtime.llm.toLlmRuntimeConfig
 import com.astrbot.android.feature.plugin.runtime.MessageConverters.toConversationMessages
 import com.astrbot.android.feature.plugin.runtime.PluginLlmResponse
 import com.astrbot.android.feature.plugin.runtime.PluginLlmToolCall
@@ -26,7 +31,8 @@ internal class ScheduledTaskProviderInvocationService(
         mode: PluginV2StreamingMode,
         ctx: ResolvedRuntimeContext,
     ): PluginV2ProviderInvocationResult {
-        val resolvedProvider = ctx.availableProviders.firstOrNull { profile ->
+        val availableProviders = ctx.availableProviders.map { it.toProviderProfile() }
+        val resolvedProvider = availableProviders.firstOrNull { profile ->
             profile.id == request.selectedProviderId &&
                 profile.enabled &&
                 ProviderCapability.CHAT in profile.capabilities
@@ -43,11 +49,11 @@ internal class ScheduledTaskProviderInvocationService(
             )
         }
         val llmRequest = LlmInvocationRequest(
-            provider = resolvedProvider,
-            messages = messages,
+            provider = resolvedProvider.toLlmProviderProfile(),
+            messages = messages.toLlmConversationMessages(),
             systemPrompt = request.systemPrompt,
-            config = ctx.config,
-            availableProviders = ctx.availableProviders,
+            config = ctx.config.toConfigProfile().toLlmRuntimeConfig(),
+            availableProviders = availableProviders.map { it.toLlmProviderProfile() },
             tools = llmTools,
         )
 

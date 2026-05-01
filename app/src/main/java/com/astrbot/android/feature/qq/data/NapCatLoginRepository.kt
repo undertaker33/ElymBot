@@ -5,8 +5,10 @@ import com.astrbot.android.model.NapCatLoginState
 import com.astrbot.android.model.NapCatRuntimeState
 import com.astrbot.android.model.SavedQqAccount
 import com.astrbot.android.model.RuntimeStatus
-import com.astrbot.android.core.runtime.container.BridgeCommandRunner
-import com.astrbot.android.core.runtime.container.NapCatContainerRuntime
+import com.astrbot.android.core.runtime.container.ContainerRuntimeController
+import com.astrbot.android.core.runtime.container.ContainerRuntimeScript
+import com.astrbot.android.core.runtime.container.ContainerRuntimeScripts
+import com.astrbot.android.core.runtime.container.RuntimeBridgeController
 import com.astrbot.android.core.common.logging.AppLogger
 import java.io.File
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -78,16 +80,19 @@ object NapCatLoginRepository {
         )
     }
 
-    fun refresh(manual: Boolean = false): NapCatLoginState {
+    fun refresh(
+        webUiTokenProvider: NapCatLoginService.WebUiTokenProvider,
+        manual: Boolean = false,
+    ): NapCatLoginState {
         val healthUrl = requireBridgeHealthUrl() ?: return _loginState.value
 
         return try {
             var nextState = mergeWithPendingChallenge(
-                NapCatLoginService.fetchLoginState(healthUrl),
+                NapCatLoginService.fetchLoginState(healthUrl, webUiTokenProvider),
             )
             if (nextState.isLogin && nextState.uin.isNotBlank() && nextState.quickLoginUin != nextState.uin) {
                 runCatching {
-                    NapCatLoginService.setQuickLoginAccount(healthUrl, nextState.uin)
+                    NapCatLoginService.setQuickLoginAccount(healthUrl, nextState.uin, webUiTokenProvider)
                 }.onSuccess {
                     saveQuickLoginUinLocally(nextState.uin)
                     nextState = nextState.copy(
@@ -132,7 +137,7 @@ object NapCatLoginRepository {
         }
     }
 
-    fun refreshQrCode() {
+    fun refreshQrCode(webUiTokenProvider: NapCatLoginService.WebUiTokenProvider) {
         val healthUrl = requireBridgeHealthUrl() ?: return
         val requestStartedAt = nowProvider()
         synchronized(qrRefreshLock) {
@@ -148,7 +153,7 @@ object NapCatLoginRepository {
             lastQrRefreshRequestedAt = requestStartedAt
         }
         try {
-            NapCatLoginService.refreshQrCode(healthUrl)
+            NapCatLoginService.refreshQrCode(healthUrl, webUiTokenProvider)
             _loginState.value = clearedChallengeState(
                 _loginState.value.copy(
                     bridgeReady = true,
@@ -166,10 +171,13 @@ object NapCatLoginRepository {
                 qrRefreshInFlight = false
             }
         }
-        refresh(manual = true)
+        refresh(webUiTokenProvider = webUiTokenProvider, manual = true)
     }
 
-    fun quickLoginSavedAccount(uin: String? = null) {
+    fun quickLoginSavedAccount(
+        uin: String? = null,
+        webUiTokenProvider: NapCatLoginService.WebUiTokenProvider,
+    ) {
         val healthUrl = requireBridgeHealthUrl() ?: return
         val targetUin = uin?.trim().orEmpty().ifBlank { _loginState.value.quickLoginUin }.ifBlank {
             _loginState.value = _loginState.value.copy(
@@ -181,7 +189,7 @@ object NapCatLoginRepository {
             return
         }
         try {
-            NapCatLoginService.quickLogin(healthUrl, targetUin)
+            NapCatLoginService.quickLogin(healthUrl, targetUin, webUiTokenProvider)
             _loginState.value = clearedChallengeState(
                 _loginState.value.copy(
                     bridgeReady = true,
@@ -198,10 +206,13 @@ object NapCatLoginRepository {
             applyActionError("QQ quick login failed", error)
             return
         }
-        refresh(manual = true)
+        refresh(webUiTokenProvider = webUiTokenProvider, manual = true)
     }
 
-    fun saveQuickLoginAccount(uin: String) {
+    fun saveQuickLoginAccount(
+        uin: String,
+        webUiTokenProvider: NapCatLoginService.WebUiTokenProvider,
+    ) {
         val healthUrl = requireBridgeHealthUrl() ?: return
         val cleanedUin = uin.trim()
         if (cleanedUin.isBlank()) {
@@ -215,7 +226,7 @@ object NapCatLoginRepository {
         }
 
         try {
-            NapCatLoginService.setQuickLoginAccount(healthUrl, cleanedUin)
+            NapCatLoginService.setQuickLoginAccount(healthUrl, cleanedUin, webUiTokenProvider)
             saveQuickLoginUinLocally(cleanedUin)
             val mergedAccounts = upsertSavedAccount(_loginState.value.savedAccounts, SavedQqAccount(cleanedUin))
             persistSavedAccounts(mergedAccounts)
@@ -233,10 +244,14 @@ object NapCatLoginRepository {
         }
     }
 
-    suspend fun logoutCurrentAccount() {
+    suspend fun logoutCurrentAccount(
+        containerRuntimeController: ContainerRuntimeController,
+        runtimeBridgeController: RuntimeBridgeController,
+        webUiTokenProvider: NapCatLoginService.WebUiTokenProvider,
+    ) {
         val context = NapCatLoginLocalStore.requireAppContext()
 
-        val scriptFile = File(context.filesDir, "runtime/scripts/logout_qq.sh")
+        val scriptFile = ContainerRuntimeScripts.scriptFile(context.filesDir, ContainerRuntimeScript.LOGOUT_QQ)
         if (!scriptFile.exists()) {
             _loginState.value = _loginState.value.copy(
                 statusText = "Logout script is missing",
@@ -246,7 +261,6 @@ object NapCatLoginRepository {
             return
         }
 
-        val command = "/system/bin/sh ${scriptFile.absolutePath} ${context.filesDir.absolutePath} ${context.applicationInfo.nativeLibraryDir}"
         _loginState.value = _loginState.value.copy(
             bridgeReady = false,
             statusText = "Logging out current QQ account",
@@ -254,7 +268,7 @@ object NapCatLoginRepository {
             lastUpdated = System.currentTimeMillis(),
         )
 
-        val result = BridgeCommandRunner.execute(command)
+        val result = containerRuntimeController.logoutQq()
         if (result.exitCode != 0) {
             applyActionError("QQ logout failed", IllegalStateException(result.stderr.ifBlank { result.stdout.ifBlank { "Unknown error" } }))
             return
@@ -262,12 +276,12 @@ object NapCatLoginRepository {
 
         AppLogger.append("QQ logout command completed")
         AppLogger.append("QQ logout requesting bridge restart")
-        NapCatContainerRuntime.stopBridge(context)
+        runtimeBridgeController.stopBridge()
         delay(1_500)
-        NapCatContainerRuntime.startBridge(context)
+        runtimeBridgeController.startBridge()
         repeat(12) { attempt ->
             delay(3_000)
-            val state = refresh(manual = attempt == 5)
+            val state = refresh(webUiTokenProvider = webUiTokenProvider, manual = attempt == 5)
             if (state.bridgeReady && !state.isLogin) {
                 _loginState.value = state.copy(
                     statusText = "Logged out. QR login is ready.",
@@ -285,13 +299,18 @@ object NapCatLoginRepository {
         )
     }
 
-    fun passwordLogin(uin: String, password: String) {
+    fun passwordLogin(
+        uin: String,
+        password: String,
+        webUiTokenProvider: NapCatLoginService.WebUiTokenProvider,
+    ) {
         performLoginAction(
             actionLabel = "QQ password login",
             uin = uin,
             password = password,
+            webUiTokenProvider = webUiTokenProvider,
         ) { healthUrl, cleanedUin, cleanedPassword ->
-            NapCatLoginService.passwordLogin(healthUrl, cleanedUin, cleanedPassword)
+            NapCatLoginService.passwordLogin(healthUrl, cleanedUin, cleanedPassword, webUiTokenProvider)
         }
     }
 
@@ -301,11 +320,13 @@ object NapCatLoginRepository {
         ticket: String,
         randstr: String,
         sid: String,
+        webUiTokenProvider: NapCatLoginService.WebUiTokenProvider,
     ) {
         performLoginAction(
             actionLabel = "QQ captcha login",
             uin = uin,
             password = password,
+            webUiTokenProvider = webUiTokenProvider,
         ) { healthUrl, cleanedUin, cleanedPassword ->
             NapCatLoginService.captchaLogin(
                 baseUrl = healthUrl,
@@ -314,11 +335,17 @@ object NapCatLoginRepository {
                 ticket = ticket.trim(),
                 randstr = randstr.trim(),
                 sid = sid.trim(),
+                webUiTokenProvider = webUiTokenProvider,
             )
         }
     }
 
-    fun newDeviceLogin(uin: String, password: String, verifiedToken: String? = null) {
+    fun newDeviceLogin(
+        uin: String,
+        password: String,
+        verifiedToken: String? = null,
+        webUiTokenProvider: NapCatLoginService.WebUiTokenProvider,
+    ) {
         val sig = verifiedToken?.trim().orEmpty().ifBlank { _loginState.value.newDeviceSig }
         if (sig.isBlank()) {
             _loginState.value = _loginState.value.copy(
@@ -334,17 +361,21 @@ object NapCatLoginRepository {
             actionLabel = "QQ new device login",
             uin = uin,
             password = password,
+            webUiTokenProvider = webUiTokenProvider,
         ) { healthUrl, cleanedUin, cleanedPassword ->
             NapCatLoginService.newDeviceLogin(
                 baseUrl = healthUrl,
                 uin = cleanedUin,
                 password = cleanedPassword,
                 newDeviceSig = sig,
+                webUiTokenProvider = webUiTokenProvider,
             )
         }
     }
 
-    fun getNewDeviceQRCode(): NapCatLoginService.NewDeviceQrCodeResult {
+    fun getNewDeviceQRCode(
+        webUiTokenProvider: NapCatLoginService.WebUiTokenProvider,
+    ): NapCatLoginService.NewDeviceQrCodeResult {
         val healthUrl = requireBridgeHealthUrl()
             ?: throw IllegalStateException("Waiting for NapCat bridge")
         val state = _loginState.value
@@ -355,10 +386,14 @@ object NapCatLoginRepository {
             baseUrl = healthUrl,
             uin = state.uin,
             jumpUrl = state.newDeviceJumpUrl,
+            webUiTokenProvider = webUiTokenProvider,
         )
     }
 
-    fun pollNewDeviceQRCode(bytesToken: String): NapCatLoginService.NewDeviceQrPollResult {
+    fun pollNewDeviceQRCode(
+        bytesToken: String,
+        webUiTokenProvider: NapCatLoginService.WebUiTokenProvider,
+    ): NapCatLoginService.NewDeviceQrPollResult {
         val healthUrl = requireBridgeHealthUrl()
             ?: throw IllegalStateException("Waiting for NapCat bridge")
         val uin = _loginState.value.uin
@@ -369,6 +404,7 @@ object NapCatLoginRepository {
             baseUrl = healthUrl,
             uin = uin,
             bytesToken = bytesToken,
+            webUiTokenProvider = webUiTokenProvider,
         )
     }
 
@@ -405,6 +441,7 @@ object NapCatLoginRepository {
         actionLabel: String,
         uin: String,
         password: String,
+        webUiTokenProvider: NapCatLoginService.WebUiTokenProvider,
         block: (String, String, String) -> NapCatLoginService.LoginActionResult,
     ) {
         val healthUrl = requireBridgeHealthUrl() ?: return
@@ -422,7 +459,7 @@ object NapCatLoginRepository {
 
         try {
             val result = block(healthUrl, cleanedUin, cleanedPassword)
-            applyLoginActionResult(actionLabel, cleanedUin, result)
+            applyLoginActionResult(actionLabel, cleanedUin, result, webUiTokenProvider)
         } catch (error: Exception) {
             applyActionError("$actionLabel failed", error)
         }
@@ -432,6 +469,7 @@ object NapCatLoginRepository {
         actionLabel: String,
         uin: String,
         result: NapCatLoginService.LoginActionResult,
+        webUiTokenProvider: NapCatLoginService.WebUiTokenProvider,
     ) {
         when {
             result.needCaptcha -> {
@@ -477,7 +515,7 @@ object NapCatLoginRepository {
                     ),
                 )
                 AppLogger.append("$actionLabel requested: $uin")
-                refresh(manual = true)
+                refresh(webUiTokenProvider = webUiTokenProvider, manual = true)
             }
         }
     }

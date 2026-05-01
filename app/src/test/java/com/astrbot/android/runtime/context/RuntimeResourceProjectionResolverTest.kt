@@ -1,5 +1,6 @@
 package com.astrbot.android.core.runtime.context
 
+import com.astrbot.android.di.runtime.context.toRuntimeResourceCenterCompatibilitySnapshot
 import com.astrbot.android.model.ConfigResourceProjection
 import com.astrbot.android.model.ResourceCenterCompatibilitySnapshot
 import com.astrbot.android.model.ResourceCenterItem
@@ -33,7 +34,7 @@ class RuntimeResourceProjectionResolverTest {
         )
 
         val projection = RuntimeSkillProjectionResolver.fromResourceCenterSnapshot(
-            snapshot = snapshot,
+            snapshot = snapshot.toRuntimeResourceCenterCompatibilitySnapshot(),
             platform = RuntimePlatform.APP_CHAT,
             trigger = IngressTrigger.USER_MESSAGE,
         )
@@ -63,7 +64,7 @@ class RuntimeResourceProjectionResolverTest {
         )
 
         val projection = RuntimeSkillProjectionResolver.fromResourceCenterSnapshot(
-            snapshot = snapshot,
+            snapshot = snapshot.toRuntimeResourceCenterCompatibilitySnapshot(),
             platform = RuntimePlatform.APP_CHAT,
             trigger = IngressTrigger.USER_MESSAGE,
         )
@@ -114,7 +115,7 @@ class RuntimeResourceProjectionResolverTest {
         )
 
         val projection = RuntimeSkillProjectionResolver.fromResourceCenterSnapshot(
-            snapshot = snapshot,
+            snapshot = snapshot.toRuntimeResourceCenterCompatibilitySnapshot(),
             platform = RuntimePlatform.APP_CHAT,
             trigger = IngressTrigger.USER_MESSAGE,
         )

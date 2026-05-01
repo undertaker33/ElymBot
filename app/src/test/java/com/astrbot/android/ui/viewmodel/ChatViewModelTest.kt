@@ -4,8 +4,19 @@ import com.astrbot.android.MainDispatcherRule
 import com.astrbot.android.core.runtime.context.RuntimeContextDataPort
 import com.astrbot.android.core.runtime.context.RuntimeContextResolver
 import com.astrbot.android.core.runtime.context.RuntimeContextResolverPort
+import com.astrbot.android.core.runtime.context.RuntimeBotSnapshot
+import com.astrbot.android.core.runtime.context.RuntimeConfigSnapshot
+import com.astrbot.android.core.runtime.context.RuntimeConversationSessionSnapshot
+import com.astrbot.android.core.runtime.context.RuntimePersonaSnapshot
+import com.astrbot.android.core.runtime.context.RuntimeProviderSnapshot
+import com.astrbot.android.core.runtime.context.RuntimeResourceCenterCompatibilitySnapshot
 import com.astrbot.android.core.runtime.llm.LlmInvocationResult
 import com.astrbot.android.core.runtime.llm.LlmToolDefinition
+import com.astrbot.android.di.runtime.context.toRuntimeConfigSnapshot
+import com.astrbot.android.di.runtime.context.toRuntimeConversationSessionSnapshot
+import com.astrbot.android.di.runtime.context.toRuntimePersonaSnapshot
+import com.astrbot.android.di.runtime.context.toRuntimeProviderSnapshot
+import com.astrbot.android.di.runtime.context.toRuntimeResourceCenterCompatibilitySnapshot
 import com.astrbot.android.ui.viewmodel.ChatViewModelRuntimeBindings
 import com.astrbot.android.feature.chat.domain.AppChatRuntimePort
 import com.astrbot.android.feature.chat.domain.ConversationRepositoryPort
@@ -1237,26 +1248,29 @@ class ChatViewModelTest {
         override val sessions: MutableStateFlow<List<ConversationSession>> = MutableStateFlow(sessions)
         override val personas: StateFlow<List<PersonaProfile>> = MutableStateFlow(emptyList())
         private val runtimeContextDataPort = object : RuntimeContextDataPort {
-            override fun resolveConfig(configProfileId: String): ConfigProfile {
-                return this@FakeChatDependencies.resolveConfig(configProfileId)
+            override fun resolveConfig(configProfileId: String): RuntimeConfigSnapshot {
+                return this@FakeChatDependencies.resolveConfig(configProfileId).toRuntimeConfigSnapshot()
             }
 
-            override fun listProviders(): List<ProviderProfile> {
-                return this@FakeChatDependencies.providers.value
+            override fun listProviders(): List<RuntimeProviderSnapshot> {
+                return this@FakeChatDependencies.providers.value.map { it.toRuntimeProviderSnapshot() }
             }
 
-            override fun findEnabledPersona(personaId: String): PersonaProfile? {
+            override fun findEnabledPersona(personaId: String): RuntimePersonaSnapshot? {
                 return this@FakeChatDependencies.personas.value.firstOrNull {
                     it.id == personaId && it.enabled
-                }
+                }?.toRuntimePersonaSnapshot()
             }
 
-            override fun session(sessionId: String): ConversationSession {
-                return this@FakeChatDependencies.session(sessionId)
+            override fun session(sessionId: String): RuntimeConversationSessionSnapshot {
+                return this@FakeChatDependencies.session(sessionId).toRuntimeConversationSessionSnapshot()
             }
 
-            override fun compatibilitySnapshotForConfig(config: ConfigProfile) =
-                ResourceCenterCompatibility.projectionsFromConfigProfile(config)
+            override fun compatibilitySnapshotForConfig(
+                config: RuntimeConfigSnapshot,
+            ): RuntimeResourceCenterCompatibilitySnapshot =
+                ResourceCenterCompatibility.projectionsFromConfigProfile(this@FakeChatDependencies.config)
+                    .toRuntimeResourceCenterCompatibilitySnapshot()
         }
 
         data class BindingUpdate(
@@ -1501,7 +1515,7 @@ class ChatViewModelTest {
         override val runtimeContextResolverPort: RuntimeContextResolverPort = object : RuntimeContextResolverPort {
             override fun resolve(
                 event: com.astrbot.android.core.runtime.context.RuntimeIngressEvent,
-                bot: BotProfile,
+                bot: RuntimeBotSnapshot,
                 overrideProviderId: String?,
                 overridePersonaId: String?,
             ) = RuntimeContextResolver.resolve(

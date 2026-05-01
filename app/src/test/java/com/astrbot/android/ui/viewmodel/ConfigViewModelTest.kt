@@ -1,7 +1,11 @@
 package com.astrbot.android.ui.viewmodel
 
 import com.astrbot.android.MainDispatcherRule
+import com.astrbot.android.core.runtime.llm.LlmConversationAttachment
+import com.astrbot.android.core.runtime.llm.LlmFeatureSupportState
 import com.astrbot.android.core.runtime.llm.LlmProviderProbePort
+import com.astrbot.android.core.runtime.llm.LlmProviderProfile
+import com.astrbot.android.core.runtime.llm.LlmProviderType
 import com.astrbot.android.core.runtime.llm.SttProbeResult
 import com.astrbot.android.feature.config.domain.Phase3DataTransactionService
 import com.astrbot.android.feature.bot.domain.BotRepositoryPort
@@ -13,7 +17,6 @@ import com.astrbot.android.model.FeatureSupportState
 import com.astrbot.android.model.ProviderCapability
 import com.astrbot.android.model.ProviderProfile
 import com.astrbot.android.model.TtsVoiceReferenceAsset
-import com.astrbot.android.model.chat.ConversationAttachment
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -274,35 +277,40 @@ class ConfigViewModelTest {
         override fun fetchModels(
             baseUrl: String,
             apiKey: String,
-            providerType: com.astrbot.android.model.ProviderType,
+            providerType: LlmProviderType,
         ): List<String> = emptyList()
 
-        override fun detectMultimodalRule(provider: ProviderProfile): FeatureSupportState = FeatureSupportState.UNKNOWN
+        override fun detectMultimodalRule(provider: LlmProviderProfile): LlmFeatureSupportState =
+            LlmFeatureSupportState.UNKNOWN
 
-        override fun probeMultimodalSupport(provider: ProviderProfile): FeatureSupportState = FeatureSupportState.UNKNOWN
+        override fun probeMultimodalSupport(provider: LlmProviderProfile): LlmFeatureSupportState =
+            LlmFeatureSupportState.UNKNOWN
 
-        override fun detectNativeStreamingRule(provider: ProviderProfile): FeatureSupportState = FeatureSupportState.UNKNOWN
+        override fun detectNativeStreamingRule(provider: LlmProviderProfile): LlmFeatureSupportState =
+            LlmFeatureSupportState.UNKNOWN
 
-        override fun probeNativeStreamingSupport(provider: ProviderProfile): FeatureSupportState = FeatureSupportState.UNKNOWN
+        override fun probeNativeStreamingSupport(provider: LlmProviderProfile): LlmFeatureSupportState =
+            LlmFeatureSupportState.UNKNOWN
 
-        override fun probeSttSupport(provider: ProviderProfile): SttProbeResult {
-            return SttProbeResult(state = FeatureSupportState.UNKNOWN, transcript = "")
+        override fun probeSttSupport(provider: LlmProviderProfile): SttProbeResult {
+            return SttProbeResult(state = LlmFeatureSupportState.UNKNOWN, transcript = "")
         }
 
-        override fun probeTtsSupport(provider: ProviderProfile): FeatureSupportState = FeatureSupportState.UNKNOWN
+        override fun probeTtsSupport(provider: LlmProviderProfile): LlmFeatureSupportState =
+            LlmFeatureSupportState.UNKNOWN
 
         override fun transcribeAudio(
-            provider: ProviderProfile,
-            attachment: ConversationAttachment,
+            provider: LlmProviderProfile,
+            attachment: LlmConversationAttachment,
         ): String = ""
 
         override fun synthesizeSpeech(
-            provider: ProviderProfile,
+            provider: LlmProviderProfile,
             text: String,
             voiceId: String,
             readBracketedContent: Boolean,
-        ): ConversationAttachment {
-            return ConversationAttachment(id = "preview", type = "audio", mimeType = "audio/wav")
+        ): LlmConversationAttachment {
+            return LlmConversationAttachment(id = "preview", type = "audio", mimeType = "audio/wav")
         }
     }
 }

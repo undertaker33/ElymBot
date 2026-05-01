@@ -10,25 +10,70 @@ import org.junit.Test
 
 class LlmSourceContractTest {
 
+    private val repoRoot: Path = detectProjectRoot()
     private val mainRoot: Path = listOf(
         Path.of("src/main/java/com/astrbot/android"),
         Path.of("app/src/main/java/com/astrbot/android"),
     ).first { it.exists() }
+    private val runtimeLlmRoot: Path = repoRoot
+        .resolve("core/runtime-llm/src/main/java/com/astrbot/android/core/runtime/llm")
 
     @Test
     fun core_runtime_llm_contracts_exist() {
         val required = listOf(
-            "core/runtime/llm/LlmInvocationContracts.kt",
-            "core/runtime/llm/LlmClientPort.kt",
-            "core/runtime/llm/LlmProviderProbePort.kt",
-            "core/runtime/llm/ChatCompletionServiceLlmClient.kt",
-            "core/runtime/llm/HiltLlmProviderProbePort.kt",
-            "feature/plugin/runtime/RuntimeLlmOrchestratorPort.kt",
-            "feature/plugin/runtime/DefaultRuntimeLlmOrchestrator.kt",
+            runtimeLlmRoot.resolve("LlmInvocationContracts.kt"),
+            runtimeLlmRoot.resolve("LlmClientPort.kt"),
+            runtimeLlmRoot.resolve("LlmProviderProbePort.kt"),
+            runtimeLlmRoot.resolve("StreamingResponseSegmenter.kt"),
         )
-        val missing = required.filterNot { relativePath -> mainRoot.resolve(relativePath).exists() }
+        val missing = required.filterNot { path -> path.exists() }
 
         assertTrue("Missing LLM contract/support files: $missing", missing.isEmpty())
+    }
+
+    @Test
+    fun app_llm_package_contains_only_android_adapter_or_compat_facade() {
+        val allowedAppFiles = setOf(
+            "ChatCompletionService.kt",
+            "ChatCompletionServiceLlmClient.kt",
+            "HiltLlmProviderProbePort.kt",
+            "LlmMediaService.kt",
+        )
+        val unexpected = Files.walk(mainRoot.resolve("core/runtime/llm")).use { stream ->
+            stream
+                .filter { it.isRegularFile() && it.fileName.toString().endsWith(".kt") }
+                .map { it.fileName.toString() }
+                .filter { fileName -> fileName !in allowedAppFiles }
+                .toList()
+        }
+
+        assertTrue(
+            "App LLM package may only keep Android adapters or explicit compat facades: $unexpected",
+            unexpected.isEmpty(),
+        )
+    }
+
+    @Test
+    fun core_runtime_llm_must_not_depend_on_app_or_feature_models() {
+        val forbiddenImports = listOf(
+            "import android.",
+            "import androidx.",
+            "import com.astrbot.android.model.",
+            "import com.astrbot.android.feature.",
+            "import com.astrbot.android.data.",
+            "import com.astrbot.android.di.",
+        )
+        val violations = kotlinFilesUnder(runtimeLlmRoot).flatMap { file ->
+            val text = file.readText()
+            forbiddenImports
+                .filter { forbidden -> text.contains(forbidden) }
+                .map { forbidden -> "${runtimeLlmRoot.relativize(file)} imports $forbidden" }
+        }
+
+        assertTrue(
+            "core:runtime-llm must expose core-owned DTO/ports, not app or feature models: $violations",
+            violations.isEmpty(),
+        )
     }
 
     @Test
@@ -61,6 +106,7 @@ class LlmSourceContractTest {
             "core/runtime/llm/ChatCompletionServiceLlmClient.kt",
             "core/runtime/llm/HiltLlmProviderProbePort.kt",
             "core/runtime/llm/LlmMediaService.kt",
+            "di/runtime/audio/CompatChatCompletionAudioRuntimePort.kt",
             "di/hilt/runtime/LlmRuntimeModule.kt",
         )
 
@@ -106,12 +152,28 @@ class LlmSourceContractTest {
         )
     }
 
-    private fun kotlinFilesUnder(relativeRoot: String): List<Path> {
-        val root = if (relativeRoot == ".") mainRoot else mainRoot.resolve(relativeRoot)
+    private fun kotlinFilesUnder(root: Path): List<Path> {
+        if (!root.exists()) {
+            return emptyList()
+        }
         return Files.walk(root).use { stream ->
             stream
                 .filter { it.isRegularFile() && it.fileName.toString().endsWith(".kt") }
                 .toList()
+        }
+    }
+
+    private fun kotlinFilesUnder(relativeRoot: String): List<Path> {
+        val root = if (relativeRoot == ".") mainRoot else mainRoot.resolve(relativeRoot)
+        return kotlinFilesUnder(root)
+    }
+
+    private fun detectProjectRoot(): Path {
+        val cwd = Path.of("").toAbsolutePath()
+        return when {
+            cwd.resolve("settings.gradle.kts").exists() -> cwd
+            cwd.parent?.resolve("settings.gradle.kts")?.exists() == true -> cwd.parent
+            else -> error("Unable to resolve project root from $cwd")
         }
     }
 }
