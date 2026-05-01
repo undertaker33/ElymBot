@@ -175,11 +175,87 @@ jobs:
       - name: Run phase verification
         run: ./gradlew ${{ matrix.gradle_tasks }} --console=plain --no-daemon --stacktrace
 
+  phase-06-10:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    needs: architecture
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Phase 06-07 - Startup and core network
+            gradle_tasks: >-
+              :core:common:compileDebugKotlin
+              :core:logging:compileDebugKotlin
+              :core:network:compileDebugKotlin
+          - name: Phase 08 - Runtime context, tool, and search
+            gradle_tasks: >-
+              :core:runtime-tool:compileKotlin
+              :core:runtime-context:compileKotlin
+              :core:runtime-search:compileDebugKotlin
+              :app:testDebugUnitTest
+              --tests
+              '*RuntimeContext*'
+              --tests
+              '*Search*'
+          - name: Phase 09 - Runtime LLM and audio
+            gradle_tasks: >-
+              :core:runtime-llm:compileDebugKotlin
+              :core:runtime-audio:compileDebugKotlin
+              :app:testDebugUnitTest
+              --tests
+              '*Llm*'
+              --tests
+              '*Tts*'
+              --tests
+              '*Sherpa*'
+          - name: Phase 10 - Runtime container, secret, session, and cache
+            gradle_tasks: >-
+              :core:runtime-container:compileDebugKotlin
+              :core:runtime-secret:compileDebugKotlin
+              :core:runtime-session:compileDebugKotlin
+              :core:runtime-cache:compileDebugKotlin
+              :app:testDebugUnitTest
+              --tests
+              '*Container*'
+              --tests
+              '*RuntimeCache*'
+              --tests
+              '*Secret*'
+              --tests
+              '*Session*'
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up JDK
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4.0.1
+
+      - name: Install Android SDK 36
+        run: |
+          yes | sdkmanager --licenses >/dev/null
+          sdkmanager "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Make Gradle wrapper executable
+        run: chmod +x ./gradlew
+
+      - name: Run phase 06-10 verification
+        run: ./gradlew ${{ matrix.gradle_tasks }} --console=plain --no-daemon --stacktrace
+
   integration:
     name: App integration compile
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    needs: [module-slices, phase-02-05]
+    needs: [module-slices, phase-02-05, phase-06-10]
 
     steps:
       - name: Check out repository
