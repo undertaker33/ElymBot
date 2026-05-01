@@ -9,6 +9,8 @@ keystore.properties
 .externalNativeBuild/
 captures/
 artifacts/*
+!artifacts/plugins/
+!artifacts/plugins/**
 docs/
 docs/plugins/
 .superpowers/

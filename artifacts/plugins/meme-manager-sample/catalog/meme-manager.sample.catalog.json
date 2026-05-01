@@ -1,0 +1,72 @@
+{
+    "catalogUrl":  "https://samples.astrbot.local/catalog/meme-manager.json",
+    "title":  "Meme Manager Sample Repository",
+    "updatedAt":  1717000000000,
+    "sourceId":  "sample",
+    "plugins":  [
+                    {
+                        "author":  "AstrBot Samples",
+                        "pluginId":  "com.astrbot.samples.meme_manager",
+                        "entrySummary":  "Resource-heavy and admin-heavy sample package.",
+                        "description":  "High-complexity sample package for meme manager style Android acceptance.",
+                        "scenarios":  [
+                                          "resources",
+                                          "admin",
+                                          "static-config"
+                                      ],
+                        "versions":  [
+                                         {
+                                             "maxHostVersion":  "",
+                                             "packageUrl":  "packages/meme-manager-1.0.0.zip",
+                                             "publishedAt":  1716900000000,
+                                             "minHostVersion":  "0.3.0",
+                                             "permissions":  [
+                                                                 {
+                                                                     "riskLevel":  "MEDIUM",
+                                                                     "title":  "Read plugin workspace",
+                                                                     "description":  "Reads packaged meme resources",
+                                                                     "permissionId":  "plugin.workspace.read",
+                                                                     "required":  true
+                                                                 },
+                                                                 {
+                                                                     "riskLevel":  "HIGH",
+                                                                     "title":  "Write plugin workspace",
+                                                                     "description":  "Writes plugin indexes and admin settings",
+                                                                     "permissionId":  "plugin.workspace.write",
+                                                                     "required":  false
+                                                                 }
+                                                             ],
+                                             "version":  "1.0.0",
+                                             "protocolVersion":  2,
+                                             "changelog":  "Initial Android sample package."
+                                         },
+                                         {
+                                             "maxHostVersion":  "",
+                                             "packageUrl":  "packages/meme-manager-1.1.0.zip",
+                                             "publishedAt":  1717000000000,
+                                             "minHostVersion":  "0.3.0",
+                                             "permissions":  [
+                                                                 {
+                                                                     "riskLevel":  "MEDIUM",
+                                                                     "title":  "Read plugin workspace",
+                                                                     "description":  "Reads packaged meme resources",
+                                                                     "permissionId":  "plugin.workspace.read",
+                                                                     "required":  true
+                                                                 },
+                                                                 {
+                                                                     "riskLevel":  "HIGH",
+                                                                     "title":  "Write plugin workspace",
+                                                                     "description":  "Writes plugin indexes and admin settings",
+                                                                     "permissionId":  "plugin.workspace.write",
+                                                                     "required":  false
+                                                                 }
+                                                             ],
+                                             "version":  "1.1.0",
+                                             "protocolVersion":  2,
+                                             "changelog":  "Adds refined admin seed and updated sample metadata."
+                                         }
+                                     ],
+                        "title":  "Meme Manager Android Sample"
+                    }
+                ]
+}
