@@ -5,8 +5,10 @@ import com.astrbot.android.R
 import com.astrbot.android.core.common.logging.RuntimeLogRepository
 import com.astrbot.android.core.runtime.audio.SherpaOnnxAssetManager
 import com.astrbot.android.core.runtime.audio.TtsVoiceAssetRepository
-import com.astrbot.android.core.runtime.container.BridgeCommandRunner
-import com.astrbot.android.core.runtime.container.ContainerRuntimeInstaller
+import com.astrbot.android.core.runtime.container.CommandRunner
+import com.astrbot.android.core.runtime.container.ContainerRuntimeInstallerPort
+import com.astrbot.android.core.runtime.container.ContainerRuntimeScript
+import com.astrbot.android.core.runtime.container.ContainerRuntimeScripts
 import com.astrbot.android.download.AppDownloadManager
 import com.astrbot.android.download.DownloadOwnerType
 import com.astrbot.android.download.DownloadRequest
@@ -25,7 +27,8 @@ import kotlinx.coroutines.flow.asStateFlow
 @Singleton
 class RuntimeAssetStateOwner @Inject constructor(
     @ApplicationContext private val appContext: Context,
-    private val containerRuntimeInstaller: ContainerRuntimeInstaller,
+    private val containerRuntimeInstaller: ContainerRuntimeInstallerPort,
+    private val commandRunner: CommandRunner,
     @Suppress("unused") private val ttsVoiceAssetRepository: TtsVoiceAssetRepository,
 ) {
     private val _state = MutableStateFlow(RuntimeAssetState(assets = assetCatalog.map(::buildInitialEntry)))
@@ -102,17 +105,14 @@ class RuntimeAssetStateOwner @Inject constructor(
         )
         try {
             containerRuntimeInstaller.ensureInstalled()
-            val scriptFile = File(context.filesDir, "runtime/scripts/prepare_tts_assets.sh")
-            val command = buildString {
-                append("/system/bin/sh ")
-                append(scriptFile.absolutePath.shellQuote())
-                append(' ')
-                append(context.filesDir.absolutePath.shellQuote())
-                append(' ')
-                append(context.applicationInfo.nativeLibraryDir.shellQuote())
-            }
             RuntimeLogRepository.append("Runtime assets download requested: TTS conversion")
-            val result = BridgeCommandRunner.execute(command)
+            val result = commandRunner.execute(
+                ContainerRuntimeScripts.command(
+                    filesDir = context.filesDir,
+                    nativeLibraryDir = context.applicationInfo.nativeLibraryDir,
+                    script = ContainerRuntimeScript.PREPARE_TTS_ASSETS,
+                ),
+            )
             if (result.exitCode == 0 && ttsMarkerFile(context).exists()) {
                 val details = parseDownloadSummary(result.stdout)
                     ?: "TTS conversion assets downloaded."
@@ -151,17 +151,14 @@ class RuntimeAssetStateOwner @Inject constructor(
         )
         try {
             containerRuntimeInstaller.ensureInstalled()
-            val scriptFile = File(context.filesDir, "runtime/scripts/clear_tts_assets.sh")
-            val command = buildString {
-                append("/system/bin/sh ")
-                append(scriptFile.absolutePath.shellQuote())
-                append(' ')
-                append(context.filesDir.absolutePath.shellQuote())
-                append(' ')
-                append(context.applicationInfo.nativeLibraryDir.shellQuote())
-            }
             RuntimeLogRepository.append("Runtime assets clear requested: TTS conversion")
-            val result = BridgeCommandRunner.execute(command)
+            val result = commandRunner.execute(
+                ContainerRuntimeScripts.command(
+                    filesDir = context.filesDir,
+                    nativeLibraryDir = context.applicationInfo.nativeLibraryDir,
+                    script = ContainerRuntimeScript.CLEAR_TTS_ASSETS,
+                ),
+            )
             if (result.exitCode == 0) {
                 refreshInternal(detailsOverrides = mapOf(RuntimeAssetId.TTS to "TTS conversion assets removed."))
                 RuntimeLogRepository.append("Runtime assets cleared: TTS conversion")
@@ -430,10 +427,6 @@ class RuntimeAssetStateOwner @Inject constructor(
 
     private fun ttsMarkerFile(context: Context): File {
         return File(context.filesDir, "runtime/rootfs/ubuntu/root/.astrbot-tts-assets-ready")
-    }
-
-    private fun String.shellQuote(): String {
-        return "'" + replace("'", "'\"'\"'") + "'"
     }
 
     private fun parseDownloadSummary(stdout: String): String? {

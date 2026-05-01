@@ -12,9 +12,8 @@ import com.astrbot.android.core.runtime.search.api.BaiduAiSearchProvider
 import com.astrbot.android.core.runtime.search.api.BoChaSearchProvider
 import com.astrbot.android.core.runtime.search.api.BraveSearchProvider
 import com.astrbot.android.core.runtime.search.api.TavilySearchProvider
-import com.astrbot.android.model.ProviderCapability
-import com.astrbot.android.model.ProviderProfile
-import com.astrbot.android.model.ProviderType
+import com.astrbot.android.core.runtime.search.profile.ConfiguredSearchProfile
+import com.astrbot.android.core.runtime.search.profile.ConfiguredSearchProviderType
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
@@ -37,7 +36,7 @@ class SearchApiProvidersTest {
         )
 
         val result = TavilySearchProvider(transport).search(
-            searchProfile(ProviderType.TAVILY_SEARCH),
+            searchProfile(ConfiguredSearchProviderType.TAVILY_SEARCH),
             UnifiedSearchRequest(query = "latest kotlin", maxResults = 5),
         ) as SearchProviderResult.Success
 
@@ -66,7 +65,7 @@ class SearchApiProvidersTest {
         )
 
         val result = BraveSearchProvider(transport).search(
-            searchProfile(ProviderType.BRAVE_SEARCH),
+            searchProfile(ConfiguredSearchProviderType.BRAVE_SEARCH),
             UnifiedSearchRequest(query = "android search", maxResults = 5),
         ) as SearchProviderResult.Success
 
@@ -93,7 +92,7 @@ class SearchApiProvidersTest {
         )
 
         val result = BoChaSearchProvider(transport).search(
-            searchProfile(ProviderType.BOCHA_SEARCH),
+            searchProfile(ConfiguredSearchProviderType.BOCHA_SEARCH),
             UnifiedSearchRequest(query = "bocha", maxResults = 5),
         ) as SearchProviderResult.Success
 
@@ -122,7 +121,7 @@ class SearchApiProvidersTest {
         )
 
         val result = BaiduAiSearchProvider(transport).search(
-            searchProfile(ProviderType.BAIDU_AI_SEARCH),
+            searchProfile(ConfiguredSearchProviderType.BAIDU_AI_SEARCH),
             UnifiedSearchRequest(query = "baidu", maxResults = 3),
         ) as SearchProviderResult.Success
 
@@ -171,7 +170,7 @@ class SearchApiProvidersTest {
         )
 
         val result = BaiduAiSearchProvider(transport).search(
-            searchProfile(ProviderType.BAIDU_AI_SEARCH),
+            searchProfile(ConfiguredSearchProviderType.BAIDU_AI_SEARCH),
             UnifiedSearchRequest(query = "baidu", maxResults = 5),
         ) as SearchProviderResult.Success
 
@@ -180,14 +179,14 @@ class SearchApiProvidersTest {
         assertEquals("empty_results", result.diagnostics.single().reason)
     }
 
-    private fun searchProfile(type: ProviderType) = ProviderProfile(
+    private fun searchProfile(type: ConfiguredSearchProviderType) = ConfiguredSearchProfile(
         id = type.name.lowercase(),
         name = type.name,
+        enabled = true,
         baseUrl = "",
         model = "",
         providerType = type,
         apiKey = "key-1",
-        capabilities = setOf(ProviderCapability.SEARCH),
     )
 
     private class RecordingTransport(

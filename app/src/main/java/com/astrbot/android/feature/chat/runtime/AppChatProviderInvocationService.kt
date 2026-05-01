@@ -2,6 +2,7 @@ package com.astrbot.android.feature.chat.runtime
 
 import com.astrbot.android.core.runtime.context.ResolvedRuntimeContext
 import com.astrbot.android.core.runtime.llm.LlmToolDefinition
+import com.astrbot.android.di.runtime.context.toProviderProfile
 import com.astrbot.android.ui.viewmodel.ChatViewModelRuntimeBindings
 import com.astrbot.android.feature.plugin.runtime.MessageConverters.toConversationMessages
 import com.astrbot.android.feature.plugin.runtime.PluginLlmResponse
@@ -29,7 +30,8 @@ internal class AppChatProviderInvocationService(
         config: ConfigProfile?,
         ctx: ResolvedRuntimeContext,
     ): PluginV2ProviderInvocationResult {
-        val resolvedProvider = ctx.availableProviders.firstOrNull { profile ->
+        val availableProviders = ctx.availableProviders.map { it.toProviderProfile() }
+        val resolvedProvider = availableProviders.firstOrNull { profile ->
             profile.id == request.selectedProviderId &&
                 profile.enabled &&
                 ProviderCapability.CHAT in profile.capabilities
@@ -52,7 +54,7 @@ internal class AppChatProviderInvocationService(
                     messages = messages,
                     systemPrompt = request.systemPrompt,
                     config = config,
-                    availableProviders = ctx.availableProviders,
+                    availableProviders = availableProviders,
                     tools = chatTools,
                 )
             }
@@ -79,7 +81,7 @@ internal class AppChatProviderInvocationService(
                     messages = messages,
                     systemPrompt = request.systemPrompt,
                     config = config,
-                    availableProviders = ctx.availableProviders,
+                    availableProviders = availableProviders,
                     tools = chatTools,
                     onDelta = { delta ->
                         if (delta.isNotBlank()) {

@@ -3,6 +3,8 @@
 package com.astrbot.android.feature.qq.runtime
 
 import com.astrbot.android.feature.plugin.runtime.AppChatLlmPipelineRuntime
+import com.astrbot.android.di.runtime.llm.toConversationAttachment
+import com.astrbot.android.di.runtime.llm.toLlmProviderProfile
 import com.astrbot.android.model.ConfigProfile
 import com.astrbot.android.model.ProviderProfile
 import com.astrbot.android.model.chat.ConversationAttachment
@@ -81,7 +83,14 @@ internal class HiltQqRuntimeGraphFactory @Inject constructor(
             streamingReplyServiceBuilder = { replySender ->
                 streamingReplyServiceFactory.create(
                     replySender = replySender,
-                    synthesizeSpeech = dependencies.llmProviderProbePort::synthesizeSpeech,
+                    synthesizeSpeech = { provider, text, voiceId, readBracketedContent ->
+                        dependencies.llmProviderProbePort.synthesizeSpeech(
+                            provider = provider.toLlmProviderProfile(),
+                            text = text,
+                            voiceId = voiceId,
+                            readBracketedContent = readBracketedContent,
+                        ).toConversationAttachment()
+                    },
                     log = log,
                 )
             },

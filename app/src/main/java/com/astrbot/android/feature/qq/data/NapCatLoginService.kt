@@ -8,7 +8,6 @@ import com.astrbot.android.data.http.HttpRequestSpec
 import com.astrbot.android.data.http.OkHttpAstrBotHttpClient
 import com.astrbot.android.core.common.logging.AppLogger
 import com.astrbot.android.core.common.logging.RuntimeLogRepository
-import com.astrbot.android.core.runtime.secret.AppSecretStore
 import com.astrbot.android.core.runtime.network.OkHttpRuntimeNetworkTransport
 import com.astrbot.android.model.NapCatLoginState
 import com.astrbot.android.model.SavedQqAccount
@@ -27,6 +26,10 @@ object NapCatLoginService {
     private var httpClient: AstrBotHttpClient = OkHttpAstrBotHttpClient(
         transport = OkHttpRuntimeNetworkTransport(),
     )
+
+    fun interface WebUiTokenProvider {
+        fun getOrCreateWebUiToken(): String
+    }
 
     internal enum class LoginFailureCategory {
         AUTH_TOKEN_EXPIRED,
@@ -100,12 +103,15 @@ object NapCatLoginService {
         credential = ""
     }
 
-    fun fetchLoginState(baseUrl: String): NapCatLoginState {
-        val savedAccounts = runCatching { getQuickLoginAccounts(baseUrl) }.getOrDefault(emptyList())
-        val quickLoginAccount = runCatching { getQuickLoginAccount(baseUrl) }.getOrDefault("")
+    fun fetchLoginState(
+        baseUrl: String,
+        webUiTokenProvider: WebUiTokenProvider,
+    ): NapCatLoginState {
+        val savedAccounts = runCatching { getQuickLoginAccounts(baseUrl, webUiTokenProvider) }.getOrDefault(emptyList())
+        val quickLoginAccount = runCatching { getQuickLoginAccount(baseUrl, webUiTokenProvider) }.getOrDefault("")
         val statusData = requireObject(
             requireSuccess(
-                authorizedPostResponse(baseUrl, "/QQLogin/CheckLoginStatus", JSONObject()),
+                authorizedPostResponse(baseUrl, "/QQLogin/CheckLoginStatus", JSONObject(), webUiTokenProvider),
             ),
         )
         val isLogin = statusData.optBoolean("isLogin", false)
@@ -119,7 +125,7 @@ object NapCatLoginService {
         if (isLogin) {
             val infoData = requireObject(
                 requireSuccess(
-                    authorizedPostResponse(baseUrl, "/QQLogin/GetQQLoginInfo", JSONObject()),
+                    authorizedPostResponse(baseUrl, "/QQLogin/GetQQLoginInfo", JSONObject(), webUiTokenProvider),
                 ),
             )
             uin = infoData.optString("uin")
@@ -152,16 +158,22 @@ object NapCatLoginService {
         )
     }
 
-    fun getQuickLoginAccount(baseUrl: String): String {
+    fun getQuickLoginAccount(
+        baseUrl: String,
+        webUiTokenProvider: WebUiTokenProvider,
+    ): String {
         val data = requireSuccess(
-            authorizedPostResponse(baseUrl, "/QQLogin/GetQuickLoginQQ", JSONObject()),
+            authorizedPostResponse(baseUrl, "/QQLogin/GetQuickLoginQQ", JSONObject(), webUiTokenProvider),
         )
         return unwrapValue(data)
     }
 
-    fun getQuickLoginAccounts(baseUrl: String): List<SavedQqAccount> {
+    fun getQuickLoginAccounts(
+        baseUrl: String,
+        webUiTokenProvider: WebUiTokenProvider,
+    ): List<SavedQqAccount> {
         val data = requireSuccess(
-            authorizedPostResponse(baseUrl, "/QQLogin/GetQuickLoginListNew", JSONObject()),
+            authorizedPostResponse(baseUrl, "/QQLogin/GetQuickLoginListNew", JSONObject(), webUiTokenProvider),
         )
         val parsed = parseQuickLoginAccountList(data)
         if (parsed.isNotEmpty()) {
@@ -169,12 +181,16 @@ object NapCatLoginService {
         }
 
         val legacyData = requireSuccess(
-            authorizedPostResponse(baseUrl, "/QQLogin/GetQuickLoginList", JSONObject()),
+            authorizedPostResponse(baseUrl, "/QQLogin/GetQuickLoginList", JSONObject(), webUiTokenProvider),
         )
         return parseQuickLoginAccountList(legacyData)
     }
 
-    fun setQuickLoginAccount(baseUrl: String, uin: String) {
+    fun setQuickLoginAccount(
+        baseUrl: String,
+        uin: String,
+        webUiTokenProvider: WebUiTokenProvider,
+    ) {
         requireSuccess(
             authorizedPostResponse(
                 baseUrl = baseUrl,
@@ -182,11 +198,16 @@ object NapCatLoginService {
                 payload = JSONObject().apply {
                     put("uin", uin.trim())
                 },
+                webUiTokenProvider = webUiTokenProvider,
             ),
         )
     }
 
-    fun quickLogin(baseUrl: String, uin: String) {
+    fun quickLogin(
+        baseUrl: String,
+        uin: String,
+        webUiTokenProvider: WebUiTokenProvider,
+    ) {
         requireSuccess(
             authorizedPostResponse(
                 baseUrl = baseUrl,
@@ -194,17 +215,26 @@ object NapCatLoginService {
                 payload = JSONObject().apply {
                     put("uin", uin.trim())
                 },
+                webUiTokenProvider = webUiTokenProvider,
             ),
         )
     }
 
-    fun refreshQrCode(baseUrl: String) {
+    fun refreshQrCode(
+        baseUrl: String,
+        webUiTokenProvider: WebUiTokenProvider,
+    ) {
         requireSuccess(
-            authorizedPostResponse(baseUrl, "/QQLogin/RefreshQRcode", JSONObject()),
+            authorizedPostResponse(baseUrl, "/QQLogin/RefreshQRcode", JSONObject(), webUiTokenProvider),
         )
     }
 
-    fun passwordLogin(baseUrl: String, uin: String, password: String): LoginActionResult {
+    fun passwordLogin(
+        baseUrl: String,
+        uin: String,
+        password: String,
+        webUiTokenProvider: WebUiTokenProvider,
+    ): LoginActionResult {
         val response = authorizedPostResponse(
             baseUrl = baseUrl,
             path = "/QQLogin/PasswordLogin",
@@ -212,6 +242,7 @@ object NapCatLoginService {
                 put("uin", uin.trim())
                 put("passwordMd5", md5Hex(password))
             },
+            webUiTokenProvider = webUiTokenProvider,
         )
         return parseLoginActionResult(requireSuccess(response))
     }
@@ -223,6 +254,7 @@ object NapCatLoginService {
         ticket: String,
         randstr: String,
         sid: String,
+        webUiTokenProvider: WebUiTokenProvider,
     ): LoginActionResult {
         val response = authorizedPostResponse(
             baseUrl = baseUrl,
@@ -234,6 +266,7 @@ object NapCatLoginService {
                 put("randstr", randstr.trim())
                 put("sid", sid.trim())
             },
+            webUiTokenProvider = webUiTokenProvider,
         )
         return parseLoginActionResult(requireSuccess(response))
     }
@@ -243,6 +276,7 @@ object NapCatLoginService {
         uin: String,
         password: String,
         newDeviceSig: String,
+        webUiTokenProvider: WebUiTokenProvider,
     ): LoginActionResult {
         val response = authorizedPostResponse(
             baseUrl = baseUrl,
@@ -252,6 +286,7 @@ object NapCatLoginService {
                 put("passwordMd5", md5Hex(password))
                 put("newDevicePullQrCodeSig", newDeviceSig)
             },
+            webUiTokenProvider = webUiTokenProvider,
         )
         return parseLoginActionResult(requireSuccess(response))
     }
@@ -260,6 +295,7 @@ object NapCatLoginService {
         baseUrl: String,
         uin: String,
         jumpUrl: String,
+        webUiTokenProvider: WebUiTokenProvider,
     ): NewDeviceQrCodeResult {
         val data = requireObject(
             requireSuccess(
@@ -270,6 +306,7 @@ object NapCatLoginService {
                         put("uin", uin.trim())
                         put("jumpUrl", jumpUrl.trim())
                     },
+                    webUiTokenProvider = webUiTokenProvider,
                 ),
             ),
         )
@@ -283,6 +320,7 @@ object NapCatLoginService {
         baseUrl: String,
         uin: String,
         bytesToken: String,
+        webUiTokenProvider: WebUiTokenProvider,
     ): NewDeviceQrPollResult {
         val data = requireObject(
             requireSuccess(
@@ -293,6 +331,7 @@ object NapCatLoginService {
                         put("uin", uin.trim())
                         put("bytesToken", bytesToken.trim())
                     },
+                    webUiTokenProvider = webUiTokenProvider,
                 ),
             ),
         )
@@ -329,10 +368,11 @@ object NapCatLoginService {
         baseUrl: String,
         path: String,
         payload: JSONObject,
+        webUiTokenProvider: WebUiTokenProvider,
         retryUnauthorized: Boolean = true,
     ): ApiEnvelope {
         val endpoint = normalizeApiBaseUrl(baseUrl) + path
-        val authorization = ensureCredential(baseUrl, phase = "request", clearedCredential = false)
+        val authorization = ensureCredential(baseUrl, webUiTokenProvider, phase = "request", clearedCredential = false)
         val envelope = executeApiRequest(
             endpoint = endpoint,
             path = path,
@@ -360,7 +400,7 @@ object NapCatLoginService {
 
         clearCredential()
         appendLoginLog("QQ login auth recovery: path=$path phase=auth-relogin detail=credential cache cleared")
-        val retryAuthorization = ensureCredential(baseUrl, phase = "auth-relogin", clearedCredential = true)
+        val retryAuthorization = ensureCredential(baseUrl, webUiTokenProvider, phase = "auth-relogin", clearedCredential = true)
         val retryEnvelope = executeApiRequest(
             endpoint = endpoint,
             path = path,
@@ -385,13 +425,14 @@ object NapCatLoginService {
 
     private fun ensureCredential(
         baseUrl: String,
+        webUiTokenProvider: WebUiTokenProvider,
         phase: String,
         clearedCredential: Boolean,
     ): String {
         if (credential.isNotBlank()) return credential
 
         val path = "/auth/login"
-        val webUiToken = AppSecretStore.getOrCreateWebUiToken()
+        val webUiToken = webUiTokenProvider.getOrCreateWebUiToken()
         appendLoginLog(
             "QQ login auth request: path=$path phase=$phase strategy=sha256(token.napcat) baseUrl=${normalizeBaseUrl(baseUrl)} configuredToken=${maskSecret(webUiToken)}",
         )

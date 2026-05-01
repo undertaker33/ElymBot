@@ -6,7 +6,11 @@ import com.astrbot.android.core.runtime.context.RuntimeIngressEvent
 import com.astrbot.android.core.runtime.context.RuntimePlatform
 import com.astrbot.android.core.runtime.context.SenderInfo
 import com.astrbot.android.core.runtime.context.StreamingModeResolver
-import com.astrbot.android.core.runtime.session.ConversationSessionLockManager
+import com.astrbot.android.core.runtime.session.SessionLockCoordinator
+import com.astrbot.android.di.runtime.context.toMessageType
+import com.astrbot.android.di.runtime.context.toPluginStreamingMode
+import com.astrbot.android.di.runtime.context.toRuntimeBotSnapshot
+import com.astrbot.android.di.runtime.context.toRuntimeMessageType
 import com.astrbot.android.feature.config.domain.ConfigRepositoryPort
 import com.astrbot.android.feature.cron.runtime.ScheduledTaskIntentFallbackResponder
 import com.astrbot.android.feature.cron.runtime.ScheduledTaskIntentGuardContext
@@ -62,6 +66,7 @@ internal class QqMessageRuntimeService(
     private val streamingReplyService: QqStreamingReplyService,
     private val gatewayFactory: PluginHostCapabilityGatewayFactory,
     private val scheduledTaskFallbackResponder: ScheduledTaskIntentFallbackResponder? = null,
+    private val sessionLockCoordinator: SessionLockCoordinator,
     private val executeLegacyPluginsDuringLlmDispatch: Boolean = true,
     private val log: (String) -> Unit = {},
 ) : QqRuntimePort {
@@ -152,7 +157,7 @@ internal class QqMessageRuntimeService(
             senderName = message.senderName,
         )
         var outcome: QqRuntimeResult = QqRuntimeResult.Ignored("not_processed")
-        ConversationSessionLockManager.withLock(sessionId) lock@{
+        sessionLockCoordinator.withLock(sessionId) lock@{
             val session = conversationPort.resolveOrCreateSession(sessionId, sessionTitle, message.messageType)
             val persona = profileResolver.resolvePersona(bot, session.personaId)
             val parsedBotCommand = com.astrbot.android.feature.chat.runtime.botcommand.BotCommandParser.parse(message.text)
@@ -344,14 +349,14 @@ internal class QqMessageRuntimeService(
                         nickname = message.senderName,
                         groupId = message.groupIdOrBlank,
                     ),
-                    messageType = message.messageType,
+                    messageType = message.messageType.toRuntimeMessageType(),
                     text = message.text,
                 ),
-                bot = bot,
+                bot = bot.toRuntimeBotSnapshot(),
                 overrideProviderId = provider.id,
                 overridePersonaId = persona?.id,
             )
-            val streamingMode = StreamingModeResolver.resolve(runtimeContext)
+            val streamingMode = StreamingModeResolver.resolve(runtimeContext).toPluginStreamingMode()
             val callbacks = buildCallbacks(
                 message = message,
                 sessionId = sessionId,

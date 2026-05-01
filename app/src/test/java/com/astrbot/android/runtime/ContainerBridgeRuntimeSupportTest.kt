@@ -1,7 +1,5 @@
 package com.astrbot.android.core.runtime.container
 
-import com.astrbot.android.model.NapCatRuntimeState
-import com.astrbot.android.model.RuntimeStatus
 import java.io.File
 import kotlin.io.path.createTempDirectory
 import org.junit.Assert.assertEquals
@@ -32,14 +30,14 @@ class ContainerBridgeRuntimeSupportTest {
         assertEquals(
             "NapCat running",
             ContainerBridgeRuntimeSupport.buildProgressNotificationText(
-                NapCatRuntimeState(statusType = RuntimeStatus.RUNNING),
+                ContainerRuntimeState(statusType = ContainerRuntimeStatus.RUNNING),
             ),
         )
         assertEquals(
             "NapCat starting: Preparing container",
             ContainerBridgeRuntimeSupport.buildProgressNotificationText(
-                NapCatRuntimeState(
-                    statusType = RuntimeStatus.STARTING,
+                ContainerRuntimeState(
+                    statusType = ContainerRuntimeStatus.STARTING,
                     progressLabel = "Preparing container",
                 ),
             ),
@@ -47,7 +45,7 @@ class ContainerBridgeRuntimeSupportTest {
         assertEquals(
             "NapCat warming up",
             ContainerBridgeRuntimeSupport.buildProgressNotificationText(
-                NapCatRuntimeState(statusType = RuntimeStatus.CHECKING),
+                ContainerRuntimeState(statusType = ContainerRuntimeStatus.CHECKING),
             ),
         )
     }

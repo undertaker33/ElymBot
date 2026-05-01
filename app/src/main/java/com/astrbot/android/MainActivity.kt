@@ -38,8 +38,9 @@ import com.astrbot.android.data.AppPreferencesRepository
 import com.astrbot.android.data.AppSettings
 import com.astrbot.android.data.ThemeMode
 import com.astrbot.android.core.common.logging.RuntimeLogRepository
-import com.astrbot.android.core.runtime.container.ContainerBridgeController
 import com.astrbot.android.core.runtime.container.ContainerBridgeStatePort
+import com.astrbot.android.core.runtime.container.ContainerRuntimeState
+import com.astrbot.android.core.runtime.container.RuntimeBridgeController
 import com.astrbot.android.feature.plugin.runtime.catalog.PluginInstallIntentHandler
 import com.astrbot.android.model.NapCatRuntimeState
 import com.astrbot.android.model.plugin.PluginInstallIntent
@@ -63,6 +64,9 @@ class MainActivity : AppCompatActivity() {
 
     @Inject
     lateinit var bridgeStatePort: ContainerBridgeStatePort
+
+    @Inject
+    lateinit var runtimeBridgeController: RuntimeBridgeController
 
     private val pendingPluginDeepLinkRequest = MutableStateFlow<PluginDeepLinkInstallRequest?>(null)
 
@@ -259,7 +263,7 @@ class MainActivity : AppCompatActivity() {
         ) return
 
         RuntimeLogRepository.append("Bridge auto-start triggered from app launch")
-        ContainerBridgeController.start(applicationContext)
+        runtimeBridgeController.startBridge()
     }
 
     private fun maybeRequestNotificationPermission() {
@@ -312,6 +316,13 @@ class MainActivity : AppCompatActivity() {
             ThemeMode.SYSTEM -> systemIsDark
         }
     }
+}
+
+internal fun shouldAutoStartBridgeForTests(
+    autoStartEnabled: Boolean,
+    runtimeState: ContainerRuntimeState,
+): Boolean {
+    return autoStartEnabled && !runtimeState.blocksAutoStart()
 }
 
 internal fun shouldAutoStartBridgeForTests(

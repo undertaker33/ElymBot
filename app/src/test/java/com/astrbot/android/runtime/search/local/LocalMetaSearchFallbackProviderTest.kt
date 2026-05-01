@@ -18,6 +18,7 @@ import com.astrbot.android.core.runtime.search.local.crawl.ContentCrawlRequest
 import com.astrbot.android.core.runtime.search.local.crawl.ContentCrawlResponse
 import com.astrbot.android.core.runtime.search.local.crawl.ContentCrawlerLite
 import com.astrbot.android.core.runtime.search.local.engine.SearchEngineAdapter
+import com.astrbot.android.core.common.logging.RuntimeLogger
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -81,6 +82,7 @@ class LocalMetaSearchFallbackProviderTest {
             merger = LocalSearchResultMerger(),
             relevanceScorer = LocalSearchRelevanceScorer(FreshnessValidator(), placeholderFilter),
             contentCrawler = NoopContentCrawler,
+            runtimeLogger = RuntimeLogger { },
         )
     }
 

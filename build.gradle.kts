@@ -14,7 +14,17 @@ val architectureMainSourceRoots = listOf(
     "core/common/src/main/java",
     "core/db/src/main/java",
     "core/logging/src/main/java",
+    "core/network/src/main/java",
     "core/runtime/src/main/java",
+    "core/runtime-audio/src/main/java",
+    "core/runtime-cache/src/main/java",
+    "core/runtime-container/src/main/java",
+    "core/runtime-context/src/main/java",
+    "core/runtime-llm/src/main/java",
+    "core/runtime-search/src/main/java",
+    "core/runtime-secret/src/main/java",
+    "core/runtime-session/src/main/java",
+    "core/runtime-tool/src/main/java",
     "feature/bot/api/src/main/java",
     "feature/bot/impl/src/main/java",
     "feature/chat/api/src/main/java",
@@ -43,6 +53,7 @@ plugins {
     id("com.android.application") version "8.13.2" apply false
     id("com.android.library") version "8.13.2" apply false
     id("org.jetbrains.kotlin.android") version "1.9.24" apply false
+    id("org.jetbrains.kotlin.jvm") version "1.9.24" apply false
     id("com.google.devtools.ksp") version "1.9.24-1.0.20" apply false
     id("com.google.dagger.hilt.android") version "2.52" apply false
 }
@@ -77,7 +88,15 @@ subprojects {
     plugins.withId("org.jetbrains.kotlin.android") {
         tasks.withType<KotlinCompile>().configureEach {
             kotlinOptions {
-                jvmTarget = "17"
+                jvmTarget = ELYMBOT_JVM_TARGET
+            }
+        }
+    }
+
+    plugins.withId("org.jetbrains.kotlin.jvm") {
+        tasks.withType<KotlinCompile>().configureEach {
+            kotlinOptions {
+                jvmTarget = ELYMBOT_JVM_TARGET
             }
         }
     }

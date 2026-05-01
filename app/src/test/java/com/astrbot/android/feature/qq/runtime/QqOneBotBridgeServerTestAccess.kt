@@ -1,5 +1,9 @@
 package com.astrbot.android.feature.qq.runtime
 
+import com.astrbot.android.di.runtime.llm.toConversationAttachment
+import com.astrbot.android.di.runtime.llm.toLlmProviderProfile
+import com.astrbot.android.core.runtime.session.ConversationSessionLockManager
+
 internal object QqOneBotBridgeServerTestAccess {
     private val runtimeDependenciesField = QqOneBotBridgeServer::class.java
         .getDeclaredField("runtimeDependencies")
@@ -84,7 +88,14 @@ private object TestQqRuntimeGraphFactory : QqRuntimeGraphFactory {
         )
         val streamingReplyService = QqStreamingReplyService(
             replySender = replySender,
-            synthesizeSpeech = dependencies.llmProviderProbePort::synthesizeSpeech,
+            synthesizeSpeech = { provider, text, voiceId, readBracketedContent ->
+                dependencies.llmProviderProbePort.synthesizeSpeech(
+                    provider = provider.toLlmProviderProfile(),
+                    text = text,
+                    voiceId = voiceId,
+                    readBracketedContent = readBracketedContent,
+                ).toConversationAttachment()
+            },
             log = log,
         )
         val runtimeService = QqMessageRuntimeService(
@@ -106,6 +117,7 @@ private object TestQqRuntimeGraphFactory : QqRuntimeGraphFactory {
             pluginDispatchService = pluginDispatchService,
             streamingReplyService = streamingReplyService,
             gatewayFactory = dependencies.gatewayFactory,
+            sessionLockCoordinator = ConversationSessionLockManager,
             executeLegacyPluginsDuringLlmDispatch = dependencies.executeLegacyPluginsDuringLlmDispatch,
             log = log,
         )

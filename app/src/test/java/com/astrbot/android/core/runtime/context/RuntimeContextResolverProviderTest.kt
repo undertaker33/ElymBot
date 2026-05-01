@@ -1,5 +1,11 @@
 package com.astrbot.android.core.runtime.context
 
+import com.astrbot.android.di.runtime.context.toRuntimeBotSnapshot
+import com.astrbot.android.di.runtime.context.toRuntimeConfigSnapshot
+import com.astrbot.android.di.runtime.context.toRuntimeConversationSessionSnapshot
+import com.astrbot.android.di.runtime.context.toRuntimeMessageType
+import com.astrbot.android.di.runtime.context.toRuntimeProviderSnapshot
+import com.astrbot.android.di.runtime.context.toRuntimeResourceCenterCompatibilitySnapshot
 import com.astrbot.android.model.BotProfile
 import com.astrbot.android.model.ConfigProfile
 import com.astrbot.android.model.ProviderCapability
@@ -20,7 +26,7 @@ class RuntimeContextResolverProviderTest {
                 conversationId = "session-1",
                 messageId = "msg-1",
                 sender = SenderInfo(userId = "user"),
-                messageType = MessageType.FriendMessage,
+                messageType = MessageType.FriendMessage.toRuntimeMessageType(),
                 text = "hello",
             ),
             bot = BotProfile(
@@ -28,7 +34,7 @@ class RuntimeContextResolverProviderTest {
                 displayName = "Bot",
                 configProfileId = "config-1",
                 defaultProviderId = "deepseek-chat",
-            ),
+            ).toRuntimeBotSnapshot(),
             dataPort = FakeRuntimeContextDataPort(
                 config = ConfigProfile(id = "config-1", defaultChatProviderId = "qwen-chat"),
                 providers = listOf(
@@ -46,10 +52,10 @@ class RuntimeContextResolverProviderTest {
         private val config: ConfigProfile,
         private val providers: List<ProviderProfile>,
     ) : RuntimeContextDataPort {
-        override fun resolveConfig(configProfileId: String): ConfigProfile = config
-        override fun listProviders(): List<ProviderProfile> = providers
+        override fun resolveConfig(configProfileId: String): RuntimeConfigSnapshot = config.toRuntimeConfigSnapshot()
+        override fun listProviders(): List<RuntimeProviderSnapshot> = providers.map { it.toRuntimeProviderSnapshot() }
         override fun findEnabledPersona(personaId: String) = null
-        override fun session(sessionId: String): ConversationSession {
+        override fun session(sessionId: String): RuntimeConversationSessionSnapshot {
             return ConversationSession(
                 id = sessionId,
                 title = "Session",
@@ -58,14 +64,16 @@ class RuntimeContextResolverProviderTest {
                 providerId = "",
                 maxContextMessages = 12,
                 messages = emptyList(),
-            )
+            ).toRuntimeConversationSessionSnapshot()
         }
 
-        override fun compatibilitySnapshotForConfig(config: ConfigProfile): ResourceCenterCompatibilitySnapshot {
+        override fun compatibilitySnapshotForConfig(
+            config: RuntimeConfigSnapshot,
+        ): RuntimeResourceCenterCompatibilitySnapshot {
             return ResourceCenterCompatibilitySnapshot(
                 resources = emptyList(),
                 projections = emptyList(),
-            )
+            ).toRuntimeResourceCenterCompatibilitySnapshot()
         }
     }
 

@@ -6,7 +6,9 @@ import com.astrbot.android.core.runtime.search.SearchAttemptStatus
 import com.astrbot.android.core.runtime.search.SearchProvider
 import com.astrbot.android.core.runtime.search.SearchProviderResult
 import com.astrbot.android.core.runtime.search.UnifiedSearchRequest
+import com.astrbot.android.core.runtime.search.profile.ConfiguredSearchProfile
 import com.astrbot.android.core.runtime.search.profile.ConfiguredSearchProvider
+import com.astrbot.android.core.runtime.search.profile.ConfiguredSearchProviderType
 import com.astrbot.android.feature.provider.domain.ProviderRepositoryPort
 import com.astrbot.android.model.ProviderCapability
 import com.astrbot.android.model.ProviderProfile
@@ -14,7 +16,6 @@ import kotlinx.coroutines.CancellationException
 
 class ProviderRepositorySearchProvider(
     private val providerRepository: ProviderRepositoryPort,
-    private val nativeProviders: List<ConfiguredSearchProvider>,
     private val apiProviders: List<ConfiguredSearchProvider>,
 ) : SearchProvider {
     override val providerId: String = "configured_search_providers"
@@ -38,7 +39,7 @@ class ProviderRepositorySearchProvider(
         }
 
         val diagnostics = mutableListOf<SearchAttemptDiagnostic>()
-        for ((profile, provider) in candidates) {
+        for ((sourceProfile, profile, provider) in candidates) {
             if (!provider.supports(profile)) {
                 diagnostics += diagnostic(
                     providerId = provider.providerId,
@@ -79,7 +80,7 @@ class ProviderRepositorySearchProvider(
                     )
                     AppLogger.append(
                         "WebSearch: configured_provider=${provider.providerId} " +
-                            "profile=${profile.id} type=${profile.providerType.name} status=${status.name} " +
+                            "profile=${sourceProfile.id} type=${sourceProfile.providerType.name} status=${status.name} " +
                             "results=${acceptedResults.size} diagnostics=[" +
                             diagnostics
                                 .filter { diagnostic -> diagnostic.providerId == provider.providerId }
@@ -98,7 +99,7 @@ class ProviderRepositorySearchProvider(
                 is SearchProviderResult.Unavailable -> {
                     AppLogger.append(
                         "WebSearch: configured_provider=${provider.providerId} " +
-                            "profile=${profile.id} type=${profile.providerType.name} status=${result.status.name} " +
+                            "profile=${sourceProfile.id} type=${sourceProfile.providerType.name} status=${result.status.name} " +
                             "reason=${result.reason}",
                     )
                     AppLogger.flush()
@@ -117,7 +118,7 @@ class ProviderRepositorySearchProvider(
                 is SearchProviderResult.Failure -> {
                     AppLogger.append(
                         "WebSearch: configured_provider=${provider.providerId} " +
-                            "profile=${profile.id} type=${profile.providerType.name} status=${result.status.name} " +
+                            "profile=${sourceProfile.id} type=${sourceProfile.providerType.name} status=${result.status.name} " +
                             "reason=${result.reason}",
                     )
                     AppLogger.flush()
@@ -143,24 +144,25 @@ class ProviderRepositorySearchProvider(
         )
     }
 
-    private fun searchCandidates(): List<Pair<ProviderProfile, ConfiguredSearchProvider>> {
+    private fun searchCandidates(): List<SearchCandidate> {
         val profiles = providerRepository.snapshotProfiles().filter(ProviderProfile::enabled)
-        val nativeCandidates = nativeProviders.flatMap { provider ->
-            profiles
-                .filter { profile -> ProviderCapability.CHAT in profile.capabilities }
-                .map { profile -> profile to provider }
-        }
         val apiCandidates = apiProviders.flatMap { provider ->
-            profiles
-                .filter { profile -> ProviderCapability.SEARCH in profile.capabilities }
-                .map { profile -> profile to provider }
+            profiles.mapNotNull { profile ->
+                if (ProviderCapability.SEARCH !in profile.capabilities) {
+                    null
+                } else {
+                    profile.toConfiguredSearchProfile()?.let { configured ->
+                        SearchCandidate(profile, configured, provider)
+                    }
+                }
+            }
         }
-        return nativeCandidates + apiCandidates
+        return apiCandidates
     }
 
     private suspend fun trySearch(
         provider: ConfiguredSearchProvider,
-        profile: ProviderProfile,
+        profile: ConfiguredSearchProfile,
         request: UnifiedSearchRequest,
     ): SearchProviderResult {
         return try {
@@ -200,6 +202,32 @@ class ProviderRepositorySearchProvider(
             durationMs = durationMs,
             resultCount = resultCount,
             relevanceAccepted = relevanceAccepted,
+        )
+    }
+
+    private data class SearchCandidate(
+        val sourceProfile: ProviderProfile,
+        val configuredProfile: ConfiguredSearchProfile,
+        val provider: ConfiguredSearchProvider,
+    )
+
+    private fun ProviderProfile.toConfiguredSearchProfile(): ConfiguredSearchProfile? {
+        val configuredType = when (providerType) {
+            com.astrbot.android.model.ProviderType.TAVILY_SEARCH -> ConfiguredSearchProviderType.TAVILY_SEARCH
+            com.astrbot.android.model.ProviderType.BRAVE_SEARCH -> ConfiguredSearchProviderType.BRAVE_SEARCH
+            com.astrbot.android.model.ProviderType.BOCHA_SEARCH -> ConfiguredSearchProviderType.BOCHA_SEARCH
+            com.astrbot.android.model.ProviderType.BAIDU_AI_SEARCH -> ConfiguredSearchProviderType.BAIDU_AI_SEARCH
+            else -> null
+        } ?: return null
+
+        return ConfiguredSearchProfile(
+            id = id,
+            name = name,
+            enabled = enabled,
+            providerType = configuredType,
+            baseUrl = baseUrl,
+            model = model,
+            apiKey = apiKey,
         )
     }
 }

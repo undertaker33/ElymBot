@@ -4,6 +4,10 @@ import com.astrbot.android.core.runtime.llm.LlmClientPort
 import com.astrbot.android.core.runtime.llm.LlmInvocationRequest
 import com.astrbot.android.core.runtime.llm.LlmStreamEvent
 import com.astrbot.android.core.runtime.llm.LlmToolDefinition
+import com.astrbot.android.di.runtime.context.toProviderProfile
+import com.astrbot.android.di.runtime.llm.toLlmConversationMessages
+import com.astrbot.android.di.runtime.llm.toLlmProviderProfile
+import com.astrbot.android.di.runtime.llm.toLlmRuntimeConfig
 import com.astrbot.android.model.ConfigProfile
 import com.astrbot.android.model.ProviderCapability
 import com.astrbot.android.model.ProviderProfile
@@ -34,18 +38,19 @@ internal class DefaultQqProviderInvoker(
         ctx: ResolvedRuntimeContext,
         config: ConfigProfile,
     ): PluginV2ProviderInvocationResult {
-        val provider = ctx.availableProviders.firstOrNull { profile ->
+        val availableProviders = ctx.availableProviders.map { it.toProviderProfile() }
+        val provider = availableProviders.firstOrNull { profile ->
             profile.id == request.selectedProviderId &&
                 profile.enabled &&
                 ProviderCapability.CHAT in profile.capabilities
         } ?: error("Selected provider is unavailable: ${request.selectedProviderId}")
 
         val llmRequest = LlmInvocationRequest(
-            provider = provider,
-            messages = request.messages.toConversationMessages(request.requestId),
+            provider = provider.toLlmProviderProfile(),
+            messages = request.messages.toConversationMessages(request.requestId).toLlmConversationMessages(),
             systemPrompt = request.systemPrompt,
-            config = config,
-            availableProviders = ctx.availableProviders,
+            config = config.toLlmRuntimeConfig(),
+            availableProviders = availableProviders.map { it.toLlmProviderProfile() },
             tools = request.tools.map { tool ->
                 LlmToolDefinition(
                     name = tool.name,

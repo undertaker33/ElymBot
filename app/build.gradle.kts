@@ -105,8 +105,8 @@ android {
     defaultConfig {
         applicationId = "com.astrbot.android"
         targetSdk = 36
-        versionCode = 65
-        versionName = "0.8.8"
+        versionCode = 66
+        versionName = "0.8.9"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -206,7 +206,17 @@ dependencies {
     implementation(project(":core:common"))
     implementation(project(":core:db"))
     implementation(project(":core:logging"))
+    implementation(project(":core:network"))
     implementation(project(":core:runtime"))
+    implementation(project(":core:runtime-audio"))
+    implementation(project(":core:runtime-cache"))
+    implementation(project(":core:runtime-container"))
+    implementation(project(":core:runtime-context"))
+    implementation(project(":core:runtime-llm"))
+    implementation(project(":core:runtime-search"))
+    implementation(project(":core:runtime-secret"))
+    implementation(project(":core:runtime-session"))
+    implementation(project(":core:runtime-tool"))
     implementation(project(":app-integration"))
     implementation(project(":feature:bot:api"))
     implementation(project(":feature:bot:impl"))

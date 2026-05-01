@@ -5,9 +5,12 @@ import android.net.Uri
 import com.astrbot.android.core.runtime.audio.SherpaOnnxAssetManager
 import com.astrbot.android.core.runtime.audio.SherpaOnnxBridge
 import com.astrbot.android.core.runtime.llm.LlmProviderProbePort
-import com.astrbot.android.core.runtime.llm.SttProbeResult
 import com.astrbot.android.data.RuntimeAssetStateOwner
 import com.astrbot.android.di.hilt.TtsVoiceAssetStateOwner
+import com.astrbot.android.di.runtime.llm.toConversationAttachment
+import com.astrbot.android.di.runtime.llm.toFeatureSupportState
+import com.astrbot.android.di.runtime.llm.toLlmProviderProfile
+import com.astrbot.android.di.runtime.llm.toLlmProviderType
 import com.astrbot.android.feature.provider.domain.ProviderRepositoryPort
 import com.astrbot.android.model.FeatureSupportState
 import com.astrbot.android.model.ProviderProfile
@@ -26,6 +29,11 @@ data class VoiceAssetImportResult(
     val warning: String?,
 )
 
+data class ProviderRuntimeSttProbeResult(
+    val state: FeatureSupportState,
+    val transcript: String,
+)
+
 interface ProviderRuntimePort {
     val providers: StateFlow<List<ProviderProfile>>
         get() = EmptyProviderProfilesStateFlow
@@ -42,7 +50,7 @@ interface ProviderRuntimePort {
 
     fun probeNativeStreamingSupport(provider: ProviderProfile): FeatureSupportState
 
-    fun probeSttSupport(provider: ProviderProfile): SttProbeResult
+    fun probeSttSupport(provider: ProviderProfile): ProviderRuntimeSttProbeResult
 
     fun probeTtsSupport(provider: ProviderProfile): FeatureSupportState
 
@@ -99,32 +107,36 @@ internal class DefaultProviderRuntimePort @Inject constructor(
         return probePort.fetchModels(
             baseUrl = provider.baseUrl,
             apiKey = provider.apiKey,
-            providerType = provider.providerType,
+            providerType = provider.providerType.toLlmProviderType(),
         )
     }
 
     override fun detectMultimodalRule(provider: ProviderProfile): FeatureSupportState {
-        return probePort.detectMultimodalRule(provider)
+        return probePort.detectMultimodalRule(provider.toLlmProviderProfile()).toFeatureSupportState()
     }
 
     override fun probeMultimodalSupport(provider: ProviderProfile): FeatureSupportState {
-        return probePort.probeMultimodalSupport(provider)
+        return probePort.probeMultimodalSupport(provider.toLlmProviderProfile()).toFeatureSupportState()
     }
 
     override fun detectNativeStreamingRule(provider: ProviderProfile): FeatureSupportState {
-        return probePort.detectNativeStreamingRule(provider)
+        return probePort.detectNativeStreamingRule(provider.toLlmProviderProfile()).toFeatureSupportState()
     }
 
     override fun probeNativeStreamingSupport(provider: ProviderProfile): FeatureSupportState {
-        return probePort.probeNativeStreamingSupport(provider)
+        return probePort.probeNativeStreamingSupport(provider.toLlmProviderProfile()).toFeatureSupportState()
     }
 
-    override fun probeSttSupport(provider: ProviderProfile): SttProbeResult {
-        return probePort.probeSttSupport(provider)
+    override fun probeSttSupport(provider: ProviderProfile): ProviderRuntimeSttProbeResult {
+        val result = probePort.probeSttSupport(provider.toLlmProviderProfile())
+        return ProviderRuntimeSttProbeResult(
+            state = result.state.toFeatureSupportState(),
+            transcript = result.transcript,
+        )
     }
 
     override fun probeTtsSupport(provider: ProviderProfile): FeatureSupportState {
-        return probePort.probeTtsSupport(provider)
+        return probePort.probeTtsSupport(provider.toLlmProviderProfile()).toFeatureSupportState()
     }
 
     override fun listVoiceChoicesFor(provider: ProviderProfile?): List<Pair<String, String>> {
@@ -205,6 +217,11 @@ internal class DefaultProviderRuntimePort @Inject constructor(
         voiceId: String,
         readBracketedContent: Boolean,
     ): ConversationAttachment {
-        return probePort.synthesizeSpeech(provider, text, voiceId, readBracketedContent)
+        return probePort.synthesizeSpeech(
+            provider = provider.toLlmProviderProfile(),
+            text = text,
+            voiceId = voiceId,
+            readBracketedContent = readBracketedContent,
+        ).toConversationAttachment()
     }
 }

@@ -15,7 +15,7 @@ class NapCatRuntimeScriptContractTest {
 
     private val rootLauncher: Path = projectRoot.resolve("app/src/main/assets/runtime/scripts/root_launcher.sh")
     private val runtimeSupportSource: Path = projectRoot.resolve(
-        "app/src/main/java/com/astrbot/android/core/runtime/container/ContainerBridgeRuntimeSupport.kt",
+        "core/runtime-container/src/main/java/com/astrbot/android/core/runtime/container/ContainerBridgeRuntimeSupport.kt",
     )
 
     @Test

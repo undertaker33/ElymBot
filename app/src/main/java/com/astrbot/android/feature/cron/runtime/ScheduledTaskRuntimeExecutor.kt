@@ -6,6 +6,8 @@ import com.astrbot.android.core.runtime.context.RuntimeIngressEvent
 import com.astrbot.android.core.runtime.context.RuntimePlatform
 import com.astrbot.android.core.runtime.context.SenderInfo
 import com.astrbot.android.core.runtime.llm.LlmClientPort
+import com.astrbot.android.di.runtime.context.toRuntimeBotSnapshot
+import com.astrbot.android.di.runtime.context.toRuntimeMessageType
 import com.astrbot.android.feature.bot.domain.BotRepositoryPort
 import com.astrbot.android.feature.plugin.runtime.AppChatLlmPipelineRuntime
 import com.astrbot.android.feature.plugin.runtime.PluginV2HostLlmDeliveryResult
@@ -68,7 +70,7 @@ internal object ScheduledTaskRuntimeExecutor {
             conversationId = conversationId,
             messageId = "cron:${context.jobId}",
             sender = SenderInfo(userId = "cron:${context.jobId}", nickname = "scheduled-task"),
-            messageType = resolveMessageType(platform, conversationId),
+            messageType = resolveMessageType(platform, conversationId).toRuntimeMessageType(),
             text = note,
             trigger = com.astrbot.android.core.runtime.context.IngressTrigger.SCHEDULED_TASK,
             rawPlatformPayload = mapOf(
@@ -96,7 +98,7 @@ internal object ScheduledTaskRuntimeExecutor {
 
         val resolvedContext = runtimeDependencies.runtimeContextResolverPort.resolve(
             event = ingressEvent,
-            bot = bot,
+            bot = bot.toRuntimeBotSnapshot(),
             overrideProviderId = context.providerId.takeIf { it.isNotBlank() },
             overridePersonaId = context.personaId.takeIf { it.isNotBlank() },
         )

@@ -5,6 +5,8 @@ import androidx.lifecycle.viewModelScope
 import com.astrbot.android.core.common.logging.AppLogger
 import com.astrbot.android.core.runtime.llm.LlmProviderProbePort
 import com.astrbot.android.di.hilt.TtsVoiceAssets
+import com.astrbot.android.di.runtime.llm.toConversationAttachment
+import com.astrbot.android.di.runtime.llm.toLlmProviderProfile
 import com.astrbot.android.feature.bot.domain.BotRepositoryPort
 import com.astrbot.android.feature.config.domain.ConfigRepositoryPort
 import com.astrbot.android.feature.config.domain.Phase3DataTransactionService
@@ -80,11 +82,11 @@ class ConfigViewModel @Inject constructor(
         readBracketedContent: Boolean,
     ): ConversationAttachment {
         return llmProviderProbePort.synthesizeSpeech(
-            provider = provider,
+            provider = provider.toLlmProviderProfile(),
             text = text,
             voiceId = voiceId,
             readBracketedContent = readBracketedContent,
-        )
+        ).toConversationAttachment()
     }
 
     private suspend fun syncSelectedBotBinding(profile: ConfigProfile) {

@@ -42,7 +42,6 @@ internal object SearchRuntimeModule {
     ): ProviderRepositorySearchProvider {
         return ProviderRepositorySearchProvider(
             providerRepository = providerRepository,
-            nativeProviders = emptyList(),
             apiProviders = listOf(
                 TavilySearchProvider(transport),
                 BraveSearchProvider(transport),

@@ -8,8 +8,9 @@ import com.astrbot.android.data.http.MultipartPartSpec
 import com.astrbot.android.data.http.HttpRequestSpec
 import com.astrbot.android.data.http.HttpResponsePayload
 import com.astrbot.android.core.common.logging.RuntimeLogRepository
-import com.astrbot.android.core.runtime.secret.RuntimeSecretRepository
 import java.net.SocketTimeoutException
+import java.nio.charset.StandardCharsets
+import java.security.MessageDigest
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -17,9 +18,10 @@ import org.junit.After
 import org.junit.Test
 
 class NapCatLoginServiceTest {
+    private val runtimeWebUiTokenProvider = NapCatLoginService.WebUiTokenProvider { "runtime-webui-token" }
+
     @After
     fun tearDown() {
-        RuntimeSecretRepository.setSecretsOverrideForTests(null)
         NapCatLoginService.resetForTests()
     }
 
@@ -60,12 +62,6 @@ class NapCatLoginServiceTest {
     fun refresh_qr_code_maps_shared_http_client_timeout_to_network_failure() {
         NapCatLoginService.resetForTests()
         RuntimeLogRepository.clear()
-        RuntimeSecretRepository.setSecretsOverrideForTests(
-            RuntimeSecretRepository.RuntimeSecrets(
-                webUiToken = "runtime-webui-token",
-                webUiJwtSecret = "runtime-jwt-secret",
-            ),
-        )
         NapCatLoginService.setHttpClientOverrideForTests(
             object : AstrBotHttpClient {
                 override fun execute(requestSpec: HttpRequestSpec): HttpResponsePayload {
@@ -96,7 +92,10 @@ class NapCatLoginServiceTest {
         )
 
         val error = runCatching {
-            NapCatLoginService.refreshQrCode("http://127.0.0.1:6099")
+            NapCatLoginService.refreshQrCode(
+                baseUrl = "http://127.0.0.1:6099",
+                webUiTokenProvider = runtimeWebUiTokenProvider,
+            )
         }.exceptionOrNull()
 
         requireNotNull(error)
@@ -105,15 +104,55 @@ class NapCatLoginServiceTest {
     }
 
     @Test
+    fun refresh_qr_code_uses_explicit_token_provider_without_secret_repository_override() {
+        NapCatLoginService.resetForTests()
+        RuntimeLogRepository.clear()
+
+        val webUiTokenProvider = NapCatLoginService.WebUiTokenProvider { "production-like-token" }
+        var authHash = ""
+        NapCatLoginService.setPostJsonOverrideForTests { endpoint, payload, authorization ->
+            when {
+                endpoint.endsWith("/auth/login") -> {
+                    authHash = payload.getString("hash")
+                    assertEquals(null, authorization)
+                    JSONObject().apply {
+                        put("code", 0)
+                        put("data", JSONObject().put("Credential", "credential-from-provider"))
+                    }
+                }
+
+                endpoint.endsWith("/QQLogin/RefreshQRcode") -> {
+                    assertEquals("credential-from-provider", authorization)
+                    JSONObject().apply {
+                        put("code", 0)
+                        put("message", "success")
+                        put("data", JSONObject())
+                    }
+                }
+
+                else -> error("Unexpected endpoint: $endpoint")
+            }
+        }
+
+        NapCatLoginService.refreshQrCode(
+            baseUrl = "http://127.0.0.1:6099",
+            webUiTokenProvider = webUiTokenProvider,
+        )
+
+        assertEquals(sha256Hex("production-like-token.napcat"), authHash)
+        assertEquals("credential-from-provider", NapCatLoginService.debugCredentialForTests())
+        assertTrue(
+            RuntimeLogRepository.logs.value.any {
+                it.contains("QQ login auth request:") &&
+                    it.contains("configuredToken=<redacted:21>")
+            },
+        )
+    }
+
+    @Test
     fun refresh_qr_code_clears_cached_credential_and_retries_when_token_expires() {
         NapCatLoginService.resetForTests()
         RuntimeLogRepository.clear()
-        RuntimeSecretRepository.setSecretsOverrideForTests(
-            RuntimeSecretRepository.RuntimeSecrets(
-                webUiToken = "runtime-webui-token",
-                webUiJwtSecret = "runtime-jwt-secret",
-            ),
-        )
 
         var authLoginCalls = 0
         var refreshCalls = 0
@@ -146,7 +185,10 @@ class NapCatLoginServiceTest {
             }
         }
 
-        NapCatLoginService.refreshQrCode("http://127.0.0.1:6099")
+        NapCatLoginService.refreshQrCode(
+            baseUrl = "http://127.0.0.1:6099",
+            webUiTokenProvider = runtimeWebUiTokenProvider,
+        )
 
         assertEquals(2, authLoginCalls)
         assertEquals(2, refreshCalls)
@@ -166,12 +208,6 @@ class NapCatLoginServiceTest {
     fun refresh_qr_code_surfaces_auth_login_failed_when_relogin_fails() {
         NapCatLoginService.resetForTests()
         RuntimeLogRepository.clear()
-        RuntimeSecretRepository.setSecretsOverrideForTests(
-            RuntimeSecretRepository.RuntimeSecrets(
-                webUiToken = "runtime-webui-token",
-                webUiJwtSecret = "runtime-jwt-secret",
-            ),
-        )
 
         var authLoginCalls = 0
         NapCatLoginService.setPostJsonOverrideForTests { endpoint, _, _ ->
@@ -201,7 +237,10 @@ class NapCatLoginServiceTest {
         }
 
         val error = runCatching {
-            NapCatLoginService.refreshQrCode("http://127.0.0.1:6099")
+            NapCatLoginService.refreshQrCode(
+                baseUrl = "http://127.0.0.1:6099",
+                webUiTokenProvider = runtimeWebUiTokenProvider,
+            )
         }.exceptionOrNull()
 
         requireNotNull(error)
@@ -222,12 +261,6 @@ class NapCatLoginServiceTest {
     fun refresh_qr_code_does_not_retry_for_non_auth_api_failure() {
         NapCatLoginService.resetForTests()
         RuntimeLogRepository.clear()
-        RuntimeSecretRepository.setSecretsOverrideForTests(
-            RuntimeSecretRepository.RuntimeSecrets(
-                webUiToken = "runtime-webui-token",
-                webUiJwtSecret = "runtime-jwt-secret",
-            ),
-        )
 
         var authLoginCalls = 0
         var refreshCalls = 0
@@ -254,7 +287,10 @@ class NapCatLoginServiceTest {
         }
 
         val error = runCatching {
-            NapCatLoginService.refreshQrCode("http://127.0.0.1:6099")
+            NapCatLoginService.refreshQrCode(
+                baseUrl = "http://127.0.0.1:6099",
+                webUiTokenProvider = runtimeWebUiTokenProvider,
+            )
         }.exceptionOrNull()
 
         requireNotNull(error)
@@ -263,5 +299,10 @@ class NapCatLoginServiceTest {
         assertEquals(1, refreshCalls)
         assertEquals("stable-token", NapCatLoginService.debugCredentialForTests())
         assertTrue(RuntimeLogRepository.logs.value.any { it.contains("phase=request") && it.contains("category=API_BUSINESS_REJECTED") })
+    }
+
+    private fun sha256Hex(value: String): String {
+        val digest = MessageDigest.getInstance("SHA-256").digest(value.toByteArray(StandardCharsets.UTF_8))
+        return digest.joinToString(separator = "") { byte -> "%02x".format(byte) }
     }
 }

@@ -9,6 +9,7 @@ import com.astrbot.android.model.CronJob
 import com.astrbot.android.model.CronJobExecutionRecord
 import com.astrbot.android.core.common.logging.RuntimeLogRepository
 import com.astrbot.android.core.runtime.context.RuntimePlatform
+import com.astrbot.android.di.runtime.context.toRuntimeConfigSnapshot
 import com.astrbot.android.feature.plugin.runtime.toolsource.ToolSourceContext
 import java.time.OffsetDateTime
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -152,8 +153,8 @@ class ActiveCapabilityRuntimeFacadeTest {
                         ),
                     ),
                 ),
-                toolSourceContext = ToolSourceContext.fromConfigProfile(
-                    ConfigProfile(id = "cfg-1", proactiveEnabled = true),
+                toolSourceContext = ToolSourceContext.fromConfigSnapshot(
+                    ConfigProfile(id = "cfg-1", proactiveEnabled = true).toRuntimeConfigSnapshot(),
                     platform = RuntimePlatform.APP_CHAT,
                     conversationId = "conversation-1",
                 ),
@@ -207,8 +208,8 @@ class ActiveCapabilityRuntimeFacadeTest {
                     "conversation_id" to "conversation-1",
                 ),
                 metadata = emptyMap(),
-                toolSourceContext = ToolSourceContext.fromConfigProfile(
-                    ConfigProfile(id = "cfg-1", proactiveEnabled = true),
+                toolSourceContext = ToolSourceContext.fromConfigSnapshot(
+                    ConfigProfile(id = "cfg-1", proactiveEnabled = true).toRuntimeConfigSnapshot(),
                     platform = RuntimePlatform.APP_CHAT,
                     conversationId = "conversation-1",
                 ),
@@ -283,8 +284,8 @@ class ActiveCapabilityRuntimeFacadeTest {
                         ),
                     ),
                 ),
-                toolSourceContext = ToolSourceContext.fromConfigProfile(
-                    ConfigProfile(id = "cfg-1", proactiveEnabled = true),
+                toolSourceContext = ToolSourceContext.fromConfigSnapshot(
+                    ConfigProfile(id = "cfg-1", proactiveEnabled = true).toRuntimeConfigSnapshot(),
                     platform = RuntimePlatform.QQ_ONEBOT,
                     conversationId = "conversation-1",
                 ),
@@ -408,8 +409,8 @@ class ActiveCapabilityRuntimeFacadeTest {
                         ),
                     ),
                 ),
-                toolSourceContext = ToolSourceContext.fromConfigProfile(
-                    ConfigProfile(id = "cfg-1", proactiveEnabled = true),
+                toolSourceContext = ToolSourceContext.fromConfigSnapshot(
+                    ConfigProfile(id = "cfg-1", proactiveEnabled = true).toRuntimeConfigSnapshot(),
                     platform = RuntimePlatform.QQ_ONEBOT,
                     conversationId = "friend:123",
                 ),

@@ -112,6 +112,25 @@ class StaticRepositoryUsageContractTest {
         )
     }
 
+    @Test
+    fun runtime_context_data_port_must_use_hilt_ports_not_static_feature_repositories() {
+        val source = mainRoot.resolve("di/RuntimeContextDataPorts.kt").readText()
+        val forbiddenTokens = listOf(
+            "FeatureConfigRepository",
+            "FeatureProviderRepository",
+            "FeaturePersonaRepository",
+            "FeatureConversationRepository",
+            "FeatureResourceCenterRepository",
+        )
+        val violations = forbiddenTokens.filter(source::contains)
+
+        assertTrue(
+            "RuntimeContextDataPorts.kt must aggregate runtime context data through injected Hilt ports, " +
+                "not static feature repositories. Found: $violations",
+            violations.isEmpty(),
+        )
+    }
+
     private fun findStaticRepositoryUsages(): List<StaticRepositoryUsage> {
         return productionSourceRoots.flatMap(::kotlinFilesUnder).flatMap { file ->
             val relative = relativePath(file)

@@ -2,6 +2,9 @@
 package com.astrbot.android.core.runtime.llm
 
 import android.content.Context
+import com.astrbot.android.di.runtime.llm.toConfigProfile
+import com.astrbot.android.di.runtime.llm.toConversationMessages
+import com.astrbot.android.di.runtime.llm.toProviderProfile
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import org.json.JSONObject
@@ -18,11 +21,11 @@ internal open class ChatCompletionServiceLlmClient(
     override suspend fun sendWithTools(request: LlmInvocationRequest): LlmInvocationResult {
         val chatTools = request.tools.map { it.toChatToolDefinition() }
         val result = ChatCompletionService.sendConfiguredChatWithTools(
-            provider = request.provider,
-            messages = request.messages,
+            provider = request.provider.toProviderProfile(),
+            messages = request.messages.toConversationMessages(),
             systemPrompt = request.systemPrompt,
-            config = request.config,
-            availableProviders = request.availableProviders,
+            config = request.config?.toConfigProfile(),
+            availableProviders = request.availableProviders.map { it.toProviderProfile() },
             tools = chatTools,
         )
         return result.toPortInvocationResult()
@@ -32,11 +35,11 @@ internal open class ChatCompletionServiceLlmClient(
         val chatTools = request.tools.map { it.toChatToolDefinition() }
         try {
             val result = ChatCompletionService.sendConfiguredChatStreamWithTools(
-                provider = request.provider,
-                messages = request.messages,
+                provider = request.provider.toProviderProfile(),
+                messages = request.messages.toConversationMessages(),
                 systemPrompt = request.systemPrompt,
-                config = request.config,
-                availableProviders = request.availableProviders,
+                config = request.config?.toConfigProfile(),
+                availableProviders = request.availableProviders.map { it.toProviderProfile() },
                 tools = chatTools,
                 onDelta = { delta ->
                     if (delta.isNotBlank()) {

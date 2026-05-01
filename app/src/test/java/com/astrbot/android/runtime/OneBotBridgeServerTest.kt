@@ -4,7 +4,20 @@ import com.astrbot.android.core.runtime.llm.ChatCompletionService
 import com.astrbot.android.core.runtime.context.RuntimeContextDataPort
 import com.astrbot.android.core.runtime.context.RuntimeContextResolver
 import com.astrbot.android.core.runtime.context.RuntimeContextResolverPort
+import com.astrbot.android.core.runtime.context.RuntimeBotSnapshot
+import com.astrbot.android.core.runtime.context.RuntimeConfigSnapshot
+import com.astrbot.android.core.runtime.context.RuntimeConversationSessionSnapshot
+import com.astrbot.android.core.runtime.context.RuntimePersonaSnapshot
+import com.astrbot.android.core.runtime.context.RuntimeProviderSnapshot
+import com.astrbot.android.core.runtime.context.RuntimeResourceCenterCompatibilitySnapshot
 import com.astrbot.android.data.http.AstrBotHttpClient
+import com.astrbot.android.di.runtime.context.toRuntimeBotSnapshot
+import com.astrbot.android.di.runtime.context.toConfigProfile
+import com.astrbot.android.di.runtime.context.toRuntimeConfigSnapshot
+import com.astrbot.android.di.runtime.context.toRuntimeConversationSessionSnapshot
+import com.astrbot.android.di.runtime.context.toRuntimePersonaSnapshot
+import com.astrbot.android.di.runtime.context.toRuntimeProviderSnapshot
+import com.astrbot.android.di.runtime.context.toRuntimeResourceCenterCompatibilitySnapshot
 import com.astrbot.android.data.http.HttpMethod
 import com.astrbot.android.data.http.HttpRequestSpec
 import com.astrbot.android.data.http.HttpResponsePayload
@@ -25,8 +38,18 @@ import com.astrbot.android.model.plugin.NoOp
 import com.astrbot.android.model.plugin.PluginExecutionContext
 import com.astrbot.android.model.plugin.PluginTriggerSource
 import com.astrbot.android.core.runtime.llm.ChatCompletionServiceLlmClient
+import com.astrbot.android.core.runtime.llm.LlmConversationAttachment
+import com.astrbot.android.core.runtime.llm.LlmFeatureSupportState
 import com.astrbot.android.core.runtime.llm.LlmProviderProbePort
+import com.astrbot.android.core.runtime.llm.LlmProviderProfile
+import com.astrbot.android.core.runtime.llm.LlmProviderType
 import com.astrbot.android.core.runtime.llm.SttProbeResult
+import com.astrbot.android.di.runtime.llm.toConversationAttachment
+import com.astrbot.android.di.runtime.llm.toFeatureSupportState
+import com.astrbot.android.di.runtime.llm.toLlmConversationAttachment
+import com.astrbot.android.di.runtime.llm.toLlmFeatureSupportState
+import com.astrbot.android.di.runtime.llm.toProviderProfile
+import com.astrbot.android.di.runtime.llm.toProviderType
 import com.astrbot.android.feature.bot.domain.BotRepositoryPort
 import com.astrbot.android.feature.config.domain.ConfigRepositoryPort
 import com.astrbot.android.feature.persona.domain.PersonaRepositoryPort
@@ -893,22 +916,30 @@ class QqOneBotBridgeServerTest {
             providers = providers,
         )
         val runtimeContextDataPort = object : RuntimeContextDataPort {
-            override fun resolveConfig(configProfileId: String) = repositories.configPort.resolve(configProfileId)
+            override fun resolveConfig(configProfileId: String): RuntimeConfigSnapshot =
+                repositories.configPort.resolve(configProfileId).toRuntimeConfigSnapshot()
 
-            override fun listProviders() = repositories.providerPort.providers.value
+            override fun listProviders(): List<RuntimeProviderSnapshot> =
+                repositories.providerPort.providers.value.map { it.toRuntimeProviderSnapshot() }
 
-            override fun findEnabledPersona(personaId: String) =
-                repositories.personaPort.personas.value.firstOrNull { it.id == personaId && it.enabled }
+            override fun findEnabledPersona(personaId: String): RuntimePersonaSnapshot? =
+                repositories.personaPort.personas.value
+                    .firstOrNull { it.id == personaId && it.enabled }
+                    ?.toRuntimePersonaSnapshot()
 
-            override fun session(sessionId: String) = repositories.conversationPort.session(sessionId)
+            override fun session(sessionId: String): RuntimeConversationSessionSnapshot =
+                repositories.conversationPort.session(sessionId).toRuntimeConversationSessionSnapshot()
 
-            override fun compatibilitySnapshotForConfig(config: ConfigProfile) =
-                repositories.compatibilitySnapshotForConfig(config)
+            override fun compatibilitySnapshotForConfig(
+                config: RuntimeConfigSnapshot,
+            ): RuntimeResourceCenterCompatibilitySnapshot =
+                repositories.compatibilitySnapshotForConfig(config.toConfigProfile())
+                    .toRuntimeResourceCenterCompatibilitySnapshot()
         }
         val runtimeContextResolverPort = object : RuntimeContextResolverPort {
             override fun resolve(
                 event: com.astrbot.android.core.runtime.context.RuntimeIngressEvent,
-                bot: BotProfile,
+                bot: RuntimeBotSnapshot,
                 overrideProviderId: String?,
                 overridePersonaId: String?,
             ) = RuntimeContextResolver.resolve(
@@ -1072,49 +1103,60 @@ class QqOneBotBridgeServerTest {
 
     private fun chatCompletionServiceProbePort(): LlmProviderProbePort {
         return object : LlmProviderProbePort {
-            override fun fetchModels(baseUrl: String, apiKey: String, providerType: ProviderType): List<String> {
-                return ChatCompletionService.fetchModels(baseUrl, apiKey, providerType)
+            override fun fetchModels(baseUrl: String, apiKey: String, providerType: LlmProviderType): List<String> {
+                return ChatCompletionService.fetchModels(baseUrl, apiKey, providerType.toProviderType())
             }
 
-            override fun detectMultimodalRule(provider: ProviderProfile): FeatureSupportState {
-                return ChatCompletionService.detectMultimodalRule(provider)
+            override fun detectMultimodalRule(provider: LlmProviderProfile): LlmFeatureSupportState {
+                return ChatCompletionService.detectMultimodalRule(provider.toProviderProfile()).toLlmFeatureSupportState()
             }
 
-            override fun probeMultimodalSupport(provider: ProviderProfile): FeatureSupportState {
-                return ChatCompletionService.probeMultimodalSupport(provider)
+            override fun probeMultimodalSupport(provider: LlmProviderProfile): LlmFeatureSupportState {
+                return ChatCompletionService.probeMultimodalSupport(provider.toProviderProfile()).toLlmFeatureSupportState()
             }
 
-            override fun detectNativeStreamingRule(provider: ProviderProfile): FeatureSupportState {
-                return ChatCompletionService.detectNativeStreamingRule(provider)
+            override fun detectNativeStreamingRule(provider: LlmProviderProfile): LlmFeatureSupportState {
+                return ChatCompletionService.detectNativeStreamingRule(provider.toProviderProfile()).toLlmFeatureSupportState()
             }
 
-            override fun probeNativeStreamingSupport(provider: ProviderProfile): FeatureSupportState {
-                return ChatCompletionService.probeNativeStreamingSupport(provider)
+            override fun probeNativeStreamingSupport(provider: LlmProviderProfile): LlmFeatureSupportState {
+                return ChatCompletionService.probeNativeStreamingSupport(provider.toProviderProfile()).toLlmFeatureSupportState()
             }
 
-            override fun probeSttSupport(provider: ProviderProfile): SttProbeResult {
-                val result = ChatCompletionService.probeSttSupport(provider)
-                return SttProbeResult(state = result.state, transcript = result.transcript)
+            override fun probeSttSupport(provider: LlmProviderProfile): SttProbeResult {
+                val result = ChatCompletionService.probeSttSupport(provider.toProviderProfile())
+                return SttProbeResult(
+                    state = result.state.toLlmFeatureSupportState(),
+                    transcript = result.transcript,
+                )
             }
 
-            override fun probeTtsSupport(provider: ProviderProfile): FeatureSupportState {
-                return ChatCompletionService.probeTtsSupport(provider)
+            override fun probeTtsSupport(provider: LlmProviderProfile): LlmFeatureSupportState {
+                return ChatCompletionService.probeTtsSupport(provider.toProviderProfile()).toLlmFeatureSupportState()
             }
 
             override fun transcribeAudio(
-                provider: ProviderProfile,
-                attachment: ConversationAttachment,
+                provider: LlmProviderProfile,
+                attachment: LlmConversationAttachment,
             ): String {
-                return ChatCompletionService.transcribeAudio(provider, attachment)
+                return ChatCompletionService.transcribeAudio(
+                    provider = provider.toProviderProfile(),
+                    attachment = attachment.toConversationAttachment(),
+                )
             }
 
             override fun synthesizeSpeech(
-                provider: ProviderProfile,
+                provider: LlmProviderProfile,
                 text: String,
                 voiceId: String,
                 readBracketedContent: Boolean,
-            ): ConversationAttachment {
-                return ChatCompletionService.synthesizeSpeech(provider, text, voiceId, readBracketedContent)
+            ): LlmConversationAttachment {
+                return ChatCompletionService.synthesizeSpeech(
+                    provider = provider.toProviderProfile(),
+                    text = text,
+                    voiceId = voiceId,
+                    readBracketedContent = readBracketedContent,
+                ).toLlmConversationAttachment()
             }
         }
     }

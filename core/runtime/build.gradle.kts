@@ -10,11 +10,14 @@ android {
 dependencies {
     implementation(project(":core:common"))
     implementation(project(":core:logging"))
+    implementation(project(":core:network"))
+    implementation(project(":core:runtime-search"))
+    implementation(project(":core:runtime-tool"))
 
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
     implementation("org.apache.commons:commons-compress:1.28.0")
     implementation("org.tukaani:xz:1.10")
-    api("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("org.jsoup:jsoup:1.18.1")
     implementation("javax.inject:javax.inject:1")
 

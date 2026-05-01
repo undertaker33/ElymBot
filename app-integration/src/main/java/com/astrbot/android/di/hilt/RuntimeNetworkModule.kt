@@ -1,5 +1,6 @@
 package com.astrbot.android.di.hilt
 
+import com.astrbot.android.core.common.logging.RuntimeLogger
 import com.astrbot.android.core.runtime.network.OkHttpRuntimeNetworkTransport
 import com.astrbot.android.core.runtime.network.RuntimeNetworkTransport
 import dagger.Module
@@ -14,5 +15,7 @@ internal object RuntimeNetworkModule {
 
     @Provides
     @Singleton
-    fun provideRuntimeNetworkTransport(): RuntimeNetworkTransport = OkHttpRuntimeNetworkTransport()
+    fun provideRuntimeNetworkTransport(
+        runtimeLogger: RuntimeLogger,
+    ): RuntimeNetworkTransport = OkHttpRuntimeNetworkTransport(runtimeLogger = runtimeLogger)
 }

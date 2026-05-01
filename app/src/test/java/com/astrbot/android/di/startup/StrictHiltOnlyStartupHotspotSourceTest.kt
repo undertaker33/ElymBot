@@ -32,7 +32,9 @@ class StrictHiltOnlyStartupHotspotSourceTest {
     @Test
     fun hilt_probe_and_container_installer_must_not_force_static_app_context_initialization() {
         val probeSource = mainRoot.resolve("core/runtime/llm/HiltLlmProviderProbePort.kt").readText()
-        val installerSource = mainRoot.resolve("core/runtime/container/ContainerRuntimeInstaller.kt").readText()
+        val installerSource = projectRoot
+            .resolve("core/runtime-container/src/main/java/com/astrbot/android/core/runtime/container/ContainerRuntimeInstaller.kt")
+            .readText()
 
         assertTrue(
             "HiltLlmProviderProbePort must not initialize ChatCompletionService from constructor context bootstrap",

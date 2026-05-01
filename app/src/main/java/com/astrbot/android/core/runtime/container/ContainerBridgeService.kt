@@ -7,8 +7,7 @@ import android.app.Service
 import android.content.Intent
 import android.os.Build
 import android.os.IBinder
-import com.astrbot.android.core.common.logging.RuntimeLogRepository
-import com.astrbot.android.model.RuntimeStatus
+import com.astrbot.android.core.common.logging.RuntimeLogger
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
@@ -27,7 +26,13 @@ class ContainerBridgeService : Service() {
     lateinit var bridgeStatePort: ContainerBridgeStatePort
 
     @Inject
-    lateinit var containerRuntimeInstaller: ContainerRuntimeInstaller
+    lateinit var containerRuntimeInstaller: ContainerRuntimeInstallerPort
+
+    @Inject
+    lateinit var containerRuntimeController: ContainerRuntimeController
+
+    @Inject
+    lateinit var runtimeLogger: RuntimeLogger
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var progressMonitorJob: Job? = null
@@ -37,7 +42,7 @@ class ContainerBridgeService : Service() {
         super.onCreate()
         ensureNotificationChannel()
         startForeground(NOTIFICATION_ID, buildNotification("Container idle"))
-        RuntimeLogRepository.append("ContainerBridgeService created")
+        runtimeLogger.append("ContainerBridgeService created")
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -45,7 +50,7 @@ class ContainerBridgeService : Service() {
             ACTION_START_BRIDGE -> serviceScope.launch { handleStartBridge() }
             ACTION_STOP_BRIDGE -> serviceScope.launch { handleStopBridge() }
             ACTION_CHECK_BRIDGE -> serviceScope.launch { handleCheckBridge() }
-            else -> RuntimeLogRepository.append("Bridge service received default start")
+            else -> runtimeLogger.append("Bridge service received default start")
         }
         return START_STICKY
     }
@@ -54,7 +59,7 @@ class ContainerBridgeService : Service() {
         stopHealthMonitor()
         stopProgressMonitor()
         serviceScope.cancel()
-        RuntimeLogRepository.append("ContainerBridgeService destroyed")
+        runtimeLogger.append("ContainerBridgeService destroyed")
         super.onDestroy()
     }
 
@@ -67,26 +72,26 @@ class ContainerBridgeService : Service() {
         val config = bridgeStatePort.config.value
         syncProgressFromRuntimeFiles()
         startProgressMonitor()
-        RuntimeLogRepository.append("Starting local NapCat bridge")
+        runtimeLogger.append("Starting local NapCat bridge")
         updateForeground("Starting NapCat")
 
-        val result = BridgeCommandRunner.execute(config.startCommand)
-        if (result.exitCode == 0 || config.startCommand.isBlank()) {
-            RuntimeLogRepository.append("Start command completed: ${result.stdout.ifBlank { "no output" }}")
+        val result = containerRuntimeController.startNapCat()
+        if (result.exitCode == 0) {
+            runtimeLogger.append("Start command completed: ${result.stdout.ifBlank { "no output" }}")
             syncProgressFromRuntimeFiles()
-            RuntimeLogRepository.append("Waiting for NapCat health endpoint")
+            runtimeLogger.append("Waiting for NapCat health endpoint")
 
             val health = BridgeHealthChecker.checkWithRetry(config.healthUrl)
             if (health.ok) {
                 stopHealthMonitor()
                 stopProgressMonitor()
                 bridgeStatePort.markRunning(pidHint = "napcat-local")
-                RuntimeLogRepository.append("Health check passed after start: ${health.message}")
+                runtimeLogger.append("Health check passed after start: ${health.message}")
                 updateForeground("NapCat running")
                 return
             }
 
-            val statusResult = BridgeCommandRunner.execute(config.statusCommand)
+            val statusResult = containerRuntimeController.statusNapCat()
             if (statusResult.exitCode == 0) {
                 val pidHint = statusResult.stdout.substringAfter("RUNNING:", "napcat-local").trim().ifBlank { "napcat-local" }
                 bridgeStatePort.markProcessRunning(
@@ -94,7 +99,7 @@ class ContainerBridgeService : Service() {
                     details = "NapCat process is running, but HTTP endpoint is not ready: ${health.message}",
                 )
                 syncProgressFromRuntimeFiles()
-                RuntimeLogRepository.append("Health endpoint not ready yet, but process is running: ${health.message}")
+                runtimeLogger.append("Health endpoint not ready yet, but process is running: ${health.message}")
                 appendContainerLogTail("NapCat log")
                 updateForeground(buildProgressNotificationText())
                 startHealthMonitor(config.healthUrl, pidHint)
@@ -102,7 +107,7 @@ class ContainerBridgeService : Service() {
                 stopHealthMonitor()
                 stopProgressMonitor()
                 bridgeStatePort.markError("Started, but health check failed: ${health.message}")
-                RuntimeLogRepository.append("Health check failed after start: ${health.message}")
+                runtimeLogger.append("Health check failed after start: ${health.message}")
                 appendContainerLogTail("NapCat log")
                 updateForeground("NapCat start incomplete")
             }
@@ -110,7 +115,7 @@ class ContainerBridgeService : Service() {
             stopHealthMonitor()
             stopProgressMonitor()
             bridgeStatePort.markError("Start command failed: ${result.stderr.ifBlank { result.stdout }}")
-            RuntimeLogRepository.append("Start command failed: ${result.stderr.ifBlank { result.stdout }}")
+            runtimeLogger.append("Start command failed: ${result.stderr.ifBlank { result.stdout }}")
             appendContainerLogTail("NapCat log")
             updateForeground("NapCat start failed")
         }
@@ -134,7 +139,6 @@ class ContainerBridgeService : Service() {
     }
 
     private suspend fun waitForHealthy(url: String, pidHint: String) {
-        val config = bridgeStatePort.config.value
         val startedAt = System.currentTimeMillis()
         var lastActivityAt = runtimeActivityTimestamp().takeIf { it > 0L } ?: startedAt
 
@@ -149,17 +153,17 @@ class ContainerBridgeService : Service() {
             if (health.ok) {
                 stopProgressMonitor()
                 bridgeStatePort.markRunning(pidHint = pidHint)
-                RuntimeLogRepository.append("Health endpoint became ready: ${health.message}")
+                runtimeLogger.append("Health endpoint became ready: ${health.message}")
                 updateForeground("NapCat running")
                 return
             }
 
-            val statusResult = BridgeCommandRunner.execute(config.statusCommand)
-            if (config.statusCommand.isNotBlank() && statusResult.exitCode != 0) {
+            val statusResult = containerRuntimeController.statusNapCat()
+            if (statusResult.exitCode != 0) {
                 stopProgressMonitor()
                 syncProgressFromRuntimeFiles()
                 bridgeStatePort.markStopped(reason = "NapCat process exited during startup")
-                RuntimeLogRepository.append(
+                runtimeLogger.append(
                     "NapCat process exited before health endpoint became ready: ${statusResult.stderr.ifBlank { statusResult.stdout }}",
                 )
                 appendContainerLogTail("NapCat log")
@@ -183,7 +187,7 @@ class ContainerBridgeService : Service() {
                     pidHint = pidHint,
                     details = "NapCat process is still running, but WebUI startup exceeded ${MAX_STARTUP_WAIT_MS / 60000} minutes. Check runtime logs.",
                 )
-                RuntimeLogRepository.append("Health endpoint still not ready after max wait: elapsed=${elapsed / 1000}s")
+                runtimeLogger.append("Health endpoint still not ready after max wait: elapsed=${elapsed / 1000}s")
                 appendContainerLogTail("NapCat log")
                 updateForeground("NapCat still warming up")
                 return
@@ -196,7 +200,7 @@ class ContainerBridgeService : Service() {
                     pidHint = pidHint,
                     details = "NapCat process is still running, but no runtime activity was seen for ${silentFor / 60000} minutes. Check runtime logs.",
                 )
-                RuntimeLogRepository.append(
+                runtimeLogger.append(
                     "Health endpoint still not ready and runtime activity is stale: elapsed=${elapsed / 1000}s silent=${silentFor / 1000}s",
                 )
                 appendContainerLogTail("NapCat log")
@@ -208,12 +212,11 @@ class ContainerBridgeService : Service() {
 
     private suspend fun handleStopBridge() {
         containerRuntimeInstaller.ensureInstalled()
-        val config = bridgeStatePort.config.value
         stopHealthMonitor()
         stopProgressMonitor()
-        val result = BridgeCommandRunner.execute(config.stopCommand)
-        RuntimeLogRepository.append(
-            if (result.exitCode == 0 || config.stopCommand.isBlank()) {
+        val result = containerRuntimeController.stopNapCat()
+        runtimeLogger.append(
+            if (result.exitCode == 0) {
                 "Stop command completed"
             } else {
                 "Stop command failed: ${result.stderr.ifBlank { result.stdout }}"
@@ -228,25 +231,23 @@ class ContainerBridgeService : Service() {
         val config = bridgeStatePort.config.value
         bridgeStatePort.markChecking()
         syncProgressFromRuntimeFiles()
-        RuntimeLogRepository.append("Checking local NapCat bridge")
+        runtimeLogger.append("Checking local NapCat bridge")
 
-        val statusResult = BridgeCommandRunner.execute(config.statusCommand)
-        if (config.statusCommand.isNotBlank()) {
-            RuntimeLogRepository.append(
-                if (statusResult.exitCode == 0) {
-                    "Status command completed: ${statusResult.stdout.ifBlank { "ok" }}"
-                } else {
-                    "Status command failed: ${statusResult.stderr.ifBlank { statusResult.stdout }}"
-                },
-            )
-        }
+        val statusResult = containerRuntimeController.statusNapCat()
+        runtimeLogger.append(
+            if (statusResult.exitCode == 0) {
+                "Status command completed: ${statusResult.stdout.ifBlank { "ok" }}"
+            } else {
+                "Status command failed: ${statusResult.stderr.ifBlank { statusResult.stdout }}"
+            },
+        )
 
         val health = BridgeHealthChecker.check(config.healthUrl)
         if (health.ok) {
             stopHealthMonitor()
             stopProgressMonitor()
             bridgeStatePort.markRunning(pidHint = "napcat-local")
-            RuntimeLogRepository.append("Bridge health check passed: ${health.message}")
+            runtimeLogger.append("Bridge health check passed: ${health.message}")
             updateForeground("NapCat healthy")
             return
         }
@@ -258,7 +259,7 @@ class ContainerBridgeService : Service() {
                 details = "NapCat process is running, but HTTP endpoint is not ready: ${health.message}",
             )
             syncProgressFromRuntimeFiles()
-            RuntimeLogRepository.append("Bridge process is running but endpoint is not ready: ${health.message}")
+            runtimeLogger.append("Bridge process is running but endpoint is not ready: ${health.message}")
             startProgressMonitor()
             startHealthMonitor(config.healthUrl, pidHint)
             updateForeground(buildProgressNotificationText())
@@ -268,7 +269,7 @@ class ContainerBridgeService : Service() {
         stopHealthMonitor()
         stopProgressMonitor()
         bridgeStatePort.markStopped(reason = "Health check failed")
-        RuntimeLogRepository.append("Bridge health check failed: ${health.message}")
+        runtimeLogger.append("Bridge health check failed: ${health.message}")
         updateForeground("NapCat stopped")
     }
 
@@ -328,7 +329,7 @@ class ContainerBridgeService : Service() {
     private fun appendContainerLogTail(prefix: String, maxLines: Int = 200) {
         val logFile = File(filesDir, "runtime/logs/napcat.log")
         if (!logFile.exists()) {
-            RuntimeLogRepository.append("$prefix unavailable: ${logFile.absolutePath}")
+            runtimeLogger.append("$prefix unavailable: ${logFile.absolutePath}")
             return
         }
 
@@ -337,12 +338,11 @@ class ContainerBridgeService : Service() {
             .filter { it.isNotBlank() }
 
         if (lines.isEmpty()) {
-            RuntimeLogRepository.append("$prefix is empty")
+            runtimeLogger.append("$prefix is empty")
             return
         }
 
-        lines.forEach { RuntimeLogRepository.append("$prefix | $it") }
-        RuntimeLogRepository.flush()
+        lines.forEach { runtimeLogger.append("$prefix | $it") }
     }
 
     private fun updateForeground(content: String) {

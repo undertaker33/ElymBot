@@ -1,7 +1,8 @@
 package com.astrbot.android.feature.plugin.runtime.toolsource
 
-import com.astrbot.android.model.McpServerEntry
+import com.astrbot.android.core.runtime.context.RuntimeMcpServerSnapshot
 import com.astrbot.android.core.common.logging.AppLogger
+import com.astrbot.android.di.runtime.context.toMcpServerEntry
 import com.astrbot.android.feature.plugin.runtime.PluginToolDescriptor
 import com.astrbot.android.feature.plugin.runtime.PluginToolResult
 import com.astrbot.android.feature.plugin.runtime.PluginToolResultStatus
@@ -36,7 +37,7 @@ class McpToolSourceProvider @Inject constructor(
                 return@flatMap emptyList()
             }
             runCatching {
-                val tools = sessionManager.discoverTools(context.configProfileId, server)
+                val tools = sessionManager.discoverTools(context.configProfileId, server.toMcpServerEntry())
                 buildBindingsForServer(server, tools)
             }.onFailure { error ->
                 AppLogger.append(
@@ -69,7 +70,7 @@ class McpToolSourceProvider @Inject constructor(
             )
         } else {
             runCatching {
-                sessionManager.discoverTools(context.configProfileId, server)
+                sessionManager.discoverTools(context.configProfileId, server.toMcpServerEntry())
             }.fold(
                 onSuccess = {
                     ToolSourceAvailability(
@@ -125,7 +126,7 @@ class McpToolSourceProvider @Inject constructor(
         return runCatching {
             val output = sessionManager.callTool(
                 configProfileId = configProfileId,
-                server = server,
+                server = server.toMcpServerEntry(),
                 toolName = actualToolName,
                 arguments = request.args.payload,
             )
@@ -155,7 +156,7 @@ class McpToolSourceProvider @Inject constructor(
     }
 
     private fun buildBindingsForServer(
-        server: McpServerEntry,
+        server: RuntimeMcpServerSnapshot,
         tools: List<com.astrbot.android.feature.plugin.runtime.mcp.McpDiscoveredTool>,
     ): List<ToolSourceDescriptorBinding> {
         val ownerId = "mcp.${server.serverId}"
@@ -188,7 +189,7 @@ class McpToolSourceProvider @Inject constructor(
         toolSourceContext: ToolSourceContext?,
         configProfileId: String?,
         ownerId: String,
-    ): McpServerEntry? {
+    ): RuntimeMcpServerSnapshot? {
         val resolvedConfigId = configProfileId?.takeIf { it.isNotBlank() } ?: return null
         val context = toolSourceContext ?: contextResolver.resolveForConfig(resolvedConfigId)
         return context.mcpServers.firstOrNull { server -> "mcp.${server.serverId}" == ownerId && server.active }

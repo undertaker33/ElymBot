@@ -3,6 +3,9 @@ package com.astrbot.android.ui.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.astrbot.android.core.common.logging.RuntimeLogRepository
+import com.astrbot.android.core.runtime.container.ContainerRuntimeController
+import com.astrbot.android.core.runtime.container.RuntimeBridgeController
+import com.astrbot.android.core.runtime.secret.RuntimeSecretStore
 import com.astrbot.android.feature.qq.data.NapCatLoginService
 import com.astrbot.android.feature.qq.data.NapCatLoginRepository
 import com.astrbot.android.di.hilt.IoDispatcher
@@ -46,29 +49,44 @@ interface QQLoginViewModelBindings {
 
 internal class DefaultQQLoginViewModelBindings @Inject constructor(
     @QqLoginState override val loginState: StateFlow<NapCatLoginState>,
+    private val containerRuntimeController: ContainerRuntimeController,
+    private val runtimeBridgeController: RuntimeBridgeController,
+    runtimeSecretStore: RuntimeSecretStore,
 ) : QQLoginViewModelBindings {
+    private val webUiTokenProvider = NapCatLoginService.WebUiTokenProvider {
+        runtimeSecretStore.getOrCreateWebUiToken()
+    }
+
     override suspend fun refresh(manual: Boolean) {
-        NapCatLoginRepository.refresh(manual)
+        NapCatLoginRepository.refresh(webUiTokenProvider = webUiTokenProvider, manual = manual)
     }
 
     override suspend fun refreshQrCode() {
-        NapCatLoginRepository.refreshQrCode()
+        NapCatLoginRepository.refreshQrCode(webUiTokenProvider = webUiTokenProvider)
     }
 
     override suspend fun quickLoginSavedAccount(uin: String?) {
-        NapCatLoginRepository.quickLoginSavedAccount(uin)
+        NapCatLoginRepository.quickLoginSavedAccount(uin = uin, webUiTokenProvider = webUiTokenProvider)
     }
 
     override suspend fun saveQuickLoginAccount(uin: String) {
-        NapCatLoginRepository.saveQuickLoginAccount(uin)
+        NapCatLoginRepository.saveQuickLoginAccount(uin = uin, webUiTokenProvider = webUiTokenProvider)
     }
 
     override suspend fun logoutCurrentAccount() {
-        NapCatLoginRepository.logoutCurrentAccount()
+        NapCatLoginRepository.logoutCurrentAccount(
+            containerRuntimeController = containerRuntimeController,
+            runtimeBridgeController = runtimeBridgeController,
+            webUiTokenProvider = webUiTokenProvider,
+        )
     }
 
     override suspend fun passwordLogin(uin: String, password: String) {
-        NapCatLoginRepository.passwordLogin(uin, password)
+        NapCatLoginRepository.passwordLogin(
+            uin = uin,
+            password = password,
+            webUiTokenProvider = webUiTokenProvider,
+        )
     }
 
     override suspend fun captchaLogin(
@@ -78,19 +96,34 @@ internal class DefaultQQLoginViewModelBindings @Inject constructor(
         randstr: String,
         sid: String,
     ) {
-        NapCatLoginRepository.captchaLogin(uin, password, ticket, randstr, sid)
+        NapCatLoginRepository.captchaLogin(
+            uin = uin,
+            password = password,
+            ticket = ticket,
+            randstr = randstr,
+            sid = sid,
+            webUiTokenProvider = webUiTokenProvider,
+        )
     }
 
     override suspend fun newDeviceLogin(uin: String, password: String, verifiedToken: String?) {
-        NapCatLoginRepository.newDeviceLogin(uin, password, verifiedToken)
+        NapCatLoginRepository.newDeviceLogin(
+            uin = uin,
+            password = password,
+            verifiedToken = verifiedToken,
+            webUiTokenProvider = webUiTokenProvider,
+        )
     }
 
     override suspend fun getNewDeviceQRCode(): NapCatLoginService.NewDeviceQrCodeResult {
-        return NapCatLoginRepository.getNewDeviceQRCode()
+        return NapCatLoginRepository.getNewDeviceQRCode(webUiTokenProvider = webUiTokenProvider)
     }
 
     override suspend fun pollNewDeviceQRCode(bytesToken: String): NapCatLoginService.NewDeviceQrPollResult {
-        return NapCatLoginRepository.pollNewDeviceQRCode(bytesToken)
+        return NapCatLoginRepository.pollNewDeviceQRCode(
+            bytesToken = bytesToken,
+            webUiTokenProvider = webUiTokenProvider,
+        )
     }
 
     override fun log(message: String) {
