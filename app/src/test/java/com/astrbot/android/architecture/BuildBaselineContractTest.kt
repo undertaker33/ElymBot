@@ -17,7 +17,7 @@ class BuildBaselineContractTest {
         projectRoot.resolve("gradle/wrapper/gradle-wrapper.properties")
     private val rootBuildFile: Path = projectRoot.resolve("build.gradle.kts")
     private val appBuildFile: Path = projectRoot.resolve("app/build.gradle.kts")
-    private val moduleBuildRoots = listOf("app-integration", "core", "feature")
+    private val moduleBuildRoots = listOf("app-integration", "core", "download", "feature")
 
     @Test
     fun gradle_wrapper_must_use_stable_8_13_distribution() {
@@ -164,27 +164,42 @@ class BuildBaselineContractTest {
             "core/network/src/main/java",
             "core/runtime/src/main/java",
             "core/runtime-audio/src/main/java",
+            "core/runtime-cache/src/main/java",
+            "core/runtime-container/src/main/java",
             "core/runtime-context/src/main/java",
             "core/runtime-llm/src/main/java",
             "core/runtime-search/src/main/java",
+            "core/runtime-secret/src/main/java",
+            "core/runtime-session/src/main/java",
             "core/runtime-tool/src/main/java",
+            "download/api/src/main/java",
+            "download/impl/src/main/java",
             "feature/bot/api/src/main/java",
+            "feature/bot/data/src/main/java",
             "feature/bot/impl/src/main/java",
             "feature/chat/api/src/main/java",
             "feature/chat/impl/src/main/java",
+            "feature/chat/presentation/src/main/java",
+            "feature/chat/runtime/src/main/java",
             "feature/config/api/src/main/java",
+            "feature/config/data/src/main/java",
             "feature/config/impl/src/main/java",
+            "feature/conversation/api/src/main/java",
+            "feature/conversation/data/src/main/java",
             "feature/cron/api/src/main/java",
             "feature/cron/impl/src/main/java",
             "feature/persona/api/src/main/java",
+            "feature/persona/data/src/main/java",
             "feature/persona/impl/src/main/java",
             "feature/plugin/api/src/main/java",
             "feature/plugin/impl/src/main/java",
             "feature/provider/api/src/main/java",
+            "feature/provider/data/src/main/java",
             "feature/provider/impl/src/main/java",
             "feature/qq/api/src/main/java",
             "feature/qq/impl/src/main/java",
             "feature/resource/api/src/main/java",
+            "feature/resource/data/src/main/java",
             "feature/resource/impl/src/main/java",
         )
 

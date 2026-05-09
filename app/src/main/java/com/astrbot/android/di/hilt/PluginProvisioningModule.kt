@@ -6,6 +6,8 @@ import com.astrbot.android.feature.plugin.data.FeaturePluginRepository
 import com.astrbot.android.feature.plugin.data.PluginInstallStore
 import com.astrbot.android.feature.plugin.data.PluginStoragePaths
 import com.astrbot.android.feature.plugin.data.catalog.PluginCatalogSyncStore
+import com.astrbot.android.feature.plugin.domain.PluginHostVersion
+import com.astrbot.android.feature.plugin.domain.SupportedPluginProtocolVersion
 import com.astrbot.android.feature.plugin.runtime.DownloadManagerRemotePluginPackageDownloader
 import com.astrbot.android.feature.plugin.runtime.PluginPackageValidator
 import com.astrbot.android.feature.plugin.runtime.RemotePluginPackageDownloader
@@ -17,16 +19,7 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
-import javax.inject.Qualifier
 import javax.inject.Singleton
-
-@Qualifier
-@Retention(AnnotationRetention.BINARY)
-internal annotation class PluginHostVersion
-
-@Qualifier
-@Retention(AnnotationRetention.BINARY)
-internal annotation class SupportedPluginProtocolVersion
 
 @Module
 @InstallIn(SingletonComponent::class)

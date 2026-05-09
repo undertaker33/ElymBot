@@ -1,107 +1,9 @@
 package com.astrbot.android.ui.app
-import com.astrbot.android.ui.navigation.AppDestination
 
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.staticCompositionLocalOf
-import androidx.compose.ui.Modifier
-import com.astrbot.android.ui.config.detail.ConfigDetailTopBar
 import com.astrbot.android.ui.common.SubPageHeader
-
-internal sealed interface SecondaryTopBarSpec {
-    data class SubPage(
-        val title: String,
-        val onBack: () -> Unit,
-    ) : SecondaryTopBarSpec
-
-    data class ConfigDetail(
-        val profileName: String,
-        val currentSectionTitle: String,
-        val onBack: () -> Unit,
-        val onOpenSections: () -> Unit,
-    ) : SecondaryTopBarSpec
-}
-
-internal enum class GlobalTopBarLayer {
-    MAIN,
-    SECONDARY,
-    NONE,
-}
-
-internal data class RegisteredSecondaryTopBar(
-    val route: String,
-    val spec: SecondaryTopBarSpec,
-)
-
-internal data class ConfigDetailChromeBinding(
-    val currentSectionTitle: String,
-    val onOpenSections: () -> Unit,
-)
-
-internal data class SecondaryTopBarStrings(
-    val config: String,
-    val logs: String,
-    val qqAccount: String,
-    val qqLogin: String,
-    val settings: String,
-    val assetManagement: String,
-    val pluginDetail: String,
-    val pluginWorkspace: String,
-    val pluginConfig: String,
-    val models: String,
-    val runtime: String,
-    val dataBackup: String,
-    val cronJobs: String,
-    val configDetailDefaultSection: String,
-)
-
-internal val LocalSecondaryTopBarRegistrar =
-    staticCompositionLocalOf<(String, SecondaryTopBarSpec?) -> Unit> { { _, _ -> } }
-internal val LocalConfigDetailChromeRegistrar =
-    staticCompositionLocalOf<(ConfigDetailChromeBinding?) -> Unit> { { _ -> } }
-
-internal fun resolveGlobalTopBarLayer(
-    activeMainRoute: String?,
-    hasSecondaryTopBar: Boolean,
-): GlobalTopBarLayer = when {
-    activeMainRoute != null -> GlobalTopBarLayer.MAIN
-    hasSecondaryTopBar -> GlobalTopBarLayer.SECONDARY
-    else -> GlobalTopBarLayer.NONE
-}
-
-@Composable
-internal fun RegisterSecondaryTopBar(
-    route: String,
-    spec: SecondaryTopBarSpec,
-) {
-    val registrar = LocalSecondaryTopBarRegistrar.current
-    DisposableEffect(route, spec, registrar) {
-        registrar(route, spec)
-        onDispose {
-            registrar(route, null)
-        }
-    }
-}
-
-@Composable
-internal fun RegisterSecondaryTopBar(spec: SecondaryTopBarSpec) {
-    RegisterSecondaryTopBar(route = "", spec = spec)
-}
-
-@Composable
-internal fun RegisterConfigDetailChromeBinding(binding: ConfigDetailChromeBinding) {
-    val registrar = LocalConfigDetailChromeRegistrar.current
-    DisposableEffect(binding, registrar) {
-        registrar(binding)
-        onDispose {
-            registrar(null)
-        }
-    }
-}
+import com.astrbot.android.ui.config.detail.ConfigDetailTopBar
+import com.astrbot.android.ui.navigation.AppDestination
 
 internal fun resolveEffectiveSecondaryTopBarSpec(
     currentRoute: String?,
@@ -195,16 +97,6 @@ private fun matchesPluginWorkspaceRoute(route: String?): Boolean {
 private fun matchesPluginConfigRoute(route: String?): Boolean {
     if (route == null) return false
     return route == AppDestination.PluginConfig.route || route.endsWith("/config")
-}
-
-@Composable
-internal fun SecondaryTopBarPlaceholder() {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .statusBarsPadding()
-            .height(AppTopBarHeight),
-    )
 }
 
 @Composable

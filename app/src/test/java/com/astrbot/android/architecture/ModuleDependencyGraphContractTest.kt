@@ -27,13 +27,27 @@ class ModuleDependencyGraphContractTest {
         ":core:runtime-secret",
         ":core:runtime-session",
         ":core:runtime-tool",
+        ":download:api",
+        ":download:impl",
         ":feature:bot:api",
+        ":feature:bot:data",
         ":feature:config:api",
+        ":feature:config:data",
         ":feature:cron:api",
         ":feature:persona:api",
+        ":feature:persona:data",
         ":feature:plugin:api",
         ":feature:provider:api",
+        ":feature:provider:data",
         ":feature:resource:api",
+        ":feature:resource:data",
+    )
+
+    private val phase14Modules = listOf(
+        ":feature:conversation:api",
+        ":feature:conversation:data",
+        ":feature:chat:runtime",
+        ":feature:chat:presentation",
     )
 
     @Test
@@ -50,6 +64,19 @@ class ModuleDependencyGraphContractTest {
     }
 
     @Test
+    fun phase14_conversation_and_chat_modules_must_be_registered_in_settings() {
+        val text = settingsFile.readText(UTF_8)
+        val missing = phase14Modules.filterNot { module ->
+            text.contains("""include("$module")""")
+        }
+
+        assertTrue(
+            "Phase 14 conversation/chat Gradle modules must be registered in settings.gradle.kts: $missing",
+            missing.isEmpty(),
+        )
+    }
+
+    @Test
     fun app_must_depend_on_phase3_modules_during_transition() {
         val text = appBuildFile.readText(UTF_8)
         val missing = phase3Modules.filterNot { module ->
@@ -59,6 +86,20 @@ class ModuleDependencyGraphContractTest {
 
         assertTrue(
             "App must depend on Phase 3 modules while implementation still lives in :app: $missing",
+            missing.isEmpty(),
+        )
+    }
+
+    @Test
+    fun app_must_depend_on_phase14_modules_during_transition() {
+        val text = appBuildFile.readText(UTF_8)
+        val missing = phase14Modules.filterNot { module ->
+            text.contains("""implementation(project("$module"))""") ||
+                text.contains("""api(project("$module"))""")
+        }
+
+        assertTrue(
+            "App must depend on Phase 14 modules while shell wiring still composes chat: $missing",
             missing.isEmpty(),
         )
     }

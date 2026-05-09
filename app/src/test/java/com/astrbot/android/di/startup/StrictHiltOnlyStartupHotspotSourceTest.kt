@@ -48,7 +48,9 @@ class StrictHiltOnlyStartupHotspotSourceTest {
 
     @Test
     fun static_runtime_storage_hotspots_must_not_use_astrbot_database_get() {
-        val downloadManagerSource = mainRoot.resolve("download/DownloadManager.kt").readText()
+        val downloadManagerSource = projectRoot
+            .resolve("download/impl/src/main/java/com/astrbot/android/download/DefaultDownloadManager.kt")
+            .readText()
         val localStoreSource = mainRoot.resolve("feature/qq/data/NapCatLoginLocalStore.kt").readText()
 
         assertTrue(

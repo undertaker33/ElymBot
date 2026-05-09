@@ -1,4 +1,4 @@
-package com.astrbot.android.feature.cron.runtime
+﻿package com.astrbot.android.feature.cron.runtime
 
 import com.astrbot.android.core.runtime.context.ResolvedRuntimeContext
 import com.astrbot.android.core.runtime.context.RuntimeContextDataPort
@@ -15,7 +15,7 @@ import com.astrbot.android.core.runtime.llm.LlmInvocationRequest
 import com.astrbot.android.core.runtime.llm.LlmInvocationResult
 import com.astrbot.android.core.runtime.llm.LlmStreamEvent
 import com.astrbot.android.feature.bot.domain.BotRepositoryPort
-import com.astrbot.android.feature.chat.domain.ConversationRepositoryPort
+import com.astrbot.android.feature.conversation.domain.ConversationRepositoryPort
 import com.astrbot.android.feature.plugin.runtime.AppChatLlmPipelineRuntime
 import com.astrbot.android.feature.plugin.runtime.LlmPipelineAdmission
 import com.astrbot.android.feature.plugin.runtime.PlatformLlmCallbacks
@@ -81,7 +81,7 @@ class ScheduledTaskRuntimeExecutorTest {
                     ConversationMessage(
                         id = "old-user",
                         role = "user",
-                        content = "半小时后提醒我喝水",
+                        content = "\u534a\u5c0f\u65f6\u540e\u63d0\u9192\u6211\u559d\u6c34",
                         timestamp = 1L,
                     ),
                 ),
@@ -92,10 +92,10 @@ class ScheduledTaskRuntimeExecutorTest {
         val summary = ScheduledTaskRuntimeExecutor.execute(
             context = CronJobExecutionContext(
                 jobId = "job-1",
-                name = "喝水提醒",
-                description = "提醒用户喝水",
+                name = "鍠濇按鎻愰啋",
+                description = "鎻愰啋鐢ㄦ埛鍠濇按",
                 jobType = "active_agent",
-                note = "提醒用户该喝水了",
+                note = "鎻愰啋鐢ㄦ埛璇ュ枬姘翠簡",
                 sessionId = "chat-1",
                 platform = "app",
                 conversationId = "chat-1",
@@ -123,7 +123,11 @@ class ScheduledTaskRuntimeExecutorTest {
         assertEquals("scheduled_task", orchestrator.userMessageRole)
         assertEquals("cron:job-1", orchestrator.userMessageId)
         assertTrue(orchestrator.messageWindowContents.isEmpty())
-        assertTrue(orchestrator.systemPrompt.orEmpty().contains("半小时后提醒我喝水").not())
+        assertTrue(
+            orchestrator.systemPrompt.orEmpty()
+                .contains("\u534a\u5c0f\u65f6\u540e\u63d0\u9192\u6211\u559d\u6c34")
+                .not(),
+        )
         assertFalse(conversationPort.appendedRoles.contains("user"))
     }
 
@@ -147,13 +151,13 @@ class ScheduledTaskRuntimeExecutorTest {
                     ConversationMessage(
                         id = "old-user",
                         role = "user",
-                        content = "我刚刚运动完，容易忘记喝水",
+                        content = "\u6211\u521a\u521a\u8fd0\u52a8\u5b8c\uff0c\u5bb9\u6613\u5fd8\u8bb0\u559d\u6c34",
                         timestamp = 1L,
                     ),
                     ConversationMessage(
                         id = "old-assistant",
                         role = "assistant",
-                        content = "那我待会提醒你补水。",
+                        content = "\u90a3\u6211\u5f85\u4f1a\u63d0\u9192\u4f60\u8865\u6c34\u3002",
                         timestamp = 2L,
                     ),
                 ),
@@ -164,10 +168,10 @@ class ScheduledTaskRuntimeExecutorTest {
         ScheduledTaskRuntimeExecutor.execute(
             context = CronJobExecutionContext(
                 jobId = "job-1",
-                name = "喝水提醒",
-                description = "提醒用户喝水",
+                name = "鍠濇按鎻愰啋",
+                description = "鎻愰啋鐢ㄦ埛鍠濇按",
                 jobType = "active_agent",
-                note = "提醒用户该喝水了",
+                note = "鎻愰啋鐢ㄦ埛璇ュ枬姘翠簡",
                 sessionId = "chat-1",
                 platform = "app",
                 conversationId = "chat-1",
@@ -195,7 +199,7 @@ class ScheduledTaskRuntimeExecutorTest {
 
         assertTrue(orchestrator.messageWindowContents.isEmpty())
         assertTrue(orchestrator.systemPrompt.orEmpty().contains("Recent conversation context"))
-        assertTrue(orchestrator.systemPrompt.orEmpty().contains("我刚刚运动完"))
+        assertTrue(orchestrator.systemPrompt.orEmpty().contains("\u6211\u521a\u521a\u8fd0\u52a8\u5b8c"))
         assertTrue(orchestrator.systemPrompt.orEmpty().contains("read-only"))
     }
 
@@ -221,7 +225,7 @@ private class RecordingOrchestrator : RuntimeLlmOrchestratorPort {
         return sentResult(
             conversationId = ctx.conversationId,
             messageId = userMessage.id,
-            text = "该喝水了",
+            text = "璇ュ枬姘翠簡",
         )
     }
 
@@ -427,7 +431,7 @@ private class FakeBotPort(private val bot: BotProfile) : BotRepositoryPort {
 
 private class FakeLlmClient : LlmClientPort {
     override suspend fun sendWithTools(request: LlmInvocationRequest): LlmInvocationResult =
-        LlmInvocationResult(text = "该喝水了")
+        LlmInvocationResult(text = "璇ュ枬姘翠簡")
 
     override fun streamWithTools(request: LlmInvocationRequest): Flow<LlmStreamEvent> = emptyFlow()
 }
@@ -460,3 +464,4 @@ private object ThrowingAppChatLlmPipelineRuntime : AppChatLlmPipelineRuntime {
         error("The fake orchestrator should not call dispatchAfterMessageSent.")
     }
 }
+

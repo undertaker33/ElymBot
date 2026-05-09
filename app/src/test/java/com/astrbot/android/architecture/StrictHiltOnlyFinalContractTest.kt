@@ -159,7 +159,7 @@ class StrictHiltOnlyFinalContractTest {
 
         val violations = buildList {
             hotspotFiles.forEach { relativePath ->
-                val file = mainRoot.resolve(relativePath)
+                val file = resolveProductionHotspot(relativePath)
                 assertTrue("Expected closed mainline to exist: ${file.toAbsolutePath()}", file.exists())
                 val text = file.readText()
                 forbiddenTokens.forEach { token ->
@@ -203,23 +203,34 @@ class StrictHiltOnlyFinalContractTest {
             "core/runtime-secret/src/main/java",
             "core/runtime-session/src/main/java",
             "core/runtime-tool/src/main/java",
+            "download/api/src/main/java",
+            "download/impl/src/main/java",
             "feature/bot/api/src/main/java",
+            "feature/bot/data/src/main/java",
             "feature/bot/impl/src/main/java",
             "feature/chat/api/src/main/java",
             "feature/chat/impl/src/main/java",
+            "feature/chat/presentation/src/main/java",
+            "feature/chat/runtime/src/main/java",
             "feature/config/api/src/main/java",
+            "feature/config/data/src/main/java",
             "feature/config/impl/src/main/java",
+            "feature/conversation/api/src/main/java",
+            "feature/conversation/data/src/main/java",
             "feature/cron/api/src/main/java",
             "feature/cron/impl/src/main/java",
             "feature/persona/api/src/main/java",
+            "feature/persona/data/src/main/java",
             "feature/persona/impl/src/main/java",
             "feature/plugin/api/src/main/java",
             "feature/plugin/impl/src/main/java",
             "feature/provider/api/src/main/java",
+            "feature/provider/data/src/main/java",
             "feature/provider/impl/src/main/java",
             "feature/qq/api/src/main/java",
             "feature/qq/impl/src/main/java",
             "feature/resource/api/src/main/java",
+            "feature/resource/data/src/main/java",
             "feature/resource/impl/src/main/java",
         )
         return relativeRoots

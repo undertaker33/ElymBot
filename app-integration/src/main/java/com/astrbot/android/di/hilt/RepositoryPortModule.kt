@@ -1,7 +1,7 @@
-package com.astrbot.android.di.hilt
+﻿package com.astrbot.android.di.hilt
 
-import com.astrbot.android.feature.chat.data.FeatureConversationRepositoryPortAdapter
-import com.astrbot.android.feature.chat.domain.ConversationRepositoryPort
+import com.astrbot.android.feature.conversation.data.FeatureConversationRepositoryPortAdapter
+import com.astrbot.android.feature.conversation.domain.ConversationRepositoryPort
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -18,3 +18,4 @@ internal object RepositoryPortModule {
         adapter: FeatureConversationRepositoryPortAdapter,
     ): ConversationRepositoryPort = adapter
 }
+

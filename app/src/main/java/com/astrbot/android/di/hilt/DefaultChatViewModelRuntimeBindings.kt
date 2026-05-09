@@ -1,4 +1,4 @@
-
+﻿
 package com.astrbot.android.di.hilt
 
 import com.astrbot.android.core.common.logging.RuntimeLogRepository
@@ -16,9 +16,9 @@ import com.astrbot.android.di.runtime.llm.toLlmConversationMessages
 import com.astrbot.android.di.runtime.llm.toLlmProviderProfile
 import com.astrbot.android.di.runtime.llm.toLlmRuntimeConfig
 import com.astrbot.android.feature.bot.data.FeatureBotRepository as BotRepository
-import com.astrbot.android.feature.chat.data.FeatureConversationRepository as ConversationRepository
+import com.astrbot.android.feature.conversation.data.FeatureConversationRepository as ConversationRepository
 import com.astrbot.android.feature.chat.domain.AppChatRuntimePort
-import com.astrbot.android.feature.chat.domain.ConversationRepositoryPort
+import com.astrbot.android.feature.conversation.domain.ConversationRepositoryPort
 import com.astrbot.android.feature.chat.domain.SendAppMessageUseCase
 import com.astrbot.android.feature.chat.domain.SendAppMessageUseCaseFactory
 import com.astrbot.android.feature.chat.presentation.AppChatSendHandlerFactory
@@ -324,3 +324,4 @@ internal class DefaultChatViewModelRuntimeBindings @Inject constructor(
         )
     }
 }
+

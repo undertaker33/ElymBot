@@ -4,6 +4,7 @@ import kotlinx.coroutines.flow.collect
 
 import kotlinx.coroutines.flow.flow
 
+import com.astrbot.android.feature.conversation.domain.ConversationRepositoryPort
 import com.astrbot.android.model.chat.ConversationAttachment
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow

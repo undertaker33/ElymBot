@@ -10,7 +10,7 @@ class FeaturePluginRepositoryHiltOnlySeamTest {
 
     private val projectRoot: Path = detectProjectRoot()
     private val sourceFile: Path = projectRoot.resolve(
-        "app/src/main/java/com/astrbot/android/feature/plugin/data/FeaturePluginRepository.kt",
+        "feature/plugin/impl/src/main/java/com/astrbot/android/feature/plugin/data/FeaturePluginRepository.kt",
     )
 
     @Test
@@ -31,9 +31,9 @@ class FeaturePluginRepositoryHiltOnlySeamTest {
     fun phase1_plugin_config_state_and_cleanup_boundaries_must_exist_outside_feature_plugin_repository() {
         val requiredFiles = listOf(
             "feature/plugin/impl/src/main/java/com/astrbot/android/feature/plugin/data/config/PluginConfigStorage.kt",
-            "app/src/main/java/com/astrbot/android/feature/plugin/data/config/PluginHostConfigResolver.kt",
+            "feature/plugin/impl/src/main/java/com/astrbot/android/feature/plugin/data/config/PluginHostConfigResolver.kt",
             "feature/plugin/impl/src/main/java/com/astrbot/android/feature/plugin/data/state/PluginStateStore.kt",
-            "app/src/main/java/com/astrbot/android/feature/plugin/domain/cleanup/PluginDataCleanupService.kt",
+            "feature/plugin/impl/src/main/java/com/astrbot/android/feature/plugin/domain/cleanup/PluginDataCleanupService.kt",
         )
         val missing = requiredFiles.filterNot { relativePath ->
             projectRoot.resolve(relativePath).toFile().isFile

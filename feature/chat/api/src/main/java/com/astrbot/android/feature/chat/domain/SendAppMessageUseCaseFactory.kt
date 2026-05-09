@@ -1,5 +1,6 @@
 package com.astrbot.android.feature.chat.domain
 
+import com.astrbot.android.feature.conversation.domain.ConversationRepositoryPort
 import javax.inject.Inject
 
 class SendAppMessageUseCaseFactory @Inject constructor(

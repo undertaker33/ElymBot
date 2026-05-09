@@ -14,6 +14,7 @@ class ToolJsonValueNormalizerTest {
         projectRoot.resolve("core/runtime-context/src/main/java/com/astrbot/android"),
         projectRoot.resolve("core/runtime-tool/src/main/java/com/astrbot/android"),
         projectRoot.resolve("core/runtime/src/main/java/com/astrbot/android"),
+        projectRoot.resolve("feature/plugin/impl/src/main/java/com/astrbot/android"),
     )
 
     @Test

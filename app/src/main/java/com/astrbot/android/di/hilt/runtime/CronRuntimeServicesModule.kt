@@ -4,19 +4,21 @@ import android.content.Context
 import com.astrbot.android.core.runtime.context.RuntimeContextResolverPort
 import com.astrbot.android.core.runtime.llm.LlmClientPort
 import com.astrbot.android.feature.bot.domain.BotRepositoryPort
-import com.astrbot.android.feature.chat.domain.ConversationRepositoryPort
-import com.astrbot.android.feature.cron.data.FeatureCronSchedulerPortAdapter
+import com.astrbot.android.feature.conversation.domain.ConversationRepositoryPort
+import com.astrbot.android.feature.cron.domain.ActiveCapabilityNaturalLanguageLexicon
+import com.astrbot.android.feature.cron.domain.ActiveCapabilityNaturalLanguageParser
+import com.astrbot.android.feature.cron.domain.ActiveCapabilityPromptStrings
 import com.astrbot.android.feature.cron.domain.ActiveCapabilityTaskPort
 import com.astrbot.android.feature.cron.domain.CronJobRepositoryPort
 import com.astrbot.android.feature.cron.domain.CronJobRunNowPort
 import com.astrbot.android.feature.cron.domain.CronSchedulerPort
-import com.astrbot.android.feature.cron.runtime.ActiveCapabilityPromptStrings
 import com.astrbot.android.feature.cron.runtime.AndroidActiveCapabilityPromptStrings
+import com.astrbot.android.feature.cron.runtime.activeCapabilityNaturalLanguageLexiconFromResources
 import com.astrbot.android.feature.cron.runtime.CoordinatorCronJobRunNowPort
 import com.astrbot.android.feature.cron.runtime.CronJobRunCoordinator
 import com.astrbot.android.feature.cron.runtime.CronRescheduler
 import com.astrbot.android.feature.cron.runtime.CronRuntimeService
-import com.astrbot.android.feature.cron.runtime.DefaultScheduledMessageDeliveryPort
+import com.astrbot.android.feature.cron.runtime.FeatureCronSchedulerPortAdapter
 import com.astrbot.android.feature.cron.runtime.ScheduledMessageDeliveryPort
 import com.astrbot.android.feature.cron.runtime.ScheduledTaskExecutor
 import com.astrbot.android.feature.cron.runtime.ScheduledTaskRuntimeDependencies
@@ -26,8 +28,6 @@ import com.astrbot.android.feature.plugin.runtime.AppChatLlmPipelineRuntime
 import com.astrbot.android.feature.plugin.runtime.AppChatPluginRuntime
 import com.astrbot.android.feature.plugin.runtime.PluginHostCapabilityGateway
 import com.astrbot.android.feature.plugin.runtime.RuntimeLlmOrchestratorPort
-import com.astrbot.android.feature.plugin.runtime.toolsource.ActiveCapabilityNaturalLanguageLexicon
-import com.astrbot.android.feature.plugin.runtime.toolsource.ActiveCapabilityNaturalLanguageParser
 import com.astrbot.android.feature.qq.runtime.QqScheduledMessageSender
 import dagger.Module
 import dagger.Provides
@@ -93,7 +93,7 @@ internal object CronRuntimeServicesModule {
     fun provideActiveCapabilityNaturalLanguageLexicon(
         @ApplicationContext appContext: Context,
     ): ActiveCapabilityNaturalLanguageLexicon =
-        ActiveCapabilityNaturalLanguageLexicon.fromResources(appContext)
+        activeCapabilityNaturalLanguageLexiconFromResources(appContext)
 
     @Provides
     @Singleton
@@ -133,3 +133,4 @@ internal object CronRuntimeServicesModule {
         executor = executor,
     )
 }
+

@@ -13,7 +13,7 @@ import com.astrbot.android.feature.plugin.runtime.PluginProviderRequest
 import com.astrbot.android.feature.plugin.runtime.PluginV2EventResultCoordinator
 import com.astrbot.android.feature.plugin.runtime.PluginV2LlmPipelineResult
 import com.astrbot.android.feature.plugin.runtime.PluginV2ProviderInvocationResult
-import com.astrbot.android.feature.plugin.runtime.toolsource.ActiveCapabilityNaturalLanguageParser
+import com.astrbot.android.feature.cron.runtime.ActiveCapabilityNaturalLanguageParser
 import com.astrbot.android.model.plugin.AppChatLlm
 import com.astrbot.android.model.plugin.PluginV2StreamingMode
 import java.time.OffsetDateTime

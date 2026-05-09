@@ -1,4 +1,4 @@
-package com.astrbot.android.feature.plugin.runtime
+﻿package com.astrbot.android.feature.plugin.runtime
 
 import android.content.SharedPreferences
 import com.astrbot.android.data.BotRepository
@@ -53,8 +53,8 @@ import com.astrbot.android.data.db.toWriteModel
 import com.astrbot.android.feature.bot.data.FeatureBotRepository
 import com.astrbot.android.feature.bot.data.FeatureBotRepositoryPortAdapter
 import com.astrbot.android.feature.bot.data.FeatureBotRepositoryStore
-import com.astrbot.android.feature.chat.data.FeatureConversationRepository
-import com.astrbot.android.feature.chat.data.FeatureConversationRepositoryStore
+import com.astrbot.android.feature.conversation.data.FeatureConversationRepository
+import com.astrbot.android.feature.conversation.data.FeatureConversationRepositoryStore
 import com.astrbot.android.feature.config.data.FeatureConfigRepository
 import com.astrbot.android.feature.config.data.FeatureConfigRepositoryPortAdapter
 import com.astrbot.android.feature.config.data.FeatureConfigRepositoryStore
@@ -664,3 +664,4 @@ private class InMemoryResourceCenterDao : ResourceCenterDao {
             .sortedWith(compareBy<ConfigResourceProjectionEntity>({ it.configId }, { it.kind }, { it.sortIndex }, { -it.priority }))
     }
 }
+

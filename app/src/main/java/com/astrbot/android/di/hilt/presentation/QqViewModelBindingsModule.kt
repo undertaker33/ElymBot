@@ -1,6 +1,5 @@
 package com.astrbot.android.di.hilt.presentation
 
-import com.astrbot.android.di.hilt.BotLoginState
 import com.astrbot.android.di.hilt.BridgeConfig
 import com.astrbot.android.di.hilt.BridgeConfigSaver
 import com.astrbot.android.di.hilt.BridgeRuntimeState
@@ -18,6 +17,7 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import javax.inject.Singleton
+import javax.inject.Named
 import kotlinx.coroutines.flow.StateFlow
 
 @Module
@@ -50,7 +50,7 @@ internal abstract class QqViewModelBindingsModule {
         ): BridgeConfigSaver = BridgeConfigSaver(bridgeStateOwner::updateConfig)
 
         @Provides
-        @BotLoginState
+        @Named("BotLoginState")
         fun provideBotLoginState(): StateFlow<NapCatLoginState> = NapCatLoginRepository.loginState
 
         @Provides

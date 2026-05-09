@@ -10,9 +10,10 @@ import org.junit.Test
 
 class HiltExitContractTest {
 
+    private val projectRoot: Path = detectProjectRoot()
     private val mainRoot: Path = listOf(
-        Path.of("src/main/java/com/astrbot/android"),
-        Path.of("app/src/main/java/com/astrbot/android"),
+        projectRoot.resolve("src/main/java/com/astrbot/android"),
+        projectRoot.resolve("app/src/main/java/com/astrbot/android"),
     ).first { it.exists() }
 
     @Test
@@ -34,7 +35,7 @@ class HiltExitContractTest {
     fun production_view_models_must_be_hilt_view_models() {
         val missing = productionViewModelFiles()
             .filterNot { file -> file.readText().contains("@HiltViewModel") }
-            .map { file -> mainRoot.relativize(file).toString().replace('\\', '/') }
+            .map { file -> projectRoot.relativize(file).toString().replace('\\', '/') }
 
         assertTrue("Production ViewModels missing @HiltViewModel: $missing", missing.isEmpty())
     }
@@ -134,20 +135,29 @@ class HiltExitContractTest {
 
     private fun productionViewModelFiles(): List<Path> {
         return listOf(
-            "ui/viewmodel/BridgeViewModel.kt",
-            "feature/bot/presentation/BotViewModel.kt",
-            "feature/provider/presentation/ProviderViewModel.kt",
-            "feature/config/presentation/ConfigViewModel.kt",
-            "feature/chat/presentation/ConversationViewModel.kt",
-            "feature/persona/presentation/PersonaViewModel.kt",
-            "feature/plugin/presentation/PluginViewModel.kt",
-            "feature/qq/presentation/QQLoginViewModel.kt",
-            "feature/chat/presentation/ChatViewModel.kt",
-            "ui/viewmodel/RuntimeAssetViewModel.kt",
-            "ui/viewmodel/RuntimeLogViewModel.kt",
-            "feature/cron/presentation/CronJobsViewModel.kt",
-        ).map { relativePath -> mainRoot.resolve(relativePath) }
-            .onEach { file -> assertTrue("${mainRoot.relativize(file)} must exist", file.exists()) }
+            "app/src/main/java/com/astrbot/android/ui/viewmodel/BridgeViewModel.kt",
+            "feature/bot/presentation/src/main/java/com/astrbot/android/feature/bot/presentation/BotViewModel.kt",
+            "feature/provider/presentation/src/main/java/com/astrbot/android/feature/provider/presentation/ProviderViewModel.kt",
+            "feature/config/presentation/src/main/java/com/astrbot/android/feature/config/presentation/ConfigViewModel.kt",
+            "feature/chat/presentation/src/main/java/com/astrbot/android/feature/chat/presentation/ConversationViewModel.kt",
+            "feature/persona/presentation/src/main/java/com/astrbot/android/feature/persona/presentation/PersonaViewModel.kt",
+            "app/src/main/java/com/astrbot/android/feature/plugin/presentation/PluginViewModel.kt",
+            "app/src/main/java/com/astrbot/android/feature/qq/presentation/QQLoginViewModel.kt",
+            "feature/chat/presentation/src/main/java/com/astrbot/android/feature/chat/presentation/ChatViewModel.kt",
+            "app/src/main/java/com/astrbot/android/ui/viewmodel/RuntimeAssetViewModel.kt",
+            "app/src/main/java/com/astrbot/android/ui/viewmodel/RuntimeLogViewModel.kt",
+            "feature/cron/presentation/src/main/java/com/astrbot/android/ui/settings/CronJobsViewModel.kt",
+        ).map(projectRoot::resolve)
+            .onEach { file -> assertTrue("${projectRoot.relativize(file)} must exist", file.exists()) }
+    }
+
+    private fun detectProjectRoot(): Path {
+        val cwd = Path.of("").toAbsolutePath()
+        return when {
+            cwd.resolve("app/src/main/java/com/astrbot/android").exists() -> cwd
+            cwd.parent?.resolve("app/src/main/java/com/astrbot/android")?.exists() == true -> cwd.parent
+            else -> error("Unable to resolve project root from $cwd")
+        }
     }
 
     private fun kotlinFilesUnder(root: Path): List<Path> {

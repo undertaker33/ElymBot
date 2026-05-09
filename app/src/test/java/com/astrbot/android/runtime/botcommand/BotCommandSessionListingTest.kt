@@ -17,7 +17,7 @@ class BotCommandSessionListingTest {
         val sessions = (1..12).map { index ->
             ConversationSession(
                 id = "session-$index",
-                title = "会话$index",
+                title = "\u4f1a\u8bdd$index",
                 botId = "qqbot",
                 personaId = "default",
                 providerId = "provider-1",
@@ -37,11 +37,11 @@ class BotCommandSessionListingTest {
             languageTag = "zh",
         )
 
-        assertTrue(listing.contains("会话列表"))
-        assertTrue(listing.contains("会话12（session-12）"))
-        assertTrue(listing.contains("当前对话：会话12（session-12）"))
-        assertTrue(listing.contains("会话类型：应用内聊天"))
-        assertTrue(listing.contains("输入/ls 2"))
-        assertFalse(listing.contains("会话1（session-1）"))
+        assertTrue(listing.contains("\u4f1a\u8bdd\u5217\u8868"))
+        assertTrue(listing.contains("\u4f1a\u8bdd12 (session-12)"))
+        assertTrue(listing.contains("\u5f53\u524d\u5bf9\u8bdd\uff1a\u4f1a\u8bdd12 (session-12)"))
+        assertTrue(listing.contains("\u4f1a\u8bdd\u7c7b\u578b\uff1a\u5e94\u7528\u5185\u804a\u5929"))
+        assertTrue(listing.contains("/ls 2"))
+        assertFalse(listing.contains("\u4f1a\u8bdd1 (session-1)"))
     }
 }

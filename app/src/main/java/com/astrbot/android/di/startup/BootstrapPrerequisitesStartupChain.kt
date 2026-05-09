@@ -9,7 +9,7 @@ import com.astrbot.android.core.runtime.audio.SherpaOnnxBridge
 import com.astrbot.android.feature.qq.data.NapCatLoginLocalStoreOwner
 import com.astrbot.android.feature.qq.data.NapCatBridgeStateOwner
 import com.astrbot.android.feature.plugin.data.FeaturePluginRepositoryStateOwner
-import com.astrbot.android.download.AppDownloadManagerBootstrap
+import com.astrbot.android.download.DownloadManagerBootstrap
 import com.astrbot.android.feature.qq.runtime.QqBridgeRuntime
 import javax.inject.Inject
 
@@ -19,7 +19,7 @@ internal class BootstrapPrerequisitesStartupChain @Inject constructor(
     pluginRepositoryStateOwner: FeaturePluginRepositoryStateOwner,
     bridgeStateOwner: NapCatBridgeStateOwner,
     napCatLoginLocalStoreOwner: NapCatLoginLocalStoreOwner,
-    appDownloadManagerBootstrap: AppDownloadManagerBootstrap,
+    downloadManagerBootstrap: DownloadManagerBootstrap,
 ) : AppStartupChain {
 
     override fun run() {

@@ -149,19 +149,21 @@ class ProviderViewModelTest {
     fun delete_unreferenced_provider_succeeds() {
         installProviderReferenceChecker { false }
         val originalProviders = ProviderRepository.snapshotProfiles()
+        val providerId = "provider-delete-unreferenced"
+        val spareProviderId = "provider-delete-spare"
 
         try {
             ProviderRepository.restoreProfiles(
                 listOf(
-                    com.astrbot.android.model.ProviderProfile(id = "provider-a", name = "Provider A", baseUrl = "", model = "", providerType = com.astrbot.android.model.ProviderType.OPENAI_COMPATIBLE, apiKey = "", capabilities = emptySet()),
-                    com.astrbot.android.model.ProviderProfile(id = "provider-b", name = "Provider B", baseUrl = "", model = "", providerType = com.astrbot.android.model.ProviderType.OPENAI_COMPATIBLE, apiKey = "", capabilities = emptySet()),
+                    com.astrbot.android.model.ProviderProfile(id = providerId, name = "Provider A", baseUrl = "", model = "", providerType = com.astrbot.android.model.ProviderType.OPENAI_COMPATIBLE, apiKey = "", capabilities = emptySet()),
+                    com.astrbot.android.model.ProviderProfile(id = spareProviderId, name = "Provider B", baseUrl = "", model = "", providerType = com.astrbot.android.model.ProviderType.OPENAI_COMPATIBLE, apiKey = "", capabilities = emptySet()),
                 ),
             )
 
-            ProviderRepository.delete("provider-a")
+            ProviderRepository.delete(providerId)
 
             org.junit.Assert.assertFalse(
-                ProviderRepository.snapshotProfiles().any { it.id == "provider-a" },
+                ProviderRepository.snapshotProfiles().any { it.id == providerId },
             )
         } finally {
             installProviderReferenceChecker { false }
@@ -341,7 +343,7 @@ class ProviderViewModelTest {
 
         override fun deleteVoiceBinding(assetId: String, bindingId: String) = Unit
 
-        override fun ttsAssetState(context: android.content.Context): com.astrbot.android.core.runtime.audio.SherpaOnnxAssetManager.TtsAssetState {
+        override fun ttsAssetState(context: android.content.Context): com.astrbot.android.feature.provider.runtime.ProviderRuntimeTtsAssetState {
             error("Not needed in test")
         }
 

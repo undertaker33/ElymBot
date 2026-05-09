@@ -1,4 +1,4 @@
-
+﻿
 package com.astrbot.android.di
 
 import com.astrbot.android.core.db.backup.AppBackupDataPort
@@ -7,7 +7,7 @@ import com.astrbot.android.core.db.backup.ConversationBackupDataPort
 import com.astrbot.android.core.db.backup.ConversationImportPreview
 import com.astrbot.android.core.db.backup.ConversationImportResult
 import com.astrbot.android.feature.bot.data.FeatureBotRepository as BotRepository
-import com.astrbot.android.feature.chat.data.FeatureConversationRepository as ConversationRepository
+import com.astrbot.android.feature.conversation.data.FeatureConversationRepository as ConversationRepository
 import com.astrbot.android.feature.config.data.FeatureConfigRepository as ConfigRepository
 import com.astrbot.android.feature.persona.data.FeaturePersonaRepository as PersonaRepository
 import com.astrbot.android.feature.provider.data.FeatureProviderRepository as ProviderRepository
@@ -121,3 +121,4 @@ internal object ProductionConversationBackupDataPort : ConversationBackupDataPor
         )
     }
 }
+

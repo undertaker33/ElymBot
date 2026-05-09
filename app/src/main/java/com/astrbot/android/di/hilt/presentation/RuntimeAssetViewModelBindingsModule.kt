@@ -5,13 +5,13 @@ import com.astrbot.android.data.RuntimeAssetStateOwner
 import com.astrbot.android.di.hilt.RuntimeAssetStateFlow
 import com.astrbot.android.di.hilt.RuntimeAssetViewModelOps
 import com.astrbot.android.di.hilt.TtsVoiceAssetStateOwner
-import com.astrbot.android.di.hilt.TtsVoiceAssets
 import com.astrbot.android.model.RuntimeAssetState
 import com.astrbot.android.model.TtsVoiceReferenceAsset
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
+import javax.inject.Named
 import kotlinx.coroutines.flow.StateFlow
 
 @Module
@@ -36,7 +36,7 @@ internal object RuntimeAssetViewModelBindingsModule {
     ): StateFlow<RuntimeAssetState> = runtimeAssetStateOwner.state
 
     @Provides
-    @TtsVoiceAssets
+    @Named("TtsVoiceAssets")
     fun provideTtsVoiceAssets(
         ttsVoiceAssetStateOwner: TtsVoiceAssetStateOwner,
     ): StateFlow<@JvmSuppressWildcards List<TtsVoiceReferenceAsset>> = ttsVoiceAssetStateOwner.assets

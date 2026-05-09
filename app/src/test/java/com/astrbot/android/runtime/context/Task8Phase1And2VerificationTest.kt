@@ -4,7 +4,6 @@ import com.astrbot.android.data.http.HttpMethod
 import com.astrbot.android.data.http.HttpRequestSpec
 import com.astrbot.android.data.http.MultipartPartSpec
 import com.astrbot.android.data.http.OkHttpAstrBotHttpClient
-import com.astrbot.android.model.ConfigProfile
 import com.astrbot.android.core.runtime.network.RuntimeNetworkCapability
 import com.astrbot.android.core.runtime.network.RuntimeNetworkFailure
 import com.astrbot.android.core.runtime.network.RuntimeNetworkRequest
@@ -33,12 +32,12 @@ class Task8Phase1And2VerificationTest {
     fun context_window_derived_from_config_only() {
         val method = RuntimeContextResolver::class.java.getDeclaredMethod(
             "resolveContextWindow",
-            ConfigProfile::class.java,
+            RuntimeConfigSnapshot::class.java,
         )
 
-        assertNotNull("resolveContextWindow(ConfigProfile) must exist", method)
+        assertNotNull("resolveContextWindow(RuntimeConfigSnapshot) must exist", method)
         assertEquals(
-            "resolveContextWindow must take exactly 1 parameter (ConfigProfile)",
+            "resolveContextWindow must take exactly 1 parameter (RuntimeConfigSnapshot)",
             1,
             method.parameterTypes.size,
         )

@@ -173,6 +173,8 @@ class PluginV2HostToolIntegrationTest {
     @Test
     fun tool_loop_coordinator_source_does_not_reference_external_host_action_executor() {
         val sourceFile = sequenceOf(
+            File("../feature/plugin/impl/src/main/java/com/astrbot/android/feature/plugin/runtime/PluginV2ToolLoopCoordinator.kt"),
+            File("feature/plugin/impl/src/main/java/com/astrbot/android/feature/plugin/runtime/PluginV2ToolLoopCoordinator.kt"),
             File("app/src/main/java/com/astrbot/android/feature/plugin/runtime/PluginV2ToolLoopCoordinator.kt"),
             File("../app/src/main/java/com/astrbot/android/feature/plugin/runtime/PluginV2ToolLoopCoordinator.kt"),
         ).firstOrNull(File::exists)

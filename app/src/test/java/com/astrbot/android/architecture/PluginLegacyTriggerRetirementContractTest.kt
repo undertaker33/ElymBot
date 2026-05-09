@@ -12,6 +12,13 @@ class PluginLegacyTriggerRetirementContractTest {
 
     private val projectRoot: Path = detectProjectRoot()
     private val mainRoot: Path = projectRoot.resolve("app/src/main/java/com/astrbot/android")
+    private val productionSourceRoots: List<Path> = listOf(
+        "app/src/main/java/com/astrbot/android",
+        "feature/chat/presentation/src/main/java/com/astrbot/android",
+        "feature/chat/runtime/src/main/java/com/astrbot/android",
+        "feature/plugin/impl/src/main/java/com/astrbot/android",
+        "feature/qq/impl/src/main/java/com/astrbot/android",
+    ).map(projectRoot::resolve).filter { root -> root.exists() }
 
     @Test
     fun v2_online_mainlines_must_not_use_external_plugin_trigger_policy() {
@@ -23,7 +30,7 @@ class PluginLegacyTriggerRetirementContractTest {
             "feature/qq/runtime/QqPluginDispatchService.kt",
         )
         val violations = hotspotFiles.filter { relativePath ->
-            mainRoot.resolve(relativePath).readText().contains("ExternalPluginTriggerPolicy")
+            resolveProductionFile(relativePath).readText().contains("ExternalPluginTriggerPolicy")
         }
 
         assertTrue(
@@ -37,8 +44,8 @@ class PluginLegacyTriggerRetirementContractTest {
         val allowlist = setOf("feature/plugin/runtime/PluginV1DispatchAdapter.kt")
         val tokens = listOf("dispatchLegacy(", "executeLegacyBatch(")
         val violations = buildList {
-            kotlinFilesUnder(mainRoot).forEach { file ->
-                val relativePath = mainRoot.relativize(file).toString().replace('\\', '/')
+            productionKotlinFiles().forEach { file ->
+                val relativePath = relativeProductionPath(file)
                 val text = file.readText()
                 tokens.forEach { token ->
                     if (text.contains(token) && relativePath !in allowlist) {
@@ -58,24 +65,24 @@ class PluginLegacyTriggerRetirementContractTest {
     fun residual_v1_triggers_must_not_leak_back_into_production_mainline() {
         val allowlistByToken = mapOf(
             "PluginTriggerSource.OnMessageReceived" to setOf(
-                "feature/plugin/model/PluginExecutionProtocol.kt",
-                "feature/plugin/model/ExternalPluginExecutionPolicy.kt",
+                "model/plugin/PluginExecutionProtocol.kt",
+                "model/plugin/ExternalPluginExecutionPolicy.kt",
             ),
             "PluginTriggerSource.OnConversationEnter" to setOf(
-                "feature/plugin/model/PluginExecutionProtocol.kt",
-                "feature/plugin/model/ExternalPluginExecutionPolicy.kt",
+                "model/plugin/PluginExecutionProtocol.kt",
+                "model/plugin/ExternalPluginExecutionPolicy.kt",
             ),
             "PluginTriggerSource.OnSchedule" to setOf(
-                "feature/plugin/model/PluginExecutionProtocol.kt",
-                "feature/plugin/model/ExternalPluginExecutionPolicy.kt",
+                "model/plugin/PluginExecutionProtocol.kt",
+                "model/plugin/ExternalPluginExecutionPolicy.kt",
                 "feature/plugin/runtime/PluginRuntimeScheduler.kt",
             ),
         )
 
         val violations = buildList {
             allowlistByToken.forEach { (token, allowlist) ->
-                kotlinFilesUnder(mainRoot).forEach { file ->
-                    val relativePath = mainRoot.relativize(file).toString().replace('\\', '/')
+                productionKotlinFiles().forEach { file ->
+                    val relativePath = relativeProductionPath(file)
                     if (file.readText().contains(token) && relativePath !in allowlist) {
                         add("$relativePath contains $token")
                     }
@@ -95,6 +102,23 @@ class PluginLegacyTriggerRetirementContractTest {
                 .filter { it.isRegularFile() && it.fileName.toString().endsWith(".kt") }
                 .toList()
         }
+    }
+
+    private fun productionKotlinFiles(): List<Path> {
+        return productionSourceRoots.flatMap(::kotlinFilesUnder)
+    }
+
+    private fun resolveProductionFile(relativePath: String): Path {
+        return productionSourceRoots
+            .map { root -> root.resolve(relativePath) }
+            .firstOrNull { file -> file.exists() }
+            ?: mainRoot.resolve(relativePath)
+    }
+
+    private fun relativeProductionPath(file: Path): String {
+        val sourceRoot = productionSourceRoots.firstOrNull { root -> file.startsWith(root) }
+            ?: mainRoot
+        return sourceRoot.relativize(file).toString().replace('\\', '/')
     }
 
     private fun detectProjectRoot(): Path {
