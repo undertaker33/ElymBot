@@ -36,7 +36,7 @@
             android:foregroundServiceType="dataSync" />
 
         <service
-            android:name=".download.DownloadForegroundService"
+            android:name="com.astrbot.android.download.DownloadForegroundService"
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="dataSync" />

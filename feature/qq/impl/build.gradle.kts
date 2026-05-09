@@ -10,5 +10,6 @@ android {
 dependencies {
     implementation(project(":feature:qq:api"))
     implementation(project(":feature:chat:api"))
+    implementation(project(":feature:conversation:api"))
     implementation("javax.inject:javax.inject:1")
 }

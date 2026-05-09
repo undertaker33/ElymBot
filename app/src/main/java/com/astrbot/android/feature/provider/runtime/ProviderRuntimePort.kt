@@ -12,87 +12,15 @@ import com.astrbot.android.di.runtime.llm.toFeatureSupportState
 import com.astrbot.android.di.runtime.llm.toLlmProviderProfile
 import com.astrbot.android.di.runtime.llm.toLlmProviderType
 import com.astrbot.android.feature.provider.domain.ProviderRepositoryPort
+import com.astrbot.android.feature.provider.runtime.ProviderRuntimeSubAssetState
+import com.astrbot.android.feature.provider.runtime.ProviderRuntimeTtsAssetState
 import com.astrbot.android.model.FeatureSupportState
 import com.astrbot.android.model.ProviderProfile
 import com.astrbot.android.model.ProviderType
 import com.astrbot.android.model.TtsVoiceReferenceAsset
 import com.astrbot.android.model.chat.ConversationAttachment
 import javax.inject.Inject
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-
-private val EmptyProviderProfilesStateFlow = MutableStateFlow<List<ProviderProfile>>(emptyList())
-private val EmptyVoiceAssetsStateFlow = MutableStateFlow<List<TtsVoiceReferenceAsset>>(emptyList())
-
-data class VoiceAssetImportResult(
-    val asset: TtsVoiceReferenceAsset,
-    val warning: String?,
-)
-
-data class ProviderRuntimeSttProbeResult(
-    val state: FeatureSupportState,
-    val transcript: String,
-)
-
-interface ProviderRuntimePort {
-    val providers: StateFlow<List<ProviderProfile>>
-        get() = EmptyProviderProfilesStateFlow
-    val voiceAssets: StateFlow<List<TtsVoiceReferenceAsset>>
-        get() = EmptyVoiceAssetsStateFlow
-
-    fun fetchModels(provider: ProviderProfile): List<String>
-
-    fun detectMultimodalRule(provider: ProviderProfile): FeatureSupportState
-
-    fun probeMultimodalSupport(provider: ProviderProfile): FeatureSupportState
-
-    fun detectNativeStreamingRule(provider: ProviderProfile): FeatureSupportState
-
-    fun probeNativeStreamingSupport(provider: ProviderProfile): FeatureSupportState
-
-    fun probeSttSupport(provider: ProviderProfile): ProviderRuntimeSttProbeResult
-
-    fun probeTtsSupport(provider: ProviderProfile): FeatureSupportState
-
-    fun listVoiceChoicesFor(provider: ProviderProfile?): List<Pair<String, String>>
-
-    fun importReferenceAudio(
-        context: Context,
-        sourceUri: Uri,
-        name: String = "",
-        assetId: String? = null,
-    ): VoiceAssetImportResult
-
-    fun saveVoiceBinding(
-        assetId: String,
-        providerId: String,
-        providerType: ProviderType,
-        model: String,
-        voiceId: String,
-        displayName: String,
-    )
-
-    fun renameVoiceBinding(assetId: String, bindingId: String, displayName: String)
-
-    fun clearReferenceAudio(assetId: String)
-
-    fun deleteReferenceClip(assetId: String, clipId: String)
-
-    fun deleteVoiceBinding(assetId: String, bindingId: String)
-
-    fun ttsAssetState(context: Context): SherpaOnnxAssetManager.TtsAssetState
-
-    fun isSherpaFrameworkReady(): Boolean
-
-    fun isSherpaSttReady(): Boolean
-
-    fun synthesizeSpeech(
-        provider: ProviderProfile,
-        text: String,
-        voiceId: String,
-        readBracketedContent: Boolean,
-    ): ConversationAttachment
-}
 
 internal class DefaultProviderRuntimePort @Inject constructor(
     private val providerRepositoryPort: ProviderRepositoryPort,
@@ -199,8 +127,8 @@ internal class DefaultProviderRuntimePort @Inject constructor(
         ttsVoiceAssetStateOwner.deleteBinding(assetId, bindingId)
     }
 
-    override fun ttsAssetState(context: Context): SherpaOnnxAssetManager.TtsAssetState {
-        return runtimeAssetStateOwner.ttsAssetState(context)
+    override fun ttsAssetState(context: Context): ProviderRuntimeTtsAssetState {
+        return runtimeAssetStateOwner.ttsAssetState(context).toProviderRuntimeState()
     }
 
     override fun isSherpaFrameworkReady(): Boolean {
@@ -224,4 +152,18 @@ internal class DefaultProviderRuntimePort @Inject constructor(
             readBracketedContent = readBracketedContent,
         ).toConversationAttachment()
     }
+}
+
+private fun SherpaOnnxAssetManager.TtsAssetState.toProviderRuntimeState(): ProviderRuntimeTtsAssetState {
+    return ProviderRuntimeTtsAssetState(
+        framework = framework.toProviderRuntimeState(),
+        kokoro = kokoro.toProviderRuntimeState(),
+    )
+}
+
+private fun SherpaOnnxAssetManager.SubAssetState.toProviderRuntimeState(): ProviderRuntimeSubAssetState {
+    return ProviderRuntimeSubAssetState(
+        installed = installed,
+        details = details,
+    )
 }

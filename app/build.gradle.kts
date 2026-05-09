@@ -6,6 +6,7 @@ plugins {
 }
 
 import java.util.Properties
+import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 fun sanitizeBranchName(name: String): String {
     return name
@@ -105,8 +106,8 @@ android {
     defaultConfig {
         applicationId = "com.astrbot.android"
         targetSdk = 36
-        versionCode = 66
-        versionName = "0.8.9"
+        versionCode = 67
+        versionName = "0.8.10"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -196,6 +197,45 @@ afterEvaluate {
     }
 }
 
+tasks.withType<KotlinCompile>().configureEach {
+    if (name == "compileDebugUnitTestKotlin") {
+        dependsOn(":feature:plugin:impl:compileDebugKotlin")
+        dependsOn(":feature:chat:presentation:compileDebugKotlin")
+        dependsOn(":feature:cron:data:compileDebugKotlin")
+        dependsOn(":feature:cron:presentation:compileDebugKotlin")
+        dependsOn(":feature:cron:runtime:compileDebugKotlin")
+        dependsOn(":core:ui:compileDebugKotlin")
+        val pluginImplBuildDir = project(":feature:plugin:impl").layout.buildDirectory
+        val chatPresentationBuildDir = project(":feature:chat:presentation").layout.buildDirectory
+        val cronDataBuildDir = project(":feature:cron:data").layout.buildDirectory
+        val cronPresentationBuildDir = project(":feature:cron:presentation").layout.buildDirectory
+        val cronRuntimeBuildDir = project(":feature:cron:runtime").layout.buildDirectory
+        val coreUiBuildDir = project(":core:ui").layout.buildDirectory
+        val pluginImplFriendPaths = listOf(
+            layout.buildDirectory.dir("tmp/kotlin-classes/debug").get().asFile.absolutePath,
+            pluginImplBuildDir.dir("tmp/kotlin-classes/debug").get().asFile.absolutePath,
+            pluginImplBuildDir.file("intermediates/compile_library_classes_jar/debug/bundleLibCompileToJarDebug/classes.jar").get().asFile.absolutePath,
+            pluginImplBuildDir.file("intermediates/runtime_library_classes_jar/debug/bundleLibRuntimeToJarDebug/classes.jar").get().asFile.absolutePath,
+            chatPresentationBuildDir.dir("tmp/kotlin-classes/debug").get().asFile.absolutePath,
+            chatPresentationBuildDir.file("intermediates/compile_library_classes_jar/debug/bundleLibCompileToJarDebug/classes.jar").get().asFile.absolutePath,
+            chatPresentationBuildDir.file("intermediates/runtime_library_classes_jar/debug/bundleLibRuntimeToJarDebug/classes.jar").get().asFile.absolutePath,
+            cronDataBuildDir.dir("tmp/kotlin-classes/debug").get().asFile.absolutePath,
+            cronDataBuildDir.file("intermediates/compile_library_classes_jar/debug/bundleLibCompileToJarDebug/classes.jar").get().asFile.absolutePath,
+            cronDataBuildDir.file("intermediates/runtime_library_classes_jar/debug/bundleLibRuntimeToJarDebug/classes.jar").get().asFile.absolutePath,
+            cronPresentationBuildDir.dir("tmp/kotlin-classes/debug").get().asFile.absolutePath,
+            cronPresentationBuildDir.file("intermediates/compile_library_classes_jar/debug/bundleLibCompileToJarDebug/classes.jar").get().asFile.absolutePath,
+            cronPresentationBuildDir.file("intermediates/runtime_library_classes_jar/debug/bundleLibRuntimeToJarDebug/classes.jar").get().asFile.absolutePath,
+            cronRuntimeBuildDir.dir("tmp/kotlin-classes/debug").get().asFile.absolutePath,
+            cronRuntimeBuildDir.file("intermediates/compile_library_classes_jar/debug/bundleLibCompileToJarDebug/classes.jar").get().asFile.absolutePath,
+            cronRuntimeBuildDir.file("intermediates/runtime_library_classes_jar/debug/bundleLibRuntimeToJarDebug/classes.jar").get().asFile.absolutePath,
+            coreUiBuildDir.dir("tmp/kotlin-classes/debug").get().asFile.absolutePath,
+            coreUiBuildDir.file("intermediates/compile_library_classes_jar/debug/bundleLibCompileToJarDebug/classes.jar").get().asFile.absolutePath,
+            coreUiBuildDir.file("intermediates/runtime_library_classes_jar/debug/bundleLibRuntimeToJarDebug/classes.jar").get().asFile.absolutePath,
+        ).joinToString(",")
+        kotlinOptions.freeCompilerArgs += listOf("-Xfriend-paths=$pluginImplFriendPaths")
+    }
+}
+
 dependencies {
     val composeBom = platform("androidx.compose:compose-bom:2024.09.00")
     val okHttpVersion = "4.12.0"
@@ -217,25 +257,45 @@ dependencies {
     implementation(project(":core:runtime-secret"))
     implementation(project(":core:runtime-session"))
     implementation(project(":core:runtime-tool"))
+    implementation(project(":core:ui"))
+    implementation(project(":download:api"))
+    implementation(project(":download:impl"))
     implementation(project(":app-integration"))
     implementation(project(":feature:bot:api"))
+    implementation(project(":feature:bot:data"))
     implementation(project(":feature:bot:impl"))
+    implementation(project(":feature:bot:presentation"))
     implementation(project(":feature:chat:api"))
     implementation(project(":feature:chat:impl"))
+    implementation(project(":feature:chat:presentation"))
+    implementation(project(":feature:chat:runtime"))
     implementation(project(":feature:config:api"))
+    implementation(project(":feature:config:data"))
     implementation(project(":feature:config:impl"))
+    implementation(project(":feature:config:presentation"))
+    implementation(project(":feature:conversation:api"))
+    implementation(project(":feature:conversation:data"))
     implementation(project(":feature:cron:api"))
+    implementation(project(":feature:cron:data"))
     implementation(project(":feature:cron:impl"))
+    implementation(project(":feature:cron:presentation"))
+    implementation(project(":feature:cron:runtime"))
     implementation(project(":feature:persona:api"))
+    implementation(project(":feature:persona:data"))
     implementation(project(":feature:persona:impl"))
+    implementation(project(":feature:persona:presentation"))
     implementation(project(":feature:plugin:api"))
     implementation(project(":feature:plugin:impl"))
     implementation(project(":feature:provider:api"))
+    implementation(project(":feature:provider:data"))
     implementation(project(":feature:provider:impl"))
+    implementation(project(":feature:provider:presentation"))
     implementation(project(":feature:qq:api"))
     implementation(project(":feature:qq:impl"))
     implementation(project(":feature:resource:api"))
+    implementation(project(":feature:resource:data"))
     implementation(project(":feature:resource:impl"))
+    implementation(project(":feature:resource:presentation"))
 
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.appcompat:appcompat:1.7.0")

@@ -58,8 +58,9 @@ class HiltViewModelDependenciesTransactionTest {
      */
     @Test
     fun deleteConfigProfile_rebinds_bots_before_config_is_removed() = runBlocking {
-        val deletedConfigId = "config-to-delete"
-        val fallbackConfigId = "config-fallback"
+        val deletedConfigId = "hilt-tx-config-to-delete"
+        val fallbackConfigId = "hilt-tx-config-fallback"
+        val targetBotId = "hilt-tx-bot-config-delete"
 
         // Set up: two configs and a bot bound to the one we will delete
         ConfigRepository.restoreProfiles(
@@ -71,22 +72,22 @@ class HiltViewModelDependenciesTransactionTest {
         )
         BotRepository.restoreProfiles(
             profiles = listOf(
-                BotProfile(id = "bot-a", displayName = "Bot A", configProfileId = deletedConfigId),
+                BotProfile(id = targetBotId, displayName = "Transaction Bot", configProfileId = deletedConfigId),
             ),
-            selectedBotId = "bot-a",
+            selectedBotId = targetBotId,
         )
 
         FeatureRepositoryPhase3DataTransactionService.deleteConfigProfile(deletedConfigId)
 
         // Bot must now reference the fallback, not the deleted config
-        val botProfiles = BotRepository.botProfiles.value
+        val targetBot = BotRepository.botProfiles.value.firstOrNull { it.id == targetBotId }
         assertFalse(
             "Bot must not reference the deleted config after deleteConfigProfile()",
-            botProfiles.any { it.configProfileId == deletedConfigId },
+            targetBot?.configProfileId == deletedConfigId,
         )
         assertTrue(
             "Bot must reference the fallback config after deleteConfigProfile()",
-            botProfiles.any { it.configProfileId == fallbackConfigId },
+            targetBot?.configProfileId == fallbackConfigId,
         )
     }
 
@@ -96,7 +97,7 @@ class HiltViewModelDependenciesTransactionTest {
      */
     @Test
     fun deleteConfigProfile_does_nothing_when_only_one_config_exists() = runBlocking {
-        val onlyConfigId = "only-config"
+        val onlyConfigId = "hilt-tx-only-config"
         ConfigRepository.restoreProfiles(
             profiles = listOf(ConfigProfile(id = onlyConfigId)),
             selectedProfileId = onlyConfigId,
@@ -121,8 +122,8 @@ class HiltViewModelDependenciesTransactionTest {
      */
     @Test
     fun delete_bot_rolls_back_conversation_sessions_when_deletion_is_rejected() = runBlocking {
-        val onlyBotId = "qq-main"
-        val sessionId = "session-for-only-bot"
+        val onlyBotId = "hilt-tx-only-bot"
+        val sessionId = "hilt-tx-session-for-only-bot"
 
         // Ensure exactly one bot exists (default)
         BotRepository.restoreProfiles(

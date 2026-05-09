@@ -14,13 +14,18 @@ class CoreDbDaoOwnerContractTest {
     private val mainRoot: Path = projectRoot.resolve("app/src/main/java/com/astrbot/android")
     private val productionSourceRoots: List<Path> = listOf(
         "app/src/main/java/com/astrbot/android",
+        "feature/bot/data/src/main/java/com/astrbot/android",
         "feature/bot/impl/src/main/java/com/astrbot/android",
+        "feature/config/data/src/main/java/com/astrbot/android",
         "feature/config/impl/src/main/java/com/astrbot/android",
         "feature/cron/impl/src/main/java/com/astrbot/android",
+        "feature/persona/data/src/main/java/com/astrbot/android",
         "feature/persona/impl/src/main/java/com/astrbot/android",
         "feature/plugin/impl/src/main/java/com/astrbot/android",
+        "feature/provider/data/src/main/java/com/astrbot/android",
         "feature/provider/impl/src/main/java/com/astrbot/android",
         "feature/qq/impl/src/main/java/com/astrbot/android",
+        "feature/resource/data/src/main/java/com/astrbot/android",
         "feature/resource/impl/src/main/java/com/astrbot/android",
     ).map(projectRoot::resolve).filter { root -> root.exists() }
     private val allowlistFile: Path =

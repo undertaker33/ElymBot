@@ -16,15 +16,24 @@ class RepositoryPortSourceContractTest {
     private val productionSourceRoots: List<Path> = listOf(
         "app/src/main/java/com/astrbot/android",
         "app-integration/src/main/java/com/astrbot/android",
+        "feature/bot/data/src/main/java/com/astrbot/android",
         "feature/bot/impl/src/main/java/com/astrbot/android",
         "feature/chat/api/src/main/java/com/astrbot/android",
         "feature/chat/impl/src/main/java/com/astrbot/android",
+        "feature/conversation/api/src/main/java/com/astrbot/android",
+        "feature/conversation/data/src/main/java/com/astrbot/android",
+        "feature/config/data/src/main/java/com/astrbot/android",
         "feature/config/impl/src/main/java/com/astrbot/android",
+        "feature/cron/data/src/main/java/com/astrbot/android",
         "feature/cron/impl/src/main/java/com/astrbot/android",
+        "feature/cron/runtime/src/main/java/com/astrbot/android",
+        "feature/persona/data/src/main/java/com/astrbot/android",
         "feature/persona/impl/src/main/java/com/astrbot/android",
         "feature/plugin/impl/src/main/java/com/astrbot/android",
+        "feature/provider/data/src/main/java/com/astrbot/android",
         "feature/provider/impl/src/main/java/com/astrbot/android",
         "feature/qq/impl/src/main/java/com/astrbot/android",
+        "feature/resource/data/src/main/java/com/astrbot/android",
         "feature/resource/impl/src/main/java/com/astrbot/android",
     ).map(projectRoot::resolve).filter { root -> root.exists() }
 
@@ -84,7 +93,7 @@ class RepositoryPortSourceContractTest {
     fun semantic_adapter_files_exist_and_legacy_adapter_files_are_removed() {
         val semanticFiles = listOf(
             "feature/bot/data/FeatureBotRepositoryPortAdapter.kt",
-            "feature/chat/data/FeatureConversationRepositoryPortAdapter.kt",
+            "feature/conversation/data/FeatureConversationRepositoryPortAdapter.kt",
             "feature/config/data/FeatureConfigRepositoryPortAdapter.kt",
             "feature/cron/data/FeatureCronJobRepositoryPortAdapter.kt",
             "feature/persona/data/FeaturePersonaRepositoryPortAdapter.kt",
@@ -123,9 +132,8 @@ class RepositoryPortSourceContractTest {
             ),
             "FeatureConversationRepository." to setOf(
                 "feature/bot/data/FeatureBotRepository.kt",
-                "feature/chat/data/FeatureConversationRepository.kt",
-                "feature/chat/data/FeatureConversationRepositoryPortAdapter.kt",
-                "feature/qq/data/FeatureQqConversationPortAdapter.kt",
+                "feature/conversation/data/FeatureConversationRepository.kt",
+                "feature/conversation/data/FeatureConversationRepositoryPortAdapter.kt",
             ),
             "FeatureConfigRepository." to setOf(
                 "feature/bot/data/FeatureBotRepository.kt",
@@ -182,7 +190,7 @@ class RepositoryPortSourceContractTest {
         )
 
         val violations = qqAdapterFiles.flatMap { relativePath ->
-            val source = mainRoot.resolve(relativePath).readText()
+            val source = resolveProductionFile(relativePath).readText()
             forbiddenStoreTypes.filter(source::contains).map { token ->
                 "$relativePath contains $token"
             }
@@ -227,6 +235,13 @@ class RepositoryPortSourceContractTest {
 
     private fun productionFileExists(relativePath: String): Boolean {
         return productionSourceRoots.any { sourceRoot -> sourceRoot.resolve(relativePath).exists() }
+    }
+
+    private fun resolveProductionFile(relativePath: String): Path {
+        return productionSourceRoots
+            .map { sourceRoot -> sourceRoot.resolve(relativePath) }
+            .firstOrNull { file -> file.exists() }
+            ?: mainRoot.resolve(relativePath)
     }
 
     private fun relativeProductionPath(file: Path): String {

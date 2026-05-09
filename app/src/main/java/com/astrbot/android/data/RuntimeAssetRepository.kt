@@ -9,7 +9,7 @@ import com.astrbot.android.core.runtime.container.CommandRunner
 import com.astrbot.android.core.runtime.container.ContainerRuntimeInstallerPort
 import com.astrbot.android.core.runtime.container.ContainerRuntimeScript
 import com.astrbot.android.core.runtime.container.ContainerRuntimeScripts
-import com.astrbot.android.download.AppDownloadManager
+import com.astrbot.android.download.DownloadManagerPort
 import com.astrbot.android.download.DownloadOwnerType
 import com.astrbot.android.download.DownloadRequest
 import com.astrbot.android.model.RuntimeAssetCatalogItem
@@ -29,6 +29,7 @@ class RuntimeAssetStateOwner @Inject constructor(
     @ApplicationContext private val appContext: Context,
     private val containerRuntimeInstaller: ContainerRuntimeInstallerPort,
     private val commandRunner: CommandRunner,
+    private val downloadManager: DownloadManagerPort,
     @Suppress("unused") private val ttsVoiceAssetRepository: TtsVoiceAssetRepository,
 ) {
     private val _state = MutableStateFlow(RuntimeAssetState(assets = assetCatalog.map(::buildInitialEntry)))
@@ -239,8 +240,7 @@ class RuntimeAssetStateOwner @Inject constructor(
         )
         try {
             val archiveFile = SherpaOnnxAssetManager.sttArchiveFile(context)
-            AppDownloadManager.initialize(context)
-            AppDownloadManager.enqueue(
+            downloadManager.enqueue(
                 DownloadRequest(
                     taskKey = STT_DOWNLOAD_TASK_KEY,
                     url = STT_DOWNLOAD_URL,
@@ -250,7 +250,7 @@ class RuntimeAssetStateOwner @Inject constructor(
                     ownerId = RuntimeAssetId.ON_DEVICE_STT.value,
                 ),
             )
-            AppDownloadManager.awaitCompletion(STT_DOWNLOAD_TASK_KEY)
+            downloadManager.awaitCompletion(STT_DOWNLOAD_TASK_KEY)
             SherpaOnnxAssetManager.installSttAssetsFromArchive(context, archiveFile)
             refreshInternal(detailsOverrides = emptyMap())
             updateAsset(RuntimeAssetId.ON_DEVICE_STT, lastAction = "Downloaded")
@@ -295,8 +295,7 @@ class RuntimeAssetStateOwner @Inject constructor(
         )
         try {
             val archiveFile = SherpaOnnxAssetManager.kokoroArchiveFile(context)
-            AppDownloadManager.initialize(context)
-            AppDownloadManager.enqueue(
+            downloadManager.enqueue(
                 DownloadRequest(
                     taskKey = KOKORO_DOWNLOAD_TASK_KEY,
                     url = KOKORO_DOWNLOAD_URL,
@@ -306,7 +305,7 @@ class RuntimeAssetStateOwner @Inject constructor(
                     ownerId = RuntimeAssetId.ON_DEVICE_TTS.value,
                 ),
             )
-            AppDownloadManager.awaitCompletion(KOKORO_DOWNLOAD_TASK_KEY)
+            downloadManager.awaitCompletion(KOKORO_DOWNLOAD_TASK_KEY)
             SherpaOnnxAssetManager.installKokoroAssetsFromArchive(context, archiveFile)
             check(SherpaOnnxAssetManager.ttsState(context).kokoro.installed) {
                 "Kokoro assets are still missing after download."

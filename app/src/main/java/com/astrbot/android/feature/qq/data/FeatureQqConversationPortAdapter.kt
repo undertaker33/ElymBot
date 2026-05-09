@@ -1,8 +1,7 @@
-
+﻿
 package com.astrbot.android.feature.qq.data
 
-import com.astrbot.android.feature.chat.data.FeatureConversationRepository
-import com.astrbot.android.feature.chat.domain.ConversationRepositoryPort
+import com.astrbot.android.feature.conversation.domain.ConversationRepositoryPort
 import com.astrbot.android.feature.qq.domain.QqConversationPort
 import com.astrbot.android.model.chat.ConversationAttachment
 import com.astrbot.android.model.chat.ConversationMessage
@@ -37,18 +36,6 @@ open class FeatureQqConversationPortAdapter private constructor(
         replaceMessagesWriter = conversationRepositoryPort::replaceMessages,
         renameSessionWriter = conversationRepositoryPort::renameSession,
         deleteSessionWriter = conversationRepositoryPort::deleteSession,
-    )
-
-    constructor() : this(
-        sessionsReader = { FeatureConversationRepository.sessions.value },
-        sessionReader = FeatureConversationRepository::session,
-        syncSystemSessionTitle = FeatureConversationRepository::syncSystemSessionTitle,
-        appendMessageWriter = FeatureConversationRepository::appendMessage,
-        updateSessionBindingsWriter = FeatureConversationRepository::updateSessionBindings,
-        updateSessionServiceFlagsWriter = FeatureConversationRepository::updateSessionServiceFlags,
-        replaceMessagesWriter = FeatureConversationRepository::replaceMessages,
-        renameSessionWriter = FeatureConversationRepository::renameSession,
-        deleteSessionWriter = FeatureConversationRepository::deleteSession,
     )
 
     override fun sessions(): List<ConversationSession> {
@@ -112,3 +99,4 @@ open class FeatureQqConversationPortAdapter private constructor(
         deleteSessionWriter(sessionId)
     }
 }
+

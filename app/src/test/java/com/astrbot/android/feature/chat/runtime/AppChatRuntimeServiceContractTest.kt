@@ -12,7 +12,13 @@ import java.io.File
  */
 class AppChatRuntimeServiceContractTest {
 
-    private val sourceRoot = File("src/main/java/com/astrbot/android")
+    private val projectRoot = detectProjectRoot()
+    private val sourceRoots = listOf(
+        File(projectRoot, "feature/chat/runtime/src/main/java/com/astrbot/android"),
+        File(projectRoot, "feature/chat/presentation/src/main/java/com/astrbot/android"),
+        File(projectRoot, "app/src/main/java/com/astrbot/android"),
+        File(projectRoot, "src/main/java/com/astrbot/android"),
+    )
 
     /**
      * AppChatRuntimeService must depend on the injected runtime context resolver seam
@@ -20,7 +26,7 @@ class AppChatRuntimeServiceContractTest {
      */
     @Test
     fun `service imports runtime context resolver and orchestrator port`() {
-        val serviceFile = sourceRoot.resolve("feature/chat/runtime/AppChatRuntimeService.kt")
+        val serviceFile = productionFile("feature/chat/runtime/AppChatRuntimeService.kt")
         assertTrue("AppChatRuntimeService.kt must exist", serviceFile.exists())
         val text = serviceFile.readText()
         assertTrue(
@@ -45,7 +51,7 @@ class AppChatRuntimeServiceContractTest {
      */
     @Test
     fun `chatViewModel does not import runtime resolver or orchestrator`() {
-        val viewModelFile = sourceRoot.resolve("feature/chat/presentation/ChatViewModel.kt")
+        val viewModelFile = productionFile("feature/chat/presentation/ChatViewModel.kt")
         assertTrue("ChatViewModel.kt must exist", viewModelFile.exists())
         val text = viewModelFile.readText()
         assertTrue(
@@ -65,14 +71,14 @@ class AppChatRuntimeServiceContractTest {
             "feature/chat/runtime/AppChatPreparedReplyService.kt",
         )
         val missing = required.filterNot { relativePath ->
-            sourceRoot.resolve(relativePath).exists()
+            productionFileOrNull(relativePath)?.exists() == true
         }
         assertTrue("Missing App Chat runtime helper services: $missing", missing.isEmpty())
     }
 
     @Test
     fun `service does not directly invoke provider tool APIs after extraction`() {
-        val serviceFile = sourceRoot.resolve("feature/chat/runtime/AppChatRuntimeService.kt")
+        val serviceFile = productionFile("feature/chat/runtime/AppChatRuntimeService.kt")
         assertTrue("AppChatRuntimeService.kt must exist", serviceFile.exists())
         val text = serviceFile.readText()
         assertTrue(
@@ -83,5 +89,29 @@ class AppChatRuntimeServiceContractTest {
             "AppChatRuntimeService must not call sendConfiguredChatStreamWithTools directly after phase 3 extraction",
             !text.contains("sendConfiguredChatStreamWithTools"),
         )
+    }
+
+    private fun productionFile(relativePath: String): File {
+        return productionFileOrNull(relativePath)
+            ?: error("Missing production file: $relativePath")
+    }
+
+    private fun productionFileOrNull(relativePath: String): File? {
+        return sourceRoots
+            .map { sourceRoot -> sourceRoot.resolve(relativePath) }
+            .firstOrNull { file -> file.exists() }
+    }
+
+    private fun detectProjectRoot(): File {
+        var current = File("").absoluteFile
+        while (current.parentFile != null) {
+            if (current.resolve("settings.gradle.kts").exists() ||
+                current.resolve("settings.gradle").exists()
+            ) {
+                return current
+            }
+            current = current.parentFile
+        }
+        error("Unable to locate project root from ${File("").absolutePath}")
     }
 }

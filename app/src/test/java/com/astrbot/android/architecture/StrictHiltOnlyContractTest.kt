@@ -18,6 +18,10 @@ class StrictHiltOnlyContractTest {
         projectRoot.resolve("core/runtime/src/main/java/com/astrbot/android"),
         projectRoot.resolve("core/runtime-search/src/main/java/com/astrbot/android"),
         projectRoot.resolve("core/runtime-tool/src/main/java/com/astrbot/android"),
+        projectRoot.resolve("feature/chat/presentation/src/main/java/com/astrbot/android"),
+        projectRoot.resolve("feature/chat/runtime/src/main/java/com/astrbot/android"),
+        projectRoot.resolve("feature/plugin/impl/src/main/java/com/astrbot/android"),
+        projectRoot.resolve("feature/qq/impl/src/main/java/com/astrbot/android"),
     ).filter { root -> root.exists() }
     private val contractDoc: Path = projectRoot.resolve("docs/architecture/post-hilt-a-round1-contract.md")
 
@@ -398,7 +402,7 @@ class StrictHiltOnlyContractTest {
 
         val violations = buildList {
             closedMainlines.forEach { relativePath ->
-                val text = mainRoot.resolve(relativePath).readText()
+                val text = resolveProductionFile(relativePath).readText()
                 transitionTokens.forEach { token ->
                     if (text.contains(token)) {
                         add("$relativePath -> $token")

@@ -21,7 +21,12 @@ class ConfigProactiveLabelContractTest {
 
     @Test
     fun `config detail exposes only one proactive switch in automation section`() {
-        val source = readUtf8("src/main/java/com/astrbot/android/feature/config/presentation/ConfigDetailScreen.kt")
+        val source = readFirstExistingUtf8(
+            "../feature/config/presentation/src/main/java/com/astrbot/android/feature/config/presentation/ConfigDetailScreen.kt",
+            "feature/config/presentation/src/main/java/com/astrbot/android/feature/config/presentation/ConfigDetailScreen.kt",
+            "app/src/main/java/com/astrbot/android/feature/config/presentation/ConfigDetailScreen.kt",
+            "src/main/java/com/astrbot/android/feature/config/presentation/ConfigDetailScreen.kt",
+        )
         val occurrences = Regex("R\\.string\\.config_proactive_title").findAll(source).count()
 
         assertEquals(1, occurrences)
@@ -30,5 +35,11 @@ class ConfigProactiveLabelContractTest {
 
     private fun readUtf8(path: String): String {
         return Files.readAllBytes(Paths.get(path)).toString(Charsets.UTF_8)
+    }
+
+    private fun readFirstExistingUtf8(vararg paths: String): String {
+        val existing = paths.map(Paths::get).firstOrNull(Files::exists)
+            ?: error("Expected one of these source files to exist: ${paths.joinToString()}")
+        return Files.readAllBytes(existing).toString(Charsets.UTF_8)
     }
 }

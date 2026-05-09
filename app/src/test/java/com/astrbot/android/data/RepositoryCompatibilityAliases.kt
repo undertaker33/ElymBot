@@ -1,4 +1,4 @@
-package com.astrbot.android.data
+﻿package com.astrbot.android.data
 
 import android.content.Context
 import com.astrbot.android.data.db.ConversationAggregate
@@ -23,7 +23,7 @@ import com.astrbot.android.data.db.toSnapshot
 import com.astrbot.android.data.db.toSyncState
 import com.astrbot.android.data.db.toWriteModel
 import com.astrbot.android.feature.bot.data.FeatureBotRepository
-import com.astrbot.android.feature.chat.data.FeatureConversationRepository
+import com.astrbot.android.feature.conversation.data.FeatureConversationRepository
 import com.astrbot.android.feature.config.data.FeatureConfigRepository
 import com.astrbot.android.feature.cron.data.FeatureCronJobRepository
 import com.astrbot.android.feature.persona.data.FeaturePersonaRepository
@@ -1104,3 +1104,4 @@ object NapCatBridgeRepository {
         )
     }
 }
+

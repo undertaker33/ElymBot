@@ -1,6 +1,7 @@
-package com.astrbot.android.feature.cron.runtime
+﻿package com.astrbot.android.feature.cron.runtime
 
-import com.astrbot.android.feature.chat.domain.ConversationRepositoryPort
+import com.astrbot.android.di.hilt.runtime.DefaultScheduledMessageDeliveryPort
+import com.astrbot.android.feature.conversation.domain.ConversationRepositoryPort
 import com.astrbot.android.feature.qq.runtime.OneBotSendResult
 import com.astrbot.android.feature.qq.runtime.QqScheduledMessageSender
 import com.astrbot.android.model.chat.ConversationAttachment
@@ -180,3 +181,4 @@ private class RecordingQqScheduledMessageSender(
         return result
     }
 }
+

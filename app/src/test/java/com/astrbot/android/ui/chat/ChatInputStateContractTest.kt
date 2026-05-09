@@ -11,10 +11,14 @@ import java.io.File
 class ChatInputStateContractTest {
 
     private val chatScreenFile = resolvePreferredFile(
+        "../feature/chat/presentation/src/main/java/com/astrbot/android/feature/chat/presentation/ChatScreen.kt",
+        "feature/chat/presentation/src/main/java/com/astrbot/android/feature/chat/presentation/ChatScreen.kt",
         "app/src/main/java/com/astrbot/android/feature/chat/presentation/ChatScreen.kt",
         "src/main/java/com/astrbot/android/feature/chat/presentation/ChatScreen.kt",
     )
     private val chatInputFile = resolvePreferredFile(
+        "../feature/chat/presentation/src/main/java/com/astrbot/android/feature/chat/presentation/ChatInputComponents.kt",
+        "feature/chat/presentation/src/main/java/com/astrbot/android/feature/chat/presentation/ChatInputComponents.kt",
         "app/src/main/java/com/astrbot/android/feature/chat/presentation/ChatInputComponents.kt",
         "src/main/java/com/astrbot/android/feature/chat/presentation/ChatInputComponents.kt",
     )

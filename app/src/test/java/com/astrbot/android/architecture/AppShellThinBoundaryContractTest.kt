@@ -34,7 +34,6 @@ class AppShellThinBoundaryContractTest {
             "data/RuntimeAssetRepository.kt",
             "data/RuntimeCacheRepository.kt",
             "data/db/SavedQqAccountMappers.kt",
-            "data/db/download/DownloadTaskMappers.kt",
             "data/db/tts/TtsVoiceAssetMappers.kt",
         )
 

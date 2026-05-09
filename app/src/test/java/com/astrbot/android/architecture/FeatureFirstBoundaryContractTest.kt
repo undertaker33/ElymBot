@@ -1,4 +1,4 @@
-package com.astrbot.android.architecture
+﻿package com.astrbot.android.architecture
 
 import java.nio.file.Files
 import java.nio.file.Path
@@ -14,22 +14,31 @@ class FeatureFirstBoundaryContractTest {
     private val productionSourceRoots: List<Path> = listOf(
         "app/src/main/java/com/astrbot/android",
         "feature/bot/api/src/main/java/com/astrbot/android",
+        "feature/bot/data/src/main/java/com/astrbot/android",
         "feature/bot/impl/src/main/java/com/astrbot/android",
         "feature/chat/api/src/main/java/com/astrbot/android",
         "feature/chat/impl/src/main/java/com/astrbot/android",
+        "feature/chat/presentation/src/main/java/com/astrbot/android",
+        "feature/chat/runtime/src/main/java/com/astrbot/android",
         "feature/config/api/src/main/java/com/astrbot/android",
+        "feature/config/data/src/main/java/com/astrbot/android",
         "feature/config/impl/src/main/java/com/astrbot/android",
+        "feature/conversation/api/src/main/java/com/astrbot/android",
+        "feature/conversation/data/src/main/java/com/astrbot/android",
         "feature/cron/api/src/main/java/com/astrbot/android",
         "feature/cron/impl/src/main/java/com/astrbot/android",
         "feature/persona/api/src/main/java/com/astrbot/android",
+        "feature/persona/data/src/main/java/com/astrbot/android",
         "feature/persona/impl/src/main/java/com/astrbot/android",
         "feature/plugin/api/src/main/java/com/astrbot/android",
         "feature/plugin/impl/src/main/java/com/astrbot/android",
         "feature/provider/api/src/main/java/com/astrbot/android",
+        "feature/provider/data/src/main/java/com/astrbot/android",
         "feature/provider/impl/src/main/java/com/astrbot/android",
         "feature/qq/api/src/main/java/com/astrbot/android",
         "feature/qq/impl/src/main/java/com/astrbot/android",
         "feature/resource/api/src/main/java/com/astrbot/android",
+        "feature/resource/data/src/main/java/com/astrbot/android",
         "feature/resource/impl/src/main/java/com/astrbot/android",
     ).map(projectRoot::resolve).filter { root -> root.exists() }
 
@@ -38,7 +47,10 @@ class FeatureFirstBoundaryContractTest {
         val required = listOf(
             "feature/bot/data",
             "feature/chat/data",
+            "feature/chat/presentation",
+            "feature/chat/runtime",
             "feature/config/data",
+            "feature/conversation/data",
             "feature/cron/data",
             "feature/persona/data",
             "feature/plugin/runtime",
@@ -95,10 +107,39 @@ class FeatureFirstBoundaryContractTest {
     }
 
     @Test
+    fun chat_runtime_and_presentation_must_not_import_forbidden_conversation_or_ui_layers() {
+        val forbiddenByRoot = mapOf(
+            "feature/chat/runtime" to listOf(
+                "import com.astrbot.android.ui.viewmodel.",
+                "import com.astrbot.android.feature.chat.presentation.",
+                "import com.astrbot.android.feature.conversation.data.",
+            ),
+            "feature/chat/presentation" to listOf(
+                "import com.astrbot.android.feature.conversation.data.",
+                "import com.astrbot.android.feature.conversation.data.",
+            ),
+        )
+        val violations = forbiddenByRoot.flatMap { (relativeRoot, forbiddenImports) ->
+            kotlinFilesUnder(relativeRoot).flatMap { file ->
+                val relative = relativeProductionPath(file)
+                val text = file.readText()
+                forbiddenImports.mapNotNull { forbidden ->
+                    if (text.contains(forbidden)) "$relative imports $forbidden" else null
+                }
+            }
+        }
+
+        assertTrue(
+            "Chat runtime/presentation must stay behind conversation api and off presentation/data impl imports: $violations",
+            violations.isEmpty(),
+        )
+    }
+
+    @Test
     fun plugin_v1_boundary_uses_semantic_dispatch_adapter_name() {
-        val legacyFile = mainRoot.resolve("feature/plugin/runtime/PluginV1LegacyAdapter.kt")
-        val semanticFile = mainRoot.resolve("feature/plugin/runtime/PluginV1DispatchAdapter.kt")
-        val facadeFile = mainRoot.resolve("feature/plugin/runtime/PluginRuntimeFacade.kt")
+        val legacyFile = productionFileOrFallback("feature/plugin/runtime/PluginV1LegacyAdapter.kt")
+        val semanticFile = productionFileOrFallback("feature/plugin/runtime/PluginV1DispatchAdapter.kt")
+        val facadeFile = productionFileOrFallback("feature/plugin/runtime/PluginRuntimeFacade.kt")
 
         assertTrue(
             "PluginV1LegacyAdapter.kt must be removed from production after phase 5 cleanup",
@@ -163,6 +204,13 @@ class FeatureFirstBoundaryContractTest {
         return sourceRoot.relativize(file).toString().replace('\\', '/')
     }
 
+    private fun productionFileOrFallback(relativePath: String): Path {
+        return productionSourceRoots
+            .map { root -> root.resolve(relativePath) }
+            .firstOrNull { file -> file.exists() }
+            ?: mainRoot.resolve(relativePath)
+    }
+
     private fun detectProjectRoot(): Path {
         val cwd = Path.of("").toAbsolutePath()
         return when {
@@ -184,3 +232,4 @@ class FeatureFirstBoundaryContractTest {
         "import com.astrbot.android.runtime.",
     )
 }
+

@@ -34,7 +34,7 @@ import com.astrbot.android.ui.app.SecondaryTopBarPlaceholder
 import com.astrbot.android.ui.app.SecondaryTopBarSpec
 
 @Composable
-internal fun SubPageScaffold(
+fun SubPageScaffold(
     route: String = "",
     title: String,
     onBack: () -> Unit,
@@ -56,7 +56,7 @@ internal fun SubPageScaffold(
 }
 
 @Composable
-internal fun SubPageHeader(
+fun SubPageHeader(
     title: String,
     onBack: () -> Unit,
 ) {

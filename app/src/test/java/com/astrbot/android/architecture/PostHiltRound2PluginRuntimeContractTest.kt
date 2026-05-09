@@ -10,6 +10,12 @@ class PostHiltRound2PluginRuntimeContractTest {
 
     private val projectRoot: Path = detectProjectRoot()
     private val mainRoot: Path = projectRoot.resolve("app/src/main/java/com/astrbot/android")
+    private val productionSourceRoots: List<Path> = listOf(
+        "app/src/main/java/com/astrbot/android",
+        "feature/chat/runtime/src/main/java/com/astrbot/android",
+        "feature/plugin/impl/src/main/java/com/astrbot/android",
+        "feature/qq/impl/src/main/java/com/astrbot/android",
+    ).map(projectRoot::resolve).filter { root -> root.exists() }
 
     @Test
     fun plugin_runtime_hotspots_must_not_reference_transition_provider_or_bridge_tokens() {
@@ -64,7 +70,7 @@ class PostHiltRound2PluginRuntimeContractTest {
     private fun assertHotspotFilesDoNotContain(forbiddenTokens: List<String>, hotspotFiles: List<String>) {
         val violations = buildList {
             hotspotFiles.forEach { relativePath ->
-                val file = mainRoot.resolve(relativePath)
+                val file = resolveProductionFile(relativePath)
                 assertTrue("Expected plugin runtime hotspot to exist: ${file.toAbsolutePath()}", file.exists())
                 val text = file.readText()
                 forbiddenTokens.forEach { token ->
@@ -90,8 +96,8 @@ class PostHiltRound2PluginRuntimeContractTest {
         )
 
         val violations = buildList {
-            kotlinFilesUnder(mainRoot).forEach { file ->
-                val relativePath = mainRoot.relativize(file).toString().replace('\\', '/')
+            productionSourceRoots.flatMap { root -> kotlinFilesUnder(root) }.forEach { file ->
+                val relativePath = relativeProductionPath(file)
                 val text = file.readText()
                 forbiddenDeclarations.forEach { token ->
                     if (text.contains(token)) {
@@ -111,6 +117,19 @@ class PostHiltRound2PluginRuntimeContractTest {
         java.nio.file.Files.walk(root).use { paths ->
             paths.filter { path -> path.toString().endsWith(".kt") }.toList().asSequence()
         }
+
+    private fun resolveProductionFile(relativePath: String): Path {
+        return productionSourceRoots
+            .map { root -> root.resolve(relativePath) }
+            .firstOrNull { file -> file.exists() }
+            ?: mainRoot.resolve(relativePath)
+    }
+
+    private fun relativeProductionPath(file: Path): String {
+        val sourceRoot = productionSourceRoots.firstOrNull { root -> file.startsWith(root) }
+            ?: mainRoot
+        return sourceRoot.relativize(file).toString().replace('\\', '/')
+    }
 
     private fun detectProjectRoot(): Path {
         val cwd = Path.of("").toAbsolutePath()

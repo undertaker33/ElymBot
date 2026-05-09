@@ -48,9 +48,6 @@ import com.astrbot.android.model.PersonaProfile
 /** 浮动底部导航栏占位高度，用于页面内容底部预留空间，避免被导航栏遮挡。 */
 internal val FloatingBottomNavReservedPadding = 96.dp
 
-/** 浮动底部导航栏中 FAB 按钮的底部内边距，确保 FAB 不会贴边。 */
-internal val FloatingBottomNavFabBottomPadding = 88.dp
-internal val AppTopBarHeight = 58.dp
 internal val ChatDrawerTopSpacing = 8.dp
 
 @Suppress("UNUSED_PARAMETER")

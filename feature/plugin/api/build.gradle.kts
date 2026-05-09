@@ -9,4 +9,5 @@ android {
 
 dependencies {
     api(project(":feature:chat:api"))
+    api("javax.inject:javax.inject:1")
 }

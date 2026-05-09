@@ -1,4 +1,4 @@
-
+﻿
 package com.astrbot.android.di
 
 import com.astrbot.android.core.runtime.context.RuntimeContextDataPort
@@ -13,7 +13,7 @@ import com.astrbot.android.di.runtime.context.toRuntimeConversationSessionSnapsh
 import com.astrbot.android.di.runtime.context.toRuntimePersonaSnapshot
 import com.astrbot.android.di.runtime.context.toRuntimeProviderSnapshot
 import com.astrbot.android.di.runtime.context.toRuntimeResourceCenterCompatibilitySnapshot
-import com.astrbot.android.feature.chat.domain.ConversationRepositoryPort
+import com.astrbot.android.feature.conversation.domain.ConversationRepositoryPort
 import com.astrbot.android.feature.config.domain.ConfigRepositoryPort
 import com.astrbot.android.feature.persona.domain.PersonaRepositoryPort
 import com.astrbot.android.feature.provider.domain.ProviderRepositoryPort
@@ -51,3 +51,4 @@ internal class ProductionRuntimeContextDataPort @Inject constructor(
             .toRuntimeResourceCenterCompatibilitySnapshot()
     }
 }
+

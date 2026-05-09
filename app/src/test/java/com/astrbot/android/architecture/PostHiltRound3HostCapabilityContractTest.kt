@@ -10,6 +10,12 @@ class PostHiltRound3HostCapabilityContractTest {
 
     private val projectRoot: Path = detectProjectRoot()
     private val mainRoot: Path = projectRoot.resolve("app/src/main/java/com/astrbot/android")
+    private val productionSourceRoots: List<Path> = listOf(
+        "app/src/main/java/com/astrbot/android",
+        "feature/chat/runtime/src/main/java/com/astrbot/android",
+        "feature/plugin/impl/src/main/java/com/astrbot/android",
+        "feature/qq/impl/src/main/java/com/astrbot/android",
+    ).map(projectRoot::resolve).filter { root -> root.exists() }
 
     @Test
     fun host_capability_hotspots_must_not_use_compat_helpers_or_direct_execution_api_calls() {
@@ -29,7 +35,7 @@ class PostHiltRound3HostCapabilityContractTest {
 
         val violations = buildList {
             hotspotFiles.forEach { relativePath ->
-                val file = mainRoot.resolve(relativePath)
+                val file = resolveProductionFile(relativePath)
                 assertTrue("Expected host-capability hotspot to exist: ${file.toAbsolutePath()}", file.exists())
                 val text = file.readText()
                 forbiddenTokens.forEach { token ->
@@ -53,7 +59,7 @@ class PostHiltRound3HostCapabilityContractTest {
             "feature/plugin/runtime/PluginHostCapabilityGatewayFactory.kt",
             "di/hilt/PluginHostCapabilityModule.kt",
         )
-        val missing = requiredFiles.filterNot { relativePath -> mainRoot.resolve(relativePath).exists() }
+        val missing = requiredFiles.filterNot { relativePath -> resolveProductionFile(relativePath).exists() }
 
         assertTrue(
             "Host-capability final state must keep resolver/factory/module production boundary: $missing",
@@ -68,5 +74,12 @@ class PostHiltRound3HostCapabilityContractTest {
             cwd.parent?.resolve("app/src/main/java/com/astrbot/android")?.exists() == true -> cwd.parent
             else -> error("Unable to resolve project root from $cwd")
         }
+    }
+
+    private fun resolveProductionFile(relativePath: String): Path {
+        return productionSourceRoots
+            .map { root -> root.resolve(relativePath) }
+            .firstOrNull { file -> file.exists() }
+            ?: mainRoot.resolve(relativePath)
     }
 }

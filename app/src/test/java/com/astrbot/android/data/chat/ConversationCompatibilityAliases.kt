@@ -1,9 +1,9 @@
-package com.astrbot.android.data.chat
+﻿package com.astrbot.android.data.chat
 
-import com.astrbot.android.feature.chat.data.applySystemSessionTitle as featureApplySystemSessionTitle
-import com.astrbot.android.feature.chat.data.migrateLegacySessionIdentity as featureMigrateLegacySessionIdentity
-import com.astrbot.android.feature.chat.data.toConversationJson as featureToConversationJson
-import com.astrbot.android.feature.chat.data.toConversationSession as featureToConversationSession
+import com.astrbot.android.feature.conversation.data.applySystemSessionTitle as featureApplySystemSessionTitle
+import com.astrbot.android.feature.conversation.data.migrateLegacySessionIdentity as featureMigrateLegacySessionIdentity
+import com.astrbot.android.feature.conversation.data.toConversationJson as featureToConversationJson
+import com.astrbot.android.feature.conversation.data.toConversationSession as featureToConversationSession
 import com.astrbot.android.model.chat.ConversationSession
 import com.astrbot.android.model.chat.MessageSessionRef
 import org.json.JSONObject
@@ -33,3 +33,4 @@ internal fun applySystemSessionTitle(
 ): ConversationSession? {
     return featureApplySystemSessionTitle(session, incomingTitle, defaultTitle)
 }
+

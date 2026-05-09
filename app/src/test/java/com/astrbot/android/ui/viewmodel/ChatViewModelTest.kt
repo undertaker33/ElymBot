@@ -1,4 +1,4 @@
-package com.astrbot.android.ui.viewmodel
+﻿package com.astrbot.android.ui.viewmodel
 
 import com.astrbot.android.MainDispatcherRule
 import com.astrbot.android.core.runtime.context.RuntimeContextDataPort
@@ -19,7 +19,7 @@ import com.astrbot.android.di.runtime.context.toRuntimeProviderSnapshot
 import com.astrbot.android.di.runtime.context.toRuntimeResourceCenterCompatibilitySnapshot
 import com.astrbot.android.ui.viewmodel.ChatViewModelRuntimeBindings
 import com.astrbot.android.feature.chat.domain.AppChatRuntimePort
-import com.astrbot.android.feature.chat.domain.ConversationRepositoryPort
+import com.astrbot.android.feature.conversation.domain.ConversationRepositoryPort
 import com.astrbot.android.feature.chat.domain.SendAppMessageUseCase
 import com.astrbot.android.feature.resource.data.ResourceCenterCompatibility
 import com.astrbot.android.model.BotProfile
@@ -894,7 +894,10 @@ class ChatViewModelTest {
         advanceUntilIdle()
 
         assertEquals(0, deps.sentChatRequests)
-        assertEquals("插件命令执行失败：runtime exploded", deps.latestAssistantMessage()?.content)
+        assertEquals(
+            "\u63d2\u4ef6\u547d\u4ee4\u6267\u884c\u5931\u8d25\uff1aruntime exploded",
+            deps.latestAssistantMessage()?.content,
+        )
     }
 
     @Test
@@ -1012,7 +1015,7 @@ class ChatViewModelTest {
 
         assertEquals(0, deps.sentChatRequests)
         assertEquals(
-            "插件 command-plugin 因连续失败已被暂时熔断，请稍后再试。",
+            "\u63d2\u4ef6 command-plugin \u56e0\u8fde\u7eed\u5931\u8d25\u5df2\u88ab\u6682\u65f6\u7194\u65ad\uff0c\u8bf7\u7a0d\u540e\u518d\u8bd5\u3002",
             deps.latestAssistantMessage()?.content,
         )
     }
@@ -2126,3 +2129,4 @@ private fun emptyAppChatV2Engine(): PluginV2DispatchEngine {
         clock = { 1L },
     )
 }
+
