@@ -2,36 +2,12 @@ package com.astrbot.android.feature.plugin.runtime
 
 import android.content.Context
 import android.content.SharedPreferences
-import java.util.concurrent.atomic.AtomicBoolean
+import com.astrbot.android.feature.plugin.domain.PluginRuntimeLogCleanupSettings
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
-data class PluginRuntimeLogCleanupSettings(
-    val enabled: Boolean = false,
-    val intervalHours: Int = 12,
-    val intervalMinutes: Int = 0,
-    val lastCleanupAtEpochMillis: Long = 0L,
-) {
-    init {
-        require(intervalHours >= 0) { "intervalHours must not be negative." }
-        require(intervalMinutes in 0..59) { "intervalMinutes must be between 0 and 59." }
-    }
-
-    fun intervalMillis(): Long {
-        return intervalHours * 60L * 60L * 1000L + intervalMinutes * 60L * 1000L
-    }
-
-    fun shouldAutoClear(now: Long): Boolean {
-        if (!enabled) return false
-        val intervalMillis = intervalMillis()
-        if (intervalMillis <= 0L) return false
-        if (lastCleanupAtEpochMillis <= 0L) return false
-        return now - lastCleanupAtEpochMillis >= intervalMillis
-    }
-}
-
-internal interface PluginRuntimeLogCleanupSettingsStore {
+interface PluginRuntimeLogCleanupSettingsStore {
     fun loadAll(): Map<String, PluginRuntimeLogCleanupSettings>
 
     fun save(
@@ -40,7 +16,7 @@ internal interface PluginRuntimeLogCleanupSettingsStore {
     )
 }
 
-internal class InMemoryPluginRuntimeLogCleanupSettingsStore : PluginRuntimeLogCleanupSettingsStore {
+class InMemoryPluginRuntimeLogCleanupSettingsStore : PluginRuntimeLogCleanupSettingsStore {
     private val values = linkedMapOf<String, PluginRuntimeLogCleanupSettings>()
 
     override fun loadAll(): Map<String, PluginRuntimeLogCleanupSettings> = values.toMap()
@@ -92,32 +68,10 @@ private class SharedPreferencesPluginRuntimeLogCleanupSettingsStore(
     ): String = "$pluginId.$suffix"
 }
 
-object PluginRuntimeLogCleanupRepository {
-    private const val PREFS_NAME = "plugin_runtime_log_cleanup"
+interface PluginLogMaintenanceService {
+    val settings: StateFlow<Map<String, PluginRuntimeLogCleanupSettings>>
 
-    private val initialized = AtomicBoolean(false)
-    private val _settings = MutableStateFlow<Map<String, PluginRuntimeLogCleanupSettings>>(emptyMap())
-    val settings: StateFlow<Map<String, PluginRuntimeLogCleanupSettings>> = _settings.asStateFlow()
-
-    @Volatile
-    private var storeOverrideForTests: PluginRuntimeLogCleanupSettingsStore? = null
-
-    private var store: PluginRuntimeLogCleanupSettingsStore = InMemoryPluginRuntimeLogCleanupSettingsStore()
-
-    fun initialize(context: Context) {
-        if (!initialized.compareAndSet(false, true) && storeOverrideForTests == null) return
-        if (storeOverrideForTests != null) {
-            store = storeOverrideForTests!!
-        } else {
-            val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            store = SharedPreferencesPluginRuntimeLogCleanupSettingsStore(prefs)
-        }
-        _settings.value = store.loadAll()
-    }
-
-    fun settingsFor(pluginId: String): PluginRuntimeLogCleanupSettings {
-        return _settings.value[pluginId] ?: PluginRuntimeLogCleanupSettings()
-    }
+    fun settingsFor(pluginId: String): PluginRuntimeLogCleanupSettings
 
     fun updateSettings(
         pluginId: String,
@@ -125,6 +79,63 @@ object PluginRuntimeLogCleanupRepository {
         intervalHours: Int,
         intervalMinutes: Int,
         now: Long = System.currentTimeMillis(),
+    )
+
+    fun recordCleanup(
+        pluginId: String,
+        now: Long = System.currentTimeMillis(),
+    )
+
+    fun maybeAutoClear(
+        pluginId: String,
+        now: Long = System.currentTimeMillis(),
+        onClear: () -> Unit,
+    ): Boolean
+}
+
+class NoOpPluginLogMaintenanceService : PluginLogMaintenanceService {
+    private val emptySettings = MutableStateFlow<Map<String, PluginRuntimeLogCleanupSettings>>(emptyMap())
+
+    override val settings: StateFlow<Map<String, PluginRuntimeLogCleanupSettings>> = emptySettings.asStateFlow()
+
+    override fun settingsFor(pluginId: String): PluginRuntimeLogCleanupSettings = PluginRuntimeLogCleanupSettings()
+
+    override fun updateSettings(
+        pluginId: String,
+        enabled: Boolean,
+        intervalHours: Int,
+        intervalMinutes: Int,
+        now: Long,
+    ) = Unit
+
+    override fun recordCleanup(
+        pluginId: String,
+        now: Long,
+    ) = Unit
+
+    override fun maybeAutoClear(
+        pluginId: String,
+        now: Long,
+        onClear: () -> Unit,
+    ): Boolean = false
+}
+
+class DefaultPluginLogMaintenanceService(
+    private val store: PluginRuntimeLogCleanupSettingsStore = InMemoryPluginRuntimeLogCleanupSettingsStore(),
+) : PluginLogMaintenanceService {
+    private val _settings = MutableStateFlow(store.loadAll())
+    override val settings: StateFlow<Map<String, PluginRuntimeLogCleanupSettings>> = _settings.asStateFlow()
+
+    override fun settingsFor(pluginId: String): PluginRuntimeLogCleanupSettings {
+        return _settings.value[pluginId] ?: PluginRuntimeLogCleanupSettings()
+    }
+
+    override fun updateSettings(
+        pluginId: String,
+        enabled: Boolean,
+        intervalHours: Int,
+        intervalMinutes: Int,
+        now: Long,
     ) {
         val current = settingsFor(pluginId)
         val normalized = normalizeSettings(
@@ -137,18 +148,18 @@ object PluginRuntimeLogCleanupRepository {
         persist(pluginId, normalized)
     }
 
-    fun recordCleanup(
+    override fun recordCleanup(
         pluginId: String,
-        now: Long = System.currentTimeMillis(),
+        now: Long,
     ) {
         val current = settingsFor(pluginId)
         if (!current.enabled) return
         persist(pluginId, current.copy(lastCleanupAtEpochMillis = now))
     }
 
-    fun maybeAutoClear(
+    override fun maybeAutoClear(
         pluginId: String,
-        now: Long = System.currentTimeMillis(),
+        now: Long,
         onClear: () -> Unit,
     ): Boolean {
         val current = settingsFor(pluginId)
@@ -156,13 +167,6 @@ object PluginRuntimeLogCleanupRepository {
         onClear()
         persist(pluginId, current.copy(lastCleanupAtEpochMillis = now))
         return true
-    }
-
-    internal fun setStoreOverrideForTests(store: PluginRuntimeLogCleanupSettingsStore?) {
-        storeOverrideForTests = store
-        this.store = store ?: InMemoryPluginRuntimeLogCleanupSettingsStore()
-        initialized.set(store != null)
-        _settings.value = this.store.loadAll()
     }
 
     private fun persist(
@@ -197,3 +201,15 @@ object PluginRuntimeLogCleanupRepository {
         )
     }
 }
+
+fun createSharedPreferencesPluginLogMaintenanceService(context: Context): PluginLogMaintenanceService {
+    val prefs = context.applicationContext.getSharedPreferences(
+        PLUGIN_RUNTIME_LOG_CLEANUP_PREFS_NAME,
+        Context.MODE_PRIVATE,
+    )
+    return DefaultPluginLogMaintenanceService(
+        store = SharedPreferencesPluginRuntimeLogCleanupSettingsStore(prefs),
+    )
+}
+
+private const val PLUGIN_RUNTIME_LOG_CLEANUP_PREFS_NAME = "plugin_runtime_log_cleanup"

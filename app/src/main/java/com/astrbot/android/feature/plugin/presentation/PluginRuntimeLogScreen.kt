@@ -39,8 +39,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.astrbot.android.R
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.astrbot.android.feature.plugin.runtime.PluginRuntimeLogCleanupRepository
-import com.astrbot.android.feature.plugin.runtime.PluginRuntimeLogCleanupSettings
+import com.astrbot.android.feature.plugin.domain.PluginRuntimeLogCleanupSettings
 import com.astrbot.android.ui.navigation.AppDestination
 import com.astrbot.android.ui.app.MonochromeUi
 import com.astrbot.android.ui.plugin.PluginUiSpec
@@ -59,7 +58,7 @@ fun PluginRuntimeLogScreenRoute(
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
     val logRecords by pluginViewModel.runtimeLogRecords.collectAsState()
-    val cleanupSettingsByPluginId by PluginRuntimeLogCleanupRepository.settings.collectAsState()
+    val cleanupSettingsByPluginId by pluginViewModel.runtimeLogCleanupSettings.collectAsState()
     val cleanupSettings = cleanupSettingsByPluginId[pluginId] ?: PluginRuntimeLogCleanupSettings()
     val pluginTitle = uiState.selectedPlugin?.manifestSnapshot?.title ?: pluginId
     val pluginRecords = remember(logRecords, pluginId) {
@@ -69,9 +68,6 @@ fun PluginRuntimeLogScreenRoute(
         .ifBlank { context.getString(R.string.plugin_logs_empty) }
     var showCleanupDialog by remember { mutableStateOf(false) }
 
-    LaunchedEffect(context) {
-        PluginRuntimeLogCleanupRepository.initialize(context.applicationContext)
-    }
     LaunchedEffect(pluginId) {
         pluginViewModel.selectPluginForDetail(pluginId)
     }
@@ -82,9 +78,7 @@ fun PluginRuntimeLogScreenRoute(
         cleanupSettings.intervalMinutes,
         cleanupSettings.lastCleanupAtEpochMillis,
     ) {
-        PluginRuntimeLogCleanupRepository.maybeAutoClear(pluginId) {
-            pluginViewModel.clearPluginRuntimeLogs(pluginId)
-        }
+        pluginViewModel.maybeAutoClearPluginRuntimeLogs(pluginId)
     }
 
     SubPageScaffold(
@@ -130,7 +124,7 @@ fun PluginRuntimeLogScreenRoute(
                     label = stringResource(R.string.plugin_logs_clear),
                     onClick = {
                         pluginViewModel.clearPluginRuntimeLogs(pluginId)
-                        PluginRuntimeLogCleanupRepository.recordCleanup(pluginId)
+                        pluginViewModel.recordPluginRuntimeLogCleanup(pluginId)
                         Toast.makeText(
                             context,
                             context.getString(R.string.plugin_logs_clear_success),
@@ -183,7 +177,7 @@ fun PluginRuntimeLogScreenRoute(
             dialogTag = PluginUiSpec.PluginLogsCleanupDialogTag,
             onDismiss = { showCleanupDialog = false },
             onConfirm = { enabled, hours, minutes ->
-                PluginRuntimeLogCleanupRepository.updateSettings(
+                pluginViewModel.updatePluginRuntimeLogCleanupSettings(
                     pluginId = pluginId,
                     enabled = enabled,
                     intervalHours = hours,

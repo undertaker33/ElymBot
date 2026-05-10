@@ -37,21 +37,6 @@ data class PluginV2RuntimeSyncResult(
     val unloads: List<PluginV2RuntimeUnloadResult>,
 )
 
-object PluginV2RuntimeLoaderProvider {
-    @Volatile
-    private var loaderOverrideForTests: PluginV2RuntimeLoader? = null
-
-    private val sharedLoader: PluginV2RuntimeLoader by lazy {
-        PluginV2RuntimeLoader()
-    }
-
-    fun loader(): PluginV2RuntimeLoader = loaderOverrideForTests ?: sharedLoader
-
-    internal fun setLoaderOverrideForTests(loader: PluginV2RuntimeLoader?) {
-        loaderOverrideForTests = loader
-    }
-}
-
 class PluginV2RuntimeLoader(
     private val sessionFactory: PluginV2RuntimeSessionFactory = PluginV2RuntimeSessionFactory(),
     private val compiler: PluginV2RegistryCompiler = PluginV2RegistryCompiler(),
@@ -66,6 +51,7 @@ class PluginV2RuntimeLoader(
         logBus = logBus,
         store = store,
     ),
+    private val hostOperations: PluginExecutionHostOperations = DefaultPluginExecutionHostOperations(),
     private val repositoryStatePort: PluginRepositoryStatePort = EmptyPluginRepositoryStatePort,
     private val stateStore: PluginStateStore = InMemoryPluginStateStore(),
 ) {
@@ -238,6 +224,7 @@ class PluginV2RuntimeLoader(
                     session = handle.session,
                     logBus = logBus,
                     stateStore = stateStore,
+                    hostOperations = hostOperations,
                     clock = clock,
                 ),
             )

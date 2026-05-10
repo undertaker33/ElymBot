@@ -1,8 +1,12 @@
 package com.astrbot.android.feature.plugin.runtime
 
 import com.astrbot.android.feature.plugin.data.PluginRepositoryStatePort
+import com.astrbot.android.feature.plugin.domain.PluginGovernanceFailureProjection
+import com.astrbot.android.feature.plugin.domain.PluginGovernanceReadModel
+import com.astrbot.android.feature.plugin.domain.PluginGovernanceRecoveryStatus
 import com.astrbot.android.model.plugin.PluginDiagnosticsSummary
 import com.astrbot.android.model.plugin.PluginCatalogEntryRecord
+import com.astrbot.android.model.plugin.PluginFailureState
 import com.astrbot.android.model.plugin.PluginGovernanceSnapshot
 import com.astrbot.android.model.plugin.PluginInstallRecord
 import com.astrbot.android.model.plugin.PluginLifecycleDiagnostic
@@ -15,33 +19,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOf
-
-enum class PluginGovernanceRecoveryStatus {
-    IDLE,
-    TRACKING_FAILURES,
-    SUSPENDED,
-    RECOVERED,
-    RECOVERY_FAILED,
-}
-
-data class PluginGovernanceFailureProjection(
-    val pluginId: String,
-    val status: PluginGovernanceRecoveryStatus = PluginGovernanceRecoveryStatus.IDLE,
-    val lastTransitionCode: String = "",
-    val lastTransitionAtEpochMillis: Long? = null,
-    val consecutiveFailureCount: Int = 0,
-    val suspendedUntilEpochMillis: Long? = null,
-    val lastErrorSummary: String = "",
-)
-
-data class PluginGovernanceReadModel(
-    val snapshot: PluginGovernanceSnapshot,
-    val observabilitySummary: PluginObservabilitySummary,
-    val recentLogs: List<PluginRuntimeLogRecord>,
-    val diagnosticsSummary: PluginDiagnosticsSummary,
-    val lifecycleDiagnostics: List<PluginLifecycleDiagnostic>,
-    val failureProjection: PluginGovernanceFailureProjection,
-)
 
 class PluginGovernanceRepository(
     private val repositoryStatePort: PluginRepositoryStatePort,
@@ -164,6 +141,17 @@ private class ClosurePluginRepositoryStatePort(
     override val catalogEntries: StateFlow<List<PluginCatalogEntryRecord>> = MutableStateFlow(emptyList())
 
     override fun findByPluginId(pluginId: String): PluginInstallRecord? = findInstallRecord(pluginId)
+
+    override fun updateFailureState(
+        pluginId: String,
+        failureState: PluginFailureState,
+    ): PluginInstallRecord {
+        error("ClosurePluginRepositoryStatePort is read-only.")
+    }
+
+    override fun clearFailureState(pluginId: String): PluginInstallRecord {
+        error("ClosurePluginRepositoryStatePort is read-only.")
+    }
 }
 
 @Suppress("UNUSED_PARAMETER")

@@ -243,6 +243,7 @@ class StrictHiltOnlyContractTest {
         val viewModelModuleText = listOf(
             "di/hilt/ViewModelDependencyModule.kt",
             "di/hilt/presentation/PluginViewModelBindingsModule.kt",
+            "di/hilt/PluginRuntimeModule.kt",
         ).joinToString("\n") { relativePath -> mainRoot.resolve(relativePath).readText() }
         val requiredTokens = listOf(
             "repositoryStatePort: PluginRepositoryStatePort",

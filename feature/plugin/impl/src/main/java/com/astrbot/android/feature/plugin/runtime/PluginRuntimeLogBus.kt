@@ -1,6 +1,7 @@
 package com.astrbot.android.feature.plugin.runtime
 
 import android.util.Log
+import com.astrbot.android.feature.plugin.domain.PluginObservabilitySummary
 import com.astrbot.android.model.plugin.PluginRuntimeLogCategory
 import com.astrbot.android.model.plugin.PluginRuntimeLogLevel
 import com.astrbot.android.model.plugin.PluginRuntimeLogRecord
@@ -9,18 +10,6 @@ import com.astrbot.android.model.plugin.PluginV2ToolDiagnosticCodes
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-
-data class PluginObservabilitySummary(
-    val totalCount: Int = 0,
-    val lastCode: String = "",
-    val lastLevel: PluginRuntimeLogLevel? = null,
-    val lastOccurredAtEpochMillis: Long? = null,
-    val failureCount: Int = 0,
-    val recoveryCount: Int = 0,
-    val latestRequestId: String? = null,
-    val latestToolCallId: String? = null,
-    val structuredCodes: Set<String> = emptySet(),
-)
 
 typealias PluginRuntimeLogSummary = PluginObservabilitySummary
 
@@ -47,7 +36,9 @@ interface PluginRuntimeLogBus {
     fun clearPlugin(pluginId: String)
 }
 
-object NoOpPluginRuntimeLogBus : PluginRuntimeLogBus {
+val NoOpPluginRuntimeLogBus: PluginRuntimeLogBus = NoOpPluginRuntimeLogBusImpl()
+
+private class NoOpPluginRuntimeLogBusImpl : PluginRuntimeLogBus {
     private val emptyRecords = MutableStateFlow<List<PluginRuntimeLogRecord>>(emptyList())
 
     override val records: StateFlow<List<PluginRuntimeLogRecord>> = emptyRecords.asStateFlow()
@@ -75,6 +66,7 @@ object NoOpPluginRuntimeLogBus : PluginRuntimeLogBus {
 class InMemoryPluginRuntimeLogBus(
     private val capacity: Int = 200,
     private val clock: () -> Long = System::currentTimeMillis,
+    private val logMaintenanceService: PluginLogMaintenanceService = NoOpPluginLogMaintenanceService(),
 ) : PluginRuntimeLogBus {
     private companion object {
         private const val LOG_TAG = "AstrBotPluginRuntime"
@@ -91,7 +83,7 @@ class InMemoryPluginRuntimeLogBus(
 
     override fun publish(record: PluginRuntimeLogRecord) {
         synchronized(buffer) {
-            PluginRuntimeLogCleanupRepository.maybeAutoClear(
+            logMaintenanceService.maybeAutoClear(
                 pluginId = record.pluginId,
                 now = clock(),
             ) {
@@ -199,21 +191,6 @@ class InMemoryPluginRuntimeLogBus(
         } catch (_: RuntimeException) {
             // Pure JVM unit tests do not provide a real android.util.Log backend.
         }
-    }
-}
-
-object PluginRuntimeLogBusProvider {
-    @Volatile
-    private var busOverrideForTests: PluginRuntimeLogBus? = null
-
-    private val sharedBus: PluginRuntimeLogBus by lazy {
-        InMemoryPluginRuntimeLogBus()
-    }
-
-    fun bus(): PluginRuntimeLogBus = busOverrideForTests ?: sharedBus
-
-    internal fun setBusOverrideForTests(bus: PluginRuntimeLogBus?) {
-        busOverrideForTests = bus
     }
 }
 

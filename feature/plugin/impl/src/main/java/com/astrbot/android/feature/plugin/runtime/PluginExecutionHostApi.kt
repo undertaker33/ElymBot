@@ -356,8 +356,7 @@ object PluginExecutionHostApi {
     const val HostSendNotificationToolName = "send_notification"
     const val HostOpenHostPageToolName = "open_host_page"
 
-    @Volatile
-    private var compatOperations: PluginExecutionHostOperations = DefaultPluginExecutionHostOperations(
+    private val compatOperations: PluginExecutionHostOperations = DefaultPluginExecutionHostOperations(
         hostConfigResolver = EmptyPluginHostConfigResolver,
     )
 
@@ -393,13 +392,6 @@ object PluginExecutionHostApi {
         handlers: PluginExecutionHostToolHandlers = PluginExecutionHostToolHandlers(),
     ): PluginToolResult? = compatOperations.executeHostBuiltinTool(args, handlers)
 
-    internal fun installCompatOperations(
-        operations: PluginExecutionHostOperations?,
-    ) {
-        compatOperations = operations ?: DefaultPluginExecutionHostOperations(
-            hostConfigResolver = EmptyPluginHostConfigResolver,
-        )
-    }
 }
 
 private fun PluginV2ActiveRuntimeSnapshot.toolSourceSessionsByPluginId(): Map<String, PluginV2RuntimeSession> {

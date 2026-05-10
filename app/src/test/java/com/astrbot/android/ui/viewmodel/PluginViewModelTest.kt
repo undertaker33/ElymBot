@@ -73,21 +73,29 @@ import com.astrbot.android.feature.plugin.runtime.ExternalPluginHostActionExecut
 import com.astrbot.android.feature.plugin.runtime.InMemoryPluginFailureStateStore
 import com.astrbot.android.feature.plugin.runtime.InMemoryPluginScheduleStateStore
 import com.astrbot.android.feature.plugin.runtime.InMemoryPluginScopedFailureStateStore
-import com.astrbot.android.feature.plugin.runtime.PluginGovernanceFailureProjection
-import com.astrbot.android.feature.plugin.runtime.PluginGovernanceReadModel
-import com.astrbot.android.feature.plugin.runtime.PluginGovernanceRecoveryStatus
+import com.astrbot.android.feature.plugin.domain.PluginEntryExecutionPort
+import com.astrbot.android.feature.plugin.domain.PluginGovernanceFailureProjection
+import com.astrbot.android.feature.plugin.domain.PluginGovernanceReadModel
+import com.astrbot.android.feature.plugin.domain.PluginGovernanceRecoveryStatus
+import com.astrbot.android.feature.plugin.domain.PluginHostCapabilityPresentationPort
+import com.astrbot.android.feature.plugin.domain.PluginLogMaintenancePort
 import com.astrbot.android.feature.plugin.runtime.InMemoryPluginRuntimeLogBus
+import com.astrbot.android.feature.plugin.runtime.NoOpPluginLogMaintenanceService
 import com.astrbot.android.feature.plugin.runtime.NoOpPluginRuntimeLogBus
-import com.astrbot.android.feature.plugin.runtime.PluginObservabilitySummary
+import com.astrbot.android.feature.plugin.domain.PluginObservabilitySummary
+import com.astrbot.android.feature.plugin.domain.PluginRuntimeLogPresentationPort
 import com.astrbot.android.feature.plugin.runtime.PluginEntryExecutionService
 import com.astrbot.android.feature.plugin.runtime.PluginExecutionEngine
 import com.astrbot.android.feature.plugin.runtime.PluginFailureGuard
-import com.astrbot.android.feature.plugin.runtime.PluginHostCapabilityGateway
 import com.astrbot.android.feature.plugin.runtime.DefaultPluginHostCapabilityGateway
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimeDispatcher
+import com.astrbot.android.feature.plugin.runtime.PluginLogMaintenanceService
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimeLogBus
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimeScheduler
 import com.astrbot.android.feature.plugin.runtime.RecordingExternalPluginScriptExecutor
+import com.astrbot.android.feature.plugin.runtime.RuntimePluginHostCapabilityPresentationPort
+import com.astrbot.android.feature.plugin.runtime.RuntimePluginLogMaintenancePort
+import com.astrbot.android.feature.plugin.runtime.RuntimePluginRuntimeLogPresentationPort
 import com.astrbot.android.feature.plugin.runtime.compareVersions
 import com.astrbot.android.feature.plugin.runtime.createQuickJsExternalPluginInstallRecord
 import com.astrbot.android.feature.plugin.runtime.samplePluginV2InstallRecord
@@ -2838,7 +2846,7 @@ class PluginViewModelTest {
         val deps = FakePluginDependencies(records = listOf(record))
         val capturedContexts = mutableListOf<com.astrbot.android.model.plugin.PluginExecutionContext>()
         val entryExecutionService = object : PluginEntryExecutionService(
-            engine = testPluginExecutionEngine(deps.logBus),
+            engine = testPluginExecutionEngine(),
             pluginCatalog = ExternalPluginRuntimeCatalog(),
         ) {
             override fun execute(
@@ -2851,7 +2859,14 @@ class PluginViewModelTest {
         }
         val viewModel = createPluginViewModel(
             bindings = deps,
-            entryExecutionService = entryExecutionService,
+            entryExecutionService = object : PluginEntryExecutionPort {
+                override fun execute(
+                    record: PluginInstallRecord,
+                    context: com.astrbot.android.model.plugin.PluginExecutionContext,
+                ): com.astrbot.android.model.plugin.PluginExecutionResult? {
+                    return entryExecutionService.execute(record, context)
+                }
+            },
         )
         advanceUntilIdle()
 
@@ -2873,7 +2888,8 @@ class PluginViewModelTest {
         configSnapshots: Map<String, PluginConfigStoreSnapshot> = emptyMap(),
         workspaceSnapshots: Map<String, PluginHostWorkspaceSnapshot> = emptyMap(),
         private val hostVersion: String = "9.9.9",
-        override val logBus: PluginRuntimeLogBus = NoOpPluginRuntimeLogBus,
+        logBus: PluginRuntimeLogBus = NoOpPluginRuntimeLogBus,
+        logMaintenanceService: PluginLogMaintenanceService = NoOpPluginLogMaintenanceService(),
         private val governanceReadsLogBus: Boolean = false,
     ) : PluginViewModelBindings,
         PluginMarketBindings,
@@ -2881,6 +2897,9 @@ class PluginViewModelTest {
         PluginWorkspaceBindings,
         PluginGovernanceBindings,
         PluginManagementBindings {
+        override val logBus: PluginRuntimeLogPresentationPort = RuntimePluginRuntimeLogPresentationPort(logBus)
+        override val logMaintenanceService: PluginLogMaintenancePort =
+            RuntimePluginLogMaintenancePort(logMaintenanceService)
         private val recordsFlow = MutableStateFlow(records.map(::projectInstalledRecord))
         private val repositorySourcesFlow = MutableStateFlow(repositorySources)
         private val catalogEntriesFlow = MutableStateFlow(catalogEntries)
@@ -3524,8 +3543,8 @@ private fun PluginViewModel(
 
 private fun createPluginViewModel(
     bindings: PluginViewModelBindings,
-    hostCapabilityGateway: PluginHostCapabilityGateway = testPluginHostCapabilityGateway(),
-    entryExecutionService: PluginEntryExecutionService = fakePluginEntryExecutionService(bindings.logBus),
+    hostCapabilityGateway: PluginHostCapabilityPresentationPort = testPluginHostCapabilityGateway(),
+    entryExecutionService: PluginEntryExecutionPort = fakePluginEntryExecutionService(),
 ): com.astrbot.android.ui.viewmodel.PluginViewModel {
     val managementBindings = bindings as? PluginManagementBindings
         ?: error("Test bindings must implement PluginManagementBindings")
@@ -3537,12 +3556,27 @@ private fun createPluginViewModel(
     )
 }
 
-private fun testPluginHostCapabilityGateway(): PluginHostCapabilityGateway {
-    return DefaultPluginHostCapabilityGateway(
-        resolver = DefaultPluginExecutionHostResolver(
-            DefaultPluginExecutionHostOperations(),
+private fun testPluginHostCapabilityGateway(): PluginHostCapabilityPresentationPort {
+    return RuntimePluginHostCapabilityPresentationPort(
+        DefaultPluginHostCapabilityGateway(
+            resolver = DefaultPluginExecutionHostResolver(
+                DefaultPluginExecutionHostOperations(),
+            ),
+            hostActionExecutor = ExternalPluginHostActionExecutor(),
         ),
-        hostActionExecutor = ExternalPluginHostActionExecutor(),
+    )
+}
+
+private fun fakePluginEntryExecutionService(
+    logBus: PluginRuntimeLogPresentationPort,
+    onExecute: (
+        PluginInstallRecord,
+        com.astrbot.android.model.plugin.PluginExecutionContext,
+    ) -> com.astrbot.android.model.plugin.PluginExecutionResult? = { _, _ -> null },
+): PluginEntryExecutionPort {
+    return fakePluginEntryExecutionService(
+        logBus = NoOpPluginRuntimeLogBus,
+        onExecute = onExecute,
     )
 }
 
@@ -3552,8 +3586,8 @@ private fun fakePluginEntryExecutionService(
         PluginInstallRecord,
         com.astrbot.android.model.plugin.PluginExecutionContext,
     ) -> com.astrbot.android.model.plugin.PluginExecutionResult? = { _, _ -> null },
-): PluginEntryExecutionService {
-    return object : PluginEntryExecutionService(
+): PluginEntryExecutionPort {
+    val service = object : PluginEntryExecutionService(
         engine = testPluginExecutionEngine(logBus),
         pluginCatalog = ExternalPluginRuntimeCatalog(),
     ) {
@@ -3562,6 +3596,14 @@ private fun fakePluginEntryExecutionService(
             context: com.astrbot.android.model.plugin.PluginExecutionContext,
         ): com.astrbot.android.model.plugin.PluginExecutionResult? {
             return onExecute(record, context)
+        }
+    }
+    return object : PluginEntryExecutionPort {
+        override fun execute(
+            record: PluginInstallRecord,
+            context: com.astrbot.android.model.plugin.PluginExecutionContext,
+        ): com.astrbot.android.model.plugin.PluginExecutionResult? {
+            return service.execute(record, context)
         }
     }
 }

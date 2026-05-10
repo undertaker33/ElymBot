@@ -16,6 +16,12 @@ import com.astrbot.android.data.db.toInstallRecord
 import com.astrbot.android.data.db.toWriteModel
 import com.astrbot.android.feature.plugin.data.catalog.PluginCatalogSyncStore
 import com.astrbot.android.feature.plugin.data.config.PluginConfigStorage
+import com.astrbot.android.feature.plugin.domain.PluginCatalogRepositoryPort
+import com.astrbot.android.feature.plugin.domain.PluginConfigRepositoryPort
+import com.astrbot.android.feature.plugin.domain.PluginInstallRepositoryPort
+import com.astrbot.android.feature.plugin.domain.PluginRepositoryPort
+import com.astrbot.android.feature.plugin.domain.PluginStateRepositoryPort
+import com.astrbot.android.feature.plugin.domain.PluginUninstallResult as DomainPluginUninstallResult
 import com.astrbot.android.feature.plugin.domain.cleanup.PluginDataCleanupService
 import com.astrbot.android.model.plugin.PluginCatalogEntryRecord
 import com.astrbot.android.model.plugin.PluginCatalogSyncState
@@ -28,6 +34,7 @@ import com.astrbot.android.model.plugin.PluginConfigStoreSnapshot
 import com.astrbot.android.model.plugin.PluginFailureState
 import com.astrbot.android.model.plugin.PluginInstallRecord
 import com.astrbot.android.model.plugin.PluginPackageContractJson
+import com.astrbot.android.model.plugin.PluginPackageContract
 import com.astrbot.android.model.plugin.PluginPackageValidationIssue
 import com.astrbot.android.model.plugin.PluginPermissionDeclaration
 import com.astrbot.android.model.plugin.PluginRepositorySource
@@ -41,7 +48,7 @@ import com.astrbot.android.model.plugin.PluginSourceType
 import com.astrbot.android.model.plugin.PluginUpdateAvailability
 import com.astrbot.android.model.plugin.PluginUninstallPolicy
 import com.astrbot.android.model.plugin.toSnapshot as toPackageContractSnapshot
-import com.astrbot.android.feature.plugin.runtime.PluginPackageValidationResult
+import com.astrbot.android.feature.plugin.domain.PluginPackageValidationResult
 import com.astrbot.android.feature.plugin.runtime.PluginPackageValidator
 import com.astrbot.android.feature.plugin.runtime.compareVersions
 import com.astrbot.android.feature.plugin.runtime.normalizeArchiveEntryName
@@ -66,13 +73,7 @@ interface PluginInstallStore {
     fun upsert(record: PluginInstallRecord)
 }
 
-interface PluginRepositoryStatePort {
-    val records: StateFlow<List<PluginInstallRecord>>
-    val repositorySources: StateFlow<List<PluginRepositorySource>>
-    val catalogEntries: StateFlow<List<PluginCatalogEntryRecord>>
-
-    fun findByPluginId(pluginId: String): PluginInstallRecord?
-}
+typealias PluginRepositoryStatePort = PluginStateRepositoryPort
 
 object EmptyPluginRepositoryStatePort : PluginRepositoryStatePort {
     override val records: StateFlow<List<PluginInstallRecord>> = MutableStateFlow(emptyList())
@@ -80,12 +81,23 @@ object EmptyPluginRepositoryStatePort : PluginRepositoryStatePort {
     override val catalogEntries: StateFlow<List<PluginCatalogEntryRecord>> = MutableStateFlow(emptyList())
 
     override fun findByPluginId(pluginId: String): PluginInstallRecord? = null
+
+    override fun updateFailureState(
+        pluginId: String,
+        failureState: PluginFailureState,
+    ): PluginInstallRecord {
+        error("Plugin repository state port is not connected.")
+    }
+
+    override fun clearFailureState(pluginId: String): PluginInstallRecord {
+        error("Plugin repository state port is not connected.")
+    }
 }
 
 @Singleton
 class FeaturePluginRepositoryStateOwner @Inject constructor(
     private val repository: FeaturePluginRepository,
-) : PluginRepositoryStatePort {
+) : PluginRepositoryPort {
     override val records: StateFlow<List<PluginInstallRecord>> = repository.records
     override val repositorySources: StateFlow<List<PluginRepositorySource>> = repository.repositorySources
     override val catalogEntries: StateFlow<List<PluginCatalogEntryRecord>> = repository.catalogEntries
@@ -93,13 +105,106 @@ class FeaturePluginRepositoryStateOwner @Inject constructor(
     override fun findByPluginId(pluginId: String): PluginInstallRecord? {
         return repository.findByPluginId(pluginId)
     }
+
+    override fun updateFailureState(
+        pluginId: String,
+        failureState: PluginFailureState,
+    ): PluginInstallRecord {
+        return repository.updateFailureState(pluginId, failureState)
+    }
+
+    override fun clearFailureState(pluginId: String): PluginInstallRecord {
+        return repository.clearFailureState(pluginId)
+    }
+
+    override fun upsert(record: PluginInstallRecord) {
+        repository.upsert(record)
+    }
+
+    override fun delete(pluginId: String) {
+        repository.delete(pluginId)
+    }
+
+    override fun setEnabled(pluginId: String, enabled: Boolean): PluginInstallRecord {
+        return repository.setEnabled(pluginId, enabled)
+    }
+
+    override fun uninstall(
+        pluginId: String,
+        policy: PluginUninstallPolicy,
+    ): DomainPluginUninstallResult {
+        return repository.uninstall(pluginId, policy)
+    }
+
+    override fun getRepositorySource(sourceId: String): PluginRepositorySource? {
+        return repository.getRepositorySource(sourceId)
+    }
+
+    override fun getRepositorySourceSyncState(sourceId: String): PluginCatalogSyncState? {
+        return repository.getRepositorySourceSyncState(sourceId)
+    }
+
+    override fun listRepositorySources(): List<PluginRepositorySource> {
+        return repository.listRepositorySources()
+    }
+
+    override fun listAllCatalogEntries(): List<PluginCatalogEntryRecord> {
+        return repository.listAllCatalogEntries()
+    }
+
+    override fun listCatalogVersions(sourceId: String, pluginId: String): List<PluginCatalogVersion> {
+        return repository.listCatalogVersions(sourceId, pluginId)
+    }
+
+    override fun getUpdateAvailability(pluginId: String, hostVersion: String): PluginUpdateAvailability? {
+        return repository.getUpdateAvailability(pluginId, hostVersion)
+    }
+
+    override fun replaceRepositoryCatalog(source: PluginRepositorySource) {
+        repository.replaceRepositoryCatalog(source)
+    }
+
+    override fun upsertRepositorySource(source: PluginRepositorySource) {
+        repository.upsertRepositorySource(source)
+    }
+
+    override fun getInstalledStaticConfigSchema(pluginId: String): PluginStaticConfigSchema? {
+        return repository.getInstalledStaticConfigSchema(pluginId)
+    }
+
+    override fun resolveInstalledStaticConfigSchemaPath(pluginId: String): String? {
+        return repository.resolveInstalledStaticConfigSchemaPath(pluginId)
+    }
+
+    override fun resolveInstalledSettingsSchemaPath(pluginId: String): String? {
+        return repository.resolveInstalledSettingsSchemaPath(pluginId)
+    }
+
+    override fun resolveConfigSnapshot(
+        pluginId: String,
+        boundary: PluginConfigStorageBoundary,
+    ): PluginConfigStoreSnapshot {
+        return repository.resolveConfigSnapshot(pluginId, boundary)
+    }
+
+    override fun saveCoreConfig(
+        pluginId: String,
+        boundary: PluginConfigStorageBoundary,
+        coreValues: Map<String, PluginStaticConfigValue>,
+    ): PluginConfigStoreSnapshot {
+        return repository.saveCoreConfig(pluginId, boundary, coreValues)
+    }
+
+    override fun saveExtensionConfig(
+        pluginId: String,
+        boundary: PluginConfigStorageBoundary,
+        extensionValues: Map<String, PluginStaticConfigValue>,
+    ): PluginConfigStoreSnapshot {
+        return repository.saveExtensionConfig(pluginId, boundary, extensionValues)
+    }
 }
 
-data class PluginUninstallResult(
-    val pluginId: String,
-    val policy: PluginUninstallPolicy,
-    val removedData: Boolean,
-)
+typealias PluginUninstallResult = DomainPluginUninstallResult
 
 data class PluginCatalogVersionGateResult(
     val compatibilityState: PluginCompatibilityState,
@@ -173,16 +278,16 @@ class FeaturePluginRepository @Inject constructor(
     private val pluginCatalogDao: PluginCatalogDao,
     private val pluginConfigStorage: PluginConfigStorage,
     private val pluginDataCleanupService: PluginDataCleanupService,
-) : PluginInstallStore, PluginCatalogSyncStore {
+) : PluginRepositoryPort, PluginInstallStore, PluginCatalogSyncStore {
     private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var timeProvider: () -> Long = System::currentTimeMillis
     private val _records = MutableStateFlow<List<PluginInstallRecord>>(emptyList())
     private val _repositorySources = MutableStateFlow<List<PluginRepositorySource>>(emptyList())
     private val _catalogEntries = MutableStateFlow<List<PluginCatalogEntryRecord>>(emptyList())
 
-    val records: StateFlow<List<PluginInstallRecord>> = _records.asStateFlow()
-    val repositorySources: StateFlow<List<PluginRepositorySource>> = _repositorySources.asStateFlow()
-    val catalogEntries: StateFlow<List<PluginCatalogEntryRecord>> = _catalogEntries.asStateFlow()
+    override val records: StateFlow<List<PluginInstallRecord>> = _records.asStateFlow()
+    override val repositorySources: StateFlow<List<PluginRepositorySource>> = _repositorySources.asStateFlow()
+    override val catalogEntries: StateFlow<List<PluginCatalogEntryRecord>> = _catalogEntries.asStateFlow()
 
     init {
         graphInstance = this
@@ -226,7 +331,7 @@ class FeaturePluginRepository @Inject constructor(
             .sortedByDescending { current -> current.lastUpdatedAt }
     }
 
-    fun delete(pluginId: String) {
+    override fun delete(pluginId: String) {
         runBlocking(Dispatchers.IO) {
             pluginDao.delete(pluginId)
         }
@@ -325,7 +430,7 @@ class FeaturePluginRepository @Inject constructor(
         }
     }
 
-    fun getUpdateAvailability(
+    override fun getUpdateAvailability(
         pluginId: String,
         hostVersion: String,
     ): PluginUpdateAvailability? {
@@ -348,7 +453,7 @@ class FeaturePluginRepository @Inject constructor(
         )
     }
 
-    fun setEnabled(pluginId: String, enabled: Boolean): PluginInstallRecord {
+    override fun setEnabled(pluginId: String, enabled: Boolean): PluginInstallRecord {
         requireInitialized()
         val current = requireRecord(pluginId)
         if (enabled && current.compatibilityState.status == PluginCompatibilityStatus.INCOMPATIBLE) {
@@ -368,7 +473,7 @@ class FeaturePluginRepository @Inject constructor(
         )
     }
 
-    fun updateFailureState(
+    override fun updateFailureState(
         pluginId: String,
         failureState: PluginFailureState,
     ): PluginInstallRecord {
@@ -384,14 +489,14 @@ class FeaturePluginRepository @Inject constructor(
         )
     }
 
-    fun clearFailureState(pluginId: String): PluginInstallRecord {
+    override fun clearFailureState(pluginId: String): PluginInstallRecord {
         return updateFailureState(
             pluginId = pluginId,
             failureState = PluginFailureState.none(),
         )
     }
 
-    fun uninstall(
+    override fun uninstall(
         pluginId: String,
         policy: PluginUninstallPolicy,
     ): PluginUninstallResult {
@@ -409,26 +514,26 @@ class FeaturePluginRepository @Inject constructor(
         )
     }
 
-    fun resolveConfigSnapshot(
+    override fun resolveConfigSnapshot(
         pluginId: String,
         boundary: PluginConfigStorageBoundary,
     ): PluginConfigStoreSnapshot {
         return pluginConfigStorage.resolveConfigSnapshot(pluginId, boundary)
     }
 
-    fun getInstalledStaticConfigSchema(pluginId: String): PluginStaticConfigSchema? {
+    override fun getInstalledStaticConfigSchema(pluginId: String): PluginStaticConfigSchema? {
         return pluginConfigStorage.getInstalledStaticConfigSchema(pluginId)
     }
 
-    fun resolveInstalledStaticConfigSchemaPath(pluginId: String): String? {
+    override fun resolveInstalledStaticConfigSchemaPath(pluginId: String): String? {
         return pluginConfigStorage.resolveInstalledStaticConfigSchemaPath(pluginId)
     }
 
-    fun resolveInstalledSettingsSchemaPath(pluginId: String): String? {
+    override fun resolveInstalledSettingsSchemaPath(pluginId: String): String? {
         return pluginConfigStorage.resolveInstalledSettingsSchemaPath(pluginId)
     }
 
-    fun saveCoreConfig(
+    override fun saveCoreConfig(
         pluginId: String,
         boundary: PluginConfigStorageBoundary,
         coreValues: Map<String, PluginStaticConfigValue>,
@@ -436,7 +541,7 @@ class FeaturePluginRepository @Inject constructor(
         return pluginConfigStorage.saveCoreConfig(pluginId, boundary, coreValues)
     }
 
-    fun saveExtensionConfig(
+    override fun saveExtensionConfig(
         pluginId: String,
         boundary: PluginConfigStorageBoundary,
         extensionValues: Map<String, PluginStaticConfigValue>,
@@ -1069,7 +1174,7 @@ class FeaturePluginRepository @Inject constructor(
     }
 }
 
-internal fun createLocalPackageInstallBlockedException(
+fun createLocalPackageInstallBlockedException(
     validation: PluginPackageValidationResult,
 ): PluginPackageInstallBlockedException {
     return PluginPackageInstallBlockedException(
@@ -1083,7 +1188,7 @@ internal fun createLocalPackageInstallBlockedException(
     )
 }
 
-internal fun createLocalPackageInstallBlockedException(
+fun createLocalPackageInstallBlockedException(
     error: Throwable,
 ): PluginPackageInstallBlockedException {
     val issue = PluginPackageValidationIssue(
@@ -1126,7 +1231,7 @@ fun unsupportedProtocolCompatibilityNote(
     if (protocolVersion == supportedProtocolVersion) {
         return null
     }
-    return if (protocolVersion == 1 && supportedProtocolVersion == FeaturePluginRepository.SUPPORTED_PROTOCOL_VERSION) {
+    return if (protocolVersion == 1 && supportedProtocolVersion == PluginPackageContract.SUPPORTED_PROTOCOL_VERSION) {
         "Legacy v1 plugin packages are unsupported. Upgrade the plugin package to protocol version 2."
     } else {
         "Protocol version $protocolVersion is not supported."

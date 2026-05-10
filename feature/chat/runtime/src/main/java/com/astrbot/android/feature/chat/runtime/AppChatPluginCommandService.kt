@@ -3,7 +3,6 @@ package com.astrbot.android.feature.chat.runtime
 
 import com.astrbot.android.feature.chat.runtime.R
 import com.astrbot.android.feature.chat.runtime.botcommand.BotCommandStringResolver
-import com.astrbot.android.feature.plugin.data.PluginStoragePaths
 import com.astrbot.android.feature.plugin.runtime.AppChatPluginRuntime
 import com.astrbot.android.feature.plugin.runtime.ExternalPluginHostActionExecutor
 import com.astrbot.android.feature.plugin.runtime.ExternalPluginHostActionHandlers
@@ -43,6 +42,10 @@ import java.io.File
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 
+fun interface AppChatPluginPrivateRootPathResolver {
+    fun resolve(pluginId: String): String
+}
+
 class AppChatPluginCommandService(
     private val dependencies: AppChatRuntimeBindings,
     private val appChatPluginRuntime: AppChatPluginRuntime,
@@ -50,6 +53,8 @@ class AppChatPluginCommandService(
     private val hostActionExecutor: ExternalPluginHostActionExecutor,
     private val dispatchEngine: PluginV2DispatchEngine,
     private val strings: BotCommandStringResolver = BotCommandStringResolver.fallback,
+    private val privateRootPathResolver: AppChatPluginPrivateRootPathResolver =
+        AppChatPluginPrivateRootPathResolver { "" },
 ) {
     fun isUnsupportedPluginCommand(content: String): Boolean {
         val parsedCommand = com.astrbot.android.feature.chat.runtime.botcommand.BotCommandParser.parse(content) ?: return false
@@ -422,9 +427,7 @@ class AppChatPluginCommandService(
 
     private fun resolvePluginPrivateRootPath(pluginId: String): String {
         return runCatching {
-            PluginStoragePaths.fromFilesDir(
-                com.astrbot.android.feature.plugin.data.FeaturePluginRepository.requireAppContext().filesDir,
-            ).privateDir(pluginId).absolutePath
+            privateRootPathResolver.resolve(pluginId)
         }.getOrDefault("")
     }
 

@@ -29,7 +29,7 @@ import com.astrbot.android.feature.cron.data.FeatureCronJobRepository
 import com.astrbot.android.feature.persona.data.FeaturePersonaRepository
 import com.astrbot.android.feature.plugin.data.PluginCatalogVersionGate
 import com.astrbot.android.feature.plugin.data.catalog.PluginCatalogSyncStore
-import com.astrbot.android.feature.plugin.runtime.PluginPackageValidationResult
+import com.astrbot.android.feature.plugin.domain.PluginPackageValidationResult
 import com.astrbot.android.feature.plugin.runtime.PluginPackageValidator
 import com.astrbot.android.feature.plugin.runtime.compareVersions
 import com.astrbot.android.feature.provider.data.FeatureProviderRepository

@@ -3,6 +3,7 @@ package com.astrbot.android.feature.plugin.runtime
 import com.astrbot.android.feature.plugin.data.normalizePackageValidationIssueMessage
 import com.astrbot.android.feature.plugin.data.unsupportedProtocolCompatibilityNote
 import com.astrbot.android.feature.plugin.domain.PluginHostVersion
+import com.astrbot.android.feature.plugin.domain.PluginPackageValidationResult
 import com.astrbot.android.feature.plugin.domain.SupportedPluginProtocolVersion
 import com.astrbot.android.model.plugin.PluginCompatibilityState
 import com.astrbot.android.model.plugin.PluginManifest
@@ -17,14 +18,6 @@ import java.util.zip.ZipInputStream
 import javax.inject.Inject
 import org.json.JSONArray
 import org.json.JSONObject
-
-data class PluginPackageValidationResult(
-    val manifest: PluginManifest,
-    val compatibilityState: PluginCompatibilityState,
-    val installable: Boolean,
-    val packageContract: PluginPackageContract? = null,
-    val validationIssues: List<PluginPackageValidationIssue> = emptyList(),
-)
 
 class PluginPackageValidator @Inject constructor(
     @PluginHostVersion

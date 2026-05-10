@@ -20,6 +20,8 @@ class PostHiltRound3HostCapabilityContractTest {
     @Test
     fun host_capability_hotspots_must_not_use_compat_helpers_or_direct_execution_api_calls() {
         val hotspotFiles = listOf(
+            "feature/plugin/runtime/PluginExecutionHostResolver.kt",
+            "feature/plugin/runtime/PluginV2BootstrapHostApi.kt",
             "feature/plugin/presentation/PluginViewModel.kt",
             "feature/chat/runtime/AppChatPluginCommandService.kt",
             "feature/qq/runtime/QqPluginDispatchService.kt",
@@ -31,6 +33,7 @@ class PostHiltRound3HostCapabilityContractTest {
             "PluginExecutionHostApi.inject(",
             "PluginExecutionHostApi.registerHostBuiltinTools(",
             "PluginExecutionHostApi.executeHostBuiltinTool(",
+            "PluginExecutionHostApi.installCompatOperations(",
         )
 
         val violations = buildList {

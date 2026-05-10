@@ -1,8 +1,8 @@
 package com.astrbot.android.di
 
 import com.astrbot.android.feature.plugin.data.PluginCatalogVersionGateResult
-import com.astrbot.android.feature.plugin.runtime.PluginGovernanceReadModel
-import com.astrbot.android.feature.plugin.runtime.PluginRuntimeLogBus
+import com.astrbot.android.feature.plugin.domain.PluginGovernanceReadModel
+import com.astrbot.android.feature.plugin.domain.PluginRuntimeLogPresentationPort
 import com.astrbot.android.feature.qq.data.NapCatLoginService
 import com.astrbot.android.model.NapCatLoginState
 import com.astrbot.android.model.plugin.PluginCatalogEntryRecord
@@ -43,7 +43,7 @@ interface PluginViewModelDependencies {
     val repositorySources: StateFlow<List<PluginRepositorySource>>
     val catalogEntries: StateFlow<List<PluginCatalogEntryRecord>>
     val governanceReadModels: Flow<Map<String, PluginGovernanceReadModel>>
-    val logBus: PluginRuntimeLogBus
+    val logBus: PluginRuntimeLogPresentationPort
     suspend fun handleInstallIntent(intent: PluginInstallIntent, onDownloadProgress: (PluginDownloadProgress) -> Unit = {}): PluginInstallIntentResult
     suspend fun installFromLocalPackageUri(uri: String): PluginInstallIntentResult
     suspend fun ensureOfficialMarketCatalogSubscribed(): PluginCatalogSyncState

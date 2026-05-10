@@ -443,104 +443,49 @@ class PluginV2BootstrapHostApiTest {
 
     @Test
     fun getSettings_reads_merged_settings_from_plugin_execution_host_resolution_path() {
-        PluginExecutionHostApi.installCompatOperations(
-            object : PluginExecutionHostOperations {
-                override fun resolve(pluginId: String): PluginExecutionHostSnapshot {
-                    return PluginExecutionHostSnapshot(
-                        mergedSettings = linkedMapOf(
-                            "token" to "secret",
-                            "enabled" to true,
-                        ),
-                    )
-                }
-
-                override fun inject(
-                    context: PluginExecutionContext,
-                    hostSnapshot: PluginExecutionHostSnapshot,
-                ): PluginExecutionContext = context
-
-                override fun registeredHostToolDescriptors(
-                    handlers: PluginExecutionHostToolHandlers,
-                ): List<PluginToolDescriptor> = emptyList()
-
-                override fun registerHostBuiltinTools(
-                    snapshot: PluginV2ActiveRuntimeSnapshot,
-                    handlers: PluginExecutionHostToolHandlers,
-                    personaSnapshot: com.astrbot.android.model.PersonaToolEnablementSnapshot?,
-                    capabilityGateway: PluginV2ToolCapabilityGateway,
-                    futureSourceDescriptors: Collection<PluginToolDescriptor>,
-                    activeFutureSourceKinds: Set<PluginToolSourceKind>,
-                ): PluginV2ActiveRuntimeSnapshot = snapshot
-
-                override fun executeHostBuiltinTool(
-                    args: PluginToolArgs,
-                    handlers: PluginExecutionHostToolHandlers,
-                ): PluginToolResult? = null
-            },
-        )
-        try {
-            val hostApi = PluginV2BootstrapHostApi(
-                session = bootstrapRunningSession(sessionInstanceId = "session-settings"),
-                logBus = InMemoryPluginRuntimeLogBus(clock = { 1_300L }),
-                clock = { 1_300L },
-            )
-
-            val settings = hostApi.getSettings()
-
-            assertEquals("secret", settings["token"])
-            assertEquals(true, settings["enabled"])
-        } finally {
-            PluginExecutionHostApi.installCompatOperations(null)
+        val hostOperations = object : NoOpPluginExecutionHostOperations() {
+            override fun resolve(pluginId: String): PluginExecutionHostSnapshot {
+                return PluginExecutionHostSnapshot(
+                    mergedSettings = linkedMapOf(
+                        "token" to "secret",
+                        "enabled" to true,
+                    ),
+                )
+            }
         }
+
+        val hostApi = PluginV2BootstrapHostApi(
+            session = bootstrapRunningSession(sessionInstanceId = "session-settings"),
+            logBus = InMemoryPluginRuntimeLogBus(clock = { 1_300L }),
+            hostOperations = hostOperations,
+            clock = { 1_300L },
+        )
+
+        val settings = hostApi.getSettings()
+
+        assertEquals("secret", settings["token"])
+        assertEquals(true, settings["enabled"])
     }
 
     @Test
     fun getSettings_returns_empty_map_and_logs_warning_when_host_resolution_fails() {
         val logBus = InMemoryPluginRuntimeLogBus(clock = { 1_301L })
-        PluginExecutionHostApi.installCompatOperations(
-            object : PluginExecutionHostOperations {
-                override fun resolve(pluginId: String): PluginExecutionHostSnapshot {
-                    error("boom")
-                }
-
-                override fun inject(
-                    context: PluginExecutionContext,
-                    hostSnapshot: PluginExecutionHostSnapshot,
-                ): PluginExecutionContext = context
-
-                override fun registeredHostToolDescriptors(
-                    handlers: PluginExecutionHostToolHandlers,
-                ): List<PluginToolDescriptor> = emptyList()
-
-                override fun registerHostBuiltinTools(
-                    snapshot: PluginV2ActiveRuntimeSnapshot,
-                    handlers: PluginExecutionHostToolHandlers,
-                    personaSnapshot: com.astrbot.android.model.PersonaToolEnablementSnapshot?,
-                    capabilityGateway: PluginV2ToolCapabilityGateway,
-                    futureSourceDescriptors: Collection<PluginToolDescriptor>,
-                    activeFutureSourceKinds: Set<PluginToolSourceKind>,
-                ): PluginV2ActiveRuntimeSnapshot = snapshot
-
-                override fun executeHostBuiltinTool(
-                    args: PluginToolArgs,
-                    handlers: PluginExecutionHostToolHandlers,
-                ): PluginToolResult? = null
-            },
-        )
-        try {
-            val hostApi = PluginV2BootstrapHostApi(
-                session = bootstrapRunningSession(sessionInstanceId = "session-settings-failure"),
-                logBus = logBus,
-                clock = { 1_301L },
-            )
-
-            val settings = hostApi.getSettings()
-
-            assertTrue(settings.isEmpty())
-            assertEquals("bootstrap_settings_load_failed", logBus.snapshot().single().code)
-        } finally {
-            PluginExecutionHostApi.installCompatOperations(null)
+        val hostOperations = object : NoOpPluginExecutionHostOperations() {
+            override fun resolve(pluginId: String): PluginExecutionHostSnapshot {
+                error("boom")
+            }
         }
+        val hostApi = PluginV2BootstrapHostApi(
+            session = bootstrapRunningSession(sessionInstanceId = "session-settings-failure"),
+            logBus = logBus,
+            hostOperations = hostOperations,
+            clock = { 1_301L },
+        )
+
+        val settings = hostApi.getSettings()
+
+        assertTrue(settings.isEmpty())
+        assertEquals("bootstrap_settings_load_failed", logBus.snapshot().single().code)
     }
 
     @Test
@@ -637,4 +582,31 @@ class PluginV2BootstrapHostApiTest {
             .sorted()
     }
 
+}
+
+private open class NoOpPluginExecutionHostOperations : PluginExecutionHostOperations {
+    override fun resolve(pluginId: String): PluginExecutionHostSnapshot = PluginExecutionHostSnapshot()
+
+    override fun inject(
+        context: PluginExecutionContext,
+        hostSnapshot: PluginExecutionHostSnapshot,
+    ): PluginExecutionContext = context
+
+    override fun registeredHostToolDescriptors(
+        handlers: PluginExecutionHostToolHandlers,
+    ): List<PluginToolDescriptor> = emptyList()
+
+    override fun registerHostBuiltinTools(
+        snapshot: PluginV2ActiveRuntimeSnapshot,
+        handlers: PluginExecutionHostToolHandlers,
+        personaSnapshot: com.astrbot.android.feature.persona.domain.model.PersonaToolEnablementSnapshot?,
+        capabilityGateway: PluginV2ToolCapabilityGateway,
+        futureSourceDescriptors: Collection<PluginToolDescriptor>,
+        activeFutureSourceKinds: Set<PluginToolSourceKind>,
+    ): PluginV2ActiveRuntimeSnapshot = snapshot
+
+    override fun executeHostBuiltinTool(
+        args: PluginToolArgs,
+        handlers: PluginExecutionHostToolHandlers,
+    ): PluginToolResult? = null
 }

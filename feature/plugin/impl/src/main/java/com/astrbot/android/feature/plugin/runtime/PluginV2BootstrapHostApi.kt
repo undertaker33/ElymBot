@@ -35,6 +35,7 @@ class PluginV2BootstrapHostApi(
     private val session: PluginV2RuntimeSession,
     private val logBus: PluginRuntimeLogBus = InMemoryPluginRuntimeLogBus(),
     private val stateStore: PluginStateStore = InMemoryPluginStateStore(),
+    private val hostOperations: PluginExecutionHostOperations = DefaultPluginExecutionHostOperations(),
     private val clock: () -> Long = System::currentTimeMillis,
     private var sessionUnifiedOriginProvider: () -> String? = { null },
 ) {
@@ -310,7 +311,7 @@ class PluginV2BootstrapHostApi(
     }
 
     private fun loadMergedSettings(): Map<String, Any?> {
-        return PluginExecutionHostApi.resolve(session.installRecord.pluginId).mergedSettings
+        return hostOperations.resolve(session.installRecord.pluginId).mergedSettings
     }
 
     private fun requireSessionStorageScope(): PluginStateScope {

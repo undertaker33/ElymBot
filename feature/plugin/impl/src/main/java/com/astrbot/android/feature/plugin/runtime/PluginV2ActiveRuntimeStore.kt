@@ -381,17 +381,3 @@ private fun PluginV2ToolRegistryEntry.frozen(): PluginV2ToolRegistryEntry {
     )
 }
 
-object PluginV2ActiveRuntimeStoreProvider {
-    @Volatile
-    private var storeOverrideForTests: PluginV2ActiveRuntimeStore? = null
-
-    private val sharedStore: PluginV2ActiveRuntimeStore by lazy {
-        PluginV2ActiveRuntimeStore()
-    }
-
-    fun store(): PluginV2ActiveRuntimeStore = storeOverrideForTests ?: sharedStore
-
-    internal fun setStoreOverrideForTests(store: PluginV2ActiveRuntimeStore?) {
-        storeOverrideForTests = store
-    }
-}
