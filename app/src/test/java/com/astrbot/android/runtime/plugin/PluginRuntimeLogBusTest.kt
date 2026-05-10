@@ -1,5 +1,6 @@
 package com.astrbot.android.feature.plugin.runtime
 
+import com.astrbot.android.feature.plugin.domain.PluginObservabilitySummary
 import com.astrbot.android.model.plugin.HostActionRequest
 import com.astrbot.android.model.plugin.PluginHostAction
 import com.astrbot.android.model.plugin.PluginPermissionGrant
@@ -232,51 +233,48 @@ class PluginRuntimeLogBusTest {
     @Test
     fun log_bus_auto_clears_expired_plugin_logs_before_publishing_new_records() {
         val store = InMemoryPluginRuntimeLogCleanupSettingsStore()
-        PluginRuntimeLogCleanupRepository.setStoreOverrideForTests(store)
-        try {
-            var now = 1_000L
-            PluginRuntimeLogCleanupRepository.updateSettings(
+        val maintenanceService = DefaultPluginLogMaintenanceService(store)
+        var now = 1_000L
+        maintenanceService.updateSettings(
+            pluginId = "plugin.demo",
+            enabled = true,
+            intervalHours = 1,
+            intervalMinutes = 0,
+            now = now,
+        )
+        val bus = InMemoryPluginRuntimeLogBus(
+            capacity = 16,
+            clock = { now },
+            logMaintenanceService = maintenanceService,
+        )
+        bus.publish(
+            PluginRuntimeLogRecord(
+                occurredAtEpochMillis = 2_000L,
                 pluginId = "plugin.demo",
-                enabled = true,
-                intervalHours = 1,
-                intervalMinutes = 0,
-                now = now,
-            )
-            val bus = InMemoryPluginRuntimeLogBus(
-                capacity = 16,
-                clock = { now },
-            )
-            bus.publish(
-                PluginRuntimeLogRecord(
-                    occurredAtEpochMillis = 2_000L,
-                    pluginId = "plugin.demo",
-                    trigger = PluginTriggerSource.OnCommand,
-                    category = PluginRuntimeLogCategory.Execution,
-                    level = PluginRuntimeLogLevel.Info,
-                    code = "old_record",
-                    message = "stale",
-                ),
-            )
-            now += 60 * 60 * 1000L
-            bus.publish(
-                PluginRuntimeLogRecord(
-                    occurredAtEpochMillis = 3_000L + now,
-                    pluginId = "plugin.demo",
-                    trigger = PluginTriggerSource.OnCommand,
-                    category = PluginRuntimeLogCategory.Execution,
-                    level = PluginRuntimeLogLevel.Info,
-                    code = "fresh_record",
-                    message = "fresh",
-                ),
-            )
+                trigger = PluginTriggerSource.OnCommand,
+                category = PluginRuntimeLogCategory.Execution,
+                level = PluginRuntimeLogLevel.Info,
+                code = "old_record",
+                message = "stale",
+            ),
+        )
+        now += 60 * 60 * 1000L
+        bus.publish(
+            PluginRuntimeLogRecord(
+                occurredAtEpochMillis = 3_000L + now,
+                pluginId = "plugin.demo",
+                trigger = PluginTriggerSource.OnCommand,
+                category = PluginRuntimeLogCategory.Execution,
+                level = PluginRuntimeLogLevel.Info,
+                code = "fresh_record",
+                message = "fresh",
+            ),
+        )
 
-            assertEquals(
-                listOf("fresh_record"),
-                bus.snapshot(pluginId = "plugin.demo").map(PluginRuntimeLogRecord::code),
-            )
-        } finally {
-            PluginRuntimeLogCleanupRepository.setStoreOverrideForTests(null)
-        }
+        assertEquals(
+            listOf("fresh_record"),
+            bus.snapshot(pluginId = "plugin.demo").map(PluginRuntimeLogRecord::code),
+        )
     }
 
     @Test

@@ -2,17 +2,21 @@
 package com.astrbot.android.di.hilt
 
 import android.content.Context
-import com.astrbot.android.feature.plugin.data.FeaturePluginRepository
 import com.astrbot.android.feature.plugin.data.PluginInstallStore
+import com.astrbot.android.feature.plugin.data.PluginInstallStorePortAdapter
 import com.astrbot.android.feature.plugin.data.PluginStoragePaths
+import com.astrbot.android.feature.plugin.data.PluginCatalogSyncStorePortAdapter
 import com.astrbot.android.feature.plugin.data.catalog.PluginCatalogSyncStore
+import com.astrbot.android.feature.plugin.domain.PluginCatalogRepositoryPort
 import com.astrbot.android.feature.plugin.domain.PluginHostVersion
+import com.astrbot.android.feature.plugin.domain.PluginInstallRepositoryPort
 import com.astrbot.android.feature.plugin.domain.SupportedPluginProtocolVersion
 import com.astrbot.android.feature.plugin.runtime.DownloadManagerRemotePluginPackageDownloader
 import com.astrbot.android.feature.plugin.runtime.PluginPackageValidator
 import com.astrbot.android.feature.plugin.runtime.RemotePluginPackageDownloader
 import com.astrbot.android.feature.plugin.runtime.catalog.PluginCatalogFetcher
 import com.astrbot.android.feature.plugin.runtime.catalog.UrlConnectionPluginCatalogFetcher
+import com.astrbot.android.model.plugin.PluginPackageContract
 import dagger.Binds
 import dagger.Module
 import dagger.Provides
@@ -40,11 +44,15 @@ internal abstract class PluginProvisioningModule {
     companion object {
         @Provides
         @Singleton
-        fun providePluginInstallStore(): PluginInstallStore = FeaturePluginRepository
+        fun providePluginInstallStore(
+            repository: PluginInstallRepositoryPort,
+        ): PluginInstallStore = PluginInstallStorePortAdapter(repository)
 
         @Provides
         @Singleton
-        fun providePluginCatalogSyncStore(): PluginCatalogSyncStore = FeaturePluginRepository
+        fun providePluginCatalogSyncStore(
+            repository: PluginCatalogRepositoryPort,
+        ): PluginCatalogSyncStore = PluginCatalogSyncStorePortAdapter(repository)
 
         @Provides
         @Singleton
@@ -66,7 +74,7 @@ internal abstract class PluginProvisioningModule {
         @Provides
         @Singleton
         @SupportedPluginProtocolVersion
-        fun provideSupportedPluginProtocolVersion(): Int = FeaturePluginRepository.SUPPORTED_PROTOCOL_VERSION
+        fun provideSupportedPluginProtocolVersion(): Int = PluginPackageContract.SUPPORTED_PROTOCOL_VERSION
 
         @Provides
         @Singleton

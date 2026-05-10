@@ -39,7 +39,6 @@ import com.astrbot.android.model.plugin.TextResult
 import com.astrbot.android.feature.plugin.runtime.AppChatPluginRuntime
 import com.astrbot.android.feature.plugin.runtime.HOST_SKIP_COMMAND_STAGE_EXTRA_KEY
 import com.astrbot.android.feature.plugin.runtime.PluginDispatchSkipReason
-import com.astrbot.android.feature.plugin.runtime.PluginExecutionHostApi
 import com.astrbot.android.feature.plugin.runtime.PluginMessageEvent
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimePlugin
 import com.astrbot.android.feature.plugin.runtime.PluginV2CommandResponse

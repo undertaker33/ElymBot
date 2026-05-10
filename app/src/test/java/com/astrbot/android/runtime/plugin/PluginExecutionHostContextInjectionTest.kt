@@ -19,7 +19,7 @@ class PluginExecutionHostContextInjectionTest {
             ),
         )
 
-        val injected = PluginExecutionHostApi.inject(
+        val injected = DefaultPluginExecutionHostOperations().inject(
             context = base,
             hostSnapshot = PluginExecutionHostSnapshot(
                 runtimeKind = ExternalPluginRuntimeKind.JsQuickJs,

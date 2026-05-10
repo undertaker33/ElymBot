@@ -49,21 +49,6 @@ data class PluginV2MessageDispatchResult(
     val commandResponse: PluginV2CommandResponse? = null,
 )
 
-object PluginV2DispatchEngineProvider {
-    @Volatile
-    private var engineOverrideForTests: PluginV2DispatchEngine? = null
-
-    private val sharedEngine: PluginV2DispatchEngine by lazy {
-        PluginV2DispatchEngine()
-    }
-
-    fun engine(): PluginV2DispatchEngine = engineOverrideForTests ?: sharedEngine
-
-    internal fun setEngineOverrideForTests(engine: PluginV2DispatchEngine?) {
-        engineOverrideForTests = engine
-    }
-}
-
 class PluginV2DispatchEngine(
     private val clock: () -> Long = System::currentTimeMillis,
     private val logBus: PluginRuntimeLogBus = InMemoryPluginRuntimeLogBus(),

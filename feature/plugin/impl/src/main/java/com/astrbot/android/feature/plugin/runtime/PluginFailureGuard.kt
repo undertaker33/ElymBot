@@ -1,7 +1,6 @@
 
 package com.astrbot.android.feature.plugin.runtime
 
-import com.astrbot.android.feature.plugin.data.FeaturePluginRepository
 import com.astrbot.android.model.plugin.PluginFailureCategory
 import com.astrbot.android.model.plugin.PluginRuntimeLogCategory
 import com.astrbot.android.model.plugin.PluginRuntimeLogLevel
@@ -53,19 +52,9 @@ class InMemoryPluginFailureStateStore : PluginFailureStateStore {
 }
 
 class PersistentPluginFailureStateStore(
-    private val findState: (String) -> PluginFailureState? = { pluginId ->
-        repositoryFailureStateOrNull(pluginId)
-    },
-    private val updateState: (String, PluginFailureState) -> Unit = { pluginId, failureState ->
-        if (repositoryFailureStateOrNull(pluginId) != null) {
-            FeaturePluginRepository.updateFailureState(pluginId, failureState)
-        }
-    },
-    private val clearState: (String) -> Unit = { pluginId ->
-        if (repositoryFailureStateOrNull(pluginId) != null) {
-            FeaturePluginRepository.clearFailureState(pluginId)
-        }
-    },
+    private val findState: (String) -> PluginFailureState? = { null },
+    private val updateState: (String, PluginFailureState) -> Unit = { _, _ -> },
+    private val clearState: (String) -> Unit = {},
 ) : PluginFailureStateStore {
     override fun get(pluginId: String): PluginFailureSnapshot? {
         return findState(pluginId)
@@ -621,12 +610,6 @@ private fun PluginFailureSnapshot.toFailureState(): PluginFailureState {
         lastErrorSummary = lastErrorSummary,
         suspendedUntilEpochMillis = suspendedUntilEpochMillis,
     )
-}
-
-private fun repositoryFailureStateOrNull(pluginId: String): PluginFailureState? {
-    return runCatching {
-        FeaturePluginRepository.findByPluginId(pluginId)?.failureState
-    }.getOrNull()
 }
 
 internal fun classifyFailure(errorSummary: String): PluginFailureCategory {

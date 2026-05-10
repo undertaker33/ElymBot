@@ -371,17 +371,3 @@ class PluginV2LifecycleManager(
     }
 }
 
-object PluginV2LifecycleManagerProvider {
-    @Volatile
-    private var managerOverrideForTests: PluginV2LifecycleManager? = null
-
-    private val sharedManager: PluginV2LifecycleManager by lazy {
-        PluginV2LifecycleManager()
-    }
-
-    fun manager(): PluginV2LifecycleManager = managerOverrideForTests ?: sharedManager
-
-    internal fun setManagerOverrideForTests(manager: PluginV2LifecycleManager?) {
-        managerOverrideForTests = manager
-    }
-}

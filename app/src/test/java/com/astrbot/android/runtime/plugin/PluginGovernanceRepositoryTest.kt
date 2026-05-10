@@ -1,5 +1,6 @@
 package com.astrbot.android.feature.plugin.runtime
 
+import com.astrbot.android.feature.plugin.domain.PluginGovernanceRecoveryStatus
 import com.astrbot.android.model.plugin.PluginRuntimeLogCategory
 import com.astrbot.android.model.plugin.PluginRuntimeLogLevel
 import com.astrbot.android.model.plugin.PluginRuntimeLogRecord

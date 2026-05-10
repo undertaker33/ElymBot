@@ -3,7 +3,7 @@ package com.astrbot.android.di.startup
 
 import com.astrbot.android.core.common.logging.RuntimeLogRepository
 import com.astrbot.android.di.hilt.ApplicationScope
-import com.astrbot.android.feature.plugin.data.FeaturePluginRepository as PluginRepository
+import com.astrbot.android.feature.plugin.domain.PluginStateRepositoryPort
 import com.astrbot.android.feature.plugin.runtime.PluginV2LifecycleManager
 import com.astrbot.android.feature.plugin.runtime.PluginV2RuntimeLoader
 import com.astrbot.android.feature.plugin.runtime.PluginV2RuntimeSyncResult
@@ -21,6 +21,7 @@ import kotlinx.coroutines.launch
 internal class PluginRuntimeObservationStartupChain @Inject constructor(
     private val pluginRuntimeLoader: PluginV2RuntimeLoader,
     private val pluginLifecycleManager: PluginV2LifecycleManager,
+    private val pluginStateRepository: PluginStateRepositoryPort,
     @ApplicationScope private val appScope: CoroutineScope,
 ) : AppStartupChain {
 
@@ -28,7 +29,7 @@ internal class PluginRuntimeObservationStartupChain @Inject constructor(
 
     override fun run() {
         pluginRuntimeLoaderSyncJob = appScope.observePluginRuntimeRecords(
-            records = PluginRepository.records,
+            records = pluginStateRepository.records,
             sync = { currentRecords ->
                 syncPluginRuntimeRecordsAndSignalReady(
                     records = currentRecords,

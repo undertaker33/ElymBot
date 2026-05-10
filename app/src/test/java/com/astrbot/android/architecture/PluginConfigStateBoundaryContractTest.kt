@@ -10,6 +10,8 @@ class PluginConfigStateBoundaryContractTest {
 
     private val projectRoot: Path = detectProjectRoot()
     private val mainRoot: Path = projectRoot.resolve("app/src/main/java/com/astrbot/android")
+    private val pluginApiRoot: Path = projectRoot.resolve("feature/plugin/api/src/main/java/com/astrbot/android")
+    private val pluginImplRoot: Path = projectRoot.resolve("feature/plugin/impl/src/main/java/com/astrbot/android")
 
     @Test
     fun plugin_view_model_must_not_assemble_controller_or_anonymous_ports_inline() {
@@ -63,6 +65,63 @@ class PluginConfigStateBoundaryContractTest {
 
         assertTrue(
             "DefaultPluginViewModelBindings should use injected seams instead of static FeaturePluginRepository entry points: $violations",
+            violations.isEmpty(),
+        )
+    }
+
+    @Test
+    fun plugin_repository_phase16_ports_must_be_declared_in_feature_plugin_api() {
+        val source = pluginApiRoot
+            .resolve("feature/plugin/domain/PluginRepositoryPort.kt")
+            .readText()
+
+        val requiredPorts = listOf(
+            "interface PluginInstallRepositoryPort",
+            "interface PluginCatalogRepositoryPort",
+            "interface PluginConfigRepositoryPort",
+            "interface PluginStateRepositoryPort",
+        )
+        val missingPorts = requiredPorts.filterNot(source::contains)
+
+        assertTrue(
+            "Phase 16 plugin data/config/state/catalog ports must live in feature/plugin/api: $missingPorts",
+            missingPorts.isEmpty(),
+        )
+    }
+
+    @Test
+    fun plugin_phase16_production_hotspots_must_not_call_feature_plugin_repository_static_facade() {
+        val checkedSources = mapOf(
+            "app/src/main/java/com/astrbot/android/di/hilt/PluginProvisioningModule.kt" to
+                projectRoot.resolve("app/src/main/java/com/astrbot/android/di/hilt/PluginProvisioningModule.kt"),
+            "app/src/main/java/com/astrbot/android/di/startup/PluginRuntimeObservationStartupChain.kt" to
+                projectRoot.resolve("app/src/main/java/com/astrbot/android/di/startup/PluginRuntimeObservationStartupChain.kt"),
+            "app/src/main/java/com/astrbot/android/feature/plugin/presentation/PluginViewModel.kt" to
+                projectRoot.resolve("app/src/main/java/com/astrbot/android/feature/plugin/presentation/PluginViewModel.kt"),
+            "feature/chat/runtime/src/main/java/com/astrbot/android/feature/chat/runtime/AppChatPluginCommandService.kt" to
+                projectRoot.resolve(
+                    "feature/chat/runtime/src/main/java/com/astrbot/android/feature/chat/runtime/AppChatPluginCommandService.kt",
+                ),
+            "feature/plugin/impl/src/main/java/com/astrbot/android/feature/plugin/runtime/PluginFailureGuard.kt" to
+                pluginImplRoot.resolve("feature/plugin/runtime/PluginFailureGuard.kt"),
+            "feature/plugin/impl/src/main/java/com/astrbot/android/feature/plugin/runtime/PluginInstaller.kt" to
+                pluginImplRoot.resolve("feature/plugin/runtime/PluginInstaller.kt"),
+        )
+        val forbiddenTokens = listOf(
+            "FeaturePluginRepository.",
+            "FeaturePluginRepository as",
+            "= FeaturePluginRepository",
+            "import com.astrbot.android.feature.plugin.data.FeaturePluginRepository",
+        )
+        val violations = checkedSources.flatMap { (label, path) ->
+            val source = path.readText()
+            forbiddenTokens
+                .filter(source::contains)
+                .map { token -> "$label contains $token" }
+        }
+
+        assertTrue(
+            "Phase 16 production plugin hotspots must use injected ports/adapters, not static FeaturePluginRepository facade: $violations",
             violations.isEmpty(),
         )
     }

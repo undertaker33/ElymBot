@@ -90,9 +90,14 @@ class PostHiltRound2PluginRuntimeContractTest {
     @Test
     fun production_plugin_runtime_store_providers_must_be_deleted_after_hilt_closure() {
         val forbiddenDeclarations = listOf(
+            "object PluginRuntimeLogBusProvider",
             "object PluginRuntimeFailureStateStoreProvider",
             "object PluginRuntimeScopedFailureStateStoreProvider",
             "object PluginRuntimeScheduleStateStoreProvider",
+            "object PluginV2ActiveRuntimeStoreProvider",
+            "object PluginV2DispatchEngineProvider",
+            "object PluginV2LifecycleManagerProvider",
+            "object PluginV2RuntimeLoaderProvider",
         )
 
         val violations = buildList {
@@ -109,6 +114,57 @@ class PostHiltRound2PluginRuntimeContractTest {
 
         assertTrue(
             "Plugin runtime store providers must not remain in production after Hilt closure: $violations",
+            violations.isEmpty(),
+        )
+    }
+
+    @Test
+    fun plugin_runtime_log_cleanup_must_be_hilt_owned_not_static_repository() {
+        val forbiddenTokens = listOf(
+            "object PluginRuntimeLogCleanupRepository",
+            "PluginRuntimeLogCleanupRepository.",
+            "PluginRuntimeLogCleanupRepository.settings",
+        )
+
+        val violations = buildList {
+            productionSourceRoots.flatMap { root -> kotlinFilesUnder(root) }.forEach { file ->
+                val relativePath = relativeProductionPath(file)
+                val text = file.readText()
+                forbiddenTokens.forEach { token ->
+                    if (text.contains(token)) {
+                        add("$relativePath contains $token")
+                    }
+                }
+            }
+        }
+
+        assertTrue(
+            "Plugin runtime log cleanup must be owned by injected PluginLogMaintenanceService, not a static repository: $violations",
+            violations.isEmpty(),
+        )
+    }
+
+    @Test
+    fun plugin_presentation_must_not_import_runtime_implementation_package() {
+        val presentationRoot = mainRoot.resolve("feature/plugin/presentation")
+        assertTrue(
+            "Expected plugin presentation source root to exist: ${presentationRoot.toAbsolutePath()}",
+            presentationRoot.exists(),
+        )
+
+        val violations = kotlinFilesUnder(presentationRoot)
+            .mapNotNull { file ->
+                val text = file.readText()
+                if (text.contains("com.astrbot.android.feature.plugin.runtime")) {
+                    relativeProductionPath(file)
+                } else {
+                    null
+                }
+            }
+            .toList()
+
+        assertTrue(
+            "Plugin presentation must use domain/presentation-facing ports instead of runtime implementation imports: $violations",
             violations.isEmpty(),
         )
     }

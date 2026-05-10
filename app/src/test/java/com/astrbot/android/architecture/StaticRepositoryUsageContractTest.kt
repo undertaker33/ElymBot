@@ -20,6 +20,7 @@ class StaticRepositoryUsageContractTest {
         "feature/bot/impl/src/main/java/com/astrbot/android",
         "feature/chat/api/src/main/java/com/astrbot/android",
         "feature/chat/impl/src/main/java/com/astrbot/android",
+        "feature/chat/runtime/src/main/java/com/astrbot/android",
         "feature/config/data/src/main/java/com/astrbot/android",
         "feature/config/impl/src/main/java/com/astrbot/android",
         "feature/cron/impl/src/main/java/com/astrbot/android",

@@ -6,9 +6,8 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Seam interface that encapsulates all calls to [PluginExecutionHostApi].
- * Injected into the capability gateway so the gateway no longer
- * calls the static API object directly.
+ * Production seam for host capability operations.
+ * Injected into the capability gateway so production no longer calls the static compat API.
  */
 interface PluginExecutionHostResolver {
 
@@ -46,10 +45,6 @@ interface PluginExecutionHostResolver {
 class DefaultPluginExecutionHostResolver @Inject constructor(
     private val operations: DefaultPluginExecutionHostOperations,
 ) : PluginExecutionHostResolver {
-
-    init {
-        PluginExecutionHostApi.installCompatOperations(operations)
-    }
 
     override fun resolve(pluginId: String): PluginExecutionHostSnapshot =
         operations.resolve(pluginId)

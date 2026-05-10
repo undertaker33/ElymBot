@@ -9,5 +9,7 @@ android {
 
 dependencies {
     api(project(":feature:chat:api"))
+    api(project(":feature:conversation:api"))
     api("javax.inject:javax.inject:1")
+    api("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.1")
 }

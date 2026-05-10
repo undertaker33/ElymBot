@@ -1,5 +1,6 @@
 package com.astrbot.android.feature.plugin.runtime
 
+import com.astrbot.android.feature.plugin.domain.PluginGovernanceRecoveryStatus
 import com.astrbot.android.model.plugin.PluginLifecycleDiagnostic
 import com.astrbot.android.model.plugin.PluginFailureCategory
 import com.astrbot.android.model.plugin.PluginFailureState

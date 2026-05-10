@@ -10,16 +10,35 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.astrbot.android.R
 import com.astrbot.android.core.common.logging.RuntimeLogRepository
-import com.astrbot.android.feature.plugin.data.FeaturePluginRepository
+import com.astrbot.android.feature.plugin.data.PluginCatalogVersionGate
 import com.astrbot.android.feature.plugin.data.PluginUninstallResult
 import com.astrbot.android.di.hilt.PluginCatalogEntries
-import com.astrbot.android.di.hilt.PluginGovernanceReadModels
 import com.astrbot.android.di.hilt.PluginRecords
 import com.astrbot.android.di.hilt.PluginRepositorySources
 import com.astrbot.android.feature.plugin.data.PluginCatalogVersionGateResult
 import com.astrbot.android.feature.plugin.data.PluginStoragePaths
-import com.astrbot.android.feature.plugin.data.config.PluginConfigStorage
+import com.astrbot.android.feature.plugin.data.createLocalPackageInstallBlockedException
+import com.astrbot.android.feature.plugin.domain.PluginCatalogRepositoryPort
+import com.astrbot.android.feature.plugin.domain.PluginCatalogRuntimePort
+import com.astrbot.android.feature.plugin.domain.PluginConfigRepositoryPort
+import com.astrbot.android.feature.plugin.domain.PluginEntryExecutionPort
+import com.astrbot.android.feature.plugin.domain.PluginExecutionHostSnapshot
+import com.astrbot.android.feature.plugin.domain.PluginFailureRecoveryPort
+import com.astrbot.android.feature.plugin.domain.PluginGovernanceFailureProjection
+import com.astrbot.android.feature.plugin.domain.PluginGovernanceReadModel
+import com.astrbot.android.feature.plugin.domain.PluginGovernanceReadPort
+import com.astrbot.android.feature.plugin.domain.PluginGovernanceRecoveryStatus
+import com.astrbot.android.feature.plugin.domain.PluginHostCapabilityPresentationPort
+import com.astrbot.android.feature.plugin.domain.PluginInstallRepositoryPort
+import com.astrbot.android.feature.plugin.domain.PluginInstallerPort
+import com.astrbot.android.feature.plugin.domain.PluginLogMaintenancePort
 import com.astrbot.android.feature.plugin.domain.PluginManagementResult
+import com.astrbot.android.feature.plugin.domain.PluginObservabilitySummary
+import com.astrbot.android.feature.plugin.domain.PluginPackageValidationPort
+import com.astrbot.android.feature.plugin.domain.PluginRuntimeLogCleanupSettings
+import com.astrbot.android.feature.plugin.domain.PluginRuntimeLogPresentationPort
+import com.astrbot.android.feature.plugin.domain.PluginStateRepositoryPort
+import com.astrbot.android.feature.plugin.domain.comparePluginVersions
 import com.astrbot.android.feature.plugin.presentation.PluginPresentationController
 import com.astrbot.android.feature.plugin.presentation.bindings.PluginConfigBindings
 import com.astrbot.android.feature.plugin.presentation.bindings.PluginGovernanceBindings
@@ -80,25 +99,6 @@ import com.astrbot.android.model.plugin.SettingsUiRequest
 import com.astrbot.android.model.plugin.TextResult
 import com.astrbot.android.model.plugin.TextInputSettingField
 import com.astrbot.android.model.plugin.ToggleSettingField
-import com.astrbot.android.feature.plugin.runtime.PluginEntryExecutionService
-import com.astrbot.android.feature.plugin.runtime.PluginHostCapabilityGateway
-import com.astrbot.android.feature.plugin.runtime.PluginExecutionHostSnapshot
-import com.astrbot.android.feature.plugin.runtime.PluginFailureGuard
-import com.astrbot.android.feature.plugin.runtime.PluginGovernanceFailureProjection
-import com.astrbot.android.feature.plugin.runtime.PluginGovernanceReadModel
-import com.astrbot.android.feature.plugin.runtime.PluginGovernanceRepository
-import com.astrbot.android.feature.plugin.runtime.PluginGovernanceRecoveryStatus
-import com.astrbot.android.feature.plugin.runtime.PluginInstaller
-import com.astrbot.android.feature.plugin.runtime.PluginObservabilitySummary
-import com.astrbot.android.feature.plugin.runtime.PluginRuntimeLogBus
-import com.astrbot.android.feature.plugin.runtime.compareVersions
-import com.astrbot.android.feature.plugin.runtime.catalog.PluginCatalogSynchronizer
-import com.astrbot.android.feature.plugin.runtime.catalog.PluginInstallIntentHandler
-import com.astrbot.android.feature.plugin.runtime.catalog.PluginRepositorySubscriptionManager
-import com.astrbot.android.feature.plugin.runtime.publishPluginRecoveryCompleted
-import com.astrbot.android.feature.plugin.runtime.publishPluginRecoveryFailed
-import com.astrbot.android.feature.plugin.runtime.publishPluginRecoveryRequested
-import com.astrbot.android.feature.plugin.runtime.publishUiGovernanceProjectionBuilt
 import com.astrbot.android.core.common.logging.AppLogger
 import com.astrbot.android.ui.plugin.PluginLocalFilter
 import com.astrbot.android.ui.plugin.buildPluginMarketVersionOptions
@@ -408,8 +408,10 @@ interface PluginViewModelBindings {
         get() = market.catalogEntries
     val governanceReadModels: Flow<Map<String, PluginGovernanceReadModel>>
         get() = governance.governanceReadModels
-    val logBus: PluginRuntimeLogBus
+    val logBus: PluginRuntimeLogPresentationPort
         get() = governance.logBus
+    val logMaintenanceService: PluginLogMaintenancePort
+        get() = governance.logMaintenanceService
 
     suspend fun handleInstallIntent(
         intent: PluginInstallIntent,
@@ -475,19 +477,20 @@ interface PluginViewModelBindings {
 
 internal class DefaultPluginViewModelBindings @Inject constructor(
     @ApplicationContext private val appContext: Context,
-    private val repository: FeaturePluginRepository,
+    private val pluginInstallRepository: PluginInstallRepositoryPort,
+    private val pluginCatalogRepository: PluginCatalogRepositoryPort,
+    private val pluginConfigRepository: PluginConfigRepositoryPort,
+    private val pluginStateRepository: PluginStateRepositoryPort,
     @PluginRecords private val pluginRecords: StateFlow<@JvmSuppressWildcards List<PluginInstallRecord>>,
     @PluginRepositorySources private val pluginRepositorySources: StateFlow<@JvmSuppressWildcards List<PluginRepositorySource>>,
     @PluginCatalogEntries private val pluginCatalogEntries: StateFlow<@JvmSuppressWildcards List<PluginCatalogEntryRecord>>,
-    @PluginGovernanceReadModels private val pluginGovernanceReadModels: Flow<@JvmSuppressWildcards Map<String, PluginGovernanceReadModel>>,
-    private val pluginInstaller: PluginInstaller,
-    private val pluginCatalogSynchronizer: PluginCatalogSynchronizer,
-    private val pluginInstallIntentHandler: PluginInstallIntentHandler,
-    private val pluginRepositorySubscriptionManager: PluginRepositorySubscriptionManager,
-    private val pluginGovernanceRepository: PluginGovernanceRepository,
-    private val injectedPluginFailureGuard: PluginFailureGuard,
-    private val pluginConfigStorage: PluginConfigStorage,
-    private val injectedLogBus: PluginRuntimeLogBus,
+    private val pluginInstaller: PluginInstallerPort,
+    private val pluginCatalogRuntimePort: PluginCatalogRuntimePort,
+    private val pluginGovernanceReadPort: PluginGovernanceReadPort,
+    private val pluginFailureRecoveryPort: PluginFailureRecoveryPort,
+    private val pluginPackageValidator: PluginPackageValidationPort,
+    private val injectedLogBus: PluginRuntimeLogPresentationPort,
+    private val injectedLogMaintenanceService: PluginLogMaintenancePort,
 ) : PluginViewModelBindings,
     PluginMarketBindings,
     PluginConfigBindings,
@@ -502,15 +505,17 @@ internal class DefaultPluginViewModelBindings @Inject constructor(
     override val records: StateFlow<List<PluginInstallRecord>> = pluginRecords
     override val repositorySources: StateFlow<List<PluginRepositorySource>> = pluginRepositorySources
     override val catalogEntries: StateFlow<List<PluginCatalogEntryRecord>> = pluginCatalogEntries
-    override val governanceReadModels: Flow<Map<String, PluginGovernanceReadModel>> = pluginGovernanceReadModels
-    override val logBus: PluginRuntimeLogBus = injectedLogBus
+    override val governanceReadModels: Flow<Map<String, PluginGovernanceReadModel>> =
+        pluginGovernanceReadPort.governanceReadModels
+    override val logBus: PluginRuntimeLogPresentationPort = injectedLogBus
+    override val logMaintenanceService: PluginLogMaintenancePort = injectedLogMaintenanceService
 
     override suspend fun handleInstallIntent(
         intent: PluginInstallIntent,
         onDownloadProgress: (PluginDownloadProgress) -> Unit,
     ): PluginInstallIntentResult {
         return withContext(Dispatchers.IO) {
-            pluginInstallIntentHandler.handle(
+            pluginCatalogRuntimePort.handleInstallIntent(
                 intent = intent,
                 onDownloadProgress = onDownloadProgress,
             )
@@ -529,16 +534,12 @@ internal class DefaultPluginViewModelBindings @Inject constructor(
                     }
                 } ?: error("Unable to open selected file.")
 
-                val validation = runCatching {
-                    repository.validateLocalPackage(
-                        packageFile = tempFile,
-                        hostVersion = getHostVersion(),
-                    )
-                }.getOrElse { error ->
-                    throw repository.buildLocalPackageInstallBlockedException(error)
-                }
+                val validation = runCatching { pluginPackageValidator.validate(tempFile) }
+                    .getOrElse { error ->
+                        throw createLocalPackageInstallBlockedException(error)
+                    }
                 if (!validation.installable) {
-                    throw repository.buildLocalPackageInstallBlockedException(validation)
+                    throw createLocalPackageInstallBlockedException(validation)
                 }
                 PluginInstallIntentResult.Installed(
                     record = pluginInstaller.installFromLocalPackage(tempFile),
@@ -567,15 +568,13 @@ internal class DefaultPluginViewModelBindings @Inject constructor(
             val syncState = if (existing != null) {
                 val source = if (existing.catalogUrl == LEGACY_OFFICIAL_MARKET_CATALOG_URL) {
                     existing.copy(catalogUrl = OFFICIAL_MARKET_CATALOG_URL)
-                        .also(repository::upsertRepositorySource)
+                        .also(pluginCatalogRepository::upsertRepositorySource)
                 } else {
                     existing
                 }
-                pluginCatalogSynchronizer.sync(source.sourceId)
+                    pluginCatalogRuntimePort.sync(source.sourceId)
             } else {
-                pluginRepositorySubscriptionManager
-                    .subscribeAndSync(OFFICIAL_MARKET_CATALOG_URL)
-                    .syncState
+                pluginCatalogRuntimePort.subscribeAndSync(OFFICIAL_MARKET_CATALOG_URL)
             }
             RuntimeLogRepository.append(
                 "Plugin market ensure-official finished: " +
@@ -596,7 +595,7 @@ internal class DefaultPluginViewModelBindings @Inject constructor(
                 listOf(ensureOfficialMarketCatalogSubscribed())
             } else {
                 existingSources.map { source ->
-                    pluginCatalogSynchronizer.sync(source.sourceId)
+                    pluginCatalogRuntimePort.sync(source.sourceId)
                 }
             }
             RuntimeLogRepository.append(
@@ -619,25 +618,25 @@ internal class DefaultPluginViewModelBindings @Inject constructor(
     }
 
     override fun evaluateCatalogVersion(version: PluginCatalogVersion): PluginCatalogVersionGateResult {
-        return repository.evaluateCatalogVersion(
+        return PluginCatalogVersionGate.evaluate(
             version = version,
             hostVersion = getHostVersion(),
         )
     }
 
     override fun getUpdateAvailability(pluginId: String): PluginUpdateAvailability? {
-        return repository.getUpdateAvailability(
+        return pluginCatalogRepository.getUpdateAvailability(
             pluginId = pluginId,
             hostVersion = getHostVersion(),
         )
     }
 
     override fun getPluginGovernance(pluginId: String): PluginGovernanceReadModel? {
-        return pluginGovernanceRepository.get(pluginId)
+        return pluginGovernanceReadPort.getPluginGovernance(pluginId)
     }
 
     override fun getPluginGovernanceSilently(pluginId: String): PluginGovernanceReadModel? {
-        return pluginGovernanceRepository.getSilently(pluginId)
+        return pluginGovernanceReadPort.getPluginGovernanceSilently(pluginId)
     }
 
     override suspend fun upgradePlugin(update: PluginUpdateAvailability): PluginInstallRecord {
@@ -647,18 +646,18 @@ internal class DefaultPluginViewModelBindings @Inject constructor(
     }
 
     override fun getPluginStaticConfigSchema(pluginId: String): PluginStaticConfigSchema? {
-        return pluginConfigStorage.getInstalledStaticConfigSchema(pluginId)
+        return pluginConfigRepository.getInstalledStaticConfigSchema(pluginId)
     }
 
     override fun resolvePluginSettingsSchemaPath(pluginId: String): String? {
-        return pluginConfigStorage.resolveInstalledSettingsSchemaPath(pluginId)
+        return pluginConfigRepository.resolveInstalledSettingsSchemaPath(pluginId)
     }
 
     override fun resolvePluginConfigSnapshot(
         pluginId: String,
         boundary: PluginConfigStorageBoundary,
     ): PluginConfigStoreSnapshot {
-        return pluginConfigStorage.resolveConfigSnapshot(pluginId, boundary)
+        return pluginConfigRepository.resolveConfigSnapshot(pluginId, boundary)
     }
 
     override fun savePluginCoreConfig(
@@ -666,7 +665,7 @@ internal class DefaultPluginViewModelBindings @Inject constructor(
         boundary: PluginConfigStorageBoundary,
         coreValues: Map<String, PluginStaticConfigValue>,
     ): PluginConfigStoreSnapshot {
-        return pluginConfigStorage.saveCoreConfig(pluginId, boundary, coreValues)
+        return pluginConfigRepository.saveCoreConfig(pluginId, boundary, coreValues)
     }
 
     override fun savePluginExtensionConfig(
@@ -674,7 +673,7 @@ internal class DefaultPluginViewModelBindings @Inject constructor(
         boundary: PluginConfigStorageBoundary,
         extensionValues: Map<String, PluginStaticConfigValue>,
     ): PluginConfigStoreSnapshot {
-        return pluginConfigStorage.saveExtensionConfig(pluginId, boundary, extensionValues)
+        return pluginConfigRepository.saveExtensionConfig(pluginId, boundary, extensionValues)
     }
 
     override fun resolvePluginWorkspaceSnapshot(pluginId: String): PluginHostWorkspaceSnapshot {
@@ -737,26 +736,26 @@ internal class DefaultPluginViewModelBindings @Inject constructor(
     }
 
     fun clearPluginFailureState(pluginId: String): PluginInstallRecord {
-        return repository.updateFailureState(pluginId, com.astrbot.android.model.plugin.PluginFailureState.none())
+        return pluginStateRepository.updateFailureState(
+            pluginId,
+            com.astrbot.android.model.plugin.PluginFailureState.none(),
+        )
     }
 
     fun recoverPluginFailureState(pluginId: String): PluginInstallRecord {
-        injectedPluginFailureGuard.recover(pluginId)
-        return requireNotNull(repository.findByPluginId(pluginId)) {
-            "Plugin $pluginId is not installed."
-        }
+        return pluginFailureRecoveryPort.recover(pluginId)
     }
 
     override fun enablePlugin(pluginId: String): PluginInstallRecord {
-        return repository.setEnabled(pluginId, enabled = true)
+        return pluginInstallRepository.setEnabled(pluginId, enabled = true)
     }
 
     override fun disablePlugin(pluginId: String): PluginInstallRecord {
-        return repository.setEnabled(pluginId, enabled = false)
+        return pluginInstallRepository.setEnabled(pluginId, enabled = false)
     }
 
     override fun uninstallPlugin(pluginId: String, policy: PluginUninstallPolicy): PluginUninstallResult {
-        return repository.uninstall(pluginId, policy)
+        return pluginInstallRepository.uninstall(pluginId, policy)
     }
 
     override suspend fun refreshCatalog(): PluginManagementResult {
@@ -772,7 +771,7 @@ internal class DefaultPluginViewModelBindings @Inject constructor(
     }
 
     override fun findByPluginId(pluginId: String): PluginInstallRecord? {
-        return repository.findByPluginId(pluginId)
+        return pluginInstallRepository.findByPluginId(pluginId)
     }
 
     private fun queryDisplayName(uri: Uri): String? {
@@ -795,8 +794,8 @@ internal class DefaultPluginViewModelBindings @Inject constructor(
 class PluginViewModel @Inject constructor(
     private val bindings: PluginViewModelBindings,
     private val pluginPresentationController: PluginPresentationController,
-    private val hostCapabilityGateway: PluginHostCapabilityGateway,
-    private val entryExecutionService: PluginEntryExecutionService,
+    private val hostCapabilityGateway: PluginHostCapabilityPresentationPort,
+    private val entryExecutionService: PluginEntryExecutionPort,
 ) : ViewModel() {
     private val marketBindings = bindings.market
     private val configBindings = bindings.config
@@ -807,7 +806,10 @@ class PluginViewModel @Inject constructor(
     private val catalogEntries = marketBindings.catalogEntries
     private val governanceReadModels = governanceBindings.governanceReadModels
     private val logBus = governanceBindings.logBus
+    private val logMaintenanceService = governanceBindings.logMaintenanceService
     val runtimeLogRecords: StateFlow<List<PluginRuntimeLogRecord>> = logBus.records
+    val runtimeLogCleanupSettings: StateFlow<Map<String, PluginRuntimeLogCleanupSettings>> =
+        logMaintenanceService.settings
 
     private companion object {
         const val MARKET_REFRESH_TIMEOUT_MILLIS = 15_000L
@@ -815,6 +817,30 @@ class PluginViewModel @Inject constructor(
 
     fun clearPluginRuntimeLogs(pluginId: String) {
         logBus.clearPlugin(pluginId)
+    }
+
+    fun maybeAutoClearPluginRuntimeLogs(pluginId: String): Boolean {
+        return logMaintenanceService.maybeAutoClear(pluginId) {
+            clearPluginRuntimeLogs(pluginId)
+        }
+    }
+
+    fun recordPluginRuntimeLogCleanup(pluginId: String) {
+        logMaintenanceService.recordCleanup(pluginId)
+    }
+
+    fun updatePluginRuntimeLogCleanupSettings(
+        pluginId: String,
+        enabled: Boolean,
+        intervalHours: Int,
+        intervalMinutes: Int,
+    ) {
+        logMaintenanceService.updateSettings(
+            pluginId = pluginId,
+            enabled = enabled,
+            intervalHours = intervalHours,
+            intervalMinutes = intervalMinutes,
+        )
     }
 
     private suspend fun handleInstallIntent(
@@ -2563,7 +2589,7 @@ class PluginViewModel @Inject constructor(
 
     private fun toCatalogEntryCardUiState(record: PluginCatalogEntryRecord): PluginCatalogEntryCardUiState {
         val latestVersion = record.entry.versions
-            .sortedWith { left, right -> compareVersions(right.version, left.version) }
+            .sortedWith { left, right -> comparePluginVersions(right.version, left.version) }
             .firstOrNull()
         val latestVersionLabel = latestVersion?.version.orEmpty()
         return PluginCatalogEntryCardUiState(
@@ -2646,7 +2672,7 @@ class PluginViewModel @Inject constructor(
     private fun summarizeVersionHistory(versions: List<PluginCatalogVersion>): String {
         if (versions.isEmpty()) return ""
         return versions
-            .sortedWith { left, right -> compareVersions(right.version, left.version) }
+            .sortedWith { left, right -> comparePluginVersions(right.version, left.version) }
             .take(3)
             .joinToString(separator = " | ") { version -> version.version }
     }

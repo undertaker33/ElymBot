@@ -9,7 +9,7 @@ import com.astrbot.android.model.plugin.PluginPermissionDiff
 import com.astrbot.android.model.plugin.PluginRuntimeHealthStatus
 import com.astrbot.android.model.plugin.PluginSourceType
 import com.astrbot.android.model.plugin.PluginUpdateAvailability
-import com.astrbot.android.feature.plugin.runtime.compareVersions
+import com.astrbot.android.feature.plugin.domain.comparePluginVersions
 import com.astrbot.android.ui.plugin.PluginBadgePalette
 import com.astrbot.android.ui.plugin.PluginUiSpec
 import com.astrbot.android.ui.viewmodel.PluginCatalogEntryCardUiState
@@ -397,7 +397,7 @@ internal fun buildPluginMarketWorkspacePresentation(
                 versionLabel = versionLabel,
                 status = when {
                     installedRecord == null -> PluginMarketStatus.NOT_INSTALLED
-                    compareVersions(versionLabel, installedRecord.installedVersion) > 0 ->
+                    comparePluginVersions(versionLabel, installedRecord.installedVersion) > 0 ->
                         PluginMarketStatus.UPDATE_AVAILABLE
                     else -> PluginMarketStatus.INSTALLED
                 },
@@ -442,7 +442,7 @@ internal fun buildPluginMarketVersionOptions(
         .sortedWith(
             compareByDescending<PluginMarketVersionOptionWithSourceOrder> { it.option.isSelectable }
                 .thenComparator { left, right ->
-                    compareVersions(right.option.versionLabel, left.option.versionLabel)
+                    comparePluginVersions(right.option.versionLabel, left.option.versionLabel)
                 }
                 .thenByDescending { it.option.publishedAt }
                 .thenBy { it.sourceOrder }
@@ -493,7 +493,7 @@ internal fun buildPluginMarketDetailPresentation(
     val installedRecord = uiState.records.firstOrNull { it.pluginId == pluginId }
     val status = when {
         installedRecord == null -> PluginMarketStatus.NOT_INSTALLED
-        compareVersions(selectedVersionLabel, installedRecord.installedVersion) > 0 ->
+        comparePluginVersions(selectedVersionLabel, installedRecord.installedVersion) > 0 ->
             PluginMarketStatus.UPDATE_AVAILABLE
         else -> PluginMarketStatus.INSTALLED
     }

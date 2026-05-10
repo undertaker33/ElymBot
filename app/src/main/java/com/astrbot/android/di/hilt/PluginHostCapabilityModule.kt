@@ -5,6 +5,7 @@ import com.astrbot.android.feature.plugin.runtime.ExternalPluginHostActionExecut
 import com.astrbot.android.feature.plugin.runtime.PluginFailureGuard
 import com.astrbot.android.feature.plugin.runtime.PluginHostCapabilityGatewayFactory
 import com.astrbot.android.feature.plugin.runtime.DefaultPluginExecutionHostOperations
+import com.astrbot.android.feature.plugin.runtime.PluginExecutionHostOperations
 import com.astrbot.android.feature.plugin.runtime.PluginExecutionHostResolver
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimeLogBus
 import com.astrbot.android.feature.plugin.data.config.PluginHostConfigResolver
@@ -34,6 +35,13 @@ internal abstract class PluginHostCapabilityModule {
         ): DefaultPluginExecutionHostOperations = DefaultPluginExecutionHostOperations(
             hostConfigResolver = hostConfigResolver,
         )
+
+        @Provides
+        @Singleton
+        @JvmStatic
+        fun providePluginExecutionHostOperations(
+            operations: DefaultPluginExecutionHostOperations,
+        ): PluginExecutionHostOperations = operations
 
         @Provides
         @Singleton

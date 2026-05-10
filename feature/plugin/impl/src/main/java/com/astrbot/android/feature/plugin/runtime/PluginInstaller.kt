@@ -7,9 +7,9 @@ import com.astrbot.android.download.DownloadOwnerType
 import com.astrbot.android.download.DownloadRequest
 import com.astrbot.android.download.DownloadTaskRecord
 import com.astrbot.android.download.DownloadTaskStatus
-import com.astrbot.android.feature.plugin.data.FeaturePluginRepository
 import com.astrbot.android.feature.plugin.data.PluginInstallStore
 import com.astrbot.android.feature.plugin.data.PluginStoragePaths
+import com.astrbot.android.feature.plugin.data.createLocalPackageInstallBlockedException
 import com.astrbot.android.model.plugin.PluginDownloadProgress
 import com.astrbot.android.model.plugin.PluginInstallIntent
 import com.astrbot.android.model.plugin.PluginInstallRecord
@@ -264,10 +264,10 @@ class PluginInstaller @Inject constructor(
                     runtimeKind = "",
                     issueCount = 1,
                 )
-                throw FeaturePluginRepository.buildLocalPackageInstallBlockedException(error)
+                throw createLocalPackageInstallBlockedException(error)
             }
         if (!validation.installable) {
-            throw FeaturePluginRepository.buildLocalPackageInstallBlockedException(validation)
+            throw createLocalPackageInstallBlockedException(validation)
         }
 
         val existing = installStore.findByPluginId(validation.manifest.pluginId)
