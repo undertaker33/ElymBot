@@ -2,9 +2,8 @@ package com.astrbot.android.core.db.backup
 
 import android.content.Context
 import android.net.Uri
-import com.astrbot.android.di.ProductionConversationBackupDataPort
 import com.astrbot.android.model.chat.ConversationSession
-import com.astrbot.android.core.common.logging.RuntimeLogRepository
+import com.astrbot.android.core.logging.SharedRuntimeLogStore
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -131,7 +130,7 @@ object ConversationBackupRepository {
 
     fun initialize(
         context: Context,
-        dataPort: ConversationBackupDataPort = ProductionConversationBackupDataPort,
+        dataPort: ConversationBackupDataPort = MissingConversationBackupDataPort,
     ) {
         hiltDataPort = dataPort
         if (!initialized.compareAndSet(false, true)) return
@@ -179,7 +178,7 @@ object ConversationBackupRepository {
             buildBackupItem(file)
                 ?: error("Backup file was created but could not be read back")
         }.onFailure { error ->
-            RuntimeLogRepository.append("Conversation backup create failed: ${error.message ?: error.javaClass.simpleName}")
+            SharedRuntimeLogStore.append("Conversation backup create failed: ${error.message ?: error.javaClass.simpleName}")
         }
     }
 
@@ -190,7 +189,7 @@ object ConversationBackupRepository {
             resolveDataPort().restoreSessions(sessions)
             sessions.size
         }.onFailure { error ->
-            RuntimeLogRepository.append("Conversation backup restore failed: ${error.message ?: error.javaClass.simpleName}")
+            SharedRuntimeLogStore.append("Conversation backup restore failed: ${error.message ?: error.javaClass.simpleName}")
         }
     }
 
@@ -200,7 +199,7 @@ object ConversationBackupRepository {
             if (!file.delete()) error("Delete failed")
             refreshBackups()
         }.onFailure { error ->
-            RuntimeLogRepository.append("Conversation backup delete failed: ${error.message ?: error.javaClass.simpleName}")
+            SharedRuntimeLogStore.append("Conversation backup delete failed: ${error.message ?: error.javaClass.simpleName}")
         }
     }
 
@@ -217,7 +216,7 @@ object ConversationBackupRepository {
                 output.flush()
             } ?: error("Unable to open export target")
         }.onFailure { error ->
-            RuntimeLogRepository.append("Conversation backup export failed: ${error.message ?: error.javaClass.simpleName}")
+            SharedRuntimeLogStore.append("Conversation backup export failed: ${error.message ?: error.javaClass.simpleName}")
         }
     }
 
@@ -242,7 +241,7 @@ object ConversationBackupRepository {
                 preview = resolveDataPort().previewImportedSessions(sessions),
             )
         }.onFailure { error ->
-            RuntimeLogRepository.append("Conversation backup external import failed: ${error.message ?: error.javaClass.simpleName}")
+            SharedRuntimeLogStore.append("Conversation backup external import failed: ${error.message ?: error.javaClass.simpleName}")
         }
     }
 
@@ -256,7 +255,7 @@ object ConversationBackupRepository {
                 overwriteDuplicates = overwriteDuplicates,
             )
         }.onFailure { error ->
-            RuntimeLogRepository.append("Conversation backup import apply failed: ${error.message ?: error.javaClass.simpleName}")
+            SharedRuntimeLogStore.append("Conversation backup import apply failed: ${error.message ?: error.javaClass.simpleName}")
         }
     }
 
@@ -322,7 +321,7 @@ object ConversationBackupRepository {
 
             createBackup(trigger = "auto").onSuccess {
                 saveLastAutoBackupDate(today)
-                RuntimeLogRepository.append("Conversation auto backup created: file=${it.fileName}")
+                SharedRuntimeLogStore.append("Conversation auto backup created: file=${it.fileName}")
             }
         }
     }
@@ -388,7 +387,36 @@ object ConversationBackupRepository {
     }
 
     private fun resolveDataPort(): ConversationBackupDataPort {
-        return hiltDataPort ?: ProductionConversationBackupDataPort
+        return hiltDataPort ?: MissingConversationBackupDataPort
+    }
+
+    private object MissingConversationBackupDataPort : ConversationBackupDataPort {
+        private val ready = MutableStateFlow(false)
+        private val emptySessions = MutableStateFlow<List<ConversationSession>>(emptyList())
+
+        override val isReady: StateFlow<Boolean> = ready.asStateFlow()
+        override val sessions: StateFlow<List<ConversationSession>> = emptySessions.asStateFlow()
+        override val defaultSessionTitle: String = "\u65B0\u5BF9\u8BDD"
+
+        override fun selectedBotId(): String = error(unavailableMessage())
+        override fun snapshotSessions(): List<ConversationSession> = error(unavailableMessage())
+        override fun restoreSessions(restoredSessions: List<ConversationSession>) = error(unavailableMessage())
+        override fun previewImportedSessions(importedSessions: List<ConversationSession>): ConversationImportPreview =
+            error(unavailableMessage())
+
+        override fun importSessions(
+            importedSessions: List<ConversationSession>,
+            overwriteDuplicates: Boolean,
+        ): ConversationImportResult = error(unavailableMessage())
+
+        override suspend fun importSessionsDurable(
+            importedSessions: List<ConversationSession>,
+            overwriteDuplicates: Boolean,
+        ): ConversationImportResult = error(unavailableMessage())
+
+        private fun unavailableMessage(): String {
+            return "ConversationBackupRepository requires an injected ConversationBackupDataPort before use."
+        }
     }
 }
 

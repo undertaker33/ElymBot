@@ -106,8 +106,8 @@ android {
     defaultConfig {
         applicationId = "com.astrbot.android"
         targetSdk = 36
-        versionCode = 69
-        versionName = "0.8.12"
+        versionCode = 70
+        versionName = "0.8.13"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

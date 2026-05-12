@@ -1,4 +1,4 @@
-﻿package com.astrbot.android.feature.qq.data
+package com.astrbot.android.feature.qq.data
 
 import com.astrbot.android.data.http.AstrBotHttpClient
 import com.astrbot.android.data.http.AstrBotHttpException
@@ -6,8 +6,8 @@ import com.astrbot.android.data.http.HttpFailureCategory
 import com.astrbot.android.data.http.HttpMethod
 import com.astrbot.android.data.http.HttpRequestSpec
 import com.astrbot.android.data.http.OkHttpAstrBotHttpClient
-import com.astrbot.android.core.common.logging.AppLogger
-import com.astrbot.android.core.common.logging.RuntimeLogRepository
+import com.astrbot.android.core.logging.RuntimeLogStore
+import com.astrbot.android.core.logging.SharedRuntimeLogStore
 import com.astrbot.android.core.runtime.network.OkHttpRuntimeNetworkTransport
 import com.astrbot.android.feature.qq.domain.QqWebUiTokenProvider
 import com.astrbot.android.feature.qq.domain.model.NapCatLoginState
@@ -24,7 +24,11 @@ import java.security.MessageDigest
 import org.json.JSONException
 
 @Singleton
-class NapCatLoginService @Inject constructor() {
+class NapCatLoginService @Inject constructor(
+    private val runtimeLogStore: RuntimeLogStore,
+) {
+    constructor() : this(SharedRuntimeLogStore)
+
     private var credential: String = ""
     private var postJsonOverride: ((String, JSONObject, String?) -> JSONObject)? = null
     private var httpClient: AstrBotHttpClient = OkHttpAstrBotHttpClient(
@@ -557,8 +561,8 @@ class NapCatLoginService @Inject constructor() {
     }
 
     private fun appendLoginLog(message: String) {
-        AppLogger.append(message)
-        RuntimeLogRepository.flush()
+        runtimeLogStore.append(message)
+        runtimeLogStore.flush()
     }
 
     private fun postJson(

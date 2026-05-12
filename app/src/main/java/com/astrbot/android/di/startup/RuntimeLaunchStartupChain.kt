@@ -1,6 +1,6 @@
 package com.astrbot.android.di.startup
 
-import com.astrbot.android.core.common.logging.RuntimeLogRepository
+import com.astrbot.android.core.logging.SharedRuntimeLogStore
 import com.astrbot.android.core.runtime.container.ContainerRuntimeInstaller
 import com.astrbot.android.di.hilt.ApplicationScope
 import com.astrbot.android.feature.cron.runtime.CronJobReconciler
@@ -19,6 +19,6 @@ internal class RuntimeLaunchStartupChain @Inject constructor(
         qqStartupPort.start()
         containerRuntimeInstaller.warmUpAsync(appScope)
         cronJobReconciler.reconcileAsync(appScope)
-        RuntimeLogRepository.append("App started")
+        SharedRuntimeLogStore.append("App started")
     }
 }

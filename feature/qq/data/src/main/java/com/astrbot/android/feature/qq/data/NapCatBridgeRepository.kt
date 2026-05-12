@@ -1,8 +1,8 @@
-﻿package com.astrbot.android.feature.qq.data
+package com.astrbot.android.feature.qq.data
 
 import android.content.Context
 import android.content.SharedPreferences
-import com.astrbot.android.core.common.logging.AppLogger
+import com.astrbot.android.core.common.logging.RuntimeLogger
 import com.astrbot.android.data.db.AppPreferenceDao
 import com.astrbot.android.data.db.AppPreferenceEntity
 import com.astrbot.android.feature.qq.domain.QqBridgeStatePort
@@ -22,6 +22,7 @@ import kotlinx.coroutines.runBlocking
 class NapCatBridgeStateOwner @Inject constructor(
     @ApplicationContext private val appContext: Context,
     private val appPreferenceDao: AppPreferenceDao,
+    private val runtimeLogger: RuntimeLogger,
     qqLoginRepository: QqLoginRepositoryAdapter,
 ) : QqBridgeStatePort {
     private var legacyPreferences: SharedPreferences? = null
@@ -48,7 +49,7 @@ class NapCatBridgeStateOwner @Inject constructor(
             seedStorageIfNeeded(defaults = _config.value)
             _config.value = loadConfig(defaults = _config.value)
         }
-        AppLogger.append(
+        runtimeLogger.append(
             "Bridge config loaded: endpoint=${_config.value.endpoint} health=${_config.value.healthUrl} autoStart=${_config.value.autoStart}",
         )
     }
@@ -56,7 +57,7 @@ class NapCatBridgeStateOwner @Inject constructor(
     override fun updateConfig(config: NapCatBridgeConfig) {
         _config.value = config
         persistConfig(config)
-        AppLogger.append(
+        runtimeLogger.append(
             "Bridge config updated: endpoint=${config.endpoint} health=${config.healthUrl} autoStart=${config.autoStart}",
         )
     }
@@ -64,7 +65,7 @@ class NapCatBridgeStateOwner @Inject constructor(
     fun applyRuntimeDefaults(defaults: NapCatBridgeConfig) {
         val mergedConfig = runBlocking(Dispatchers.IO) { loadConfig(defaults) }
         _config.value = mergedConfig
-        AppLogger.append(
+        runtimeLogger.append(
             "Bridge runtime defaults applied: endpoint=${mergedConfig.endpoint} health=${mergedConfig.healthUrl} autoStart=${mergedConfig.autoStart}",
         )
     }

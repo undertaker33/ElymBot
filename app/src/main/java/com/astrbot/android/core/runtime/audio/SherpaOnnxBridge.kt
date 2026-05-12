@@ -8,7 +8,7 @@ import android.media.MediaFormat
 import android.util.Base64
 import com.astrbot.android.model.chat.ConversationAttachment
 import com.astrbot.android.model.ProviderProfile
-import com.astrbot.android.core.common.logging.RuntimeLogRepository
+import com.astrbot.android.core.logging.SharedRuntimeLogStore
 import com.k2fsa.sherpa.onnx.FeatureConfig
 import com.k2fsa.sherpa.onnx.GeneratedAudio
 import com.k2fsa.sherpa.onnx.OfflineModelConfig
@@ -91,7 +91,7 @@ object SherpaOnnxBridge {
 
         val runtimeConfig = buildTtsRuntimeConfig(context, normalizedModel)
         val speakerId = resolveSpeakerId(normalizedModel, voiceId)
-        RuntimeLogRepository.append(
+        SharedRuntimeLogStore.append(
             "Sherpa ONNX TTS generate: model=$normalizedModel speakerId=$speakerId chars=${preparedText.length}",
         )
 
@@ -168,9 +168,9 @@ object SherpaOnnxBridge {
     ): OfflineTts {
         return ttsCache[model] ?: synchronized(ttsCache) {
             ttsCache[model] ?: run {
-                RuntimeLogRepository.append("Sherpa ONNX TTS init start: model=$model")
+                SharedRuntimeLogStore.append("Sherpa ONNX TTS init start: model=$model")
                 val created = OfflineTts(runtimeConfig.assetManager, runtimeConfig.config)
-                RuntimeLogRepository.append("Sherpa ONNX TTS init done: model=$model")
+                SharedRuntimeLogStore.append("Sherpa ONNX TTS init done: model=$model")
                 ttsCache[model] = created
                 created
             }
@@ -244,7 +244,7 @@ object SherpaOnnxBridge {
         val sampleRate = tts.sampleRate()
         val pcmBytes = ByteArrayOutputStream()
         var callbackChunks = 0
-        RuntimeLogRepository.append(
+        SharedRuntimeLogStore.append(
             "Sherpa ONNX TTS callback start: sampleRate=$sampleRate speakerId=$speakerId chars=${text.length}",
         )
         tts.generateWithCallback(
@@ -254,14 +254,14 @@ object SherpaOnnxBridge {
         ) { samples ->
             callbackChunks += 1
             if (callbackChunks == 1) {
-                RuntimeLogRepository.append(
+                SharedRuntimeLogStore.append(
                     "Sherpa ONNX TTS callback chunk: samples=${samples.size}",
                 )
             }
             pcmBytes.write(floatArrayToPcmBytes(samples))
             1
         }
-        RuntimeLogRepository.append(
+        SharedRuntimeLogStore.append(
             "Sherpa ONNX TTS callback done: chunks=$callbackChunks bytes=${pcmBytes.size()}",
         )
         check(pcmBytes.size() > 0) { "Sherpa ONNX TTS generated empty audio." }

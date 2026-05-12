@@ -9,7 +9,6 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import org.json.JSONObject
 
-@Suppress("DEPRECATION")
 internal open class ChatCompletionServiceLlmClient(
     context: Context? = null,
 ) : LlmClientPort {

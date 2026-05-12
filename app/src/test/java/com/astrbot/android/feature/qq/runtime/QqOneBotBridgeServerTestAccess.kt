@@ -1,5 +1,7 @@
 package com.astrbot.android.feature.qq.runtime
 
+import com.astrbot.android.core.common.logging.RuntimeLogger
+import com.astrbot.android.core.logging.SharedRuntimeLogStore
 import com.astrbot.android.di.runtime.llm.toConversationAttachment
 import com.astrbot.android.di.runtime.llm.toLlmProviderProfile
 import com.astrbot.android.core.runtime.session.ConversationSessionLockManager
@@ -13,7 +15,12 @@ internal object QqOneBotBridgeServerTestAccess {
         .apply { isAccessible = true }
 
     fun primeRuntimeDependencies(dependencies: QqOneBotRuntimeDependencies) {
-        runtimeDependenciesField.set(QqOneBotBridgeServer, dependencies)
+        runtimeDependenciesField.set(
+            QqOneBotBridgeServer,
+            dependencies.copy(
+                runtimeLogger = RuntimeLogger(SharedRuntimeLogStore::append),
+            ),
+        )
         runtimeGraphFactoryField.set(QqOneBotBridgeServer, TestQqRuntimeGraphFactory)
     }
 

@@ -4,7 +4,7 @@ package com.astrbot.android.di.startup
 
 import android.app.Application
 import com.astrbot.android.AppStrings
-import com.astrbot.android.core.common.logging.RuntimeLogRepository
+import com.astrbot.android.core.logging.SharedRuntimeLogStore
 import com.astrbot.android.core.runtime.audio.SherpaOnnxBridge
 import com.astrbot.android.download.DownloadManagerBootstrap
 import com.astrbot.android.feature.qq.domain.QqLoginStateBootstrapper
@@ -20,7 +20,7 @@ internal class BootstrapPrerequisitesStartupChain @Inject constructor(
 
     override fun run() {
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
-            RuntimeLogRepository.append(
+            SharedRuntimeLogStore.append(
                 "App uncaught exception: thread=${thread.name} reason=${throwable.message ?: throwable.javaClass.simpleName}",
             )
         }

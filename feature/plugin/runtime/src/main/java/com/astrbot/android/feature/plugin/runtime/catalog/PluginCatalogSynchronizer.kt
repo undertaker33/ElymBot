@@ -7,7 +7,7 @@ import com.astrbot.android.model.plugin.PluginCatalogSyncStatus
 import com.astrbot.android.model.plugin.PluginCatalogVersion
 import com.astrbot.android.model.plugin.PluginInstallIntent
 import com.astrbot.android.model.plugin.PluginRepositorySource
-import com.astrbot.android.core.common.logging.AppLogger
+import com.astrbot.android.core.logging.SharedRuntimeLogStore
 import com.astrbot.android.feature.plugin.runtime.InMemoryPluginRuntimeLogBus
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimeLogBus
 import com.astrbot.android.feature.plugin.runtime.publishMarketV2ValidationCompleted
@@ -37,7 +37,7 @@ class PluginCatalogSynchronizer @Inject constructor(
             ?: error("Plugin repository source not found for sourceId=$sourceId")
         val syncSource = subscribedSource.withNormalizedCatalogUrl()
         if (syncSource.catalogUrl != subscribedSource.catalogUrl) {
-            AppLogger.append(
+            SharedRuntimeLogStore.append(
                 "Plugin market sync normalized source URL: " +
                     "sourceId=${subscribedSource.sourceId} " +
                     "from=${subscribedSource.catalogUrl} " +
@@ -47,7 +47,7 @@ class PluginCatalogSynchronizer @Inject constructor(
         }
 
         val attemptAt = now()
-        AppLogger.append(
+        SharedRuntimeLogStore.append(
             "Plugin market sync start: " +
                 "sourceId=${syncSource.sourceId} " +
                 "url=${syncSource.catalogUrl} " +
@@ -55,11 +55,11 @@ class PluginCatalogSynchronizer @Inject constructor(
         )
         return runCatching {
             val rawJson = fetcher.fetch(syncSource.catalogUrl)
-            AppLogger.append(
+            SharedRuntimeLogStore.append(
                 "Plugin market sync fetched: sourceId=${syncSource.sourceId} chars=${rawJson.length}",
             )
             val parsedSource = decode(rawJson)
-            AppLogger.append(
+            SharedRuntimeLogStore.append(
                 "Plugin market sync decoded: " +
                     "sourceId=${syncSource.sourceId} " +
                     "upstreamSourceId=${parsedSource.sourceId} " +
@@ -78,10 +78,10 @@ class PluginCatalogSynchronizer @Inject constructor(
                     outcome = PluginCatalogSyncStatus.EMPTY.name,
                     occurredAtEpochMillis = now(),
                 )
-                AppLogger.append(
+                SharedRuntimeLogStore.append(
                     "Plugin market sync empty: sourceId=${emptySource.sourceId} cachedPlugins=${syncSource.plugins.size}",
                 )
-                AppLogger.flush()
+                SharedRuntimeLogStore.flush()
                 emptySource.toSyncState()
             } else {
                 val successSource = normalized.copy(lastSyncStatus = PluginCatalogSyncStatus.SUCCESS)
@@ -91,13 +91,13 @@ class PluginCatalogSynchronizer @Inject constructor(
                     outcome = PluginCatalogSyncStatus.SUCCESS.name,
                     occurredAtEpochMillis = now(),
                 )
-                AppLogger.append(
+                SharedRuntimeLogStore.append(
                     "Plugin market sync success: " +
                         "sourceId=${successSource.sourceId} " +
                         "plugins=${successSource.plugins.size} " +
                         "versions=${successSource.plugins.sumOf { it.versions.size }}",
                 )
-                AppLogger.flush()
+                SharedRuntimeLogStore.flush()
                 successSource.toSyncState()
             }
         }.getOrElse { failure ->
@@ -116,10 +116,10 @@ class PluginCatalogSynchronizer @Inject constructor(
                 v2VersionCount = 0,
                 issueCount = 1,
             )
-            AppLogger.append(
+            SharedRuntimeLogStore.append(
                 "Plugin market sync failed: sourceId=${failedSource.sourceId} error=${failure.toRuntimeLogSummary()}",
             )
-            AppLogger.flush()
+            SharedRuntimeLogStore.flush()
             failedSource.toSyncState()
         }
     }

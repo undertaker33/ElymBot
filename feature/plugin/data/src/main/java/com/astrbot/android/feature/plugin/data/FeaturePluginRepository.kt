@@ -266,8 +266,6 @@ object PluginCatalogVersionGate {
     }
 }
 
-@Deprecated("Use PluginRepositoryPort from feature/plugin/domain. Direct access will be removed.")
-@Suppress("DEPRECATION")
 @Singleton
 class FeaturePluginRepository @Inject constructor(
     @ApplicationContext private val appContext: Context,

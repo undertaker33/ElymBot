@@ -1,6 +1,6 @@
 package com.astrbot.android.feature.cron.runtime
 
-import com.astrbot.android.core.common.logging.AppLogger
+import com.astrbot.android.core.logging.SharedRuntimeLogStore
 import com.astrbot.android.core.runtime.context.RuntimeBotSnapshot
 import com.astrbot.android.core.runtime.context.RuntimeContextResolverPort
 import com.astrbot.android.core.runtime.context.RuntimeIngressEvent
@@ -122,7 +122,7 @@ object ScheduledTaskRuntimeExecutor {
         if (deliveryResult is PluginV2HostLlmDeliveryResult.SendFailed) {
             error(deliveryResult.sendResult.errorSummary.ifBlank { "scheduled_task_send_failed" })
         }
-        AppLogger.append(
+        SharedRuntimeLogStore.append(
             "CronJobBridge: job=${context.jobId} completed with ${deliveryResult::class.simpleName.orEmpty()} conversation=$conversationId",
         )
         return when (deliveryResult) {
@@ -134,7 +134,7 @@ object ScheduledTaskRuntimeExecutor {
                 textPreview = deliveryResult.preparedReply.text.take(160),
             )
             is PluginV2HostLlmDeliveryResult.Suppressed -> {
-                AppLogger.append(
+                SharedRuntimeLogStore.append(
                     "CronJobBridge: job=${context.jobId} suppressed without sending conversation=$conversationId",
                 )
                 throw CronJobExecutionFailure(

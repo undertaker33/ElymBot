@@ -8,7 +8,7 @@ import com.astrbot.android.core.backup.BackupParticipantSnapshot
 import com.astrbot.android.core.db.backup.AppBackupDataPort
 import com.astrbot.android.core.db.backup.ConversationBackupDataPort
 import com.astrbot.android.di.HiltAppBackupDataPort
-import com.astrbot.android.di.ProductionConversationBackupDataPort
+import com.astrbot.android.di.HiltConversationBackupDataPort
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -27,7 +27,9 @@ internal object BackupModule {
 
     @Provides
     @Singleton
-    fun provideConversationBackupDataPort(): ConversationBackupDataPort = ProductionConversationBackupDataPort
+    fun provideConversationBackupDataPort(
+        dataPort: HiltConversationBackupDataPort,
+    ): ConversationBackupDataPort = dataPort
 
     @Provides
     @Singleton

@@ -5,14 +5,15 @@ import com.astrbot.android.core.db.backup.AppBackupExternalState
 import com.astrbot.android.core.db.backup.ConversationBackupDataPort
 import com.astrbot.android.core.db.backup.ConversationImportPreview
 import com.astrbot.android.core.db.backup.ConversationImportResult
-import com.astrbot.android.feature.bot.data.FeatureBotRepository as BotRepository
+import com.astrbot.android.feature.bot.data.FeatureBotRepositoryStore
+import com.astrbot.android.feature.bot.domain.BotRepositoryPort
 import com.astrbot.android.feature.bot.domain.model.BotProfile
-import com.astrbot.android.feature.config.data.FeatureConfigRepository as ConfigRepository
+import com.astrbot.android.feature.config.data.FeatureConfigRepositoryStore
 import com.astrbot.android.feature.config.domain.model.ConfigProfile
-import com.astrbot.android.feature.conversation.data.FeatureConversationRepository as ConversationRepository
-import com.astrbot.android.feature.persona.data.FeaturePersonaRepository as PersonaRepository
+import com.astrbot.android.feature.conversation.data.FeatureConversationRepositoryStore
+import com.astrbot.android.feature.persona.data.FeaturePersonaRepositoryStore
 import com.astrbot.android.feature.persona.domain.model.PersonaProfile
-import com.astrbot.android.feature.provider.data.FeatureProviderRepository as ProviderRepository
+import com.astrbot.android.feature.provider.data.FeatureProviderRepositoryStore
 import com.astrbot.android.feature.provider.domain.model.ProviderProfile
 import com.astrbot.android.feature.qq.domain.QqLoginRepositoryPort
 import com.astrbot.android.feature.qq.domain.model.SavedQqAccount
@@ -21,46 +22,51 @@ import javax.inject.Inject
 import kotlinx.coroutines.flow.StateFlow
 
 internal class HiltAppBackupDataPort @Inject constructor(
+    private val botRepository: FeatureBotRepositoryStore,
+    private val providerRepository: FeatureProviderRepositoryStore,
+    private val personaRepository: FeaturePersonaRepositoryStore,
+    private val configRepository: FeatureConfigRepositoryStore,
+    private val conversationRepository: FeatureConversationRepositoryStore,
     private val qqLoginRepository: QqLoginRepositoryPort,
 ) : AppBackupDataPort {
-    override fun snapshotBots(): List<BotProfile> = BotRepository.snapshotProfiles()
+    override fun snapshotBots(): List<BotProfile> = botRepository.snapshotProfiles()
 
-    override fun snapshotProviders(): List<ProviderProfile> = ProviderRepository.snapshotProfiles()
+    override fun snapshotProviders(): List<ProviderProfile> = providerRepository.snapshotProfiles()
 
-    override fun snapshotPersonas(): List<PersonaProfile> = PersonaRepository.snapshotProfiles()
+    override fun snapshotPersonas(): List<PersonaProfile> = personaRepository.snapshotProfiles()
 
-    override fun snapshotConfigs(): List<ConfigProfile> = ConfigRepository.snapshotProfiles()
+    override fun snapshotConfigs(): List<ConfigProfile> = configRepository.snapshotProfiles()
 
-    override fun snapshotConversations(): List<ConversationSession> = ConversationRepository.snapshotSessions()
+    override fun snapshotConversations(): List<ConversationSession> = conversationRepository.snapshotSessions()
 
     override fun snapshotExternalState(): AppBackupExternalState {
         val loginState = qqLoginRepository.loginState.value
         return AppBackupExternalState(
-            selectedBotId = BotRepository.selectedBotId.value,
-            selectedConfigId = ConfigRepository.selectedProfileId.value,
+            selectedBotId = botRepository.selectedBotId.value,
+            selectedConfigId = configRepository.selectedProfileId.value,
             quickLoginUin = loginState.quickLoginUin,
             savedAccounts = loginState.savedAccounts,
         )
     }
 
     override suspend fun restoreBots(profiles: List<BotProfile>, selectedBotId: String) {
-        BotRepository.restoreProfiles(profiles, selectedBotId)
+        botRepository.restoreProfiles(profiles, selectedBotId)
     }
 
     override fun restoreProviders(profiles: List<ProviderProfile>) {
-        ProviderRepository.restoreProfiles(profiles)
+        providerRepository.restoreProfiles(profiles)
     }
 
     override fun restorePersonas(profiles: List<PersonaProfile>) {
-        PersonaRepository.restoreProfiles(profiles)
+        personaRepository.restoreProfiles(profiles)
     }
 
     override fun restoreConfigs(profiles: List<ConfigProfile>, selectedConfigId: String) {
-        ConfigRepository.restoreProfiles(profiles, selectedConfigId)
+        configRepository.restoreProfiles(profiles, selectedConfigId)
     }
 
     override suspend fun restoreConversations(sessions: List<ConversationSession>) {
-        ConversationRepository.restoreSessionsDurable(sessions)
+        conversationRepository.restoreSessionsDurable(sessions)
     }
 
     override fun restoreQqLoginState(quickLoginUin: String, savedAccounts: List<SavedQqAccount>) {
@@ -71,64 +77,24 @@ internal class HiltAppBackupDataPort @Inject constructor(
     }
 }
 
-object ProductionAppBackupDataPort : AppBackupDataPort {
-    override fun snapshotBots(): List<BotProfile> = BotRepository.snapshotProfiles()
+internal class HiltConversationBackupDataPort @Inject constructor(
+    private val conversationRepository: FeatureConversationRepositoryStore,
+    private val botRepository: BotRepositoryPort,
+) : ConversationBackupDataPort {
+    override val isReady: StateFlow<Boolean> = conversationRepository.isReady
+    override val sessions: StateFlow<List<ConversationSession>> = conversationRepository.sessions
+    override val defaultSessionTitle: String = "\u65B0\u5BF9\u8BDD"
 
-    override fun snapshotProviders(): List<ProviderProfile> = ProviderRepository.snapshotProfiles()
+    override fun selectedBotId(): String = botRepository.selectedBotId.value
 
-    override fun snapshotPersonas(): List<PersonaProfile> = PersonaRepository.snapshotProfiles()
-
-    override fun snapshotConfigs(): List<ConfigProfile> = ConfigRepository.snapshotProfiles()
-
-    override fun snapshotConversations(): List<ConversationSession> = ConversationRepository.snapshotSessions()
-
-    override fun snapshotExternalState(): AppBackupExternalState {
-        return AppBackupExternalState(
-            selectedBotId = BotRepository.selectedBotId.value,
-            selectedConfigId = ConfigRepository.selectedProfileId.value,
-        )
-    }
-
-    override suspend fun restoreBots(profiles: List<BotProfile>, selectedBotId: String) {
-        BotRepository.restoreProfiles(profiles, selectedBotId)
-    }
-
-    override fun restoreProviders(profiles: List<ProviderProfile>) {
-        ProviderRepository.restoreProfiles(profiles)
-    }
-
-    override fun restorePersonas(profiles: List<PersonaProfile>) {
-        PersonaRepository.restoreProfiles(profiles)
-    }
-
-    override fun restoreConfigs(profiles: List<ConfigProfile>, selectedConfigId: String) {
-        ConfigRepository.restoreProfiles(profiles, selectedConfigId)
-    }
-
-    override suspend fun restoreConversations(sessions: List<ConversationSession>) {
-        ConversationRepository.restoreSessionsDurable(sessions)
-    }
-
-    override fun restoreQqLoginState(quickLoginUin: String, savedAccounts: List<SavedQqAccount>) {
-        // Static compatibility fallback intentionally does not own QQ login restore.
-    }
-}
-
-object ProductionConversationBackupDataPort : ConversationBackupDataPort {
-    override val isReady: StateFlow<Boolean> = ConversationRepository.isReady
-    override val sessions: StateFlow<List<ConversationSession>> = ConversationRepository.sessions
-    override val defaultSessionTitle: String = ConversationRepository.DEFAULT_SESSION_TITLE
-
-    override fun selectedBotId(): String = BotRepository.selectedBotId.value
-
-    override fun snapshotSessions(): List<ConversationSession> = ConversationRepository.snapshotSessions()
+    override fun snapshotSessions(): List<ConversationSession> = conversationRepository.snapshotSessions()
 
     override fun restoreSessions(restoredSessions: List<ConversationSession>) {
-        ConversationRepository.restoreSessions(restoredSessions)
+        conversationRepository.restoreSessions(restoredSessions)
     }
 
     override fun previewImportedSessions(importedSessions: List<ConversationSession>): ConversationImportPreview {
-        val preview = ConversationRepository.previewImportedSessions(importedSessions)
+        val preview = conversationRepository.previewImportedSessions(importedSessions)
         return ConversationImportPreview(
             totalSessions = preview.totalSessions,
             duplicateSessions = preview.duplicateSessions,
@@ -140,7 +106,7 @@ object ProductionConversationBackupDataPort : ConversationBackupDataPort {
         importedSessions: List<ConversationSession>,
         overwriteDuplicates: Boolean,
     ): ConversationImportResult {
-        val result = ConversationRepository.importSessions(
+        val result = conversationRepository.importSessions(
             importedSessions = importedSessions,
             overwriteDuplicates = overwriteDuplicates,
         )
@@ -155,7 +121,7 @@ object ProductionConversationBackupDataPort : ConversationBackupDataPort {
         importedSessions: List<ConversationSession>,
         overwriteDuplicates: Boolean,
     ): ConversationImportResult {
-        val result = ConversationRepository.importSessionsDurable(
+        val result = conversationRepository.importSessionsDurable(
             importedSessions = importedSessions,
             overwriteDuplicates = overwriteDuplicates,
         )

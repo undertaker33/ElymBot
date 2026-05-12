@@ -4,7 +4,7 @@ import android.content.Context
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
-import com.astrbot.android.core.common.logging.AppLogger
+import com.astrbot.android.core.logging.SharedRuntimeLogStore
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 
@@ -24,11 +24,11 @@ class CronJobWorker @AssistedInject constructor(
     override suspend fun doWork(): Result {
         val jobId = inputData.getString("jobId")
         if (jobId.isNullOrBlank()) {
-            AppLogger.append("CronJobWorker: missing jobId input")
+            SharedRuntimeLogStore.append("CronJobWorker: missing jobId input")
             return Result.failure()
         }
 
-        AppLogger.append("CronJobWorker: firing for jobId=$jobId attempt=${runAttemptCount + 1}")
+        SharedRuntimeLogStore.append("CronJobWorker: firing for jobId=$jobId attempt=${runAttemptCount + 1}")
         return when (
             coordinator.runDueJob(
                 jobId = jobId,

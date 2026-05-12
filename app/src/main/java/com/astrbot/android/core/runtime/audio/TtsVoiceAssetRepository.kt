@@ -21,7 +21,7 @@ import com.astrbot.android.model.ProviderType
 import com.astrbot.android.feature.voiceasset.api.model.TtsVoiceReferenceAsset
 import com.astrbot.android.feature.voiceasset.api.model.TtsVoiceReferenceClip
 import com.astrbot.android.feature.voiceasset.api.model.VoiceAssetProviderType
-import com.astrbot.android.core.common.logging.RuntimeLogRepository
+import com.astrbot.android.core.logging.SharedRuntimeLogStore
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import java.io.FileOutputStream
@@ -65,7 +65,7 @@ class TtsVoiceAssetRepository @Inject constructor(
             assetDao.observeAssetAggregates().collect { aggregates ->
                 val loaded = aggregates.map(TtsVoiceAssetAggregate::toModel)
                 _assets.value = loaded
-                RuntimeLogRepository.append("TTS voice assets loaded: count=${loaded.size}")
+                SharedRuntimeLogStore.append("TTS voice assets loaded: count=${loaded.size}")
             }
         }
     }
@@ -147,7 +147,7 @@ class TtsVoiceAssetRepository @Inject constructor(
         val updated = _assets.value.filterNot { it.id == asset.id } + asset
         _assets.value = updated.sortedByDescending { it.createdAt }
         persist(_assets.value)
-        RuntimeLogRepository.append(
+        SharedRuntimeLogStore.append(
             "Reference audio clip imported: name=${asset.name} clips=${asset.clips.size} durationMs=${clip.durationMs}",
         )
         return ImportReferenceAudioResult(asset = asset, warning = null)
@@ -325,7 +325,7 @@ class TtsVoiceAssetRepository @Inject constructor(
             .sortedByDescending { it.createdAt }
         _assets.value = restored
         persist(restored)
-        RuntimeLogRepository.append("TTS voice assets restored: count=${restored.size}")
+        SharedRuntimeLogStore.append("TTS voice assets restored: count=${restored.size}")
     }
 
     private fun persist(assets: List<TtsVoiceReferenceAsset>) {
@@ -342,11 +342,11 @@ class TtsVoiceAssetRepository @Inject constructor(
         val imported = runCatching {
             parseLegacyTtsVoiceAssets(legacyPreferences.getString(keyAssetsJson, null))
         }.onFailure { error ->
-            RuntimeLogRepository.append("TTS voice assets legacy import failed: ${error.message ?: error.javaClass.simpleName}")
+            SharedRuntimeLogStore.append("TTS voice assets legacy import failed: ${error.message ?: error.javaClass.simpleName}")
         }.getOrDefault(emptyList())
         if (imported.isNotEmpty()) {
             assetDao.replaceAll(imported.map(TtsVoiceReferenceAsset::toWriteModel))
-            RuntimeLogRepository.append("TTS voice assets migrated from SharedPreferences: count=${imported.size}")
+            SharedRuntimeLogStore.append("TTS voice assets migrated from SharedPreferences: count=${imported.size}")
         }
     }
 

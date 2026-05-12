@@ -1,6 +1,7 @@
 package com.astrbot.android.feature.cron.runtime
 
 import android.content.Context
+import com.astrbot.android.feature.cron.domain.ActiveCapabilityPromptStrings
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 

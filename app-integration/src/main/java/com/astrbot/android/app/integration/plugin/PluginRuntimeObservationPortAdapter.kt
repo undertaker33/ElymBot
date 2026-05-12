@@ -1,6 +1,6 @@
 package com.astrbot.android.app.integration.plugin
 
-import com.astrbot.android.core.common.logging.RuntimeLogRepository
+import com.astrbot.android.core.logging.SharedRuntimeLogStore
 import com.astrbot.android.di.hilt.ApplicationScope
 import com.astrbot.android.feature.plugin.domain.PluginRuntimeObservationPort
 import com.astrbot.android.feature.plugin.domain.PluginStateRepositoryPort
@@ -33,7 +33,7 @@ internal class PluginRuntimeObservationPortAdapter @Inject constructor(
                     syncPluginRuntimeRecordsAndSignalReady(currentRecords)
                 } catch (error: Throwable) {
                     if (error is CancellationException) throw error
-                    RuntimeLogRepository.append(
+                    SharedRuntimeLogStore.append(
                         "Plugin v2 runtime loader sync failed: ${error.message ?: error.javaClass.simpleName}",
                     )
                 }

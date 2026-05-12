@@ -8,7 +8,7 @@ import com.astrbot.android.feature.cron.domain.ActiveCapabilityPromptStrings
 import com.astrbot.android.feature.cron.domain.CronExpressionParser
 import com.astrbot.android.feature.cron.domain.model.CronJob
 import com.astrbot.android.feature.cron.domain.model.CronJobExecutionRecord
-import com.astrbot.android.core.common.logging.AppLogger
+import com.astrbot.android.core.logging.SharedRuntimeLogStore
 import com.astrbot.android.core.runtime.context.RuntimePlatform
 import java.time.Instant
 import java.time.OffsetDateTime
@@ -175,7 +175,7 @@ class ActiveCapabilityRuntimeFacade(
         )
         val created = repository.create(job)
         if (created.enabled) scheduler.schedule(created)
-        AppLogger.append(
+        SharedRuntimeLogStore.append(
             "ActiveCapability: create_future_task success jobId=${created.jobId} " +
                 "nextRun=${created.nextRunTime.toIsoStringOrBlank()} source=${adjustedSchedule.source} " +
                 "payload=$payloadSummary rawText=${hostRawText.toQuotedLogValue()}",
@@ -606,7 +606,7 @@ class ActiveCapabilityRuntimeFacade(
         payloadSummary: String,
         rawText: String?,
     ) {
-        AppLogger.append(
+        SharedRuntimeLogStore.append(
             "ActiveCapability: create_future_task failed code=${error.code} message=${error.message} " +
                 "missing=${error.missingFields.joinToString(prefix = "[", postfix = "]")} " +
                 "payload=$payloadSummary rawText=${rawText.toQuotedLogValue()}",

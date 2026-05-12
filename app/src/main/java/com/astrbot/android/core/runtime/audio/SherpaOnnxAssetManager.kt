@@ -1,7 +1,7 @@
 package com.astrbot.android.core.runtime.audio
 
 import android.content.Context
-import com.astrbot.android.core.common.logging.RuntimeLogRepository
+import com.astrbot.android.core.logging.SharedRuntimeLogStore
 import java.io.File
 import java.io.FileOutputStream
 import java.net.HttpURLConnection
@@ -103,12 +103,12 @@ object SherpaOnnxAssetManager {
         }
         frameworkMarkerFile(context).writeText(FRAMEWORK_VERSION)
         clearDeprecatedTtsAssets(context)
-        RuntimeLogRepository.append("Sherpa ONNX framework activated: version=$FRAMEWORK_VERSION")
+        SharedRuntimeLogStore.append("Sherpa ONNX framework activated: version=$FRAMEWORK_VERSION")
     }
 
     fun clearFramework(context: Context) {
         frameworkDir(context).deleteRecursively()
-        RuntimeLogRepository.append("Sherpa ONNX framework cleared")
+        SharedRuntimeLogStore.append("Sherpa ONNX framework cleared")
     }
 
     fun downloadSttAssets(context: Context) {
@@ -124,7 +124,7 @@ object SherpaOnnxAssetManager {
 
     fun clearSttAssets(context: Context) {
         sttDir(context).deleteRecursively()
-        RuntimeLogRepository.append("Sherpa ONNX STT assets cleared")
+        SharedRuntimeLogStore.append("Sherpa ONNX STT assets cleared")
     }
 
     fun downloadKokoroAssets(context: Context) {
@@ -140,7 +140,7 @@ object SherpaOnnxAssetManager {
 
     fun clearKokoroAssets(context: Context) {
         kokoroDir(context).deleteRecursively()
-        RuntimeLogRepository.append("Sherpa ONNX kokoro assets cleared")
+        SharedRuntimeLogStore.append("Sherpa ONNX kokoro assets cleared")
     }
 
     fun clearDeprecatedTtsAssets(context: Context) {
@@ -150,7 +150,7 @@ object SherpaOnnxAssetManager {
         deprecatedDirs.forEach { dir ->
             if (dir.exists()) {
                 dir.deleteRecursively()
-                RuntimeLogRepository.append("Sherpa ONNX deprecated TTS assets cleared: ${dir.absolutePath}")
+                SharedRuntimeLogStore.append("Sherpa ONNX deprecated TTS assets cleared: ${dir.absolutePath}")
             }
         }
     }
@@ -214,14 +214,14 @@ object SherpaOnnxAssetManager {
         targetDir.deleteRecursively()
         stagingDir.copyRecursively(targetDir, overwrite = true)
         stagingDir.deleteRecursively()
-        RuntimeLogRepository.append("Sherpa ONNX asset extracted: target=${targetDir.absolutePath}")
+        SharedRuntimeLogStore.append("Sherpa ONNX asset extracted: target=${targetDir.absolutePath}")
     }
 
     private fun downloadFile(
         url: String,
         outputFile: File,
     ) {
-        RuntimeLogRepository.append("Sherpa ONNX asset download started: $url")
+        SharedRuntimeLogStore.append("Sherpa ONNX asset download started: $url")
         val connection = (URL(url).openConnection() as HttpURLConnection).apply {
             requestMethod = "GET"
             connectTimeout = 20_000
@@ -242,7 +242,7 @@ object SherpaOnnxAssetManager {
         } finally {
             connection.disconnect()
         }
-        RuntimeLogRepository.append("Sherpa ONNX asset download finished: ${outputFile.absolutePath}")
+        SharedRuntimeLogStore.append("Sherpa ONNX asset download finished: ${outputFile.absolutePath}")
     }
 
     private fun extractTarBz2(

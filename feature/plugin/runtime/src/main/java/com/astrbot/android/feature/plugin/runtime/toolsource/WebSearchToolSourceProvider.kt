@@ -1,6 +1,6 @@
 package com.astrbot.android.feature.plugin.runtime.toolsource
 
-import com.astrbot.android.core.common.logging.AppLogger
+import com.astrbot.android.core.logging.SharedRuntimeLogStore
 import com.astrbot.android.core.runtime.search.SearchAttemptDiagnostic
 import com.astrbot.android.core.runtime.search.UnifiedSearchException
 import com.astrbot.android.core.runtime.search.UnifiedSearchPort
@@ -120,7 +120,7 @@ class WebSearchToolSourceProvider @Inject constructor(
                 ),
             )
         } catch (e: UnifiedSearchException) {
-            AppLogger.append("WebSearch invoke error: ${e.message}")
+            SharedRuntimeLogStore.append("WebSearch invoke error: ${e.message}")
             errorResult(
                 request = request,
                 errorCode = "web_search_error",
@@ -131,7 +131,7 @@ class WebSearchToolSourceProvider @Inject constructor(
                 ),
             )
         } catch (e: Exception) {
-            AppLogger.append("WebSearch invoke error: ${e.message}")
+            SharedRuntimeLogStore.append("WebSearch invoke error: ${e.message}")
             errorResult(
                 request = request,
                 errorCode = "web_search_error",
