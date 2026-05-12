@@ -3,7 +3,7 @@ package com.astrbot.android.core.runtime.audio
 import com.astrbot.android.model.ProviderProfile
 import com.astrbot.android.model.ProviderType
 import com.astrbot.android.feature.voiceasset.api.model.TtsVoiceReferenceAsset
-import com.astrbot.android.core.common.logging.RuntimeLogRepository
+import com.astrbot.android.core.logging.SharedRuntimeLogStore
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URI
@@ -108,7 +108,7 @@ object VoiceCloneService {
         }
         return try {
             executeJsonRequest(connection, payload) { body ->
-                RuntimeLogRepository.append("MiniMax voice clone response: ${body.ifBlank { "-" }}")
+                SharedRuntimeLogStore.append("MiniMax voice clone response: ${body.ifBlank { "-" }}")
                 val json = JSONObject(body)
                 val baseResp = json.optJSONObject("base_resp")
                 val statusCode = baseResp?.optInt("status_code", 0) ?: 0
@@ -150,7 +150,7 @@ object VoiceCloneService {
                 throw IllegalStateException("HTTP $responseCode while uploading reference audio to MiniMax.")
             }
             val body = connection.inputStream.bufferedReader(StandardCharsets.UTF_8).use { it.readText() }
-            RuntimeLogRepository.append("MiniMax file upload response: ${body.ifBlank { "-" }}")
+            SharedRuntimeLogStore.append("MiniMax file upload response: ${body.ifBlank { "-" }}")
             val json = JSONObject(body)
             val baseResp = json.optJSONObject("base_resp")
             val statusCode = baseResp?.optInt("status_code", 0) ?: 0
@@ -454,7 +454,7 @@ object VoiceCloneService {
     }
 
     private fun openJsonConnection(endpoint: String): HttpURLConnection {
-        RuntimeLogRepository.append("Voice clone request: endpoint=$endpoint")
+        SharedRuntimeLogStore.append("Voice clone request: endpoint=$endpoint")
         return (URL(endpoint).openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
             connectTimeout = 20_000
@@ -480,7 +480,7 @@ object VoiceCloneService {
             ?.use { it.readText() }
             .orEmpty()
         if (responseCode !in 200..299) {
-            RuntimeLogRepository.append(
+            SharedRuntimeLogStore.append(
                 "Voice clone HTTP error: code=$responseCode body=${body.ifBlank { "-" }}",
             )
             throw IllegalStateException("HTTP $responseCode: $body")

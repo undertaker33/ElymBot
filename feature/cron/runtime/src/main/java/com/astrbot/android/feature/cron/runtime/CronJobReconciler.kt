@@ -1,6 +1,6 @@
 package com.astrbot.android.feature.cron.runtime
 
-import com.astrbot.android.core.common.logging.AppLogger
+import com.astrbot.android.core.logging.SharedRuntimeLogStore
 import com.astrbot.android.feature.cron.domain.CronJobRepositoryPort
 import com.astrbot.android.feature.cron.domain.CronSchedulerPort
 import javax.inject.Inject
@@ -41,7 +41,7 @@ class CronJobReconciler @Inject constructor(
         val enabledJobs = repository.listEnabled()
         scheduler.cancelAll()
         enabledJobs.forEach(scheduler::schedule)
-        AppLogger.append(
+        SharedRuntimeLogStore.append(
             "CronJobReconciler: reconciled ${enabledJobs.size} enabled scheduled task(s)",
         )
         CronJobReconciliationSummary(scheduledCount = enabledJobs.size)

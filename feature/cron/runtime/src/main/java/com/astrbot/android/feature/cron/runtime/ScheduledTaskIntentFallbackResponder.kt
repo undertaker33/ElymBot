@@ -1,5 +1,6 @@
 package com.astrbot.android.feature.cron.runtime
 
+import com.astrbot.android.feature.cron.domain.ActiveCapabilityPromptStrings
 import com.astrbot.android.feature.plugin.domain.runtime.PluginLlmResponse
 import com.astrbot.android.feature.plugin.domain.runtime.PluginMessageEventResult
 import com.astrbot.android.feature.plugin.domain.runtime.PluginProviderRequest

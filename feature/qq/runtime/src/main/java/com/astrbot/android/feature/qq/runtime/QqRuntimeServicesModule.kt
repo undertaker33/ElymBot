@@ -1,6 +1,7 @@
 package com.astrbot.android.feature.qq.runtime
 
 import android.content.Context
+import com.astrbot.android.core.common.logging.RuntimeLogger
 import com.astrbot.android.core.runtime.audio.SilkAudioEncoder
 import com.astrbot.android.core.runtime.context.RuntimeContextResolverPort
 import com.astrbot.android.core.runtime.llm.LlmClientPort
@@ -56,6 +57,7 @@ internal object QqRuntimeServicesModule {
         hostCapabilityGateway: PluginHostCapabilityGateway,
         pluginExecutionService: QqPluginExecutionPort,
         llmProviderProbePort: LlmProviderProbePort,
+        runtimeLogger: RuntimeLogger,
         silkAudioEncoder: SilkAudioEncoder,
         pluginWorkspacePathPort: PluginWorkspacePathPort,
     ): QqOneBotRuntimeDependencies {
@@ -75,6 +77,7 @@ internal object QqRuntimeServicesModule {
             hostCapabilityGateway = hostCapabilityGateway,
             pluginExecutionService = pluginExecutionService,
             llmProviderProbePort = llmProviderProbePort,
+            runtimeLogger = runtimeLogger,
             silkAudioEncoder = silkAudioEncoder::encode,
             pluginWorkspacePathPort = pluginWorkspacePathPort,
             filesDirProvider = { appContext.filesDir },

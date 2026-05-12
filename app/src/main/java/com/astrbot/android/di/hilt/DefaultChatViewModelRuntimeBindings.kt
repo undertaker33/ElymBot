@@ -1,7 +1,7 @@
-﻿
+
 package com.astrbot.android.di.hilt
 
-import com.astrbot.android.core.common.logging.RuntimeLogRepository
+import com.astrbot.android.core.logging.SharedRuntimeLogStore
 import com.astrbot.android.core.runtime.context.RuntimeContextResolverPort
 import com.astrbot.android.core.runtime.llm.LlmClientPort
 import com.astrbot.android.core.runtime.llm.LlmInvocationRequest
@@ -15,8 +15,8 @@ import com.astrbot.android.di.runtime.llm.toLlmConversationAttachment
 import com.astrbot.android.di.runtime.llm.toLlmConversationMessages
 import com.astrbot.android.di.runtime.llm.toLlmProviderProfile
 import com.astrbot.android.di.runtime.llm.toLlmRuntimeConfig
-import com.astrbot.android.feature.bot.data.FeatureBotRepository as BotRepository
-import com.astrbot.android.feature.conversation.data.FeatureConversationRepository as ConversationRepository
+import com.astrbot.android.feature.bot.data.FeatureBotRepositoryStore
+import com.astrbot.android.feature.conversation.data.FeatureConversationRepositoryStore
 import com.astrbot.android.feature.chat.domain.AppChatRuntimePort
 import com.astrbot.android.feature.conversation.domain.ConversationRepositoryPort
 import com.astrbot.android.feature.chat.domain.SendAppMessageUseCase
@@ -26,10 +26,10 @@ import com.astrbot.android.feature.chat.presentation.AppChatSendHandler
 import com.astrbot.android.feature.chat.runtime.AppChatPluginCommandService
 import com.astrbot.android.feature.chat.runtime.AppChatPluginCommandServiceFactory
 import com.astrbot.android.feature.chat.runtime.AppChatRuntimeServiceFactory
-import com.astrbot.android.feature.config.data.FeatureConfigRepository as ConfigRepository
-import com.astrbot.android.feature.persona.data.FeaturePersonaRepository as PersonaRepository
+import com.astrbot.android.feature.config.data.FeatureConfigRepositoryStore
+import com.astrbot.android.feature.persona.data.FeaturePersonaRepositoryStore
 import com.astrbot.android.feature.plugin.domain.runtime.AppChatPluginRuntime
-import com.astrbot.android.feature.provider.data.FeatureProviderRepository as ProviderRepository
+import com.astrbot.android.feature.provider.data.FeatureProviderRepositoryStore
 import com.astrbot.android.model.BotProfile
 import com.astrbot.android.model.ConfigProfile
 import com.astrbot.android.model.PersonaProfile
@@ -56,41 +56,46 @@ internal class DefaultChatViewModelRuntimeBindings @Inject constructor(
     private val appChatSendHandlerFactory: AppChatSendHandlerFactory,
     private val appChatPluginCommandServiceFactory: AppChatPluginCommandServiceFactory,
     private val sessionLockCoordinator: SessionLockCoordinator,
+    private val botStore: FeatureBotRepositoryStore,
+    private val conversationStore: FeatureConversationRepositoryStore,
+    private val configStore: FeatureConfigRepositoryStore,
+    private val personaStore: FeaturePersonaRepositoryStore,
+    private val providerStore: FeatureProviderRepositoryStore,
 ) : ChatViewModelRuntimeBindings {
 
-    override val defaultSessionId: String = ConversationRepository.DEFAULT_SESSION_ID
-    override val defaultSessionTitle: String = ConversationRepository.DEFAULT_SESSION_TITLE
+    override val defaultSessionId: String = "chat-main"
+    override val defaultSessionTitle: String = "\u65B0\u5BF9\u8BDD"
     override val defaultAppChatPluginRuntime: AppChatPluginRuntime
         get() = injectedAppChatPluginRuntime
-    override val bots: StateFlow<List<BotProfile>> = BotRepository.botProfiles
-    override val selectedBotId: StateFlow<String> = BotRepository.selectedBotId
-    override val providers: StateFlow<List<ProviderProfile>> = ProviderRepository.providers
-    override val configProfiles: StateFlow<List<ConfigProfile>> = ConfigRepository.profiles
-    override val sessions: StateFlow<List<ConversationSession>> = ConversationRepository.sessions
-    override val personas: StateFlow<List<PersonaProfile>> = PersonaRepository.personas
+    override val bots: StateFlow<List<BotProfile>> = botStore.botProfiles
+    override val selectedBotId: StateFlow<String> = botStore.selectedBotId
+    override val providers: StateFlow<List<ProviderProfile>> = providerStore.providers
+    override val configProfiles: StateFlow<List<ConfigProfile>> = configStore.profiles
+    override val sessions: StateFlow<List<ConversationSession>> = conversationStore.sessions
+    override val personas: StateFlow<List<PersonaProfile>> = personaStore.personas
 
-    override fun session(sessionId: String): ConversationSession = ConversationRepository.session(sessionId)
+    override fun session(sessionId: String): ConversationSession = conversationStore.session(sessionId)
 
-    override fun createSession(botId: String): ConversationSession = ConversationRepository.createSession(botId = botId)
+    override fun createSession(botId: String): ConversationSession = conversationStore.createSession(botId = botId)
 
     override fun deleteSession(sessionId: String) {
-        ConversationRepository.deleteSession(sessionId)
+        conversationStore.deleteSession(sessionId)
     }
 
     override fun renameSession(sessionId: String, title: String) {
-        ConversationRepository.renameSession(sessionId, title)
+        conversationStore.renameSession(sessionId, title)
     }
 
     override fun toggleSessionPinned(sessionId: String) {
-        ConversationRepository.toggleSessionPinned(sessionId)
+        conversationStore.toggleSessionPinned(sessionId)
     }
 
     override fun updateSessionServiceFlags(sessionId: String, sessionSttEnabled: Boolean?, sessionTtsEnabled: Boolean?) {
-        ConversationRepository.updateSessionServiceFlags(sessionId, sessionSttEnabled, sessionTtsEnabled)
+        conversationStore.updateSessionServiceFlags(sessionId, sessionSttEnabled, sessionTtsEnabled)
     }
 
     override fun updateSessionBindings(sessionId: String, providerId: String, personaId: String, botId: String) {
-        ConversationRepository.updateSessionBindings(sessionId, providerId, personaId, botId)
+        conversationStore.updateSessionBindings(sessionId, providerId, personaId, botId)
     }
 
     override fun appendMessage(
@@ -98,10 +103,10 @@ internal class DefaultChatViewModelRuntimeBindings @Inject constructor(
         role: String,
         content: String,
         attachments: List<ConversationAttachment>,
-    ): String = ConversationRepository.appendMessage(sessionId, role, content, attachments)
+    ): String = conversationStore.appendMessage(sessionId, role, content, attachments)
 
     override fun replaceMessages(sessionId: String, messages: List<ConversationMessage>) {
-        ConversationRepository.replaceMessages(sessionId, messages)
+        conversationStore.replaceMessages(sessionId, messages)
     }
 
     override fun updateMessage(
@@ -110,25 +115,25 @@ internal class DefaultChatViewModelRuntimeBindings @Inject constructor(
         content: String?,
         attachments: List<ConversationAttachment>?,
     ) {
-        ConversationRepository.updateMessage(sessionId, messageId, content, attachments)
+        conversationStore.updateMessage(sessionId, messageId, content, attachments)
     }
 
     override fun syncSystemSessionTitle(sessionId: String, title: String) {
-        ConversationRepository.syncSystemSessionTitle(sessionId, title)
+        conversationStore.syncSystemSessionTitle(sessionId, title)
     }
 
-    override fun resolveConfig(profileId: String): ConfigProfile = ConfigRepository.resolve(profileId)
+    override fun resolveConfig(profileId: String): ConfigProfile = configStore.resolve(profileId)
 
     override fun saveConfig(profile: ConfigProfile) {
-        ConfigRepository.save(profile)
+        configStore.save(profile)
     }
 
     override fun saveBot(profile: BotProfile) {
-        BotRepository.save(profile)
+        botStore.save(profile)
     }
 
     override fun saveProvider(profile: ProviderProfile) {
-        ProviderRepository.save(
+        providerStore.save(
             id = profile.id,
             name = profile.name,
             baseUrl = profile.baseUrl,
@@ -275,7 +280,7 @@ internal class DefaultChatViewModelRuntimeBindings @Inject constructor(
     }
 
     override fun log(message: String) {
-        RuntimeLogRepository.append(message)
+        SharedRuntimeLogStore.append(message)
     }
 
     private fun createAppChatRuntimePort(

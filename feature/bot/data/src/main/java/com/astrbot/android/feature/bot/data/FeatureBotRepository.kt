@@ -31,7 +31,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
-@Deprecated("Use BotRepositoryPort from feature/bot/domain. Direct access will be removed.")
+// Static compatibility facade. Production imports are governed by source contracts.
 object FeatureBotRepository {
     private const val KEY_BOT_BINDINGS_JSON = "bot_bindings_json"
     private const val PREF_LEGACY_BOT_BINDINGS_MIGRATED = "legacy_bot_bindings_migrated"

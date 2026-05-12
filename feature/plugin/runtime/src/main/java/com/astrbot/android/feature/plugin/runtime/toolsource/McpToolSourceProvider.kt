@@ -1,7 +1,7 @@
 package com.astrbot.android.feature.plugin.runtime.toolsource
 
 import com.astrbot.android.core.runtime.context.RuntimeMcpServerSnapshot
-import com.astrbot.android.core.common.logging.AppLogger
+import com.astrbot.android.core.logging.SharedRuntimeLogStore
 import com.astrbot.android.feature.plugin.runtime.PluginToolDescriptor
 import com.astrbot.android.feature.plugin.runtime.PluginToolResult
 import com.astrbot.android.feature.plugin.runtime.PluginToolResultStatus
@@ -31,7 +31,7 @@ class McpToolSourceProvider @Inject constructor(
         val activeServers = context.toolSourceContext.mcpServers.filter { it.active }
         return activeServers.flatMap { server ->
             if (!isStreamableHttp(server.transport)) {
-                AppLogger.append(
+                SharedRuntimeLogStore.append(
                     "MCP tools discovery skipped: server=${server.serverId} unsupported transport=${server.transport}",
                 )
                 return@flatMap emptyList()
@@ -40,7 +40,7 @@ class McpToolSourceProvider @Inject constructor(
                 val tools = sessionManager.discoverTools(context.configProfileId, server.toMcpServerEntry())
                 buildBindingsForServer(server, tools)
             }.onFailure { error ->
-                AppLogger.append(
+                SharedRuntimeLogStore.append(
                     "MCP tools discovery failed: server=${server.serverId} reason=${error.message ?: error.javaClass.simpleName}",
                 )
             }.getOrDefault(emptyList())

@@ -8,7 +8,7 @@ import android.os.Looper
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import com.astrbot.android.model.chat.ConversationAttachment
-import com.astrbot.android.core.common.logging.RuntimeLogRepository
+import com.astrbot.android.core.logging.SharedRuntimeLogStore
 import java.io.File
 import java.util.Base64
 import java.util.Locale
@@ -60,7 +60,7 @@ object AndroidSystemTtsBridge {
             check(doneLatch.await(20, TimeUnit.SECONDS)) { "Android system TTS timed out." }
             check(errorMessage == null) { errorMessage!! }
             check(outputFile.exists() && outputFile.length() > 0L) { "Android system TTS did not produce audio." }
-            RuntimeLogRepository.append("Android system TTS generated audio: bytes=${outputFile.length()}")
+            SharedRuntimeLogStore.append("Android system TTS generated audio: bytes=${outputFile.length()}")
             return ConversationAttachment(
                 id = UUID.randomUUID().toString(),
                 type = "audio",
@@ -108,7 +108,7 @@ object AndroidSystemTtsBridge {
                 return@forEach
             }
             if (initStatus == TextToSpeech.SUCCESS && engine != null) {
-                RuntimeLogRepository.append(
+                SharedRuntimeLogStore.append(
                     "Android system TTS engine selected: ${enginePackage ?: "default"}",
                 )
                 return engine!!

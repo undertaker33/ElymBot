@@ -28,7 +28,7 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 
-@Deprecated("Use ResourceCenterPort from feature/resource/domain. Direct access will be removed.")
+// Static compatibility facade. Production imports are governed by source contracts.
 object FeatureResourceCenterRepository {
     @Volatile
     private var delegate: FeatureResourceCenterRepositoryStore? = null

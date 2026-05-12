@@ -26,7 +26,7 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 
-@Deprecated("Use ProviderRepositoryPort from feature/provider/domain. Direct access will be removed.")
+// Static compatibility facade. Production imports are governed by source contracts.
 object FeatureProviderRepository {
     private const val KEY_PROVIDERS_JSON = "providers_json"
 

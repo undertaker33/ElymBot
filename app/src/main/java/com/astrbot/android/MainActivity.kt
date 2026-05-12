@@ -7,6 +7,8 @@ import android.content.pm.PackageManager
 import android.graphics.Color as AndroidColor
 import android.os.Build
 import android.os.Bundle
+import androidx.activity.SystemBarStyle
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
 import androidx.appcompat.app.AppCompatActivity
@@ -37,7 +39,7 @@ import androidx.lifecycle.lifecycleScope
 import com.astrbot.android.data.AppPreferencesRepository
 import com.astrbot.android.data.AppSettings
 import com.astrbot.android.data.ThemeMode
-import com.astrbot.android.core.common.logging.RuntimeLogRepository
+import com.astrbot.android.core.logging.SharedRuntimeLogStore
 import com.astrbot.android.core.runtime.container.ContainerBridgeStatePort
 import com.astrbot.android.core.runtime.container.ContainerRuntimeState
 import com.astrbot.android.core.runtime.container.RuntimeBridgeController
@@ -84,6 +86,10 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.auto(AndroidColor.TRANSPARENT, AndroidColor.TRANSPARENT),
+            navigationBarStyle = SystemBarStyle.auto(AndroidColor.TRANSPARENT, AndroidColor.TRANSPARENT),
+        )
         WindowCompat.setDecorFitsSystemWindows(window, false)
 
         val appPreferencesRepository = AppPreferencesRepository(applicationContext)
@@ -164,8 +170,6 @@ class MainActivity : AppCompatActivity() {
 
             AstrBotTheme(themeMode = appliedThemeMode) {
                 SideEffect {
-                    window.statusBarColor = AndroidColor.TRANSPARENT
-
                     val iconBackground = if (overlayAlpha.value > 0f) {
                         overlayColor
                     } else {
@@ -262,7 +266,7 @@ class MainActivity : AppCompatActivity() {
             )
         ) return
 
-        RuntimeLogRepository.append("Bridge auto-start triggered from app launch")
+        SharedRuntimeLogStore.append("Bridge auto-start triggered from app launch")
         runtimeBridgeController.startBridge()
     }
 
@@ -293,7 +297,7 @@ class MainActivity : AppCompatActivity() {
                     pluginCatalogRuntimePort.handleInstallIntent(request.intent) { }
                 }
             }.onFailure { error ->
-                RuntimeLogRepository.append(
+                SharedRuntimeLogStore.append(
                     "Plugin deep link failed: ${error.message ?: error.javaClass.simpleName}",
                 )
             }

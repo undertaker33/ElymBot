@@ -29,6 +29,7 @@ dependencies {
 
     implementation(project(":core:common"))
     implementation(project(":core:runtime"))
+    implementation(project(":core:logging"))
     implementation(project(":core:ui"))
     implementation(project(":feature:plugin:api"))
     implementation(project(":feature:plugin:data"))

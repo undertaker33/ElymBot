@@ -7,7 +7,7 @@ import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.workDataOf
-import com.astrbot.android.core.common.logging.AppLogger
+import com.astrbot.android.core.logging.SharedRuntimeLogStore
 import com.astrbot.android.feature.cron.domain.CronExpressionParser
 import com.astrbot.android.feature.cron.domain.model.CronJob
 import java.util.concurrent.TimeUnit
@@ -31,7 +31,7 @@ object CronJobScheduler {
         }
         val delayMs = computeDelayMs(job)
         if (delayMs < 0) {
-            AppLogger.append("CronJobScheduler: skipping job ${job.jobId} 鈥?invalid delay")
+            SharedRuntimeLogStore.append("CronJobScheduler: skipping job ${job.jobId} 鈥?invalid delay")
             return
         }
         val constraints = Constraints.Builder()
@@ -49,12 +49,12 @@ object CronJobScheduler {
             ExistingWorkPolicy.REPLACE,
             workRequest,
         )
-        AppLogger.append("CronJobScheduler: scheduled job ${job.jobId} '${job.name}' with delay ${delayMs}ms")
+        SharedRuntimeLogStore.append("CronJobScheduler: scheduled job ${job.jobId} '${job.name}' with delay ${delayMs}ms")
     }
 
     fun cancelJob(context: Context, jobId: String) {
         WorkManager.getInstance(context).cancelUniqueWork("cron_job_$jobId")
-        AppLogger.append("CronJobScheduler: cancelled job $jobId")
+        SharedRuntimeLogStore.append("CronJobScheduler: cancelled job $jobId")
     }
 
     fun cancelAll(context: Context) {

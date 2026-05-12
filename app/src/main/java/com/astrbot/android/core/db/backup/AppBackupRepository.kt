@@ -1,7 +1,6 @@
 package com.astrbot.android.core.db.backup
 
 import com.astrbot.android.core.runtime.audio.TtsVoiceAssetRepository
-import com.astrbot.android.di.ProductionAppBackupDataPort
 
 import android.content.Context
 import android.net.Uri
@@ -49,7 +48,7 @@ import com.astrbot.android.model.ProviderProfile
 import com.astrbot.android.model.SavedQqAccount
 import com.astrbot.android.feature.voiceasset.api.model.TtsVoiceReferenceAsset
 import com.astrbot.android.model.chat.ConversationSession
-import com.astrbot.android.core.common.logging.RuntimeLogRepository
+import com.astrbot.android.core.logging.SharedRuntimeLogStore
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -185,7 +184,7 @@ object AppBackupRepository {
 
     fun initialize(
         context: Context,
-        dataPort: AppBackupDataPort = ProductionAppBackupDataPort,
+        dataPort: AppBackupDataPort = MissingAppBackupDataPort,
     ) {
         hiltDataPort = dataPort
         if (!initialized.compareAndSet(false, true)) return
@@ -217,7 +216,7 @@ object AppBackupRepository {
             refreshBackups()
             buildBackupItem(file) ?: error("Backup file was created but could not be parsed")
         }.onFailure { error ->
-            RuntimeLogRepository.append("Full backup create failed: ${error.message ?: error.javaClass.simpleName}")
+            SharedRuntimeLogStore.append("Full backup create failed: ${error.message ?: error.javaClass.simpleName}")
         }
     }
 
@@ -234,7 +233,7 @@ object AppBackupRepository {
             refreshModuleBackups(module)
             buildModuleBackupItem(module, file) ?: error("Module backup file was created but could not be parsed")
         }.onFailure { error ->
-            RuntimeLogRepository.append("${module.storageLabel} backup create failed: ${error.message ?: error.javaClass.simpleName}")
+            SharedRuntimeLogStore.append("${module.storageLabel} backup create failed: ${error.message ?: error.javaClass.simpleName}")
         }
     }
 
@@ -257,7 +256,7 @@ object AppBackupRepository {
                 ),
             )
         }.onFailure { error ->
-            RuntimeLogRepository.append("Full backup restore failed: ${error.message ?: error.javaClass.simpleName}")
+            SharedRuntimeLogStore.append("Full backup restore failed: ${error.message ?: error.javaClass.simpleName}")
         }
     }
 
@@ -267,7 +266,7 @@ object AppBackupRepository {
             if (!file.delete()) error("Delete failed")
             refreshBackups()
         }.onFailure { error ->
-            RuntimeLogRepository.append("Full backup delete failed: ${error.message ?: error.javaClass.simpleName}")
+            SharedRuntimeLogStore.append("Full backup delete failed: ${error.message ?: error.javaClass.simpleName}")
         }
     }
 
@@ -280,7 +279,7 @@ object AppBackupRepository {
             if (!file.delete()) error("Delete failed")
             refreshModuleBackups(module)
         }.onFailure { error ->
-            RuntimeLogRepository.append("${module.storageLabel} backup delete failed: ${error.message ?: error.javaClass.simpleName}")
+            SharedRuntimeLogStore.append("${module.storageLabel} backup delete failed: ${error.message ?: error.javaClass.simpleName}")
         }
     }
 
@@ -296,7 +295,7 @@ object AppBackupRepository {
                 output.flush()
             } ?: error("Unable to open export target")
         }.onFailure { error ->
-            RuntimeLogRepository.append("Full backup export failed: ${error.message ?: error.javaClass.simpleName}")
+            SharedRuntimeLogStore.append("Full backup export failed: ${error.message ?: error.javaClass.simpleName}")
         }
     }
 
@@ -313,7 +312,7 @@ object AppBackupRepository {
                 output.flush()
             } ?: error("Unable to open export target")
         }.onFailure { error ->
-            RuntimeLogRepository.append("${module.storageLabel} backup export failed: ${error.message ?: error.javaClass.simpleName}")
+            SharedRuntimeLogStore.append("${module.storageLabel} backup export failed: ${error.message ?: error.javaClass.simpleName}")
         }
     }
 
@@ -345,7 +344,7 @@ object AppBackupRepository {
                 extractedFiles = payload.extractedFiles,
             )
         }.onFailure { error ->
-            RuntimeLogRepository.append("Full backup external import failed: ${error.message ?: error.javaClass.simpleName}")
+            SharedRuntimeLogStore.append("Full backup external import failed: ${error.message ?: error.javaClass.simpleName}")
         }
     }
 
@@ -382,7 +381,7 @@ object AppBackupRepository {
                 extractedFiles = payload.extractedFiles,
             )
         }.onFailure { error ->
-            RuntimeLogRepository.append("${module.storageLabel} external import failed: ${error.message ?: error.javaClass.simpleName}")
+            SharedRuntimeLogStore.append("${module.storageLabel} external import failed: ${error.message ?: error.javaClass.simpleName}")
         }
     }
 
@@ -409,7 +408,7 @@ object AppBackupRepository {
         runCatching {
             restoreFromManifest(manifest, plan)
         }.onFailure { error ->
-            RuntimeLogRepository.append("Full backup import failed: ${error.message ?: error.javaClass.simpleName}")
+            SharedRuntimeLogStore.append("Full backup import failed: ${error.message ?: error.javaClass.simpleName}")
         }
     }
 
@@ -420,7 +419,7 @@ object AppBackupRepository {
         runCatching {
             restoreFromManifest(source.manifest, plan, source.extractedFiles)
         }.onFailure { error ->
-            RuntimeLogRepository.append("Full backup import failed: ${error.message ?: error.javaClass.simpleName}")
+            SharedRuntimeLogStore.append("Full backup import failed: ${error.message ?: error.javaClass.simpleName}")
         }
     }
 
@@ -437,7 +436,7 @@ object AppBackupRepository {
             refreshModuleBackups(module)
             moduleCountFromRestoreResult(module, result)
         }.onFailure { error ->
-            RuntimeLogRepository.append("${module.storageLabel} import failed: ${error.message ?: error.javaClass.simpleName}")
+            SharedRuntimeLogStore.append("${module.storageLabel} import failed: ${error.message ?: error.javaClass.simpleName}")
         }
     }
 
@@ -454,7 +453,7 @@ object AppBackupRepository {
             refreshModuleBackups(source.module)
             moduleCountFromRestoreResult(source.module, result)
         }.onFailure { error ->
-            RuntimeLogRepository.append("${source.module.storageLabel} import failed: ${error.message ?: error.javaClass.simpleName}")
+            SharedRuntimeLogStore.append("${source.module.storageLabel} import failed: ${error.message ?: error.javaClass.simpleName}")
         }
     }
 
@@ -725,7 +724,7 @@ object AppBackupRepository {
                 stage.rollback()
             }.onFailure { rollbackError ->
                 restoreError.addSuppressed(rollbackError)
-                RuntimeLogRepository.append(
+                SharedRuntimeLogStore.append(
                     "Full backup rollback failed at ${stage.name}: ${rollbackError.message ?: rollbackError.javaClass.simpleName}",
                 )
             }
@@ -980,7 +979,26 @@ object AppBackupRepository {
     }
 
     private fun resolveDataPort(): AppBackupDataPort {
-        return dataPortOverrideForTests ?: hiltDataPort ?: ProductionAppBackupDataPort
+        return dataPortOverrideForTests ?: hiltDataPort ?: MissingAppBackupDataPort
+    }
+
+    private object MissingAppBackupDataPort : AppBackupDataPort {
+        private fun unavailable(): Nothing {
+            error("AppBackupRepository requires an injected AppBackupDataPort before use.")
+        }
+
+        override fun snapshotBots(): List<BotProfile> = unavailable()
+        override fun snapshotProviders(): List<ProviderProfile> = unavailable()
+        override fun snapshotPersonas(): List<PersonaProfile> = unavailable()
+        override fun snapshotConfigs(): List<ConfigProfile> = unavailable()
+        override fun snapshotConversations(): List<ConversationSession> = unavailable()
+        override fun snapshotExternalState(): AppBackupExternalState = unavailable()
+        override suspend fun restoreBots(profiles: List<BotProfile>, selectedBotId: String) = unavailable()
+        override fun restoreProviders(profiles: List<ProviderProfile>) = unavailable()
+        override fun restorePersonas(profiles: List<PersonaProfile>) = unavailable()
+        override fun restoreConfigs(profiles: List<ConfigProfile>, selectedConfigId: String) = unavailable()
+        override suspend fun restoreConversations(sessions: List<ConversationSession>) = unavailable()
+        override fun restoreQqLoginState(quickLoginUin: String, savedAccounts: List<SavedQqAccount>) = unavailable()
     }
 
     private fun ttsAssetToJson(asset: TtsVoiceReferenceAsset): JSONObject {

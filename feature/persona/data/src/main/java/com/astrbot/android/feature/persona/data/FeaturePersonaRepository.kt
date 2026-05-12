@@ -27,7 +27,7 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 
-@Deprecated("Use PersonaRepositoryPort from feature/persona/domain. Direct access will be removed.")
+// Static compatibility facade. Production imports are governed by source contracts.
 object FeaturePersonaRepository {
     private const val KEY_PERSONAS_JSON = "personas_json"
 

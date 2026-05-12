@@ -2,7 +2,7 @@ package com.astrbot.android.data
 
 import android.content.Context
 import com.astrbot.android.R
-import com.astrbot.android.core.common.logging.RuntimeLogRepository
+import com.astrbot.android.core.logging.SharedRuntimeLogStore
 import com.astrbot.android.core.runtime.audio.SherpaOnnxAssetManager
 import com.astrbot.android.core.runtime.audio.TtsVoiceAssetRepository
 import com.astrbot.android.core.runtime.container.CommandRunner
@@ -106,7 +106,7 @@ class RuntimeAssetStateOwner @Inject constructor(
         )
         try {
             containerRuntimeInstaller.ensureInstalled()
-            RuntimeLogRepository.append("Runtime assets download requested: TTS conversion")
+            SharedRuntimeLogStore.append("Runtime assets download requested: TTS conversion")
             val result = commandRunner.execute(
                 ContainerRuntimeScripts.command(
                     filesDir = context.filesDir,
@@ -118,11 +118,11 @@ class RuntimeAssetStateOwner @Inject constructor(
                 val details = parseDownloadSummary(result.stdout)
                     ?: "TTS conversion assets downloaded."
                 refreshInternal(detailsOverrides = mapOf(RuntimeAssetId.TTS to details))
-                RuntimeLogRepository.append("Runtime assets download finished: $details")
+                SharedRuntimeLogStore.append("Runtime assets download finished: $details")
                 updateAsset(RuntimeAssetId.TTS, lastAction = "Downloaded")
             } else {
                 val message = result.stderr.ifBlank { result.stdout }.ifBlank { "Unknown error" }
-                RuntimeLogRepository.append("Runtime assets download failed: $message")
+                SharedRuntimeLogStore.append("Runtime assets download failed: $message")
                 updateAsset(
                     RuntimeAssetId.TTS,
                     busy = false,
@@ -132,7 +132,7 @@ class RuntimeAssetStateOwner @Inject constructor(
             }
         } catch (error: Exception) {
             val message = error.message ?: error.javaClass.simpleName
-            RuntimeLogRepository.append("Runtime assets download exception: $message")
+            SharedRuntimeLogStore.append("Runtime assets download exception: $message")
             updateAsset(
                 RuntimeAssetId.TTS,
                 busy = false,
@@ -152,7 +152,7 @@ class RuntimeAssetStateOwner @Inject constructor(
         )
         try {
             containerRuntimeInstaller.ensureInstalled()
-            RuntimeLogRepository.append("Runtime assets clear requested: TTS conversion")
+            SharedRuntimeLogStore.append("Runtime assets clear requested: TTS conversion")
             val result = commandRunner.execute(
                 ContainerRuntimeScripts.command(
                     filesDir = context.filesDir,
@@ -162,11 +162,11 @@ class RuntimeAssetStateOwner @Inject constructor(
             )
             if (result.exitCode == 0) {
                 refreshInternal(detailsOverrides = mapOf(RuntimeAssetId.TTS to "TTS conversion assets removed."))
-                RuntimeLogRepository.append("Runtime assets cleared: TTS conversion")
+                SharedRuntimeLogStore.append("Runtime assets cleared: TTS conversion")
                 updateAsset(RuntimeAssetId.TTS, lastAction = "Cleared")
             } else {
                 val message = result.stderr.ifBlank { result.stdout }.ifBlank { "Unknown error" }
-                RuntimeLogRepository.append("Runtime assets clear failed: $message")
+                SharedRuntimeLogStore.append("Runtime assets clear failed: $message")
                 updateAsset(
                     RuntimeAssetId.TTS,
                     busy = false,
@@ -176,7 +176,7 @@ class RuntimeAssetStateOwner @Inject constructor(
             }
         } catch (error: Exception) {
             val message = error.message ?: error.javaClass.simpleName
-            RuntimeLogRepository.append("Runtime assets clear exception: $message")
+            SharedRuntimeLogStore.append("Runtime assets clear exception: $message")
             updateAsset(
                 RuntimeAssetId.TTS,
                 busy = false,

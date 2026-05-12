@@ -26,7 +26,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
-@Deprecated("Use ConfigRepositoryPort from feature/config/domain. Direct access will be removed.")
+// Static compatibility facade. Production imports are governed by source contracts.
 object FeatureConfigRepository {
     private const val KEY_PROFILES_JSON = "profiles_json"
     private const val KEY_SELECTED_ID = "selected_id"

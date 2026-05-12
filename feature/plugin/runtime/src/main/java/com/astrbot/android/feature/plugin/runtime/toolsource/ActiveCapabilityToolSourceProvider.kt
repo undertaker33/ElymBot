@@ -1,6 +1,6 @@
 package com.astrbot.android.feature.plugin.runtime.toolsource
 
-import com.astrbot.android.core.common.logging.AppLogger
+import com.astrbot.android.core.logging.SharedRuntimeLogStore
 import com.astrbot.android.core.runtime.context.IngressTrigger
 import com.astrbot.android.feature.plugin.runtime.PluginToolDescriptor
 import com.astrbot.android.feature.plugin.runtime.PluginToolResult
@@ -101,7 +101,7 @@ class ActiveCapabilityToolSourceProvider @Inject constructor(
                 ),
             )
         } catch (e: Exception) {
-            AppLogger.append("ActiveCapability invoke error: ${e.message}")
+            SharedRuntimeLogStore.append("ActiveCapability invoke error: ${e.message}")
             ToolSourceInvokeResult(
                 result = PluginToolResult(
                     toolCallId = request.args.toolCallId,

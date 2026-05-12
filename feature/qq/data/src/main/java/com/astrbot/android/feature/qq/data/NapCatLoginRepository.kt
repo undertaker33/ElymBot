@@ -1,4 +1,4 @@
-﻿package com.astrbot.android.feature.qq.data
+package com.astrbot.android.feature.qq.data
 
 import com.astrbot.android.feature.qq.domain.model.NapCatBridgeConfig
 import com.astrbot.android.feature.qq.domain.model.NapCatLoginState
@@ -9,7 +9,7 @@ import com.astrbot.android.core.runtime.container.ContainerRuntimeController
 import com.astrbot.android.core.runtime.container.ContainerRuntimeScript
 import com.astrbot.android.core.runtime.container.ContainerRuntimeScripts
 import com.astrbot.android.core.runtime.container.RuntimeBridgeController
-import com.astrbot.android.core.common.logging.AppLogger
+import com.astrbot.android.core.common.logging.RuntimeLogger
 import com.astrbot.android.feature.qq.domain.QqWebUiTokenProvider
 import java.io.File
 import javax.inject.Inject
@@ -23,7 +23,13 @@ import kotlinx.coroutines.delay
 class NapCatLoginRepository @Inject constructor(
     private val loginService: NapCatLoginService,
     private val localStore: NapCatLoginLocalStore,
+    private val runtimeLogger: RuntimeLogger,
 ) {
+    constructor(
+        loginService: NapCatLoginService,
+        localStore: NapCatLoginLocalStore,
+    ) : this(loginService, localStore, RuntimeLogger { })
+
     private companion object {
         const val RUNTIME_DIAGNOSTIC_THROTTLE_MS = 20_000L
         const val QR_REFRESH_COOLDOWN_MS = 10_000L
@@ -108,9 +114,9 @@ class NapCatLoginRepository @Inject constructor(
                         quickLoginUin = nextState.uin,
                         savedAccounts = upsertSavedAccount(nextState.savedAccounts, SavedQqAccount(nextState.uin, nextState.nick, nextState.avatarUrl)),
                     )
-                    AppLogger.append("QQ quick login account auto-saved: ${nextState.uin}")
+                    runtimeLogger.append("QQ quick login account auto-saved: ${nextState.uin}")
                 }.onFailure { error ->
-                    AppLogger.append(
+                    runtimeLogger.append(
                         "QQ quick login account auto-save failed: ${error.message ?: error.javaClass.simpleName}",
                     )
                 }
@@ -124,7 +130,7 @@ class NapCatLoginRepository @Inject constructor(
             persistSavedAccounts(nextState.savedAccounts)
             _loginState.value = nextState
             if (manual) {
-                AppLogger.append(
+                runtimeLogger.append(
                     "QQ login state refreshed: login=${nextState.isLogin} offline=${nextState.isOffline} quick=${nextState.quickLoginUin.ifBlank { "-" }}",
                 )
             }
@@ -140,7 +146,7 @@ class NapCatLoginRepository @Inject constructor(
             )
             maybeLogRuntimeDiagnostics(trigger = "refresh", detail = message)
             if (manual) {
-                AppLogger.append("QQ login refresh error: $message")
+                runtimeLogger.append("QQ login refresh error: $message")
             }
             _loginState.value
         }
@@ -151,11 +157,11 @@ class NapCatLoginRepository @Inject constructor(
         val requestStartedAt = nowProvider()
         synchronized(qrRefreshLock) {
             if (qrRefreshInFlight) {
-                AppLogger.append("QQ login QR refresh skipped: request already in flight")
+                runtimeLogger.append("QQ login QR refresh skipped: request already in flight")
                 return
             }
             if (requestStartedAt - lastQrRefreshRequestedAt < QR_REFRESH_COOLDOWN_MS) {
-                AppLogger.append("QQ login QR refresh skipped: cooldown active")
+                runtimeLogger.append("QQ login QR refresh skipped: cooldown active")
                 return
             }
             qrRefreshInFlight = true
@@ -171,7 +177,7 @@ class NapCatLoginRepository @Inject constructor(
                     lastUpdated = System.currentTimeMillis(),
                 ),
             )
-            AppLogger.append("QQ login QR refresh requested")
+            runtimeLogger.append("QQ login QR refresh requested")
         } catch (error: Exception) {
             applyActionError("QQ login QR refresh error", error)
             return
@@ -210,7 +216,7 @@ class NapCatLoginRepository @Inject constructor(
                 ),
             )
             saveQuickLoginUinLocally(targetUin)
-            AppLogger.append("QQ quick login requested: $targetUin")
+            runtimeLogger.append("QQ quick login requested: $targetUin")
         } catch (error: Exception) {
             applyActionError("QQ quick login failed", error)
             return
@@ -247,7 +253,7 @@ class NapCatLoginRepository @Inject constructor(
                 loginError = "",
                 lastUpdated = System.currentTimeMillis(),
             )
-            AppLogger.append("QQ quick login account saved: $cleanedUin")
+            runtimeLogger.append("QQ quick login account saved: $cleanedUin")
         } catch (error: Exception) {
             applyActionError("QQ quick login account save failed", error)
         }
@@ -283,8 +289,8 @@ class NapCatLoginRepository @Inject constructor(
             return
         }
 
-        AppLogger.append("QQ logout command completed")
-        AppLogger.append("QQ logout requesting bridge restart")
+        runtimeLogger.append("QQ logout command completed")
+        runtimeLogger.append("QQ logout requesting bridge restart")
         runtimeBridgeController.stopBridge()
         delay(1_500)
         runtimeBridgeController.startBridge()
@@ -443,7 +449,7 @@ class NapCatLoginRepository @Inject constructor(
             savedAccounts = normalizedAccounts,
             lastUpdated = System.currentTimeMillis(),
         )
-        AppLogger.append("QQ login backup restored: accounts=${normalizedAccounts.size} quick=${resolvedQuickLoginUin.ifBlank { "-" }}")
+        runtimeLogger.append("QQ login backup restored: accounts=${normalizedAccounts.size} quick=${resolvedQuickLoginUin.ifBlank { "-" }}")
     }
 
     private fun performLoginAction(
@@ -494,7 +500,7 @@ class NapCatLoginRepository @Inject constructor(
                     loginError = "首次登录请使用扫码登录",
                     lastUpdated = System.currentTimeMillis(),
                 )
-                AppLogger.append("$actionLabel requires verification, redirected to QR login")
+                runtimeLogger.append("$actionLabel requires verification, redirected to QR login")
             }
 
             result.needNewDevice -> {
@@ -510,7 +516,7 @@ class NapCatLoginRepository @Inject constructor(
                     loginError = "首次登录请使用扫码登录",
                     lastUpdated = System.currentTimeMillis(),
                 )
-                AppLogger.append("$actionLabel requires first-time verification, redirected to QR login")
+                runtimeLogger.append("$actionLabel requires first-time verification, redirected to QR login")
             }
 
             result.completed -> {
@@ -523,7 +529,7 @@ class NapCatLoginRepository @Inject constructor(
                         lastUpdated = System.currentTimeMillis(),
                     ),
                 )
-                AppLogger.append("$actionLabel requested: $uin")
+                runtimeLogger.append("$actionLabel requested: $uin")
                 refresh(webUiTokenProvider = webUiTokenProvider, manual = true)
             }
         }
@@ -585,7 +591,7 @@ class NapCatLoginRepository @Inject constructor(
             lastUpdated = System.currentTimeMillis(),
         )
         maybeLogRuntimeDiagnostics(trigger = prefix, detail = message)
-        AppLogger.append("$prefix: $message")
+        runtimeLogger.append("$prefix: $message")
     }
 
     private fun maybeLogRuntimeDiagnostics(trigger: String, detail: String) {
@@ -600,7 +606,7 @@ class NapCatLoginRepository @Inject constructor(
         }
         lastRuntimeDiagnosticAt = now
         NapCatLoginDiagnostics.buildRuntimeDiagnosticsLines(context.filesDir, trigger, normalizedDetail)
-            .forEach(AppLogger::append)
+            .forEach(runtimeLogger::append)
     }
 
     private fun shouldLogRuntimeDiagnostics(detail: String): Boolean {

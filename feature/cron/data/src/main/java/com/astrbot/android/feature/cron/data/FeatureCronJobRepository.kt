@@ -21,7 +21,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 
-@Deprecated("Use CronJobRepositoryPort from feature/cron/domain. Direct access will be removed.")
+// Static compatibility facade. Production imports are governed by source contracts.
 object FeatureCronJobRepository {
     @Volatile
     private var delegate: FeatureCronJobRepositoryStore? = null

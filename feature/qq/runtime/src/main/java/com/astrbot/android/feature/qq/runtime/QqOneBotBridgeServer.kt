@@ -1,7 +1,7 @@
-﻿package com.astrbot.android.feature.qq.runtime
+package com.astrbot.android.feature.qq.runtime
 
 import androidx.appcompat.app.AppCompatDelegate
-import com.astrbot.android.core.common.logging.AppLogger
+import com.astrbot.android.core.common.logging.RuntimeLogger
 import com.astrbot.android.core.runtime.context.RuntimeContextResolverPort
 import com.astrbot.android.core.runtime.llm.LlmProviderProbePort
 import com.astrbot.android.feature.bot.domain.BotRepositoryPort
@@ -63,6 +63,7 @@ data class QqOneBotRuntimeDependencies(
     val hostActionExecutor: Any? = null,
     val pluginExecutionService: QqPluginExecutionPort,
     val llmProviderProbePort: LlmProviderProbePort,
+    val runtimeLogger: RuntimeLogger = RuntimeLogger { },
     val logBus: Any? = null,
     val silkAudioEncoder: (File) -> File,
     val pluginWorkspacePathPort: PluginWorkspacePathPort,
@@ -134,7 +135,7 @@ internal abstract class BaseQqOneBotBridgeRuntime : QqBridgeRuntime {
     internal suspend fun handlePayload(payload: String) {
         val json = runCatching { JSONObject(payload) }
             .getOrElse { error ->
-                AppLogger.append(
+                appendLog(
                     "OneBot payload parse failed: ${error.message ?: error.javaClass.simpleName}",
                 )
                 return
@@ -144,7 +145,7 @@ internal abstract class BaseQqOneBotBridgeRuntime : QqBridgeRuntime {
             val echo = json.opt("echo")?.toString().orEmpty()
             val status = json.optString("status").ifBlank { "unknown" }
             val retcode = json.opt("retcode")?.toString().orEmpty()
-            AppLogger.append(
+            appendLog(
                 "OneBot action response: status=$status retcode=${retcode.ifBlank { "-" }} echo=${echo.ifBlank { "-" }}",
             )
             return
@@ -152,8 +153,8 @@ internal abstract class BaseQqOneBotBridgeRuntime : QqBridgeRuntime {
 
         when (val result = buildServerAdapter().handlePayload(payload)) {
             is OneBotServerAdapterResult.Handled -> Unit
-            is OneBotServerAdapterResult.Ignored -> AppLogger.append("OneBot payload ignored: ${result.reason}")
-            is OneBotServerAdapterResult.Invalid -> AppLogger.append("OneBot payload invalid: ${result.reason}")
+            is OneBotServerAdapterResult.Ignored -> appendLog("OneBot payload ignored: ${result.reason}")
+            is OneBotServerAdapterResult.Invalid -> appendLog("OneBot payload invalid: ${result.reason}")
         }
     }
 
@@ -185,7 +186,7 @@ internal abstract class BaseQqOneBotBridgeRuntime : QqBridgeRuntime {
                 )
             },
             resolvePluginPrivateRootPath = ::resolvePluginPrivateRootPath,
-            log = AppLogger::append,
+            log = ::appendLog,
         )
     }
 
@@ -201,9 +202,13 @@ internal abstract class BaseQqOneBotBridgeRuntime : QqBridgeRuntime {
                         handlePayload(payload)
                     }
                 },
-                log = AppLogger::append,
+                log = ::appendLog,
             ).also { transport = it }
         }
+    }
+
+    private fun appendLog(message: String) {
+        requireRuntimeDependencies().runtimeLogger.append(message)
     }
 
     private fun scheduleStashReplay(

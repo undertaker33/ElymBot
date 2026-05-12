@@ -1,4 +1,4 @@
-﻿
+
 package com.astrbot.android.feature.conversation.data
 
 import com.astrbot.android.core.common.logging.RuntimeLogger
@@ -42,7 +42,7 @@ data class ConversationImportResult(
     val skippedCount: Int,
 )
 
-@Deprecated("Use ConversationRepositoryPort from feature/chat/domain. Direct access will be removed.")
+// Static compatibility facade. Production imports are governed by source contracts.
 object FeatureConversationRepository {
     const val DEFAULT_SESSION_ID = "chat-main"
     const val DEFAULT_SESSION_TITLE = "\u65B0\u5BF9\u8BDD"
