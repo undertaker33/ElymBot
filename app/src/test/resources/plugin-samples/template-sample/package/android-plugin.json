@@ -1,0 +1,8 @@
+{
+  "protocolVersion": 2,
+  "runtime": {
+    "kind": "js_quickjs",
+    "bootstrap": "runtime/index.js",
+    "apiVersion": 1
+  }
+}

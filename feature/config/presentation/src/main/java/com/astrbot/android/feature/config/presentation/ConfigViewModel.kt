@@ -1,4 +1,4 @@
-﻿package com.astrbot.android.ui.viewmodel
+package com.astrbot.android.ui.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -15,7 +15,7 @@ import com.astrbot.android.feature.provider.domain.ProviderRepositoryPort
 import com.astrbot.android.feature.bot.domain.model.BotProfile
 import com.astrbot.android.feature.config.domain.model.ConfigProfile
 import com.astrbot.android.feature.provider.domain.model.ProviderProfile
-import com.astrbot.android.model.TtsVoiceReferenceAsset
+import com.astrbot.android.feature.voiceasset.api.model.TtsVoiceReferenceAsset
 import com.astrbot.android.model.chat.ConversationAttachment
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject

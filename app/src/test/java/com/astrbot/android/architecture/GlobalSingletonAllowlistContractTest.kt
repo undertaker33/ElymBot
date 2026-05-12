@@ -16,6 +16,7 @@ class GlobalSingletonAllowlistContractTest {
     private val sourceRoots: List<Path> = listOf(
         "app/src/main/java/com/astrbot/android",
         "app-integration/src/main/java/com/astrbot/android",
+        "core/backup/src/main/java/com/astrbot/android",
         "core/common/src/main/java/com/astrbot/android",
         "core/db/src/main/java/com/astrbot/android",
         "core/logging/src/main/java/com/astrbot/android",
@@ -53,15 +54,23 @@ class GlobalSingletonAllowlistContractTest {
         "feature/persona/data/src/main/java/com/astrbot/android",
         "feature/persona/impl/src/main/java/com/astrbot/android",
         "feature/plugin/api/src/main/java/com/astrbot/android",
-        "feature/plugin/impl/src/main/java/com/astrbot/android",
+        "feature/plugin/data/src/main/java/com/astrbot/android",
+        "feature/plugin/presentation/src/main/java/com/astrbot/android",
+        "feature/plugin/runtime/src/main/java/com/astrbot/android",
         "feature/provider/api/src/main/java/com/astrbot/android",
         "feature/provider/data/src/main/java/com/astrbot/android",
         "feature/provider/impl/src/main/java/com/astrbot/android",
         "feature/qq/api/src/main/java/com/astrbot/android",
+        "feature/qq/data/src/main/java/com/astrbot/android",
         "feature/qq/impl/src/main/java/com/astrbot/android",
+        "feature/qq/presentation/src/main/java/com/astrbot/android",
+        "feature/qq/runtime/src/main/java/com/astrbot/android",
         "feature/resource/api/src/main/java/com/astrbot/android",
         "feature/resource/data/src/main/java/com/astrbot/android",
         "feature/resource/impl/src/main/java/com/astrbot/android",
+        "feature/settings/api/src/main/java/com/astrbot/android",
+        "feature/settings/presentation/src/main/java/com/astrbot/android",
+        "feature/voiceasset/api/src/main/java/com/astrbot/android",
     ).map(projectRoot::resolve).filter { root -> root.exists() }
     private val allowlistFile: Path =
         projectRoot.resolve("app/src/test/resources/architecture/global-singleton-allowlist.txt")

@@ -43,7 +43,8 @@ class RuntimeContainerBoundaryContractTest {
         )
         assertTrue(
             "app-integration must depend on :core:runtime-container for container runtime port wiring.",
-            appIntegrationBuildText.contains("""implementation(project(":core:runtime-container"))"""),
+            appIntegrationBuildText.contains("""implementation(project(":core:runtime-container"))""") ||
+                appIntegrationBuildText.contains("""api(project(":core:runtime-container"))"""),
         )
     }
 

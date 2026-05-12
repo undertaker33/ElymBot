@@ -1,6 +1,8 @@
 import com.android.build.api.dsl.ApplicationExtension
 import com.android.build.api.dsl.LibraryExtension
 import com.google.devtools.ksp.gradle.KspExtension
+import org.gradle.api.tasks.Sync
+import org.gradle.api.tasks.bundling.Zip
 import org.gradle.api.tasks.testing.Test
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
@@ -11,6 +13,7 @@ val ELYMBOT_JVM_TARGET = "17"
 val architectureMainSourceRoots = listOf(
     "app/src/main/java",
     "app-integration/src/main/java",
+    "core/backup/src/main/java",
     "core/common/src/main/java",
     "core/db/src/main/java",
     "core/logging/src/main/java",
@@ -51,18 +54,27 @@ val architectureMainSourceRoots = listOf(
     "feature/persona/data/src/main/java",
     "feature/persona/impl/src/main/java",
     "feature/persona/presentation/src/main/java",
-    "feature/plugin/api/src/main/java",
-    "feature/plugin/impl/src/main/java",
+        "feature/plugin/api/src/main/java",
+        "feature/plugin/impl/src/main/java",
+        "feature/plugin/data/src/main/java",
+        "feature/plugin/presentation/src/main/java",
+        "feature/plugin/runtime/src/main/java",
     "feature/provider/api/src/main/java",
     "feature/provider/data/src/main/java",
     "feature/provider/impl/src/main/java",
     "feature/provider/presentation/src/main/java",
     "feature/qq/api/src/main/java",
+    "feature/qq/data/src/main/java",
     "feature/qq/impl/src/main/java",
+    "feature/qq/presentation/src/main/java",
+    "feature/qq/runtime/src/main/java",
     "feature/resource/api/src/main/java",
     "feature/resource/data/src/main/java",
     "feature/resource/impl/src/main/java",
     "feature/resource/presentation/src/main/java",
+    "feature/settings/api/src/main/java",
+    "feature/settings/presentation/src/main/java",
+    "feature/voiceasset/api/src/main/java",
 )
 val architectureSourceRootsReportPath = "build/reports/architecture/source-roots.txt"
 val architectureDebtReportPath = "build/reports/architecture/debt.txt"
@@ -133,6 +145,9 @@ project(":app") {
     plugins.withId("com.android.application") {
         afterEvaluate {
             val debugUnitTest = tasks.named<Test>("testDebugUnitTest")
+            debugUnitTest.configure {
+                dependsOn(rootProject.tasks.named("preparePluginSampleArtifacts"))
+            }
 
             tasks.register<Test>("architectureDebugUnitTest") {
                 group = "verification"
@@ -150,6 +165,71 @@ project(":app") {
             }
         }
     }
+}
+
+val prepareTemplateSamplePluginPackage by tasks.registering(Zip::class) {
+    group = "verification"
+    description = "Builds the template sample plugin package used by app unit tests."
+
+    from(layout.projectDirectory.dir("app/src/test/resources/plugin-samples/template-sample/package"))
+    archiveFileName.set("astrbot_plugin_template.zip")
+    destinationDirectory.set(layout.projectDirectory.dir("artifacts/plugins/template-sample/packages"))
+    isPreserveFileTimestamps = false
+    isReproducibleFileOrder = true
+}
+
+val prepareGreetingToolkitSamplePluginPackage by tasks.registering(Zip::class) {
+    group = "verification"
+    description = "Builds the greeting toolkit sample plugin package used by app unit tests."
+
+    from(layout.projectDirectory.dir("app/src/test/resources/plugin-samples/greeting-toolkit-sample/package"))
+    archiveFileName.set("greeting-toolkit-1.0.0.zip")
+    destinationDirectory.set(layout.projectDirectory.dir("artifacts/plugins/greeting-toolkit-sample/packages"))
+    isPreserveFileTimestamps = false
+    isReproducibleFileOrder = true
+}
+
+val prepareMemeManagerSamplePluginPackage100 by tasks.registering(Zip::class) {
+    group = "verification"
+    description = "Builds the meme manager 1.0.0 sample plugin package used by app unit tests."
+
+    from(layout.projectDirectory.dir("app/src/test/resources/plugin-samples/meme-manager-sample/1.0.0/package"))
+    archiveFileName.set("meme-manager-1.0.0.zip")
+    destinationDirectory.set(layout.projectDirectory.dir("artifacts/plugins/meme-manager-sample/packages"))
+    isPreserveFileTimestamps = false
+    isReproducibleFileOrder = true
+}
+
+val prepareMemeManagerSamplePluginPackage110 by tasks.registering(Zip::class) {
+    group = "verification"
+    description = "Builds the meme manager 1.1.0 sample plugin package used by app unit tests."
+
+    from(layout.projectDirectory.dir("app/src/test/resources/plugin-samples/meme-manager-sample/1.1.0/package"))
+    archiveFileName.set("meme-manager-1.1.0.zip")
+    destinationDirectory.set(layout.projectDirectory.dir("artifacts/plugins/meme-manager-sample/packages"))
+    isPreserveFileTimestamps = false
+    isReproducibleFileOrder = true
+}
+
+val prepareMemeManagerSampleCatalog by tasks.registering(Sync::class) {
+    group = "verification"
+    description = "Copies the meme manager sample catalog fixture to the generated artifact directory."
+
+    from(layout.projectDirectory.dir("app/src/test/resources/plugin-samples/meme-manager-sample/catalog"))
+    into(layout.projectDirectory.dir("artifacts/plugins/meme-manager-sample/catalog"))
+}
+
+tasks.register("preparePluginSampleArtifacts") {
+    group = "verification"
+    description = "Builds deterministic sample plugin artifacts required by app unit tests."
+
+    dependsOn(
+        prepareTemplateSamplePluginPackage,
+        prepareGreetingToolkitSamplePluginPackage,
+        prepareMemeManagerSamplePluginPackage100,
+        prepareMemeManagerSamplePluginPackage110,
+        prepareMemeManagerSampleCatalog,
+    )
 }
 
 tasks.register("architectureCheck") {

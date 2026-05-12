@@ -14,14 +14,20 @@ class StrictHiltOnlyContractTest {
     private val mainRoot: Path = projectRoot.resolve("app/src/main/java/com/astrbot/android")
     private val productionSourceRoots: List<Path> = listOf(
         projectRoot.resolve("app/src/main/java/com/astrbot/android"),
+        projectRoot.resolve("app-integration/src/main/java/com/astrbot/android"),
         projectRoot.resolve("core/network/src/main/java/com/astrbot/android"),
         projectRoot.resolve("core/runtime/src/main/java/com/astrbot/android"),
         projectRoot.resolve("core/runtime-search/src/main/java/com/astrbot/android"),
         projectRoot.resolve("core/runtime-tool/src/main/java/com/astrbot/android"),
         projectRoot.resolve("feature/chat/presentation/src/main/java/com/astrbot/android"),
         projectRoot.resolve("feature/chat/runtime/src/main/java/com/astrbot/android"),
-        projectRoot.resolve("feature/plugin/impl/src/main/java/com/astrbot/android"),
+        projectRoot.resolve("feature/plugin/data/src/main/java/com/astrbot/android"),
+        projectRoot.resolve("feature/plugin/presentation/src/main/java/com/astrbot/android"),
+        projectRoot.resolve("feature/plugin/runtime/src/main/java/com/astrbot/android"),
+        projectRoot.resolve("feature/qq/data/src/main/java/com/astrbot/android"),
         projectRoot.resolve("feature/qq/impl/src/main/java/com/astrbot/android"),
+        projectRoot.resolve("feature/qq/presentation/src/main/java/com/astrbot/android"),
+        projectRoot.resolve("feature/qq/runtime/src/main/java/com/astrbot/android"),
     ).filter { root -> root.exists() }
     private val contractDoc: Path = projectRoot.resolve("docs/architecture/post-hilt-a-round1-contract.md")
 
@@ -114,7 +120,6 @@ class StrictHiltOnlyContractTest {
                 "di/startup/BootstrapPrerequisitesStartupChain.kt",
                 "feature/qq/data/NapCatBridgeRepository.kt",
                 "feature/qq/data/NapCatLoginRepository.kt",
-                "feature/qq/runtime/ProductionContainerBridgeStatePort.kt",
             ),
         )
         assertTokenConfinedToAllowedProductionFiles(
@@ -230,7 +235,7 @@ class StrictHiltOnlyContractTest {
         val runtimeServicesText = listOf(
             "di/hilt/RuntimeServicesModule.kt",
             "di/hilt/runtime/PluginRuntimeServicesModule.kt",
-        ).joinToString("\n") { relativePath -> mainRoot.resolve(relativePath).readText() }
+        ).joinToString("\n") { relativePath -> resolveProductionFile(relativePath).readText() }
         assertTrue(
             "Runtime Hilt modules must inject PluginRuntimeScheduler into PluginExecutionEngine wiring.",
             runtimeServicesText.contains("scheduler: PluginRuntimeScheduler"),
@@ -242,9 +247,9 @@ class StrictHiltOnlyContractTest {
 
         val viewModelModuleText = listOf(
             "di/hilt/ViewModelDependencyModule.kt",
-            "di/hilt/presentation/PluginViewModelBindingsModule.kt",
+            "feature/plugin/presentation/di/PluginViewModelBindingsModule.kt",
             "di/hilt/PluginRuntimeModule.kt",
-        ).joinToString("\n") { relativePath -> mainRoot.resolve(relativePath).readText() }
+        ).joinToString("\n") { relativePath -> resolveProductionFile(relativePath).readText() }
         val requiredTokens = listOf(
             "repositoryStatePort: PluginRepositoryStatePort",
             "activeRuntimeStore: PluginV2ActiveRuntimeStore",
@@ -281,7 +286,7 @@ class StrictHiltOnlyContractTest {
                 "TtsVoiceAssetRepository.deleteReferenceClip",
                 "RuntimeAssetRepository.ttsAssetState(",
             ),
-            "feature/qq/runtime/ProductionContainerBridgeStatePort.kt" to listOf(
+            "app/integration/qq/QqContainerBridgeStatePortAdapter.kt" to listOf(
                 "NapCatBridgeRepository.config",
                 "NapCatBridgeRepository.runtimeState",
                 "NapCatBridgeRepository.applyRuntimeDefaults",
@@ -375,7 +380,7 @@ class StrictHiltOnlyContractTest {
 
     @Test
     fun plugin_runtime_catalog_must_not_remain_a_production_registry_wiring_point() {
-        val runtimeServices = mainRoot.resolve("di/hilt/RuntimeServicesModule.kt").readText()
+        val runtimeServices = resolveProductionFile("di/hilt/RuntimeServicesModule.kt").readText()
 
         assertTrue(
             "RuntimeServicesModule must not install Hilt-owned plugin catalogs into the global static registry",

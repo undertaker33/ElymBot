@@ -37,12 +37,14 @@ class RuntimeSecretSessionCacheBoundaryContractTest {
                 rootBuildText.contains(module.toSourceRoot()),
             )
             assertTrue(
-                "App must depend on $module while app production call sites still compile from :app.",
-                appBuildText.contains("""implementation(project("$module"))"""),
+                "App or app-integration must expose $module while app production call sites still compile from :app.",
+                appBuildText.contains("""implementation(project("$module"))""") ||
+                    appIntegrationBuildText.contains("""api(project("$module"))"""),
             )
             assertTrue(
                 "app-integration must explicitly depend on $module for phase 10 runtime wiring visibility.",
-                appIntegrationBuildText.contains("""implementation(project("$module"))"""),
+                appIntegrationBuildText.contains("""implementation(project("$module"))""") ||
+                    appIntegrationBuildText.contains("""api(project("$module"))"""),
             )
         }
     }

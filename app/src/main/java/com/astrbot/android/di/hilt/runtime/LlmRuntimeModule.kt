@@ -6,8 +6,6 @@ import com.astrbot.android.core.runtime.llm.ChatCompletionServiceLlmClient
 import com.astrbot.android.core.runtime.llm.HiltLlmProviderProbePort
 import com.astrbot.android.core.runtime.llm.LlmClientPort
 import com.astrbot.android.core.runtime.llm.LlmProviderProbePort
-import com.astrbot.android.feature.plugin.runtime.DefaultRuntimeLlmOrchestrator
-import com.astrbot.android.feature.plugin.runtime.RuntimeLlmOrchestratorPort
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -32,7 +30,4 @@ internal object LlmRuntimeModule {
         audioRuntimePort: AudioRuntimePort,
     ): LlmProviderProbePort = HiltLlmProviderProbePort(appContext, audioRuntimePort)
 
-    @Provides
-    @Singleton
-    fun provideRuntimeLlmOrchestratorPort(): RuntimeLlmOrchestratorPort = DefaultRuntimeLlmOrchestrator()
 }

@@ -1,10 +1,10 @@
-﻿package com.astrbot.android.feature.chat.runtime
+package com.astrbot.android.feature.chat.runtime
 
 import com.astrbot.android.core.runtime.llm.LlmResponseSegmenter
-import com.astrbot.android.feature.plugin.runtime.PluginMessageEventResult
-import com.astrbot.android.feature.plugin.runtime.PluginV2AfterSentView
-import com.astrbot.android.feature.plugin.runtime.PluginV2HostPreparedReply
-import com.astrbot.android.feature.plugin.runtime.PluginV2LlmPipelineResult
+import com.astrbot.android.feature.plugin.domain.runtime.PluginMessageEventResultAttachment
+import com.astrbot.android.feature.plugin.domain.runtime.PluginV2AfterSentDeliveredEntry
+import com.astrbot.android.feature.plugin.domain.runtime.PluginV2HostPreparedReply
+import com.astrbot.android.feature.plugin.domain.runtime.PluginV2LlmPipelineResult
 import com.astrbot.android.feature.config.domain.model.ConfigProfile
 import com.astrbot.android.feature.provider.domain.model.ProviderProfile
 import com.astrbot.android.model.chat.ConversationAttachment
@@ -39,7 +39,7 @@ class AppChatPreparedReplyService(
             text = sendableResult.text,
             attachments = attachments,
             deliveredEntries = listOf(
-                PluginV2AfterSentView.DeliveredEntry(
+                PluginV2AfterSentDeliveredEntry(
                     entryId = result.admission.messageIds.firstOrNull().orEmpty().ifBlank { "assistant" },
                     entryType = "assistant",
                     textPreview = sendableResult.text.take(160),
@@ -49,7 +49,7 @@ class AppChatPreparedReplyService(
         )
     }
 
-    private fun List<PluginMessageEventResult.Attachment>.toConversationAttachments(): List<ConversationAttachment> {
+    private fun List<PluginMessageEventResultAttachment>.toConversationAttachments(): List<ConversationAttachment> {
         return mapIndexed { index, attachment ->
             ConversationAttachment(
                 id = "llm-result-$index-${attachment.uri.hashCode()}",

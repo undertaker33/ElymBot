@@ -45,7 +45,7 @@ class ScheduledTaskIntentFallbackResponderTest {
             pipelineResult = pipelineResult(executedToolNames = emptyList()),
             invokeProvider = { request ->
                 followupRequest = request
-                PluginV2ProviderInvocationResult.NonStreaming(
+                com.astrbot.android.feature.plugin.domain.runtime.PluginV2ProviderInvocationResult.NonStreaming(
                     PluginLlmResponse(
                         requestId = request.requestId,
                         providerId = request.selectedProviderId,
@@ -113,7 +113,7 @@ class ScheduledTaskIntentFallbackResponderTest {
             pipelineResult = pipelineResult(executedToolNames = emptyList()),
             invokeProvider = { request ->
                 followupRequest = request
-                PluginV2ProviderInvocationResult.NonStreaming(
+                com.astrbot.android.feature.plugin.domain.runtime.PluginV2ProviderInvocationResult.NonStreaming(
                     PluginLlmResponse(
                         requestId = request.requestId,
                         providerId = request.selectedProviderId,
@@ -161,7 +161,7 @@ class ScheduledTaskIntentFallbackResponderTest {
                 PluginProviderMessageDto(
                     role = PluginProviderMessageRole.USER,
                     parts = listOf(
-                        PluginProviderMessagePartDto.TextPart("\u0035\u0030\u5206\u63d0\u9192\u559d\u6c34"),
+                        com.astrbot.android.feature.plugin.domain.runtime.PluginProviderMessagePartDto.TextPart("\u0035\u0030\u5206\u63d0\u9192\u559d\u6c34"),
                     ),
                 ),
             ),

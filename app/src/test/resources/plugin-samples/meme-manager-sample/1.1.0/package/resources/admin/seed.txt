@@ -1,0 +1,1 @@
+seed:meme-manager:1.1.0

@@ -8,6 +8,7 @@ import com.astrbot.android.data.http.MultipartPartSpec
 import com.astrbot.android.data.http.HttpRequestSpec
 import com.astrbot.android.data.http.HttpResponsePayload
 import com.astrbot.android.core.common.logging.RuntimeLogRepository
+import com.astrbot.android.feature.qq.domain.QqWebUiTokenProvider
 import java.net.SocketTimeoutException
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
@@ -18,18 +19,19 @@ import org.junit.After
 import org.junit.Test
 
 class NapCatLoginServiceTest {
-    private val runtimeWebUiTokenProvider = NapCatLoginService.WebUiTokenProvider { "runtime-webui-token" }
+    private val loginService = NapCatLoginService()
+    private val runtimeWebUiTokenProvider = QqWebUiTokenProvider { "runtime-webui-token" }
 
     @After
     fun tearDown() {
-        NapCatLoginService.resetForTests()
+        loginService.resetForTests()
     }
 
     @Test
     fun classifies_unauthorized_message_as_expired_token() {
         assertEquals(
             NapCatLoginService.LoginFailureCategory.AUTH_TOKEN_EXPIRED,
-            NapCatLoginService.classifyFailureForTests(
+            loginService.classifyFailureForTests(
                 message = "Unauthorized",
                 cause = null,
             ),
@@ -40,7 +42,7 @@ class NapCatLoginServiceTest {
     fun classifies_token_is_invalid_message_as_expired_token() {
         assertEquals(
             NapCatLoginService.LoginFailureCategory.AUTH_TOKEN_EXPIRED,
-            NapCatLoginService.classifyFailureForTests(
+            loginService.classifyFailureForTests(
                 message = "token is invalid",
                 cause = null,
             ),
@@ -51,7 +53,7 @@ class NapCatLoginServiceTest {
     fun classifies_socket_timeout_as_network_failure() {
         assertEquals(
             NapCatLoginService.LoginFailureCategory.NETWORK_FAILURE,
-            NapCatLoginService.classifyFailureForTests(
+            loginService.classifyFailureForTests(
                 message = null,
                 cause = SocketTimeoutException("timeout"),
             ),
@@ -60,9 +62,9 @@ class NapCatLoginServiceTest {
 
     @Test
     fun refresh_qr_code_maps_shared_http_client_timeout_to_network_failure() {
-        NapCatLoginService.resetForTests()
+        loginService.resetForTests()
         RuntimeLogRepository.clear()
-        NapCatLoginService.setHttpClientOverrideForTests(
+        loginService.setHttpClientOverrideForTests(
             object : AstrBotHttpClient {
                 override fun execute(requestSpec: HttpRequestSpec): HttpResponsePayload {
                     throw AstrBotHttpException(
@@ -92,7 +94,7 @@ class NapCatLoginServiceTest {
         )
 
         val error = runCatching {
-            NapCatLoginService.refreshQrCode(
+            loginService.refreshQrCode(
                 baseUrl = "http://127.0.0.1:6099",
                 webUiTokenProvider = runtimeWebUiTokenProvider,
             )
@@ -105,12 +107,12 @@ class NapCatLoginServiceTest {
 
     @Test
     fun refresh_qr_code_uses_explicit_token_provider_without_secret_repository_override() {
-        NapCatLoginService.resetForTests()
+        loginService.resetForTests()
         RuntimeLogRepository.clear()
 
-        val webUiTokenProvider = NapCatLoginService.WebUiTokenProvider { "production-like-token" }
+        val webUiTokenProvider = QqWebUiTokenProvider { "production-like-token" }
         var authHash = ""
-        NapCatLoginService.setPostJsonOverrideForTests { endpoint, payload, authorization ->
+        loginService.setPostJsonOverrideForTests { endpoint, payload, authorization ->
             when {
                 endpoint.endsWith("/auth/login") -> {
                     authHash = payload.getString("hash")
@@ -134,13 +136,13 @@ class NapCatLoginServiceTest {
             }
         }
 
-        NapCatLoginService.refreshQrCode(
+        loginService.refreshQrCode(
             baseUrl = "http://127.0.0.1:6099",
             webUiTokenProvider = webUiTokenProvider,
         )
 
         assertEquals(sha256Hex("production-like-token.napcat"), authHash)
-        assertEquals("credential-from-provider", NapCatLoginService.debugCredentialForTests())
+        assertEquals("credential-from-provider", loginService.debugCredentialForTests())
         assertTrue(
             RuntimeLogRepository.logs.value.any {
                 it.contains("QQ login auth request:") &&
@@ -151,12 +153,12 @@ class NapCatLoginServiceTest {
 
     @Test
     fun refresh_qr_code_clears_cached_credential_and_retries_when_token_expires() {
-        NapCatLoginService.resetForTests()
+        loginService.resetForTests()
         RuntimeLogRepository.clear()
 
         var authLoginCalls = 0
         var refreshCalls = 0
-        NapCatLoginService.setPostJsonOverrideForTests { endpoint, _, authorization ->
+        loginService.setPostJsonOverrideForTests { endpoint, _, authorization ->
             when {
                 endpoint.endsWith("/auth/login") -> {
                     authLoginCalls += 1
@@ -185,14 +187,14 @@ class NapCatLoginServiceTest {
             }
         }
 
-        NapCatLoginService.refreshQrCode(
+        loginService.refreshQrCode(
             baseUrl = "http://127.0.0.1:6099",
             webUiTokenProvider = runtimeWebUiTokenProvider,
         )
 
         assertEquals(2, authLoginCalls)
         assertEquals(2, refreshCalls)
-        assertEquals("fresh-token", NapCatLoginService.debugCredentialForTests())
+        assertEquals("fresh-token", loginService.debugCredentialForTests())
         assertTrue(RuntimeLogRepository.logs.value.any { it.contains("phase=request") && it.contains("category=AUTH_TOKEN_EXPIRED") })
         assertTrue(RuntimeLogRepository.logs.value.any { it.contains("phase=auth-relogin") && it.contains("/auth/login") })
         assertTrue(RuntimeLogRepository.logs.value.any { it.contains("phase=retry") && it.contains("/QQLogin/RefreshQRcode") })
@@ -206,11 +208,11 @@ class NapCatLoginServiceTest {
 
     @Test
     fun refresh_qr_code_surfaces_auth_login_failed_when_relogin_fails() {
-        NapCatLoginService.resetForTests()
+        loginService.resetForTests()
         RuntimeLogRepository.clear()
 
         var authLoginCalls = 0
-        NapCatLoginService.setPostJsonOverrideForTests { endpoint, _, _ ->
+        loginService.setPostJsonOverrideForTests { endpoint, _, _ ->
             when {
                 endpoint.endsWith("/auth/login") -> {
                     authLoginCalls += 1
@@ -237,7 +239,7 @@ class NapCatLoginServiceTest {
         }
 
         val error = runCatching {
-            NapCatLoginService.refreshQrCode(
+            loginService.refreshQrCode(
                 baseUrl = "http://127.0.0.1:6099",
                 webUiTokenProvider = runtimeWebUiTokenProvider,
             )
@@ -245,7 +247,7 @@ class NapCatLoginServiceTest {
 
         requireNotNull(error)
         assertTrue(error.message.orEmpty().contains("login down"))
-        assertEquals("", NapCatLoginService.debugCredentialForTests())
+        assertEquals("", loginService.debugCredentialForTests())
         assertTrue(
             RuntimeLogRepository.logs.value.any {
                 it.contains("QQ login auth request:") &&
@@ -259,12 +261,12 @@ class NapCatLoginServiceTest {
 
     @Test
     fun refresh_qr_code_does_not_retry_for_non_auth_api_failure() {
-        NapCatLoginService.resetForTests()
+        loginService.resetForTests()
         RuntimeLogRepository.clear()
 
         var authLoginCalls = 0
         var refreshCalls = 0
-        NapCatLoginService.setPostJsonOverrideForTests { endpoint, _, _ ->
+        loginService.setPostJsonOverrideForTests { endpoint, _, _ ->
             when {
                 endpoint.endsWith("/auth/login") -> {
                     authLoginCalls += 1
@@ -287,7 +289,7 @@ class NapCatLoginServiceTest {
         }
 
         val error = runCatching {
-            NapCatLoginService.refreshQrCode(
+            loginService.refreshQrCode(
                 baseUrl = "http://127.0.0.1:6099",
                 webUiTokenProvider = runtimeWebUiTokenProvider,
             )
@@ -297,7 +299,7 @@ class NapCatLoginServiceTest {
         assertTrue(error.message.orEmpty().contains("qq offline"))
         assertEquals(1, authLoginCalls)
         assertEquals(1, refreshCalls)
-        assertEquals("stable-token", NapCatLoginService.debugCredentialForTests())
+        assertEquals("stable-token", loginService.debugCredentialForTests())
         assertTrue(RuntimeLogRepository.logs.value.any { it.contains("phase=request") && it.contains("category=API_BUSINESS_REJECTED") })
     }
 

@@ -106,8 +106,8 @@ android {
     defaultConfig {
         applicationId = "com.astrbot.android"
         targetSdk = 36
-        versionCode = 68
-        versionName = "0.8.11"
+        versionCode = 69
+        versionName = "0.8.12"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -199,23 +199,39 @@ afterEvaluate {
 
 tasks.withType<KotlinCompile>().configureEach {
     if (name == "compileDebugUnitTestKotlin") {
-        dependsOn(":feature:plugin:impl:compileDebugKotlin")
+        dependsOn(":feature:plugin:data:compileDebugKotlin")
+        dependsOn(":feature:plugin:presentation:compileDebugKotlin")
+        dependsOn(":feature:plugin:runtime:compileDebugKotlin")
         dependsOn(":feature:chat:presentation:compileDebugKotlin")
         dependsOn(":feature:cron:data:compileDebugKotlin")
         dependsOn(":feature:cron:presentation:compileDebugKotlin")
         dependsOn(":feature:cron:runtime:compileDebugKotlin")
+        dependsOn(":feature:qq:data:compileDebugKotlin")
+        dependsOn(":feature:qq:presentation:compileDebugKotlin")
+        dependsOn(":feature:qq:runtime:compileDebugKotlin")
         dependsOn(":core:ui:compileDebugKotlin")
-        val pluginImplBuildDir = project(":feature:plugin:impl").layout.buildDirectory
+        val pluginDataBuildDir = project(":feature:plugin:data").layout.buildDirectory
+        val pluginPresentationBuildDir = project(":feature:plugin:presentation").layout.buildDirectory
+        val pluginRuntimeBuildDir = project(":feature:plugin:runtime").layout.buildDirectory
         val chatPresentationBuildDir = project(":feature:chat:presentation").layout.buildDirectory
         val cronDataBuildDir = project(":feature:cron:data").layout.buildDirectory
         val cronPresentationBuildDir = project(":feature:cron:presentation").layout.buildDirectory
         val cronRuntimeBuildDir = project(":feature:cron:runtime").layout.buildDirectory
+        val qqDataBuildDir = project(":feature:qq:data").layout.buildDirectory
+        val qqPresentationBuildDir = project(":feature:qq:presentation").layout.buildDirectory
+        val qqRuntimeBuildDir = project(":feature:qq:runtime").layout.buildDirectory
         val coreUiBuildDir = project(":core:ui").layout.buildDirectory
         val pluginImplFriendPaths = listOf(
             layout.buildDirectory.dir("tmp/kotlin-classes/debug").get().asFile.absolutePath,
-            pluginImplBuildDir.dir("tmp/kotlin-classes/debug").get().asFile.absolutePath,
-            pluginImplBuildDir.file("intermediates/compile_library_classes_jar/debug/bundleLibCompileToJarDebug/classes.jar").get().asFile.absolutePath,
-            pluginImplBuildDir.file("intermediates/runtime_library_classes_jar/debug/bundleLibRuntimeToJarDebug/classes.jar").get().asFile.absolutePath,
+            pluginDataBuildDir.dir("tmp/kotlin-classes/debug").get().asFile.absolutePath,
+            pluginDataBuildDir.file("intermediates/compile_library_classes_jar/debug/bundleLibCompileToJarDebug/classes.jar").get().asFile.absolutePath,
+            pluginDataBuildDir.file("intermediates/runtime_library_classes_jar/debug/bundleLibRuntimeToJarDebug/classes.jar").get().asFile.absolutePath,
+            pluginPresentationBuildDir.dir("tmp/kotlin-classes/debug").get().asFile.absolutePath,
+            pluginPresentationBuildDir.file("intermediates/compile_library_classes_jar/debug/bundleLibCompileToJarDebug/classes.jar").get().asFile.absolutePath,
+            pluginPresentationBuildDir.file("intermediates/runtime_library_classes_jar/debug/bundleLibRuntimeToJarDebug/classes.jar").get().asFile.absolutePath,
+            pluginRuntimeBuildDir.dir("tmp/kotlin-classes/debug").get().asFile.absolutePath,
+            pluginRuntimeBuildDir.file("intermediates/compile_library_classes_jar/debug/bundleLibCompileToJarDebug/classes.jar").get().asFile.absolutePath,
+            pluginRuntimeBuildDir.file("intermediates/runtime_library_classes_jar/debug/bundleLibRuntimeToJarDebug/classes.jar").get().asFile.absolutePath,
             chatPresentationBuildDir.dir("tmp/kotlin-classes/debug").get().asFile.absolutePath,
             chatPresentationBuildDir.file("intermediates/compile_library_classes_jar/debug/bundleLibCompileToJarDebug/classes.jar").get().asFile.absolutePath,
             chatPresentationBuildDir.file("intermediates/runtime_library_classes_jar/debug/bundleLibRuntimeToJarDebug/classes.jar").get().asFile.absolutePath,
@@ -228,6 +244,15 @@ tasks.withType<KotlinCompile>().configureEach {
             cronRuntimeBuildDir.dir("tmp/kotlin-classes/debug").get().asFile.absolutePath,
             cronRuntimeBuildDir.file("intermediates/compile_library_classes_jar/debug/bundleLibCompileToJarDebug/classes.jar").get().asFile.absolutePath,
             cronRuntimeBuildDir.file("intermediates/runtime_library_classes_jar/debug/bundleLibRuntimeToJarDebug/classes.jar").get().asFile.absolutePath,
+            qqDataBuildDir.dir("tmp/kotlin-classes/debug").get().asFile.absolutePath,
+            qqDataBuildDir.file("intermediates/compile_library_classes_jar/debug/bundleLibCompileToJarDebug/classes.jar").get().asFile.absolutePath,
+            qqDataBuildDir.file("intermediates/runtime_library_classes_jar/debug/bundleLibRuntimeToJarDebug/classes.jar").get().asFile.absolutePath,
+            qqPresentationBuildDir.dir("tmp/kotlin-classes/debug").get().asFile.absolutePath,
+            qqPresentationBuildDir.file("intermediates/compile_library_classes_jar/debug/bundleLibCompileToJarDebug/classes.jar").get().asFile.absolutePath,
+            qqPresentationBuildDir.file("intermediates/runtime_library_classes_jar/debug/bundleLibRuntimeToJarDebug/classes.jar").get().asFile.absolutePath,
+            qqRuntimeBuildDir.dir("tmp/kotlin-classes/debug").get().asFile.absolutePath,
+            qqRuntimeBuildDir.file("intermediates/compile_library_classes_jar/debug/bundleLibCompileToJarDebug/classes.jar").get().asFile.absolutePath,
+            qqRuntimeBuildDir.file("intermediates/runtime_library_classes_jar/debug/bundleLibRuntimeToJarDebug/classes.jar").get().asFile.absolutePath,
             coreUiBuildDir.dir("tmp/kotlin-classes/debug").get().asFile.absolutePath,
             coreUiBuildDir.file("intermediates/compile_library_classes_jar/debug/bundleLibCompileToJarDebug/classes.jar").get().asFile.absolutePath,
             coreUiBuildDir.file("intermediates/runtime_library_classes_jar/debug/bundleLibRuntimeToJarDebug/classes.jar").get().asFile.absolutePath,
@@ -244,6 +269,7 @@ dependencies {
     val androidxHiltVersion = "1.2.0"
 
     implementation(project(":core:common"))
+    implementation(project(":core:backup"))
     implementation(project(":core:db"))
     implementation(project(":core:logging"))
     implementation(project(":core:network"))
@@ -254,48 +280,38 @@ dependencies {
     implementation(project(":core:runtime-context"))
     implementation(project(":core:runtime-llm"))
     implementation(project(":core:runtime-search"))
-    implementation(project(":core:runtime-secret"))
     implementation(project(":core:runtime-session"))
-    implementation(project(":core:runtime-tool"))
     implementation(project(":core:ui"))
     implementation(project(":download:api"))
-    implementation(project(":download:impl"))
     implementation(project(":app-integration"))
     implementation(project(":feature:bot:api"))
     implementation(project(":feature:bot:data"))
-    implementation(project(":feature:bot:impl"))
     implementation(project(":feature:bot:presentation"))
     implementation(project(":feature:chat:api"))
-    implementation(project(":feature:chat:impl"))
     implementation(project(":feature:chat:presentation"))
     implementation(project(":feature:chat:runtime"))
     implementation(project(":feature:config:api"))
     implementation(project(":feature:config:data"))
-    implementation(project(":feature:config:impl"))
     implementation(project(":feature:config:presentation"))
     implementation(project(":feature:conversation:api"))
     implementation(project(":feature:conversation:data"))
     implementation(project(":feature:cron:api"))
-    implementation(project(":feature:cron:data"))
-    implementation(project(":feature:cron:impl"))
     implementation(project(":feature:cron:presentation"))
-    implementation(project(":feature:cron:runtime"))
     implementation(project(":feature:persona:api"))
     implementation(project(":feature:persona:data"))
-    implementation(project(":feature:persona:impl"))
     implementation(project(":feature:persona:presentation"))
     implementation(project(":feature:plugin:api"))
-    implementation(project(":feature:plugin:impl"))
+    implementation(project(":feature:plugin:presentation"))
     implementation(project(":feature:provider:api"))
     implementation(project(":feature:provider:data"))
-    implementation(project(":feature:provider:impl"))
     implementation(project(":feature:provider:presentation"))
     implementation(project(":feature:qq:api"))
-    implementation(project(":feature:qq:impl"))
+    implementation(project(":feature:qq:presentation"))
     implementation(project(":feature:resource:api"))
-    implementation(project(":feature:resource:data"))
-    implementation(project(":feature:resource:impl"))
     implementation(project(":feature:resource:presentation"))
+    implementation(project(":feature:settings:api"))
+    implementation(project(":feature:settings:presentation"))
+    implementation(project(":feature:voiceasset:api"))
 
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.appcompat:appcompat:1.7.0")
@@ -337,6 +353,10 @@ dependencies {
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 
     testImplementation("junit:junit:4.13.2")
+    testImplementation(project(":feature:plugin:data"))
+    testImplementation(project(":feature:plugin:runtime"))
+    testImplementation(project(":feature:qq:data"))
+    testImplementation(project(":feature:qq:runtime"))
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
     testImplementation("com.squareup.okhttp3:mockwebserver:$okHttpVersion")
     testImplementation("org.json:json:20240303")

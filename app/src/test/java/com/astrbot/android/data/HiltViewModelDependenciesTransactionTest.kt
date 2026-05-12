@@ -42,6 +42,10 @@ class HiltViewModelDependenciesTransactionTest {
     fun restoreSnapshot() {
         runBlocking {
             ConfigRepository.restoreProfiles(configSnapshot, selectedConfigId)
+            FeatureRepositoryPhase3DataTransactionService.waitForConfigRestore(
+                expectedProfiles = configSnapshot,
+                selectedProfileId = selectedConfigId,
+            )
             BotRepository.restoreProfiles(botSnapshot, selectedBotId)
             ConversationRepository.restoreSessions(conversationSnapshot)
         }
@@ -65,6 +69,13 @@ class HiltViewModelDependenciesTransactionTest {
         // Set up: two configs and a bot bound to the one we will delete
         ConfigRepository.restoreProfiles(
             profiles = listOf(
+                ConfigProfile(id = deletedConfigId),
+                ConfigProfile(id = fallbackConfigId),
+            ),
+            selectedProfileId = fallbackConfigId,
+        )
+        FeatureRepositoryPhase3DataTransactionService.waitForConfigRestore(
+            expectedProfiles = listOf(
                 ConfigProfile(id = deletedConfigId),
                 ConfigProfile(id = fallbackConfigId),
             ),
@@ -100,6 +111,10 @@ class HiltViewModelDependenciesTransactionTest {
         val onlyConfigId = "hilt-tx-only-config"
         ConfigRepository.restoreProfiles(
             profiles = listOf(ConfigProfile(id = onlyConfigId)),
+            selectedProfileId = onlyConfigId,
+        )
+        FeatureRepositoryPhase3DataTransactionService.waitForConfigRestore(
+            expectedProfiles = listOf(ConfigProfile(id = onlyConfigId)),
             selectedProfileId = onlyConfigId,
         )
 

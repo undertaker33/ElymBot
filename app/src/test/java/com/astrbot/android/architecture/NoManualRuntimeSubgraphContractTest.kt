@@ -32,10 +32,20 @@ class NoManualRuntimeSubgraphContractTest {
     }
 
     private fun findViolations(relativePath: String): List<String> {
-        val source = mainRoot.resolve(relativePath).readText()
+        val source = resolveProductionFile(relativePath).readText()
         return forbiddenTokens
             .filter(source::contains)
             .map { token -> "$relativePath -> $token" }
+    }
+
+    private fun resolveProductionFile(relativePath: String): Path {
+        return listOf(
+            projectRoot.resolve("feature/qq/runtime/src/main/java/com/astrbot/android"),
+            mainRoot,
+        )
+            .map { root -> root.resolve(relativePath) }
+            .firstOrNull { file -> file.exists() }
+            ?: mainRoot.resolve(relativePath)
     }
 
     private fun detectProjectRoot(): Path {

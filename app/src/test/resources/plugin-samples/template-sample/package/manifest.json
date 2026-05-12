@@ -1,0 +1,14 @@
+{
+  "pluginId": "com.example.astrbot.plugin.template",
+  "version": "1.0.0",
+  "protocolVersion": 2,
+  "author": "AstrBot Samples",
+  "title": "Template Plugin Sample",
+  "description": "Minimal plugin package used by installer contract tests.",
+  "permissions": [],
+  "minHostVersion": "0.3.0",
+  "maxHostVersion": "",
+  "sourceType": "LOCAL_FILE",
+  "entrySummary": "Starts the QuickJS template runtime.",
+  "riskLevel": "LOW"
+}

@@ -2,8 +2,8 @@
 
 import com.astrbot.android.di.hilt.runtime.DefaultScheduledMessageDeliveryPort
 import com.astrbot.android.feature.conversation.domain.ConversationRepositoryPort
+import com.astrbot.android.feature.qq.domain.QqScheduledMessageSender
 import com.astrbot.android.feature.qq.runtime.OneBotSendResult
-import com.astrbot.android.feature.qq.runtime.QqScheduledMessageSender
 import com.astrbot.android.model.chat.ConversationAttachment
 import com.astrbot.android.model.chat.ConversationMessage
 import com.astrbot.android.model.chat.ConversationSession

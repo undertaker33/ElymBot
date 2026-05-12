@@ -25,7 +25,9 @@ class CronResourceContractTest {
     fun active_capability_runtime_code_does_not_embed_large_user_facing_prompts() {
         val provider = productionFile(
             "feature/plugin/runtime/toolsource/ActiveCapabilityToolSourceProvider.kt",
-            "feature/plugin/impl/src/main/java/com/astrbot/android",
+            "feature/plugin/data/src/main/java/com/astrbot/android",
+        "feature/plugin/presentation/src/main/java/com/astrbot/android",
+        "feature/plugin/runtime/src/main/java/com/astrbot/android",
             "app/src/main/java/com/astrbot/android",
             "src/main/java/com/astrbot/android",
         ).readText()

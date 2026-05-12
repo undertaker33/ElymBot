@@ -15,6 +15,7 @@ class DownloadBoundaryContractTest {
     private val settingsFile: Path = projectRoot.resolve("settings.gradle.kts")
     private val rootBuildFile: Path = projectRoot.resolve("build.gradle.kts")
     private val appBuildFile: Path = projectRoot.resolve("app/build.gradle.kts")
+    private val appIntegrationBuildFile: Path = projectRoot.resolve("app-integration/build.gradle.kts")
     private val manifestFile: Path = projectRoot.resolve("app/src/main/AndroidManifest.xml")
     private val appMainRoot: Path = projectRoot.resolve("app/src/main/java/com/astrbot/android")
     private val downloadApiRoot: Path =
@@ -27,6 +28,7 @@ class DownloadBoundaryContractTest {
         val settingsText = settingsFile.readText(UTF_8)
         val rootBuildText = rootBuildFile.readText(UTF_8)
         val appBuildText = appBuildFile.readText(UTF_8)
+        val appIntegrationBuildText = appIntegrationBuildFile.readText(UTF_8)
 
         listOf(":download:api", ":download:impl").forEach { module ->
             assertTrue(
@@ -38,8 +40,10 @@ class DownloadBoundaryContractTest {
                 rootBuildText.contains(module.removePrefix(":").replace(':', '/') + "/src/main/java"),
             )
             assertTrue(
-                "app must depend on $module while app shell still wires download entry points.",
-                appBuildText.contains("""implementation(project("$module"))"""),
+                "app or app-integration must depend on $module while app shell still wires download entry points.",
+                appBuildText.contains("""implementation(project("$module"))""") ||
+                    appIntegrationBuildText.contains("""implementation(project("$module"))""") ||
+                    appIntegrationBuildText.contains("""api(project("$module"))"""),
             )
         }
     }

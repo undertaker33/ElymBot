@@ -3,18 +3,19 @@ package com.astrbot.android.feature.chat.runtime
 
 import com.astrbot.android.feature.chat.runtime.R
 import com.astrbot.android.feature.chat.runtime.botcommand.BotCommandStringResolver
-import com.astrbot.android.feature.plugin.runtime.AppChatPluginRuntime
+import com.astrbot.android.feature.plugin.domain.runtime.AppChatPluginRuntime
+import com.astrbot.android.feature.plugin.domain.runtime.ExternalPluginHostActionHandlers
+import com.astrbot.android.feature.plugin.domain.runtime.PluginHostCapabilityGateway
+import com.astrbot.android.feature.plugin.domain.runtime.PluginDispatchSkipReason
+import com.astrbot.android.feature.plugin.domain.runtime.PluginMessageEvent
+import com.astrbot.android.feature.plugin.domain.runtime.PluginRuntimePlugin
+import com.astrbot.android.feature.plugin.domain.runtime.PluginV2CommandResponse
+import com.astrbot.android.feature.plugin.domain.runtime.PluginV2CommandResponseAttachment
+import com.astrbot.android.feature.plugin.domain.runtime.PluginV2MessageDispatchPort
+import com.astrbot.android.feature.plugin.domain.runtime.PluginV2MessageDispatchResult
 import com.astrbot.android.feature.plugin.runtime.ExternalPluginHostActionExecutor
-import com.astrbot.android.feature.plugin.runtime.ExternalPluginHostActionHandlers
 import com.astrbot.android.feature.plugin.runtime.HOST_SKIP_COMMAND_STAGE_EXTRA_KEY
-import com.astrbot.android.feature.plugin.runtime.PluginHostCapabilityGateway
-import com.astrbot.android.feature.plugin.runtime.PluginDispatchSkipReason
-import com.astrbot.android.feature.plugin.runtime.PluginMessageEvent
-import com.astrbot.android.feature.plugin.runtime.PluginRuntimePlugin
-import com.astrbot.android.feature.plugin.runtime.PluginV2CommandResponse
-import com.astrbot.android.feature.plugin.runtime.PluginV2CommandResponseAttachment
 import com.astrbot.android.feature.plugin.runtime.PluginV2DispatchEngine
-import com.astrbot.android.feature.plugin.runtime.PluginV2MessageDispatchResult
 import com.astrbot.android.feature.bot.domain.model.BotProfile
 import com.astrbot.android.feature.config.domain.model.ConfigProfile
 import com.astrbot.android.feature.provider.domain.model.ProviderProfile
@@ -51,11 +52,30 @@ class AppChatPluginCommandService(
     private val appChatPluginRuntime: AppChatPluginRuntime,
     private val hostCapabilityGateway: PluginHostCapabilityGateway,
     private val hostActionExecutor: ExternalPluginHostActionExecutor,
-    private val dispatchEngine: PluginV2DispatchEngine,
+    private val messageDispatchPort: PluginV2MessageDispatchPort,
     private val strings: BotCommandStringResolver = BotCommandStringResolver.fallback,
     private val privateRootPathResolver: AppChatPluginPrivateRootPathResolver =
         AppChatPluginPrivateRootPathResolver { "" },
 ) {
+    constructor(
+        dependencies: AppChatRuntimeBindings,
+        appChatPluginRuntime: AppChatPluginRuntime,
+        hostCapabilityGateway: PluginHostCapabilityGateway,
+        hostActionExecutor: ExternalPluginHostActionExecutor,
+        dispatchEngine: PluginV2DispatchEngine,
+        strings: BotCommandStringResolver = BotCommandStringResolver.fallback,
+        privateRootPathResolver: AppChatPluginPrivateRootPathResolver =
+            AppChatPluginPrivateRootPathResolver { "" },
+    ) : this(
+        dependencies = dependencies,
+        appChatPluginRuntime = appChatPluginRuntime,
+        hostCapabilityGateway = hostCapabilityGateway,
+        hostActionExecutor = hostActionExecutor,
+        messageDispatchPort = PluginV2MessageDispatchPort { event -> dispatchEngine.dispatchMessage(event) },
+        strings = strings,
+        privateRootPathResolver = privateRootPathResolver,
+    )
+
     fun isUnsupportedPluginCommand(content: String): Boolean {
         val parsedCommand = com.astrbot.android.feature.chat.runtime.botcommand.BotCommandParser.parse(content) ?: return false
         return !com.astrbot.android.feature.chat.runtime.botcommand.BotCommandRouter.supports(parsedCommand.name)
@@ -282,7 +302,7 @@ class AppChatPluginCommandService(
     ): PluginV2MessageDispatchResult {
         return runCatching {
             runBlocking {
-                dispatchEngine.dispatchMessage(
+                messageDispatchPort.dispatchMessage(
                     event = buildAppChatPluginMessageEvent(
                         trigger = trigger,
                         session = session,

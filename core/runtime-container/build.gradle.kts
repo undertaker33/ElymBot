@@ -17,4 +17,6 @@ dependencies {
     implementation("org.tukaani:xz:1.10")
     implementation("javax.inject:javax.inject:1")
     implementation("com.google.dagger:hilt-android:2.52")
+
+    testImplementation("junit:junit:4.13.2")
 }

@@ -10,10 +10,10 @@ import com.astrbot.android.core.runtime.context.SenderInfo
 import com.astrbot.android.core.runtime.llm.LlmClientPort
 import com.astrbot.android.feature.bot.domain.BotRepositoryPort
 import com.astrbot.android.feature.bot.domain.model.BotProfile
-import com.astrbot.android.feature.plugin.runtime.AppChatLlmPipelineRuntime
-import com.astrbot.android.feature.plugin.runtime.PluginV2HostLlmDeliveryResult
-import com.astrbot.android.feature.plugin.runtime.PluginHostCapabilityGateway
-import com.astrbot.android.feature.plugin.runtime.RuntimeLlmOrchestratorPort
+import com.astrbot.android.feature.plugin.domain.runtime.AppChatLlmPipelineRuntime
+import com.astrbot.android.feature.plugin.domain.runtime.PluginHostCapabilityGateway
+import com.astrbot.android.feature.plugin.domain.runtime.PluginV2HostLlmDeliveryResult
+import com.astrbot.android.feature.plugin.domain.runtime.RuntimeLlmOrchestratorPort
 import com.astrbot.android.model.chat.ConversationMessage
 import com.astrbot.android.model.chat.MessageType
 import com.astrbot.android.model.plugin.PluginTriggerSource

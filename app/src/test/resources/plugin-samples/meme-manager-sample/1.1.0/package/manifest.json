@@ -1,0 +1,22 @@
+{
+  "pluginId": "com.astrbot.samples.meme_manager",
+  "version": "1.1.0",
+  "protocolVersion": 2,
+  "author": "AstrBot Samples",
+  "title": "Meme Manager",
+  "description": "Updated sample meme package with admin seed resources.",
+  "permissions": [
+    {
+      "permissionId": "runtime.message.read",
+      "title": "Read incoming messages",
+      "description": "Allows the sample to detect meme commands.",
+      "riskLevel": "LOW",
+      "required": true
+    }
+  ],
+  "minHostVersion": "0.3.0",
+  "maxHostVersion": "",
+  "sourceType": "REPOSITORY",
+  "entrySummary": "Handles packaged meme commands.",
+  "riskLevel": "LOW"
+}

@@ -1,10 +1,10 @@
 package com.astrbot.android.data
 
-import com.astrbot.android.model.ClonedVoiceBinding
+import com.astrbot.android.feature.voiceasset.api.model.ClonedVoiceBinding
 import com.astrbot.android.model.NapCatBridgeConfig
-import com.astrbot.android.model.ProviderType
-import com.astrbot.android.model.TtsVoiceReferenceAsset
-import com.astrbot.android.model.TtsVoiceReferenceClip
+import com.astrbot.android.feature.voiceasset.api.model.TtsVoiceReferenceAsset
+import com.astrbot.android.feature.voiceasset.api.model.TtsVoiceReferenceClip
+import com.astrbot.android.feature.voiceasset.api.model.VoiceAssetProviderType
 import org.json.JSONArray
 
 fun parseLegacyNapCatBridgeConfig(
@@ -99,14 +99,11 @@ fun parseLegacyTtsVoiceAssets(raw: String?): List<TtsVoiceReferenceAsset> {
                         val bindings = item.optJSONArray("providerBindings") ?: JSONArray()
                         for (bindingIndex in 0 until bindings.length()) {
                             val binding = bindings.optJSONObject(bindingIndex) ?: continue
-                            val providerType = runCatching {
-                                ProviderType.valueOf(binding.optString("providerType"))
-                            }.getOrDefault(ProviderType.OPENAI_TTS)
                             add(
                                 ClonedVoiceBinding(
                                     id = binding.optString("id"),
                                     providerId = binding.optString("providerId"),
-                                    providerType = providerType,
+                                    providerType = VoiceAssetProviderType.fromName(binding.optString("providerType")),
                                     model = binding.optString("model"),
                                     voiceId = binding.optString("voiceId"),
                                     displayName = binding.optString("displayName"),

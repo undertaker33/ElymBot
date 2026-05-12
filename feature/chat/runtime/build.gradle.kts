@@ -25,6 +25,7 @@ dependencies {
     implementation(project(":feature:cron:runtime"))
     implementation(project(":feature:persona:api"))
     implementation(project(":feature:plugin:api"))
+    implementation(project(":feature:plugin:runtime"))
     implementation(project(":feature:plugin:impl"))
     implementation(project(":feature:provider:api"))
     implementation("com.google.dagger:hilt-android:2.52")

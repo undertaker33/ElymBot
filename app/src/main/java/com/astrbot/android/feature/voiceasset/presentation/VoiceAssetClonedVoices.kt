@@ -1,4 +1,4 @@
-﻿package com.astrbot.android.ui.voiceasset
+package com.astrbot.android.ui.voiceasset
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.BorderStroke
@@ -18,9 +18,9 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.astrbot.android.R
-import com.astrbot.android.model.ClonedVoiceBinding
-import com.astrbot.android.model.TtsVoiceReferenceAsset
-import com.astrbot.android.model.displayLabel
+import com.astrbot.android.feature.voiceasset.api.model.ClonedVoiceBinding
+import com.astrbot.android.feature.voiceasset.api.model.TtsVoiceReferenceAsset
+import com.astrbot.android.feature.voiceasset.api.model.displayLabel
 import com.astrbot.android.ui.app.MonochromeUi
 import com.astrbot.android.ui.app.monochromeOutlinedTextFieldColors
 

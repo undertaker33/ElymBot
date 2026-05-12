@@ -673,7 +673,7 @@ class PluginV2DispatchEngineTest {
             messages = listOf(
                 PluginProviderMessageDto(
                     role = PluginProviderMessageRole.USER,
-                    parts = listOf(PluginProviderMessagePartDto.TextPart("hello")),
+                    parts = listOf(com.astrbot.android.feature.plugin.domain.runtime.PluginProviderMessagePartDto.TextPart("hello")),
                 ),
             ),
             streamingEnabled = false,
@@ -769,7 +769,7 @@ class PluginV2DispatchEngineTest {
                 messages = listOf(
                     PluginProviderMessageDto(
                         role = PluginProviderMessageRole.USER,
-                        parts = listOf(PluginProviderMessagePartDto.TextPart("hello")),
+                        parts = listOf(com.astrbot.android.feature.plugin.domain.runtime.PluginProviderMessagePartDto.TextPart("hello")),
                     ),
                 ),
                 streamingEnabled = false,

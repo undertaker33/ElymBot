@@ -5,6 +5,7 @@ import com.astrbot.android.di.ProductionAppBackupDataPort
 
 import android.content.Context
 import android.net.Uri
+import com.astrbot.android.core.backup.BackupParticipantRegistry
 import com.astrbot.android.core.db.backup.AppBackupAppState
 import com.astrbot.android.core.db.backup.AppBackupJson
 import com.astrbot.android.core.db.backup.AppBackupConflictPreview
@@ -46,9 +47,12 @@ import com.astrbot.android.model.ConfigProfile
 import com.astrbot.android.model.PersonaProfile
 import com.astrbot.android.model.ProviderProfile
 import com.astrbot.android.model.SavedQqAccount
-import com.astrbot.android.model.TtsVoiceReferenceAsset
+import com.astrbot.android.feature.voiceasset.api.model.TtsVoiceReferenceAsset
 import com.astrbot.android.model.chat.ConversationSession
 import com.astrbot.android.core.common.logging.RuntimeLogRepository
+import dagger.hilt.android.qualifiers.ApplicationContext
+import javax.inject.Inject
+import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -64,11 +68,110 @@ import java.time.format.DateTimeFormatter
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 
+@Singleton
+class AppBackupService @Inject constructor(
+    @ApplicationContext context: Context,
+    dataPort: AppBackupDataPort,
+    private val participantRegistry: BackupParticipantRegistry,
+) {
+    init {
+        AppBackupRepository.initialize(context, dataPort)
+    }
+
+    val backups: StateFlow<List<AppBackupItem>> = AppBackupRepository.backups
+
+    fun backupsForModule(module: AppBackupModuleKind): StateFlow<List<ModuleBackupItem>> {
+        return AppBackupRepository.backupsForModule(module)
+    }
+
+    fun participantKeys(): List<String> {
+        return participantRegistry.supportedParticipants().map { participant -> participant.key }
+    }
+
+    suspend fun createBackup(trigger: String = "manual"): Result<AppBackupItem> {
+        return AppBackupRepository.createBackup(trigger)
+    }
+
+    suspend fun createModuleBackup(
+        module: AppBackupModuleKind,
+        trigger: String = "manual",
+    ): Result<ModuleBackupItem> {
+        return AppBackupRepository.createModuleBackup(module, trigger)
+    }
+
+    suspend fun deleteBackup(backupId: String): Result<Unit> {
+        return AppBackupRepository.deleteBackup(backupId)
+    }
+
+    suspend fun deleteModuleBackup(
+        module: AppBackupModuleKind,
+        backupId: String,
+    ): Result<Unit> {
+        return AppBackupRepository.deleteModuleBackup(module, backupId)
+    }
+
+    suspend fun exportBackupToUri(
+        context: Context,
+        backupId: String,
+        targetUri: Uri,
+    ): Result<Unit> {
+        return AppBackupRepository.exportBackupToUri(context, backupId, targetUri)
+    }
+
+    suspend fun exportModuleBackupToUri(
+        context: Context,
+        module: AppBackupModuleKind,
+        backupId: String,
+        targetUri: Uri,
+    ): Result<Unit> {
+        return AppBackupRepository.exportModuleBackupToUri(context, module, backupId, targetUri)
+    }
+
+    suspend fun prepareImportFromBackup(backupId: String): Result<AppBackupImportSource> {
+        return AppBackupRepository.prepareImportFromBackup(backupId)
+    }
+
+    suspend fun prepareImportFromUri(context: Context, uri: Uri): Result<AppBackupImportSource> {
+        return AppBackupRepository.prepareImportFromUri(context, uri)
+    }
+
+    suspend fun prepareModuleImportFromBackup(
+        module: AppBackupModuleKind,
+        backupId: String,
+    ): Result<ModuleBackupImportSource> {
+        return AppBackupRepository.prepareModuleImportFromBackup(module, backupId)
+    }
+
+    suspend fun prepareModuleImportFromUri(
+        context: Context,
+        module: AppBackupModuleKind,
+        uri: Uri,
+    ): Result<ModuleBackupImportSource> {
+        return AppBackupRepository.prepareModuleImportFromUri(context, module, uri)
+    }
+
+    suspend fun importBackup(
+        source: AppBackupImportSource,
+        plan: AppBackupImportPlan,
+    ): Result<AppBackupRestoreResult> {
+        return AppBackupRepository.importBackup(source, plan)
+    }
+
+    suspend fun importModuleBackup(
+        source: ModuleBackupImportSource,
+        mode: AppBackupImportMode,
+    ): Result<Int> {
+        return AppBackupRepository.importModuleBackup(source, mode)
+    }
+}
+
 object AppBackupRepository {
     private val initialized = AtomicBoolean(false)
     private val timestampFormatter = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss")
     @Volatile
     private var dataPortOverrideForTests: AppBackupDataPort? = null
+    @Volatile
+    private var hiltDataPort: AppBackupDataPort? = null
 
     private lateinit var appContext: Context
     private lateinit var backupDirectory: File
@@ -80,7 +183,11 @@ object AppBackupRepository {
         MutableStateFlow<List<ModuleBackupItem>>(emptyList())
     }
 
-    fun initialize(context: Context) {
+    fun initialize(
+        context: Context,
+        dataPort: AppBackupDataPort = ProductionAppBackupDataPort,
+    ) {
+        hiltDataPort = dataPort
         if (!initialized.compareAndSet(false, true)) return
         appContext = context.applicationContext
         backupDirectory = File(appContext.filesDir, "app-backups").apply { mkdirs() }
@@ -873,7 +980,7 @@ object AppBackupRepository {
     }
 
     private fun resolveDataPort(): AppBackupDataPort {
-        return dataPortOverrideForTests ?: ProductionAppBackupDataPort
+        return dataPortOverrideForTests ?: hiltDataPort ?: ProductionAppBackupDataPort
     }
 
     private fun ttsAssetToJson(asset: TtsVoiceReferenceAsset): JSONObject {

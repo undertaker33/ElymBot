@@ -308,7 +308,7 @@ class PluginRuntimeLogBusTest {
             val result = coordinator.runPreSendStages(
                 input = phase5PipelineInput { request, _ ->
                     when (providerCalls.incrementAndGet()) {
-                        1 -> PluginV2ProviderInvocationResult.NonStreaming(
+                        1 -> com.astrbot.android.feature.plugin.domain.runtime.PluginV2ProviderInvocationResult.NonStreaming(
                             PluginLlmResponse(
                                 requestId = request.requestId,
                                 providerId = request.selectedProviderId,
@@ -326,7 +326,7 @@ class PluginRuntimeLogBusTest {
                             ),
                         )
 
-                        else -> PluginV2ProviderInvocationResult.NonStreaming(
+                        else -> com.astrbot.android.feature.plugin.domain.runtime.PluginV2ProviderInvocationResult.NonStreaming(
                             PluginLlmResponse(
                                 requestId = request.requestId,
                                 providerId = request.selectedProviderId,
@@ -415,7 +415,7 @@ class PluginRuntimeLogBusTest {
             messages = listOf(
                 PluginProviderMessageDto(
                     role = PluginProviderMessageRole.USER,
-                    parts = listOf(PluginProviderMessagePartDto.TextPart(event.rawText)),
+                    parts = listOf(com.astrbot.android.feature.plugin.domain.runtime.PluginProviderMessagePartDto.TextPart(event.rawText)),
                 ),
             ),
             invokeProvider = invokeProvider,

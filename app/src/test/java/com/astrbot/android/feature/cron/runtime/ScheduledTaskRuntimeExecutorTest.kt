@@ -1,4 +1,4 @@
-﻿package com.astrbot.android.feature.cron.runtime
+package com.astrbot.android.feature.cron.runtime
 
 import com.astrbot.android.core.runtime.context.ResolvedRuntimeContext
 import com.astrbot.android.core.runtime.context.RuntimeContextDataPort
@@ -233,7 +233,7 @@ private class RecordingOrchestrator : RuntimeLlmOrchestratorPort {
         conversationId: String,
         messageId: String,
         text: String,
-    ): PluginV2HostLlmDeliveryResult.Sent {
+    ): com.astrbot.android.feature.plugin.domain.runtime.PluginV2HostLlmDeliveryResult.Sent {
         val admission = LlmPipelineAdmission(
             requestId = "req-1",
             conversationId = conversationId,
@@ -274,13 +274,13 @@ private class RecordingOrchestrator : RuntimeLlmOrchestratorPort {
                 appliedHandlerIds = emptyList(),
             ),
         )
-        val deliveredEntry = PluginV2AfterSentView.DeliveredEntry(
+        val deliveredEntry = com.astrbot.android.feature.plugin.domain.runtime.PluginV2AfterSentView.DeliveredEntry(
             entryId = messageId,
             entryType = "assistant",
             textPreview = text,
             attachmentCount = 0,
         )
-        return PluginV2HostLlmDeliveryResult.Sent(
+        return com.astrbot.android.feature.plugin.domain.runtime.PluginV2HostLlmDeliveryResult.Sent(
             pipelineResult = result,
             preparedReply = PluginV2HostPreparedReply(
                 text = text,
@@ -294,7 +294,7 @@ private class RecordingOrchestrator : RuntimeLlmOrchestratorPort {
                 platformAdapterType = "app_chat",
                 platformInstanceKey = "cron:job-1",
                 sentAtEpochMs = 1L,
-                deliveryStatus = PluginV2AfterSentView.DeliveryStatus.SUCCESS,
+                deliveryStatus = com.astrbot.android.feature.plugin.domain.runtime.PluginV2AfterSentView.DeliveryStatus.SUCCESS,
                 receiptIds = listOf("receipt-1"),
                 deliveredEntries = listOf(deliveredEntry),
             ),

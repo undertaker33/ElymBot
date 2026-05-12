@@ -43,7 +43,7 @@ class NapCatLoginDiagnosticsTest {
             """.trimIndent(),
         )
 
-        val lines = NapCatLoginRepository.buildRuntimeDiagnosticsLinesForTests(
+        val lines = NapCatLoginTestFixtures.repository.buildRuntimeDiagnosticsLinesForTests(
             filesDir = filesDir,
             trigger = "refresh",
             detail = "token is invalid",

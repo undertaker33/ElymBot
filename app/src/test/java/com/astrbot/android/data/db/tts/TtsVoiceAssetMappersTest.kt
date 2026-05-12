@@ -6,10 +6,11 @@ import com.astrbot.android.data.db.TtsVoiceClipEntity
 import com.astrbot.android.data.db.TtsVoiceProviderBindingEntity
 import com.astrbot.android.data.db.toModel
 import com.astrbot.android.data.db.toWriteModel
-import com.astrbot.android.model.ClonedVoiceBinding
+import com.astrbot.android.feature.voiceasset.api.model.ClonedVoiceBinding
 import com.astrbot.android.model.ProviderType
-import com.astrbot.android.model.TtsVoiceReferenceAsset
-import com.astrbot.android.model.TtsVoiceReferenceClip
+import com.astrbot.android.feature.voiceasset.api.model.TtsVoiceReferenceAsset
+import com.astrbot.android.feature.voiceasset.api.model.TtsVoiceReferenceClip
+import com.astrbot.android.feature.voiceasset.api.model.VoiceAssetProviderType
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -65,7 +66,7 @@ class TtsVoiceAssetMappersTest {
                 ClonedVoiceBinding(
                     id = "binding-1",
                     providerId = "provider-1",
-                    providerType = ProviderType.OPENAI_TTS,
+                    providerType = VoiceAssetProviderType.OPENAI_TTS,
                     model = "tts-1",
                     voiceId = "voice-1",
                     displayName = "Voice 1",

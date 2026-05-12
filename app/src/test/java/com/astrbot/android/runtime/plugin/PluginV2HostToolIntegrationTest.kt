@@ -83,7 +83,7 @@ class PluginV2HostToolIntegrationTest {
 
         val input = pipelineInput { request, _ ->
             when (providerCalls.incrementAndGet()) {
-                1, 3 -> PluginV2ProviderInvocationResult.NonStreaming(
+                1, 3 -> com.astrbot.android.feature.plugin.domain.runtime.PluginV2ProviderInvocationResult.NonStreaming(
                     response = PluginLlmResponse(
                         requestId = request.requestId,
                         providerId = request.selectedProviderId,
@@ -100,7 +100,7 @@ class PluginV2HostToolIntegrationTest {
                     ),
                 )
 
-                else -> PluginV2ProviderInvocationResult.NonStreaming(
+                else -> com.astrbot.android.feature.plugin.domain.runtime.PluginV2ProviderInvocationResult.NonStreaming(
                     response = PluginLlmResponse(
                         requestId = request.requestId,
                         providerId = request.selectedProviderId,
@@ -135,7 +135,7 @@ class PluginV2HostToolIntegrationTest {
         )
 
         val withoutRegistryToolMessage = requestsWithoutRegistry.last().messages.last()
-        val withoutRegistryParts = withoutRegistryToolMessage.parts.filterIsInstance<PluginProviderMessagePartDto.TextPart>()
+        val withoutRegistryParts = withoutRegistryToolMessage.parts.filterIsInstance<com.astrbot.android.feature.plugin.domain.runtime.PluginProviderMessagePartDto.TextPart>()
         assertEquals(1, withoutRegistryParts.size)
         assertTrue(withoutRegistryParts.single().text.contains("Tool descriptor not found"))
         assertTrue(notifications.isEmpty())
@@ -164,7 +164,7 @@ class PluginV2HostToolIntegrationTest {
         )
 
         val withRegistryToolMessage = requestsWithRegistry.last().messages.last()
-        val withRegistryParts = withRegistryToolMessage.parts.filterIsInstance<PluginProviderMessagePartDto.TextPart>()
+        val withRegistryParts = withRegistryToolMessage.parts.filterIsInstance<com.astrbot.android.feature.plugin.domain.runtime.PluginProviderMessagePartDto.TextPart>()
         assertEquals(1, withRegistryParts.size)
         assertEquals("AstrBot: host integration", withRegistryParts.single().text)
         assertEquals(listOf("AstrBot:host integration"), notifications.toList())
@@ -173,8 +173,8 @@ class PluginV2HostToolIntegrationTest {
     @Test
     fun tool_loop_coordinator_source_does_not_reference_external_host_action_executor() {
         val sourceFile = sequenceOf(
-            File("../feature/plugin/impl/src/main/java/com/astrbot/android/feature/plugin/runtime/PluginV2ToolLoopCoordinator.kt"),
-            File("feature/plugin/impl/src/main/java/com/astrbot/android/feature/plugin/runtime/PluginV2ToolLoopCoordinator.kt"),
+            File("../feature/plugin/runtime/src/main/java/com/astrbot/android/feature/plugin/runtime/PluginV2ToolLoopCoordinator.kt"),
+            File("feature/plugin/runtime/src/main/java/com/astrbot/android/feature/plugin/runtime/PluginV2ToolLoopCoordinator.kt"),
             File("app/src/main/java/com/astrbot/android/feature/plugin/runtime/PluginV2ToolLoopCoordinator.kt"),
             File("../app/src/main/java/com/astrbot/android/feature/plugin/runtime/PluginV2ToolLoopCoordinator.kt"),
         ).firstOrNull(File::exists)
@@ -209,7 +209,7 @@ class PluginV2HostToolIntegrationTest {
             messages = listOf(
                 PluginProviderMessageDto(
                     role = PluginProviderMessageRole.USER,
-                    parts = listOf(PluginProviderMessagePartDto.TextPart("hello host tool")),
+                    parts = listOf(com.astrbot.android.feature.plugin.domain.runtime.PluginProviderMessagePartDto.TextPart("hello host tool")),
                 ),
             ),
             invokeProvider = invokeProvider,

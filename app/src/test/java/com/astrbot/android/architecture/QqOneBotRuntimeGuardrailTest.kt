@@ -12,14 +12,16 @@ class QqOneBotRuntimeGuardrailTest {
     }.firstOrNull { candidate ->
         Files.exists(candidate.resolve("app/src/main/java/com/astrbot/android"))
     } ?: error("Could not locate project root from ${Path.of("").toAbsolutePath()}")
-    private val mainRoot: Path = projectRoot.resolve("app/src/main/java/com/astrbot/android")
+    private val qqRuntimeRoot: Path =
+        projectRoot.resolve("feature/qq/runtime/src/main/java/com/astrbot/android/feature/qq/runtime")
     private val testRoot: Path = projectRoot.resolve("app/src/test/java/com/astrbot/android")
 
     @Test
     fun qq_onebot_bridge_server_must_stay_thin_and_glue_only() {
-        val source = mainRoot.resolve("feature/qq/runtime/QqOneBotBridgeServer.kt").readText()
+        val bridgeSource = qqRuntimeRoot.resolve("QqOneBotBridgeServer.kt")
+        val source = bridgeSource.readText()
         val lineCount = Files.readAllLines(
-            mainRoot.resolve("feature/qq/runtime/QqOneBotBridgeServer.kt"),
+            bridgeSource,
         ).size
         val forbiddenTokens = listOf(
             "legacyProcessMessageEventDoNotUse",
@@ -49,7 +51,7 @@ class QqOneBotRuntimeGuardrailTest {
 
     @Test
     fun qq_message_runtime_service_must_delegate_high_complexity_roles() {
-        val source = mainRoot.resolve("feature/qq/runtime/QqMessageRuntimeService.kt").readText()
+        val source = qqRuntimeRoot.resolve("QqMessageRuntimeService.kt").readText()
         val requiredCollaborators = listOf(
             "QqPluginDispatchService",
             "QqStreamingReplyService",

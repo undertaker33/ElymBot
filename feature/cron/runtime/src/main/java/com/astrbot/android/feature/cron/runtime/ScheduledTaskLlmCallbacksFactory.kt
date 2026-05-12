@@ -2,16 +2,16 @@ package com.astrbot.android.feature.cron.runtime
 
 import com.astrbot.android.core.runtime.context.ResolvedRuntimeContext
 import com.astrbot.android.feature.bot.domain.model.BotProfile
-import com.astrbot.android.feature.plugin.runtime.PlatformLlmCallbacks
-import com.astrbot.android.feature.plugin.runtime.PluginMessageEventResult
-import com.astrbot.android.feature.plugin.runtime.PluginProviderRequest
-import com.astrbot.android.feature.plugin.runtime.PluginHostCapabilityGateway
-import com.astrbot.android.feature.plugin.runtime.PluginV2AfterSentView
-import com.astrbot.android.feature.plugin.runtime.PluginV2FollowupSender
-import com.astrbot.android.feature.plugin.runtime.PluginV2HostPreparedReply
-import com.astrbot.android.feature.plugin.runtime.PluginV2HostSendResult
-import com.astrbot.android.feature.plugin.runtime.PluginV2LlmPipelineResult
-import com.astrbot.android.feature.plugin.runtime.PluginV2ProviderInvocationResult
+import com.astrbot.android.feature.plugin.domain.runtime.PlatformLlmCallbacks
+import com.astrbot.android.feature.plugin.domain.runtime.PluginHostCapabilityGateway
+import com.astrbot.android.feature.plugin.domain.runtime.PluginMessageEventResult
+import com.astrbot.android.feature.plugin.domain.runtime.PluginProviderRequest
+import com.astrbot.android.feature.plugin.domain.runtime.PluginV2AfterSentView
+import com.astrbot.android.feature.plugin.domain.runtime.PluginV2FollowupSender
+import com.astrbot.android.feature.plugin.domain.runtime.PluginV2HostPreparedReply
+import com.astrbot.android.feature.plugin.domain.runtime.PluginV2HostSendResult
+import com.astrbot.android.feature.plugin.domain.runtime.PluginV2LlmPipelineResult
+import com.astrbot.android.feature.plugin.domain.runtime.PluginV2ProviderInvocationResult
 import com.astrbot.android.model.chat.ConversationAttachment
 import com.astrbot.android.model.plugin.PluginV2StreamingMode
 

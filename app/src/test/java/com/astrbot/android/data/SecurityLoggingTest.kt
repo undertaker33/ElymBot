@@ -6,6 +6,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SecurityLoggingTest {
+    private val napCatLoginService = NapCatLoginService()
+
     @Test
     fun sanitize_url_masks_query_api_key() {
         val sanitized = ChatCompletionService.sanitizeUrlForLogsForTests(
@@ -19,7 +21,7 @@ class SecurityLoggingTest {
 
     @Test
     fun sanitize_napcat_detail_masks_known_secret_values() {
-        val sanitized = NapCatLoginService.sanitizeDetailForLogsForTests(
+        val sanitized = napCatLoginService.sanitizeDetailForLogsForTests(
             "configuredToken=abcdef123456 credential=qwerty1234567890",
         )
 
@@ -31,6 +33,6 @@ class SecurityLoggingTest {
 
     @Test
     fun mask_secret_returns_placeholder_for_blank_values() {
-        assertEquals("<empty>", NapCatLoginService.maskSecretForTests(""))
+        assertEquals("<empty>", napCatLoginService.maskSecretForTests(""))
     }
 }

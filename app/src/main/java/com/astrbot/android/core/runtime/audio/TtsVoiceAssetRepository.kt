@@ -15,11 +15,12 @@ import com.astrbot.android.data.db.TtsVoiceAssetAggregate
 import com.astrbot.android.data.db.TtsVoiceAssetAggregateDao
 import com.astrbot.android.data.db.toModel
 import com.astrbot.android.data.db.toWriteModel
-import com.astrbot.android.model.ClonedVoiceBinding
+import com.astrbot.android.feature.voiceasset.api.model.ClonedVoiceBinding
 import com.astrbot.android.model.ProviderProfile
 import com.astrbot.android.model.ProviderType
-import com.astrbot.android.model.TtsVoiceReferenceAsset
-import com.astrbot.android.model.TtsVoiceReferenceClip
+import com.astrbot.android.feature.voiceasset.api.model.TtsVoiceReferenceAsset
+import com.astrbot.android.feature.voiceasset.api.model.TtsVoiceReferenceClip
+import com.astrbot.android.feature.voiceasset.api.model.VoiceAssetProviderType
 import com.astrbot.android.core.common.logging.RuntimeLogRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
@@ -196,7 +197,7 @@ class TtsVoiceAssetRepository @Inject constructor(
                 val newBinding = ClonedVoiceBinding(
                     id = bindingId,
                     providerId = providerId,
-                    providerType = providerType,
+                    providerType = providerType.toVoiceAssetProviderType(),
                     model = model.trim(),
                     voiceId = voiceId.trim(),
                     displayName = displayName.trim().ifBlank { voiceId.trim() },
@@ -485,4 +486,8 @@ class TtsVoiceAssetRepository @Inject constructor(
             requireInstance().restoreAssets(assets)
         }
     }
+}
+
+private fun ProviderType.toVoiceAssetProviderType(): VoiceAssetProviderType {
+    return VoiceAssetProviderType.fromName(name)
 }

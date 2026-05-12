@@ -15,7 +15,7 @@ import com.astrbot.android.model.FeatureSupportState
 import com.astrbot.android.model.ProviderCapability
 import com.astrbot.android.model.ProviderProfile
 import com.astrbot.android.model.ProviderType
-import com.astrbot.android.model.TtsVoiceReferenceAsset
+import com.astrbot.android.feature.voiceasset.api.model.TtsVoiceReferenceAsset
 import com.astrbot.android.model.chat.ConversationAttachment
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -110,7 +110,7 @@ class ProviderViewModelTest {
     }
 
     /**
-     * Task10 Phase3 – Task C: deleting a referenced provider must surface a stable error.
+     * Task10 Phase3 鈥?Task C: deleting a referenced provider must surface a stable error.
      * The actual enforcement is in FeatureProviderRepository; here we verify the guard
      * contract is exercised via the ProviderReferenceGuard.
      */

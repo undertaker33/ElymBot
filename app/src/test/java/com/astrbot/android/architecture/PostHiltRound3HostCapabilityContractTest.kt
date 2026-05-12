@@ -12,9 +12,15 @@ class PostHiltRound3HostCapabilityContractTest {
     private val mainRoot: Path = projectRoot.resolve("app/src/main/java/com/astrbot/android")
     private val productionSourceRoots: List<Path> = listOf(
         "app/src/main/java/com/astrbot/android",
+        "app-integration/src/main/java/com/astrbot/android",
         "feature/chat/runtime/src/main/java/com/astrbot/android",
-        "feature/plugin/impl/src/main/java/com/astrbot/android",
+        "feature/plugin/data/src/main/java/com/astrbot/android",
+        "feature/plugin/presentation/src/main/java/com/astrbot/android",
+        "feature/plugin/runtime/src/main/java/com/astrbot/android",
+        "feature/qq/data/src/main/java/com/astrbot/android",
         "feature/qq/impl/src/main/java/com/astrbot/android",
+        "feature/qq/presentation/src/main/java/com/astrbot/android",
+        "feature/qq/runtime/src/main/java/com/astrbot/android",
     ).map(projectRoot::resolve).filter { root -> root.exists() }
 
     @Test

@@ -1,10 +1,10 @@
 package com.astrbot.android.feature.cron.runtime
 
-import com.astrbot.android.feature.plugin.runtime.PluginLlmResponse
-import com.astrbot.android.feature.plugin.runtime.PluginMessageEventResult
-import com.astrbot.android.feature.plugin.runtime.PluginProviderRequest
-import com.astrbot.android.feature.plugin.runtime.PluginV2LlmPipelineResult
-import com.astrbot.android.feature.plugin.runtime.PluginV2ProviderInvocationResult
+import com.astrbot.android.feature.plugin.domain.runtime.PluginLlmResponse
+import com.astrbot.android.feature.plugin.domain.runtime.PluginMessageEventResult
+import com.astrbot.android.feature.plugin.domain.runtime.PluginProviderRequest
+import com.astrbot.android.feature.plugin.domain.runtime.PluginV2LlmPipelineResult
+import com.astrbot.android.feature.plugin.domain.runtime.PluginV2ProviderInvocationResult
 import javax.inject.Inject
 
 class ScheduledTaskIntentFallbackResponder @Inject constructor(

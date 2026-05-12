@@ -39,14 +39,14 @@ class PluginV2EventResultCoordinatorTest {
 
                     eventResult.replaceAttachments(
                         listOf(
-                            PluginMessageEventResult.Attachment(
+                            com.astrbot.android.feature.plugin.domain.runtime.PluginMessageEventResult.Attachment(
                                 uri = "content://image/1",
                                 mimeType = "image/png",
                             ),
                         ),
                     )
                     eventResult.appendAttachment(
-                        PluginMessageEventResult.Attachment(
+                        com.astrbot.android.feature.plugin.domain.runtime.PluginMessageEventResult.Attachment(
                             uri = "content://audio/2",
                             mimeType = "audio/mpeg",
                         ),
@@ -58,7 +58,7 @@ class PluginV2EventResultCoordinatorTest {
                 "b-handler" -> {
                     assertEquals("final text", eventResult.text)
                     assertTrue(eventResult.attachments.isEmpty())
-                    assertEquals(PluginMessageEventResult.AttachmentMutationIntent.CLEARED, eventResult.attachmentMutationIntent)
+                    assertEquals(com.astrbot.android.feature.plugin.domain.runtime.PluginMessageEventResult.AttachmentMutationIntent.CLEARED, eventResult.attachmentMutationIntent)
                     assertFalse(eventResult.shouldSend)
                     assertFalse(eventResult.isStopped)
 
@@ -71,7 +71,7 @@ class PluginV2EventResultCoordinatorTest {
         assertEquals("final text", result.finalResult.text)
         assertTrue(result.finalResult.attachments.isEmpty())
         assertEquals(
-            PluginMessageEventResult.AttachmentMutationIntent.REPLACED_EMPTY,
+            com.astrbot.android.feature.plugin.domain.runtime.PluginMessageEventResult.AttachmentMutationIntent.REPLACED_EMPTY,
             result.finalResult.attachmentMutationIntent,
         )
         assertFalse(result.finalResult.shouldSend)
@@ -241,7 +241,7 @@ class PluginV2EventResultCoordinatorTest {
         val coordinator = PluginV2EventResultCoordinator()
         val receiptIds = mutableListOf("receipt-1")
         val deliveredEntries = mutableListOf(
-            PluginV2AfterSentView.DeliveredEntry(
+            com.astrbot.android.feature.plugin.domain.runtime.PluginV2AfterSentView.DeliveredEntry(
                 entryId = "entry-1",
                 entryType = "assistant_message",
                 textPreview = "hello",
@@ -256,14 +256,14 @@ class PluginV2EventResultCoordinatorTest {
             platformAdapterType = "onebot",
             platformInstanceKey = "bot-a",
             sentAtEpochMs = 1710000000000L,
-            deliveryStatus = PluginV2AfterSentView.DeliveryStatus.SUCCESS,
+            deliveryStatus = com.astrbot.android.feature.plugin.domain.runtime.PluginV2AfterSentView.DeliveryStatus.SUCCESS,
             receiptIds = receiptIds,
             deliveredEntries = deliveredEntries,
             usage = PluginLlmUsageSnapshot(totalTokens = 42),
         )
 
         receiptIds += "receipt-2"
-        deliveredEntries += PluginV2AfterSentView.DeliveredEntry(
+        deliveredEntries += com.astrbot.android.feature.plugin.domain.runtime.PluginV2AfterSentView.DeliveredEntry(
             entryId = "entry-2",
             entryType = "assistant_message",
             textPreview = "world",
@@ -276,7 +276,7 @@ class PluginV2EventResultCoordinatorTest {
         assertEquals("onebot", view.platformAdapterType)
         assertEquals("bot-a", view.platformInstanceKey)
         assertEquals(1710000000000L, view.sentAtEpochMs)
-        assertEquals(PluginV2AfterSentView.DeliveryStatus.SUCCESS, view.deliveryStatus)
+        assertEquals(com.astrbot.android.feature.plugin.domain.runtime.PluginV2AfterSentView.DeliveryStatus.SUCCESS, view.deliveryStatus)
         assertEquals(listOf("receipt-1"), view.receiptIds)
         assertEquals(1, view.deliveredEntries.size)
         assertEquals(1, view.deliveredEntryCount)
