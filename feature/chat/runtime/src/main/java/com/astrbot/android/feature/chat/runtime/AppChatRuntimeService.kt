@@ -1,4 +1,4 @@
-﻿package com.astrbot.android.feature.chat.runtime
+package com.astrbot.android.feature.chat.runtime
 
 import kotlinx.coroutines.flow.flow
 
@@ -13,19 +13,20 @@ import com.astrbot.android.core.runtime.context.RuntimeIngressEvent
 import com.astrbot.android.core.runtime.context.RuntimePlatform
 import com.astrbot.android.core.runtime.context.SenderInfo
 import com.astrbot.android.core.runtime.context.StreamingModeResolver
-import com.astrbot.android.feature.plugin.runtime.AppChatLlmPipelineRuntime
-import com.astrbot.android.feature.plugin.runtime.AppChatPluginRuntime
-import com.astrbot.android.feature.plugin.runtime.PluginHostCapabilityGatewayFactory
-import com.astrbot.android.feature.plugin.runtime.PlatformLlmCallbacks
-import com.astrbot.android.feature.plugin.runtime.PluginProviderRequest
-import com.astrbot.android.feature.plugin.runtime.PluginV2AfterSentView
-import com.astrbot.android.feature.plugin.runtime.PluginV2FollowupSender
-import com.astrbot.android.feature.plugin.runtime.PluginV2HostLlmDeliveryResult
-import com.astrbot.android.feature.plugin.runtime.PluginV2HostPreparedReply
-import com.astrbot.android.feature.plugin.runtime.PluginV2HostSendResult
-import com.astrbot.android.feature.plugin.runtime.PluginV2LlmPipelineResult
-import com.astrbot.android.feature.plugin.runtime.PluginV2ProviderInvocationResult
-import com.astrbot.android.feature.plugin.runtime.RuntimeLlmOrchestratorPort
+import com.astrbot.android.feature.plugin.domain.runtime.AppChatLlmPipelineRuntime
+import com.astrbot.android.feature.plugin.domain.runtime.AppChatPluginRuntime
+import com.astrbot.android.feature.plugin.domain.runtime.PluginHostCapabilityGatewayFactory
+import com.astrbot.android.feature.plugin.domain.runtime.PlatformLlmCallbacks
+import com.astrbot.android.feature.plugin.domain.runtime.PluginProviderRequest
+import com.astrbot.android.feature.plugin.domain.runtime.PluginV2FollowupSender
+import com.astrbot.android.feature.plugin.domain.runtime.PluginV2HostLlmDeliverySendFailed
+import com.astrbot.android.feature.plugin.domain.runtime.PluginV2HostLlmDeliverySent
+import com.astrbot.android.feature.plugin.domain.runtime.PluginV2HostLlmDeliverySuppressed
+import com.astrbot.android.feature.plugin.domain.runtime.PluginV2HostPreparedReply
+import com.astrbot.android.feature.plugin.domain.runtime.PluginV2HostSendResult
+import com.astrbot.android.feature.plugin.domain.runtime.PluginV2LlmPipelineResult
+import com.astrbot.android.feature.plugin.domain.runtime.PluginV2ProviderInvocationResult
+import com.astrbot.android.feature.plugin.domain.runtime.RuntimeLlmOrchestratorPort
 import com.astrbot.android.feature.cron.runtime.ScheduledTaskIntentFallbackResponder
 import com.astrbot.android.feature.cron.runtime.ScheduledTaskIntentGuardContext
 import kotlinx.coroutines.CancellationException
@@ -175,7 +176,7 @@ class AppChatRuntimeService(
             )
 
             when (deliveryResult) {
-                is PluginV2HostLlmDeliveryResult.Sent -> {
+                is PluginV2HostLlmDeliverySent -> {
                     val text = sink.text
                     val attachments = sink.attachments
 
@@ -203,7 +204,7 @@ class AppChatRuntimeService(
                     }
                 }
 
-                is PluginV2HostLlmDeliveryResult.Suppressed -> {
+                is PluginV2HostLlmDeliverySuppressed -> {
                     emit(
                         AppChatRuntimeEvent.Failure(
                             "App chat LLM result suppressed: ${deliveryResult.pipelineResult.admission.requestId}",
@@ -211,7 +212,7 @@ class AppChatRuntimeService(
                     )
                 }
 
-                is PluginV2HostLlmDeliveryResult.SendFailed -> {
+                is PluginV2HostLlmDeliverySendFailed -> {
                     emit(
                         AppChatRuntimeEvent.Failure(
                             deliveryResult.sendResult.errorSummary.ifBlank { "send_failed" },

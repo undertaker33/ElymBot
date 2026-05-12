@@ -5,7 +5,7 @@ import android.net.Uri
 import com.astrbot.android.feature.provider.domain.model.FeatureSupportState
 import com.astrbot.android.feature.provider.domain.model.ProviderProfile
 import com.astrbot.android.feature.provider.domain.model.ProviderType
-import com.astrbot.android.model.TtsVoiceReferenceAsset
+import com.astrbot.android.feature.voiceasset.api.model.TtsVoiceReferenceAsset
 import com.astrbot.android.model.chat.ConversationAttachment
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow

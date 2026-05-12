@@ -1,9 +1,9 @@
 package com.astrbot.android.data.db
 
-import com.astrbot.android.model.ClonedVoiceBinding
-import com.astrbot.android.model.ProviderType
-import com.astrbot.android.model.TtsVoiceReferenceAsset
-import com.astrbot.android.model.TtsVoiceReferenceClip
+import com.astrbot.android.feature.voiceasset.api.model.ClonedVoiceBinding
+import com.astrbot.android.feature.voiceasset.api.model.TtsVoiceReferenceAsset
+import com.astrbot.android.feature.voiceasset.api.model.TtsVoiceReferenceClip
+import com.astrbot.android.feature.voiceasset.api.model.VoiceAssetProviderType
 
 fun TtsVoiceAssetAggregate.toModel(): TtsVoiceReferenceAsset {
     return TtsVoiceReferenceAsset(
@@ -27,8 +27,7 @@ fun TtsVoiceAssetAggregate.toModel(): TtsVoiceReferenceAsset {
             ClonedVoiceBinding(
                 id = binding.id,
                 providerId = binding.providerId,
-                providerType = runCatching { ProviderType.valueOf(binding.providerType) }
-                    .getOrDefault(ProviderType.OPENAI_TTS),
+                providerType = VoiceAssetProviderType.fromName(binding.providerType),
                 model = binding.model,
                 voiceId = binding.voiceId,
                 displayName = binding.displayName,

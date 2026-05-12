@@ -24,7 +24,7 @@ import androidx.navigation.compose.composable
 import com.astrbot.android.R
 import com.astrbot.android.feature.config.data.FeatureConfigRepository as ConfigRepository
 import com.astrbot.android.feature.resource.presentation.ResourceCenterViewModel
-import com.astrbot.android.core.db.backup.AppBackupModuleKind
+import com.astrbot.android.feature.settings.api.SettingsBackupModuleKind
 import com.astrbot.android.model.BotProfile
 import com.astrbot.android.model.ConfigResourceProjection
 import com.astrbot.android.model.PersonaProfile
@@ -505,7 +505,7 @@ internal fun AstrBotAppNavGraph(
         }
         composable(AppDestination.BotBackup.route) {
             ModuleBackupScreen(
-                module = AppBackupModuleKind.BOTS,
+                module = SettingsBackupModuleKind.BOTS,
                 title = stringResource(R.string.backup_module_bots_title),
                 description = stringResource(R.string.backup_module_bots_desc),
                 onBack = { AppNavigator.back(navController) },
@@ -513,7 +513,7 @@ internal fun AstrBotAppNavGraph(
         }
         composable(AppDestination.ModelBackup.route) {
             ModuleBackupScreen(
-                module = AppBackupModuleKind.PROVIDERS,
+                module = SettingsBackupModuleKind.PROVIDERS,
                 title = stringResource(R.string.backup_module_models_title),
                 description = stringResource(R.string.backup_module_models_desc),
                 onBack = { AppNavigator.back(navController) },
@@ -521,7 +521,7 @@ internal fun AstrBotAppNavGraph(
         }
         composable(AppDestination.PersonaBackup.route) {
             ModuleBackupScreen(
-                module = AppBackupModuleKind.PERSONAS,
+                module = SettingsBackupModuleKind.PERSONAS,
                 title = stringResource(R.string.backup_module_personas_title),
                 description = stringResource(R.string.backup_module_personas_desc),
                 onBack = { AppNavigator.back(navController) },
@@ -532,7 +532,7 @@ internal fun AstrBotAppNavGraph(
         }
         composable(AppDestination.ConfigBackup.route) {
             ModuleBackupScreen(
-                module = AppBackupModuleKind.CONFIGS,
+                module = SettingsBackupModuleKind.CONFIGS,
                 title = stringResource(R.string.backup_module_configs_title),
                 description = stringResource(R.string.backup_module_configs_desc),
                 onBack = { AppNavigator.back(navController) },
@@ -540,7 +540,7 @@ internal fun AstrBotAppNavGraph(
         }
         composable(AppDestination.TtsBackup.route) {
             ModuleBackupScreen(
-                module = AppBackupModuleKind.TTS_ASSETS,
+                module = SettingsBackupModuleKind.TTS_ASSETS,
                 title = stringResource(R.string.backup_module_tts_title),
                 description = stringResource(R.string.backup_module_tts_desc),
                 onBack = { AppNavigator.back(navController) },

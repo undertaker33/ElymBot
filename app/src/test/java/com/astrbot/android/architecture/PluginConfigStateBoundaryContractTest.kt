@@ -11,11 +11,12 @@ class PluginConfigStateBoundaryContractTest {
     private val projectRoot: Path = detectProjectRoot()
     private val mainRoot: Path = projectRoot.resolve("app/src/main/java/com/astrbot/android")
     private val pluginApiRoot: Path = projectRoot.resolve("feature/plugin/api/src/main/java/com/astrbot/android")
-    private val pluginImplRoot: Path = projectRoot.resolve("feature/plugin/impl/src/main/java/com/astrbot/android")
+    private val pluginPresentationRoot: Path = projectRoot.resolve("feature/plugin/presentation/src/main/java/com/astrbot/android")
+    private val pluginRuntimeRoot: Path = projectRoot.resolve("feature/plugin/runtime/src/main/java/com/astrbot/android")
 
     @Test
     fun plugin_view_model_must_not_assemble_controller_or_anonymous_ports_inline() {
-        val source = mainRoot.resolve("feature/plugin/presentation/PluginViewModel.kt").readText()
+        val source = pluginPresentationRoot.resolve("feature/plugin/presentation/PluginViewModel.kt").readText()
 
         val forbiddenTokens = listOf(
             "PluginManagementUseCases(",
@@ -44,7 +45,7 @@ class PluginConfigStateBoundaryContractTest {
             "feature/plugin/presentation/bindings/PluginGovernanceBindings.kt",
         )
         val missing = requiredFiles.filterNot { relativePath ->
-            mainRoot.resolve(relativePath).exists()
+            pluginPresentationRoot.resolve(relativePath).exists()
         }
 
         assertTrue(
@@ -55,7 +56,7 @@ class PluginConfigStateBoundaryContractTest {
 
     @Test
     fun plugin_view_model_bindings_must_not_rely_on_static_feature_plugin_repository_entry_points() {
-        val source = mainRoot.resolve("feature/plugin/presentation/PluginViewModel.kt").readText()
+        val source = pluginPresentationRoot.resolve("feature/plugin/presentation/PluginViewModel.kt").readText()
 
         val forbiddenTokens = listOf(
             "PluginRepository.",
@@ -92,20 +93,20 @@ class PluginConfigStateBoundaryContractTest {
     @Test
     fun plugin_phase16_production_hotspots_must_not_call_feature_plugin_repository_static_facade() {
         val checkedSources = mapOf(
-            "app/src/main/java/com/astrbot/android/di/hilt/PluginProvisioningModule.kt" to
-                projectRoot.resolve("app/src/main/java/com/astrbot/android/di/hilt/PluginProvisioningModule.kt"),
+            "app-integration/src/main/java/com/astrbot/android/di/hilt/PluginProvisioningModule.kt" to
+                projectRoot.resolve("app-integration/src/main/java/com/astrbot/android/di/hilt/PluginProvisioningModule.kt"),
             "app/src/main/java/com/astrbot/android/di/startup/PluginRuntimeObservationStartupChain.kt" to
                 projectRoot.resolve("app/src/main/java/com/astrbot/android/di/startup/PluginRuntimeObservationStartupChain.kt"),
-            "app/src/main/java/com/astrbot/android/feature/plugin/presentation/PluginViewModel.kt" to
-                projectRoot.resolve("app/src/main/java/com/astrbot/android/feature/plugin/presentation/PluginViewModel.kt"),
+            "feature/plugin/presentation/src/main/java/com/astrbot/android/feature/plugin/presentation/PluginViewModel.kt" to
+                projectRoot.resolve("feature/plugin/presentation/src/main/java/com/astrbot/android/feature/plugin/presentation/PluginViewModel.kt"),
             "feature/chat/runtime/src/main/java/com/astrbot/android/feature/chat/runtime/AppChatPluginCommandService.kt" to
                 projectRoot.resolve(
                     "feature/chat/runtime/src/main/java/com/astrbot/android/feature/chat/runtime/AppChatPluginCommandService.kt",
                 ),
-            "feature/plugin/impl/src/main/java/com/astrbot/android/feature/plugin/runtime/PluginFailureGuard.kt" to
-                pluginImplRoot.resolve("feature/plugin/runtime/PluginFailureGuard.kt"),
-            "feature/plugin/impl/src/main/java/com/astrbot/android/feature/plugin/runtime/PluginInstaller.kt" to
-                pluginImplRoot.resolve("feature/plugin/runtime/PluginInstaller.kt"),
+            "feature/plugin/runtime/src/main/java/com/astrbot/android/feature/plugin/runtime/PluginFailureGuard.kt" to
+                pluginRuntimeRoot.resolve("feature/plugin/runtime/PluginFailureGuard.kt"),
+            "feature/plugin/runtime/src/main/java/com/astrbot/android/feature/plugin/runtime/PluginInstaller.kt" to
+                pluginRuntimeRoot.resolve("feature/plugin/runtime/PluginInstaller.kt"),
         )
         val forbiddenTokens = listOf(
             "FeaturePluginRepository.",

@@ -10,7 +10,7 @@ class FeaturePluginRepositoryHiltOnlySeamTest {
 
     private val projectRoot: Path = detectProjectRoot()
     private val sourceFile: Path = projectRoot.resolve(
-        "feature/plugin/impl/src/main/java/com/astrbot/android/feature/plugin/data/FeaturePluginRepository.kt",
+        "feature/plugin/data/src/main/java/com/astrbot/android/feature/plugin/data/FeaturePluginRepository.kt",
     )
 
     @Test
@@ -30,10 +30,10 @@ class FeaturePluginRepositoryHiltOnlySeamTest {
     @Test
     fun phase1_plugin_config_state_and_cleanup_boundaries_must_exist_outside_feature_plugin_repository() {
         val requiredFiles = listOf(
-            "feature/plugin/impl/src/main/java/com/astrbot/android/feature/plugin/data/config/PluginConfigStorage.kt",
-            "feature/plugin/impl/src/main/java/com/astrbot/android/feature/plugin/data/config/PluginHostConfigResolver.kt",
-            "feature/plugin/impl/src/main/java/com/astrbot/android/feature/plugin/data/state/PluginStateStore.kt",
-            "feature/plugin/impl/src/main/java/com/astrbot/android/feature/plugin/domain/cleanup/PluginDataCleanupService.kt",
+            "feature/plugin/data/src/main/java/com/astrbot/android/feature/plugin/data/config/PluginConfigStorage.kt",
+            "feature/plugin/data/src/main/java/com/astrbot/android/feature/plugin/data/config/PluginHostConfigResolver.kt",
+            "feature/plugin/data/src/main/java/com/astrbot/android/feature/plugin/data/state/PluginStateStore.kt",
+            "feature/plugin/data/src/main/java/com/astrbot/android/feature/plugin/domain/cleanup/PluginDataCleanupService.kt",
         )
         val missing = requiredFiles.filterNot { relativePath ->
             projectRoot.resolve(relativePath).toFile().isFile
@@ -66,7 +66,7 @@ class FeaturePluginRepositoryHiltOnlySeamTest {
     @Test
     fun plugin_view_model_bindings_must_not_use_static_feature_plugin_repository_companion_calls() {
         val source = projectRoot.resolve(
-            "app/src/main/java/com/astrbot/android/feature/plugin/presentation/PluginViewModel.kt",
+            "feature/plugin/presentation/src/main/java/com/astrbot/android/feature/plugin/presentation/PluginViewModel.kt",
         ).readText()
 
         val forbiddenTokens = listOf(

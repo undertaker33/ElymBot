@@ -1,6 +1,6 @@
 package com.astrbot.android.data
 
-import com.astrbot.android.feature.qq.data.NapCatLoginService
+import com.astrbot.android.feature.qq.domain.QqWebUiTokenProvider
 import com.astrbot.android.model.NapCatLoginState
 import org.json.JSONObject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -11,13 +11,14 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class NapCatLoginRepositoryTest {
-    private val runtimeWebUiTokenProvider = NapCatLoginService.WebUiTokenProvider { "runtime-webui-token" }
+    private val runtimeWebUiTokenProvider = QqWebUiTokenProvider { "runtime-webui-token" }
+    private val loginService = NapCatLoginTestFixtures.loginService
+    private val repository = NapCatLoginTestFixtures.repository
 
     @After
     fun tearDown() {
         NapCatBridgeRepository.resetRuntimeStateForTests()
-        NapCatLoginRepository.resetQrRefreshGuardsForTests()
-        NapCatLoginService.resetForTests()
+        NapCatLoginTestFixtures.reset()
         setLoginState(NapCatLoginState())
     }
 
@@ -35,7 +36,7 @@ class NapCatLoginRepositoryTest {
             ),
         )
 
-        val state = NapCatLoginRepository.refresh(webUiTokenProvider = runtimeWebUiTokenProvider)
+        val state = repository.refresh(webUiTokenProvider = runtimeWebUiTokenProvider)
 
         assertTrue(state.isLogin)
         assertFalse(state.bridgeReady)
@@ -58,7 +59,7 @@ class NapCatLoginRepositoryTest {
             ),
         )
         var refreshQrCodeCalls = 0
-        NapCatLoginService.setPostJsonOverrideForTests { endpoint, _, _ ->
+        loginService.setPostJsonOverrideForTests { endpoint, _, _ ->
             when {
                 endpoint.endsWith("/auth/login") -> JSONObject().apply {
                     put("code", 0)
@@ -88,18 +89,18 @@ class NapCatLoginRepositoryTest {
             }
         }
 
-        NapCatLoginRepository.refreshQrCode(webUiTokenProvider = runtimeWebUiTokenProvider)
-        NapCatLoginRepository.refreshQrCode(webUiTokenProvider = runtimeWebUiTokenProvider)
+        repository.refreshQrCode(webUiTokenProvider = runtimeWebUiTokenProvider)
+        repository.refreshQrCode(webUiTokenProvider = runtimeWebUiTokenProvider)
 
         assertEquals(1, refreshQrCodeCalls)
     }
 
     @Suppress("UNCHECKED_CAST")
     private fun setLoginState(state: NapCatLoginState) {
-        val field = NapCatLoginRepository::class.java.getDeclaredField("_loginState").apply {
+        val field = repository::class.java.getDeclaredField("_loginState").apply {
             isAccessible = true
         }
-        val flow = field.get(NapCatLoginRepository) as MutableStateFlow<NapCatLoginState>
+        val flow = field.get(repository) as MutableStateFlow<NapCatLoginState>
         flow.value = state
     }
 }

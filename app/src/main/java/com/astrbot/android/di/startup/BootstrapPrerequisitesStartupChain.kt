@@ -6,19 +6,15 @@ import android.app.Application
 import com.astrbot.android.AppStrings
 import com.astrbot.android.core.common.logging.RuntimeLogRepository
 import com.astrbot.android.core.runtime.audio.SherpaOnnxBridge
-import com.astrbot.android.feature.qq.data.NapCatLoginLocalStoreOwner
-import com.astrbot.android.feature.qq.data.NapCatBridgeStateOwner
-import com.astrbot.android.feature.plugin.data.FeaturePluginRepositoryStateOwner
 import com.astrbot.android.download.DownloadManagerBootstrap
-import com.astrbot.android.feature.qq.runtime.QqBridgeRuntime
+import com.astrbot.android.feature.qq.domain.QqLoginStateBootstrapper
+import com.astrbot.android.feature.qq.domain.QqStartupPort
 import javax.inject.Inject
 
 internal class BootstrapPrerequisitesStartupChain @Inject constructor(
     private val application: Application,
-    private val qqBridgeRuntime: QqBridgeRuntime,
-    pluginRepositoryStateOwner: FeaturePluginRepositoryStateOwner,
-    bridgeStateOwner: NapCatBridgeStateOwner,
-    napCatLoginLocalStoreOwner: NapCatLoginLocalStoreOwner,
+    private val qqStartupPort: QqStartupPort,
+    private val qqLoginStateBootstrapper: QqLoginStateBootstrapper,
     downloadManagerBootstrap: DownloadManagerBootstrap,
 ) : AppStartupChain {
 
@@ -30,7 +26,8 @@ internal class BootstrapPrerequisitesStartupChain @Inject constructor(
         }
 
         AppStrings.initialize(application)
-        qqBridgeRuntime.initialize(application)
+        qqLoginStateBootstrapper.ensureReady()
+        qqStartupPort.initialize()
         SherpaOnnxBridge.initialize(application)
     }
 }

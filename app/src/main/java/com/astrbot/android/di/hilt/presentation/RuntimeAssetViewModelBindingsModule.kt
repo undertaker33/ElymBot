@@ -6,7 +6,7 @@ import com.astrbot.android.di.hilt.RuntimeAssetStateFlow
 import com.astrbot.android.di.hilt.RuntimeAssetViewModelOps
 import com.astrbot.android.di.hilt.TtsVoiceAssetStateOwner
 import com.astrbot.android.model.RuntimeAssetState
-import com.astrbot.android.model.TtsVoiceReferenceAsset
+import com.astrbot.android.feature.voiceasset.api.model.TtsVoiceReferenceAsset
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn

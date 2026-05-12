@@ -17,7 +17,7 @@ import com.astrbot.android.feature.provider.runtime.ProviderRuntimeTtsAssetState
 import com.astrbot.android.model.FeatureSupportState
 import com.astrbot.android.model.ProviderProfile
 import com.astrbot.android.model.ProviderType
-import com.astrbot.android.model.TtsVoiceReferenceAsset
+import com.astrbot.android.feature.voiceasset.api.model.TtsVoiceReferenceAsset
 import com.astrbot.android.model.chat.ConversationAttachment
 import javax.inject.Inject
 import kotlinx.coroutines.flow.StateFlow

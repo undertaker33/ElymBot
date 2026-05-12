@@ -12,9 +12,15 @@ class PostHiltRound2PluginRuntimeContractTest {
     private val mainRoot: Path = projectRoot.resolve("app/src/main/java/com/astrbot/android")
     private val productionSourceRoots: List<Path> = listOf(
         "app/src/main/java/com/astrbot/android",
+        "app-integration/src/main/java/com/astrbot/android",
         "feature/chat/runtime/src/main/java/com/astrbot/android",
-        "feature/plugin/impl/src/main/java/com/astrbot/android",
+        "feature/plugin/data/src/main/java/com/astrbot/android",
+        "feature/plugin/presentation/src/main/java/com/astrbot/android",
+        "feature/plugin/runtime/src/main/java/com/astrbot/android",
+        "feature/qq/data/src/main/java/com/astrbot/android",
         "feature/qq/impl/src/main/java/com/astrbot/android",
+        "feature/qq/presentation/src/main/java/com/astrbot/android",
+        "feature/qq/runtime/src/main/java/com/astrbot/android",
     ).map(projectRoot::resolve).filter { root -> root.exists() }
 
     @Test
@@ -146,7 +152,9 @@ class PostHiltRound2PluginRuntimeContractTest {
 
     @Test
     fun plugin_presentation_must_not_import_runtime_implementation_package() {
-        val presentationRoot = mainRoot.resolve("feature/plugin/presentation")
+        val presentationRoot = projectRoot.resolve(
+            "feature/plugin/presentation/src/main/java/com/astrbot/android/feature/plugin/presentation",
+        )
         assertTrue(
             "Expected plugin presentation source root to exist: ${presentationRoot.toAbsolutePath()}",
             presentationRoot.exists(),

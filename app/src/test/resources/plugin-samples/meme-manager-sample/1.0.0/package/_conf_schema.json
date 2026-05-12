@@ -1,0 +1,7 @@
+{
+  "default_category": {
+    "type": "string",
+    "title": "Default meme category",
+    "default": "angry"
+  }
+}

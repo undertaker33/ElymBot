@@ -36,14 +36,7 @@ import com.astrbot.android.model.plugin.PluginPermissionGrant
 import com.astrbot.android.model.plugin.PluginTriggerMetadata
 import com.astrbot.android.model.plugin.PluginTriggerSource
 import com.astrbot.android.model.plugin.TextResult
-import com.astrbot.android.feature.plugin.runtime.AppChatPluginRuntime
-import com.astrbot.android.feature.plugin.runtime.HOST_SKIP_COMMAND_STAGE_EXTRA_KEY
-import com.astrbot.android.feature.plugin.runtime.PluginDispatchSkipReason
-import com.astrbot.android.feature.plugin.runtime.PluginMessageEvent
-import com.astrbot.android.feature.plugin.runtime.PluginRuntimePlugin
-import com.astrbot.android.feature.plugin.runtime.PluginV2CommandResponse
-import com.astrbot.android.feature.plugin.runtime.PluginV2CommandResponseAttachment
-import com.astrbot.android.feature.plugin.runtime.PluginV2MessageDispatchResult
+import com.astrbot.android.feature.plugin.domain.runtime.AppChatPluginRuntime
 import com.astrbot.android.feature.chat.runtime.botcommand.BotCommandContext
 import com.astrbot.android.feature.chat.runtime.botcommand.BotCommandParser
 import com.astrbot.android.feature.chat.runtime.botcommand.BotCommandRouter

@@ -13,6 +13,8 @@ class AppIntegrationBoundaryContractTest {
     private val projectRoot: Path = detectProjectRoot()
     private val appIntegrationRoot: Path =
         projectRoot.resolve("app-integration/src/main/java")
+    private val appIntegrationBuildFile: Path =
+        projectRoot.resolve("app-integration/build.gradle.kts")
 
     @Test
     fun app_integration_must_not_become_presentation_or_business_runtime() {
@@ -58,6 +60,25 @@ class AppIntegrationBoundaryContractTest {
 
         assertTrue(
             "app-integration files must stay wiring-shaped, not business-shaped. Found: $violations",
+            violations.isEmpty(),
+        )
+    }
+
+    @Test
+    fun app_integration_gradle_must_not_pull_presentation_or_compose() {
+        val text = appIntegrationBuildFile.readText()
+        val forbiddenPatterns = mapOf(
+            "feature presentation dependency" to Regex("""project\(":feature:[^"]+:presentation"\)"""),
+            "compose dependency" to Regex("""androidx\.compose|compose\s*="""),
+            "android application plugin" to Regex("""com\.android\.application"""),
+        )
+        val violations = forbiddenPatterns
+            .filter { (_, pattern) -> pattern.containsMatchIn(text) }
+            .keys
+            .toList()
+
+        assertTrue(
+            "app-integration Gradle wiring must stay free of presentation, Compose, and app-shell ownership: $violations",
             violations.isEmpty(),
         )
     }

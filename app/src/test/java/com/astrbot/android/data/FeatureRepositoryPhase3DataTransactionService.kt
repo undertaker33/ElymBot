@@ -1,17 +1,19 @@
 package com.astrbot.android.data
 
+import com.astrbot.android.model.ConfigProfile
 import kotlinx.coroutines.delay
 
 internal object FeatureRepositoryPhase3DataTransactionService {
     suspend fun deleteConfigProfile(profileId: String) {
-        waitForConfigRestore(profileId)
+        waitForConfigRestore(expectedProfileIds = listOf(profileId))
         val profiles = ConfigRepository.profiles.value
         if (profiles.size <= 1) return
-        val fallbackId = if (ConfigRepository.selectedProfileId.value == profileId) {
-            profiles.firstOrNull { it.id != profileId }?.id ?: return
-        } else {
-            ConfigRepository.selectedProfileId.value
-        }
+        val remainingProfiles = profiles.filterNot { it.id == profileId }
+        if (remainingProfiles.size == profiles.size) return
+        val selectedId = ConfigRepository.selectedProfileId.value
+        val fallbackId = remainingProfiles.firstOrNull { it.id == selectedId }?.id
+            ?: remainingProfiles.firstOrNull()?.id
+            ?: return
         BotRepository.replaceConfigBinding(profileId, fallbackId)
         ConfigRepository.delete(profileId)
     }
@@ -27,10 +29,40 @@ internal object FeatureRepositoryPhase3DataTransactionService {
         }
     }
 
-    private suspend fun waitForConfigRestore(profileId: String) {
+    suspend fun waitForConfigRestore(
+        expectedProfiles: List<ConfigProfile>,
+        selectedProfileId: String,
+    ) {
+        val expectedIds = expectedProfiles.map { profile -> profile.id }
+        check(
+            waitForConfigRestore(
+                expectedProfileIds = expectedIds,
+                selectedProfileId = selectedProfileId,
+                requireExactIds = true,
+            ),
+        ) {
+            "Config restore did not settle: expectedIds=$expectedIds selected=$selectedProfileId"
+        }
+    }
+
+    private suspend fun waitForConfigRestore(
+        expectedProfileIds: Collection<String>,
+        selectedProfileId: String? = null,
+        requireExactIds: Boolean = false,
+    ): Boolean {
+        val expectedIds = expectedProfileIds.toList()
         repeat(50) {
-            if (ConfigRepository.profiles.value.any { it.id == profileId }) return
+            val currentIds = ConfigRepository.profiles.value.map { profile -> profile.id }
+            val profilesRestored = if (requireExactIds) {
+                currentIds == expectedIds
+            } else {
+                currentIds.containsAll(expectedIds)
+            }
+            val selectedRestored = selectedProfileId == null ||
+                ConfigRepository.selectedProfileId.value == selectedProfileId
+            if (profilesRestored && selectedRestored) return true
             delay(10)
         }
+        return false
     }
 }

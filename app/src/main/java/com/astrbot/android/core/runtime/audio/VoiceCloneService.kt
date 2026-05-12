@@ -2,7 +2,7 @@ package com.astrbot.android.core.runtime.audio
 
 import com.astrbot.android.model.ProviderProfile
 import com.astrbot.android.model.ProviderType
-import com.astrbot.android.model.TtsVoiceReferenceAsset
+import com.astrbot.android.feature.voiceasset.api.model.TtsVoiceReferenceAsset
 import com.astrbot.android.core.common.logging.RuntimeLogRepository
 import java.io.File
 import java.net.HttpURLConnection
@@ -97,7 +97,7 @@ object VoiceCloneService {
         val payload = JSONObject().apply {
             put("file_id", normalizedFileId)
             put("voice_id", voiceId)
-            put("text", "感谢试用音色克隆。")
+            put("text", "\u611f\u8c22\u8bd5\u7528\u97f3\u8272\u514b\u9686\u3002")
             put("model", provider.model.trim())
             put("need_noise_reduction", false)
             put("need_volume_normalization", false)

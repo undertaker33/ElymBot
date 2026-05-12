@@ -12,7 +12,7 @@ import com.astrbot.android.feature.chat.runtime.AppChatRuntimeBindings
 import com.astrbot.android.feature.chat.runtime.AppChatPluginCommandService
 import com.astrbot.android.feature.config.domain.model.ConfigProfile
 import com.astrbot.android.feature.persona.domain.model.PersonaProfile
-import com.astrbot.android.feature.plugin.runtime.AppChatPluginRuntime
+import com.astrbot.android.feature.plugin.domain.runtime.AppChatPluginRuntime
 import com.astrbot.android.feature.provider.domain.model.ProviderProfile
 import com.astrbot.android.model.chat.ConversationAttachment
 import com.astrbot.android.model.chat.ConversationMessage

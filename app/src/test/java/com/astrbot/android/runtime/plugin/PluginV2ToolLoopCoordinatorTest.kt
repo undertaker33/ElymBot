@@ -50,7 +50,7 @@ class PluginV2ToolLoopCoordinatorTest {
                 streamingMode = PluginV2StreamingMode.NON_STREAM,
             ) { request, _ ->
                 when (providerCalls.incrementAndGet()) {
-                    1 -> PluginV2ProviderInvocationResult.NonStreaming(
+                    1 -> com.astrbot.android.feature.plugin.domain.runtime.PluginV2ProviderInvocationResult.NonStreaming(
                         PluginLlmResponse(
                             requestId = request.requestId,
                             providerId = request.selectedProviderId,
@@ -69,7 +69,7 @@ class PluginV2ToolLoopCoordinatorTest {
                         ),
                     )
 
-                    else -> PluginV2ProviderInvocationResult.NonStreaming(
+                    else -> com.astrbot.android.feature.plugin.domain.runtime.PluginV2ProviderInvocationResult.NonStreaming(
                         PluginLlmResponse(
                             requestId = request.requestId,
                             providerId = request.selectedProviderId,
@@ -146,7 +146,7 @@ class PluginV2ToolLoopCoordinatorTest {
             ) { request, _ ->
                 seenRequests += request
                 when (providerCalls.incrementAndGet()) {
-                    1 -> PluginV2ProviderInvocationResult.NonStreaming(
+                    1 -> com.astrbot.android.feature.plugin.domain.runtime.PluginV2ProviderInvocationResult.NonStreaming(
                         PluginLlmResponse(
                             requestId = request.requestId,
                             providerId = request.selectedProviderId,
@@ -162,7 +162,7 @@ class PluginV2ToolLoopCoordinatorTest {
                         ),
                     )
 
-                    else -> PluginV2ProviderInvocationResult.NonStreaming(
+                    else -> com.astrbot.android.feature.plugin.domain.runtime.PluginV2ProviderInvocationResult.NonStreaming(
                         PluginLlmResponse(
                             requestId = request.requestId,
                             providerId = request.selectedProviderId,
@@ -207,7 +207,7 @@ class PluginV2ToolLoopCoordinatorTest {
         assertEquals("call_web_search", hostMetadata?.get("toolCallId"))
         assertEquals(
             "web search result",
-            tool.parts.filterIsInstance<PluginProviderMessagePartDto.TextPart>().single().text,
+            tool.parts.filterIsInstance<com.astrbot.android.feature.plugin.domain.runtime.PluginProviderMessagePartDto.TextPart>().single().text,
         )
     }
 
@@ -252,7 +252,7 @@ class PluginV2ToolLoopCoordinatorTest {
             ) { request, _ ->
                 seenRequests += request
                 when (providerCalls.incrementAndGet()) {
-                    1 -> PluginV2ProviderInvocationResult.NonStreaming(
+                    1 -> com.astrbot.android.feature.plugin.domain.runtime.PluginV2ProviderInvocationResult.NonStreaming(
                         PluginLlmResponse(
                             requestId = request.requestId,
                             providerId = request.selectedProviderId,
@@ -271,12 +271,12 @@ class PluginV2ToolLoopCoordinatorTest {
                         val toolText = request.messages
                             .last { it.role == PluginProviderMessageRole.TOOL }
                             .parts
-                            .filterIsInstance<PluginProviderMessagePartDto.TextPart>()
+                            .filterIsInstance<com.astrbot.android.feature.plugin.domain.runtime.PluginProviderMessagePartDto.TextPart>()
                             .joinToString("\n") { it.text }
                         assertTrue(toolText.contains("raw web search facts"))
                         assertTrue(toolText.contains("Do not repeat the news items"))
                         assertTrue(toolText.contains("Only provide a brief evaluation"))
-                        PluginV2ProviderInvocationResult.NonStreaming(
+                        com.astrbot.android.feature.plugin.domain.runtime.PluginV2ProviderInvocationResult.NonStreaming(
                             PluginLlmResponse(
                                 requestId = request.requestId,
                                 providerId = request.selectedProviderId,
@@ -351,7 +351,7 @@ class PluginV2ToolLoopCoordinatorTest {
             ) { request, _ ->
                 seenRequests += request
                 when (providerCalls.incrementAndGet()) {
-                    1 -> PluginV2ProviderInvocationResult.NonStreaming(
+                    1 -> com.astrbot.android.feature.plugin.domain.runtime.PluginV2ProviderInvocationResult.NonStreaming(
                         PluginLlmResponse(
                             requestId = request.requestId,
                             providerId = request.selectedProviderId,
@@ -367,7 +367,7 @@ class PluginV2ToolLoopCoordinatorTest {
                         ),
                     )
 
-                    2 -> PluginV2ProviderInvocationResult.NonStreaming(
+                    2 -> com.astrbot.android.feature.plugin.domain.runtime.PluginV2ProviderInvocationResult.NonStreaming(
                         PluginLlmResponse(
                             requestId = request.requestId,
                             providerId = request.selectedProviderId,
@@ -383,7 +383,7 @@ class PluginV2ToolLoopCoordinatorTest {
                         ),
                     )
 
-                    else -> PluginV2ProviderInvocationResult.NonStreaming(
+                    else -> com.astrbot.android.feature.plugin.domain.runtime.PluginV2ProviderInvocationResult.NonStreaming(
                         PluginLlmResponse(
                             requestId = request.requestId,
                             providerId = request.selectedProviderId,
@@ -489,7 +489,7 @@ class PluginV2ToolLoopCoordinatorTest {
                 streamingMode = PluginV2StreamingMode.NON_STREAM,
             ) { request, _ ->
                 when (providerCalls.incrementAndGet()) {
-                    1 -> PluginV2ProviderInvocationResult.NonStreaming(
+                    1 -> com.astrbot.android.feature.plugin.domain.runtime.PluginV2ProviderInvocationResult.NonStreaming(
                         PluginLlmResponse(
                             requestId = request.requestId,
                             providerId = request.selectedProviderId,
@@ -503,7 +503,7 @@ class PluginV2ToolLoopCoordinatorTest {
                         ),
                     )
 
-                    else -> PluginV2ProviderInvocationResult.NonStreaming(
+                    else -> com.astrbot.android.feature.plugin.domain.runtime.PluginV2ProviderInvocationResult.NonStreaming(
                         PluginLlmResponse(
                             requestId = request.requestId,
                             providerId = request.selectedProviderId,
@@ -609,7 +609,7 @@ class PluginV2ToolLoopCoordinatorTest {
                 streamingMode = PluginV2StreamingMode.NON_STREAM,
             ) { request, _ ->
                 when (providerCalls.incrementAndGet()) {
-                    1 -> PluginV2ProviderInvocationResult.NonStreaming(
+                    1 -> com.astrbot.android.feature.plugin.domain.runtime.PluginV2ProviderInvocationResult.NonStreaming(
                         PluginLlmResponse(
                             requestId = request.requestId,
                             providerId = request.selectedProviderId,
@@ -623,7 +623,7 @@ class PluginV2ToolLoopCoordinatorTest {
                         ),
                     )
 
-                    else -> PluginV2ProviderInvocationResult.NonStreaming(
+                    else -> com.astrbot.android.feature.plugin.domain.runtime.PluginV2ProviderInvocationResult.NonStreaming(
                         PluginLlmResponse(
                             requestId = request.requestId,
                             providerId = request.selectedProviderId,
@@ -723,7 +723,7 @@ class PluginV2ToolLoopCoordinatorTest {
                 streamingMode = PluginV2StreamingMode.NON_STREAM,
             ) { request, _ ->
                 when (providerCalls.incrementAndGet()) {
-                    1 -> PluginV2ProviderInvocationResult.NonStreaming(
+                    1 -> com.astrbot.android.feature.plugin.domain.runtime.PluginV2ProviderInvocationResult.NonStreaming(
                         PluginLlmResponse(
                             requestId = request.requestId,
                             providerId = request.selectedProviderId,
@@ -737,7 +737,7 @@ class PluginV2ToolLoopCoordinatorTest {
                         ),
                     )
 
-                    else -> PluginV2ProviderInvocationResult.NonStreaming(
+                    else -> com.astrbot.android.feature.plugin.domain.runtime.PluginV2ProviderInvocationResult.NonStreaming(
                         PluginLlmResponse(
                             requestId = request.requestId,
                             providerId = request.selectedProviderId,
@@ -820,7 +820,7 @@ class PluginV2ToolLoopCoordinatorTest {
                     streamingMode = PluginV2StreamingMode.NON_STREAM,
                 ) { request, _ ->
                     when (providerCalls.incrementAndGet()) {
-                        1 -> PluginV2ProviderInvocationResult.NonStreaming(
+                        1 -> com.astrbot.android.feature.plugin.domain.runtime.PluginV2ProviderInvocationResult.NonStreaming(
                             PluginLlmResponse(
                                 requestId = request.requestId,
                                 providerId = request.selectedProviderId,
@@ -834,7 +834,7 @@ class PluginV2ToolLoopCoordinatorTest {
                             ),
                         )
 
-                        else -> PluginV2ProviderInvocationResult.NonStreaming(
+                        else -> com.astrbot.android.feature.plugin.domain.runtime.PluginV2ProviderInvocationResult.NonStreaming(
                             PluginLlmResponse(
                                 requestId = request.requestId,
                                 providerId = request.selectedProviderId,
@@ -885,7 +885,7 @@ class PluginV2ToolLoopCoordinatorTest {
             ) { request, _ ->
                 seenRequests += request
                 when (providerCalls.incrementAndGet()) {
-                    1 -> PluginV2ProviderInvocationResult.NonStreaming(
+                    1 -> com.astrbot.android.feature.plugin.domain.runtime.PluginV2ProviderInvocationResult.NonStreaming(
                         PluginLlmResponse(
                             requestId = request.requestId,
                             providerId = request.selectedProviderId,
@@ -899,7 +899,7 @@ class PluginV2ToolLoopCoordinatorTest {
                         ),
                     )
 
-                    else -> PluginV2ProviderInvocationResult.NonStreaming(
+                    else -> com.astrbot.android.feature.plugin.domain.runtime.PluginV2ProviderInvocationResult.NonStreaming(
                         PluginLlmResponse(
                             requestId = request.requestId,
                             providerId = request.selectedProviderId,
@@ -944,7 +944,7 @@ class PluginV2ToolLoopCoordinatorTest {
         val toolCallId = hostMetadata?.get("toolCallId") as? String
         assertTrue(!toolCallId.isNullOrBlank())
         assertEquals(toolCallId, assistantMessage.toolCalls.single().normalizedId)
-        val parts = lastMessage.parts.filterIsInstance<PluginProviderMessagePartDto.TextPart>()
+        val parts = lastMessage.parts.filterIsInstance<com.astrbot.android.feature.plugin.domain.runtime.PluginProviderMessagePartDto.TextPart>()
         assertEquals(2, parts.size)
         assertEquals("tool-text", parts[0].text)
         assertEquals("{\"ok\":true}", parts[1].text)
@@ -979,7 +979,7 @@ class PluginV2ToolLoopCoordinatorTest {
             ) { request, _ ->
                 seenRequests += request
                 when (providerCalls.incrementAndGet()) {
-                    1 -> PluginV2ProviderInvocationResult.NonStreaming(
+                    1 -> com.astrbot.android.feature.plugin.domain.runtime.PluginV2ProviderInvocationResult.NonStreaming(
                         PluginLlmResponse(
                             requestId = request.requestId,
                             providerId = request.selectedProviderId,
@@ -1000,7 +1000,7 @@ class PluginV2ToolLoopCoordinatorTest {
                         ),
                     )
 
-                    else -> PluginV2ProviderInvocationResult.NonStreaming(
+                    else -> com.astrbot.android.feature.plugin.domain.runtime.PluginV2ProviderInvocationResult.NonStreaming(
                         PluginLlmResponse(
                             requestId = request.requestId,
                             providerId = request.selectedProviderId,
@@ -1036,7 +1036,7 @@ class PluginV2ToolLoopCoordinatorTest {
         assertEquals(4, second.messages.size)
         val assistant = second.messages[1]
         assertEquals(PluginProviderMessageRole.ASSISTANT, assistant.role)
-        assertEquals("Need two tools", assistant.parts.filterIsInstance<PluginProviderMessagePartDto.TextPart>().single().text)
+        assertEquals("Need two tools", assistant.parts.filterIsInstance<com.astrbot.android.feature.plugin.domain.runtime.PluginProviderMessagePartDto.TextPart>().single().text)
         assertEquals(listOf("call_alpha", "call_beta"), assistant.toolCalls.map { it.normalizedId })
         assertEquals(listOf(PluginProviderMessageRole.TOOL, PluginProviderMessageRole.TOOL), second.messages.takeLast(2).map { it.role })
         assertEquals(listOf("call_alpha", "call_beta"), second.messages.takeLast(2).mapNotNull { message ->
@@ -1073,7 +1073,7 @@ class PluginV2ToolLoopCoordinatorTest {
                 streamingMode = PluginV2StreamingMode.NATIVE_STREAM,
             ) { request, _ ->
                 when (providerCalls.incrementAndGet()) {
-                    1 -> PluginV2ProviderInvocationResult.Streaming(
+                    1 -> com.astrbot.android.feature.plugin.domain.runtime.PluginV2ProviderInvocationResult.Streaming(
                         events = listOf(
                             PluginV2ProviderStreamChunk(
                                 toolCallDeltas = listOf(
@@ -1089,7 +1089,7 @@ class PluginV2ToolLoopCoordinatorTest {
                         ),
                     )
 
-                    else -> PluginV2ProviderInvocationResult.NonStreaming(
+                    else -> com.astrbot.android.feature.plugin.domain.runtime.PluginV2ProviderInvocationResult.NonStreaming(
                         PluginLlmResponse(
                             requestId = request.requestId,
                             providerId = request.selectedProviderId,
@@ -1153,7 +1153,7 @@ class PluginV2ToolLoopCoordinatorTest {
             ) { request, _ ->
                 seenRequests += request
                 when (providerCalls.incrementAndGet()) {
-                    1 -> PluginV2ProviderInvocationResult.NonStreaming(
+                    1 -> com.astrbot.android.feature.plugin.domain.runtime.PluginV2ProviderInvocationResult.NonStreaming(
                         PluginLlmResponse(
                             requestId = request.requestId,
                             providerId = request.selectedProviderId,
@@ -1167,7 +1167,7 @@ class PluginV2ToolLoopCoordinatorTest {
                         ),
                     )
 
-                    else -> PluginV2ProviderInvocationResult.NonStreaming(
+                    else -> com.astrbot.android.feature.plugin.domain.runtime.PluginV2ProviderInvocationResult.NonStreaming(
                         PluginLlmResponse(
                             requestId = request.requestId,
                             providerId = request.selectedProviderId,
@@ -1202,7 +1202,7 @@ class PluginV2ToolLoopCoordinatorTest {
         val second = seenRequests[1]
         val lastMessage = second.messages.last()
         assertEquals(PluginProviderMessageRole.TOOL, lastMessage.role)
-        val parts = lastMessage.parts.filterIsInstance<PluginProviderMessagePartDto.TextPart>()
+        val parts = lastMessage.parts.filterIsInstance<com.astrbot.android.feature.plugin.domain.runtime.PluginProviderMessagePartDto.TextPart>()
         assertEquals(1, parts.size)
         assertEquals("", parts[0].text)
     }
@@ -1238,7 +1238,7 @@ class PluginV2ToolLoopCoordinatorTest {
             ) { request, _ ->
                 seenRequests += request
                 when (providerCalls.incrementAndGet()) {
-                    1 -> PluginV2ProviderInvocationResult.NonStreaming(
+                    1 -> com.astrbot.android.feature.plugin.domain.runtime.PluginV2ProviderInvocationResult.NonStreaming(
                         PluginLlmResponse(
                             requestId = request.requestId,
                             providerId = request.selectedProviderId,
@@ -1252,7 +1252,7 @@ class PluginV2ToolLoopCoordinatorTest {
                         ),
                     )
 
-                    else -> PluginV2ProviderInvocationResult.NonStreaming(
+                    else -> com.astrbot.android.feature.plugin.domain.runtime.PluginV2ProviderInvocationResult.NonStreaming(
                         PluginLlmResponse(
                             requestId = request.requestId,
                             providerId = request.selectedProviderId,
@@ -1287,7 +1287,7 @@ class PluginV2ToolLoopCoordinatorTest {
         val second = seenRequests[1]
         val lastMessage = second.messages.last()
         assertEquals(PluginProviderMessageRole.TOOL, lastMessage.role)
-        val parts = lastMessage.parts.filterIsInstance<PluginProviderMessagePartDto.TextPart>()
+        val parts = lastMessage.parts.filterIsInstance<com.astrbot.android.feature.plugin.domain.runtime.PluginProviderMessagePartDto.TextPart>()
         assertEquals(1, parts.size)
         assertEquals("{\"ok\":true}", parts[0].text)
     }
@@ -1301,7 +1301,7 @@ class PluginV2ToolLoopCoordinatorTest {
         val toolAuthoredByPlugin = PluginProviderMessageDto(
             role = PluginProviderMessageRole.TOOL,
             name = "fake-tool",
-            parts = listOf(PluginProviderMessagePartDto.TextPart("plugin-authored")),
+            parts = listOf(com.astrbot.android.feature.plugin.domain.runtime.PluginProviderMessagePartDto.TextPart("plugin-authored")),
             metadata = mapOf("__host" to mapOf("toolCallId" to "fake-call")),
         )
         val hookFixture = llmFixture(
@@ -1353,7 +1353,7 @@ class PluginV2ToolLoopCoordinatorTest {
             ) { request, _ ->
                 seenRequests += request
                 when (providerCalls.incrementAndGet()) {
-                    1 -> PluginV2ProviderInvocationResult.NonStreaming(
+                    1 -> com.astrbot.android.feature.plugin.domain.runtime.PluginV2ProviderInvocationResult.NonStreaming(
                         PluginLlmResponse(
                             requestId = request.requestId,
                             providerId = request.selectedProviderId,
@@ -1372,18 +1372,18 @@ class PluginV2ToolLoopCoordinatorTest {
                         assertEquals(1, toolMessages.size)
                         val toolMessage = toolMessages.single()
                         assertEquals("alpha", toolMessage.name)
-                        val textParts = toolMessage.parts.filterIsInstance<PluginProviderMessagePartDto.TextPart>()
+                        val textParts = toolMessage.parts.filterIsInstance<com.astrbot.android.feature.plugin.domain.runtime.PluginProviderMessagePartDto.TextPart>()
                         assertEquals(1, textParts.size)
                         assertEquals("host-tool", textParts.single().text)
                         assertEquals(
                             0,
                             toolMessages.count { message ->
                                 message.name == "fake-tool" ||
-                                    message.parts.filterIsInstance<PluginProviderMessagePartDto.TextPart>()
+                                    message.parts.filterIsInstance<com.astrbot.android.feature.plugin.domain.runtime.PluginProviderMessagePartDto.TextPart>()
                                         .any { it.text == "plugin-authored" }
                             },
                         )
-                        PluginV2ProviderInvocationResult.NonStreaming(
+                        com.astrbot.android.feature.plugin.domain.runtime.PluginV2ProviderInvocationResult.NonStreaming(
                             PluginLlmResponse(
                                 requestId = request.requestId,
                                 providerId = request.selectedProviderId,
@@ -1496,7 +1496,7 @@ class PluginV2ToolLoopCoordinatorTest {
                 streamingMode = PluginV2StreamingMode.NON_STREAM,
             ) { request, _ ->
                 when (providerCalls.incrementAndGet()) {
-                    1, 2 -> PluginV2ProviderInvocationResult.NonStreaming(
+                    1, 2 -> com.astrbot.android.feature.plugin.domain.runtime.PluginV2ProviderInvocationResult.NonStreaming(
                         PluginLlmResponse(
                             requestId = request.requestId,
                             providerId = request.selectedProviderId,
@@ -1510,7 +1510,7 @@ class PluginV2ToolLoopCoordinatorTest {
                         ),
                     )
 
-                    else -> PluginV2ProviderInvocationResult.NonStreaming(
+                    else -> com.astrbot.android.feature.plugin.domain.runtime.PluginV2ProviderInvocationResult.NonStreaming(
                         PluginLlmResponse(
                             requestId = request.requestId,
                             providerId = request.selectedProviderId,
@@ -1605,7 +1605,7 @@ class PluginV2ToolLoopCoordinatorTest {
             ) { request, mode ->
                 assertEquals(PluginV2StreamingMode.NATIVE_STREAM, mode)
                 when (providerCalls.incrementAndGet()) {
-                    1 -> PluginV2ProviderInvocationResult.Streaming(
+                    1 -> com.astrbot.android.feature.plugin.domain.runtime.PluginV2ProviderInvocationResult.Streaming(
                         events = listOf(
                             PluginV2ProviderStreamChunk(
                                 deltaText = "assistant",
@@ -1621,7 +1621,7 @@ class PluginV2ToolLoopCoordinatorTest {
                         ),
                     )
 
-                    else -> PluginV2ProviderInvocationResult.NonStreaming(
+                    else -> com.astrbot.android.feature.plugin.domain.runtime.PluginV2ProviderInvocationResult.NonStreaming(
                         PluginLlmResponse(
                             requestId = request.requestId,
                             providerId = request.selectedProviderId,
@@ -1661,7 +1661,7 @@ class PluginV2ToolLoopCoordinatorTest {
                 PluginProviderMessageDto(
                     role = PluginProviderMessageRole.USER,
                     parts = listOf(
-                        PluginProviderMessagePartDto.TextPart(event.rawText),
+                        com.astrbot.android.feature.plugin.domain.runtime.PluginProviderMessagePartDto.TextPart(event.rawText),
                     ),
                 ),
             ),

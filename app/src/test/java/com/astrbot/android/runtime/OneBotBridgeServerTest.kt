@@ -53,6 +53,7 @@ import com.astrbot.android.di.runtime.llm.toProviderType
 import com.astrbot.android.feature.bot.domain.BotRepositoryPort
 import com.astrbot.android.feature.config.domain.ConfigRepositoryPort
 import com.astrbot.android.feature.persona.domain.PersonaRepositoryPort
+import com.astrbot.android.feature.plugin.domain.PluginWorkspacePathPort
 import com.astrbot.android.feature.plugin.runtime.AppChatLlmPipelineRuntime
 import com.astrbot.android.feature.plugin.runtime.DefaultPluginExecutionHostOperations
 import com.astrbot.android.feature.plugin.runtime.DefaultPluginExecutionHostResolver
@@ -973,15 +974,32 @@ class QqOneBotBridgeServerTest {
                 gatewayFactory = gatewayFactory,
                 hostCapabilityGateway = hostCapabilityGateway,
                 hostActionExecutor = ExternalPluginHostActionExecutor(),
-                pluginExecutionService = QqPluginExecutionService(
-                    pluginCatalog = PluginRuntimeCatalog::plugins,
-                    failureStateStore = failureStateStore,
-                    scopedFailureStateStore = scopedFailureStateStore,
-                    logBus = logBus,
-                ),
+                pluginExecutionService = QqPluginExecutionService { trigger, contextFactory ->
+                    val guard = PluginFailureGuard(
+                        store = failureStateStore,
+                        scopedStore = scopedFailureStateStore,
+                        logBus = logBus,
+                    )
+                    PluginExecutionEngine(
+                        dispatcher = PluginRuntimeDispatcher(
+                            failureGuard = guard,
+                            scheduler = PluginRuntimeScheduler(
+                                store = InMemoryPluginScheduleStateStore(),
+                            ),
+                            logBus = logBus,
+                        ),
+                        failureGuard = guard,
+                        logBus = logBus,
+                    ).executeBatch(
+                        trigger = trigger,
+                        plugins = PluginRuntimeCatalog.plugins(),
+                        contextFactory = contextFactory,
+                    )
+                },
                 llmProviderProbePort = chatCompletionServiceProbePort(),
                 logBus = logBus,
                 silkAudioEncoder = { input -> input },
+                pluginWorkspacePathPort = testPluginWorkspacePathPort(),
                 executeLegacyPluginsDuringLlmDispatch = executeLegacyPluginsDuringLlmDispatch,
             )
             QqOneBotBridgeServerTestAccess.primeRuntimeDependencies(runtimeDependencies)
@@ -1000,6 +1018,13 @@ class QqOneBotBridgeServerTest {
         return requireNotNull(currentRepositories) {
             "OneBot test repositories are not initialized."
         }.conversationPort.session(sessionId)
+    }
+
+    private fun testPluginWorkspacePathPort(): PluginWorkspacePathPort {
+        val root = Files.createTempDirectory("onebot-plugin-workspace").toFile()
+        return PluginWorkspacePathPort { pluginId ->
+            File(root, pluginId.ifBlank { "__unknown__" }).apply { mkdirs() }.absolutePath
+        }
     }
 
     private fun com.astrbot.android.model.plugin.PluginInstallRecord.copyForFixture(

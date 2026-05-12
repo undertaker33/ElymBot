@@ -28,7 +28,7 @@ import com.astrbot.android.feature.chat.runtime.AppChatPluginCommandServiceFacto
 import com.astrbot.android.feature.chat.runtime.AppChatRuntimeServiceFactory
 import com.astrbot.android.feature.config.data.FeatureConfigRepository as ConfigRepository
 import com.astrbot.android.feature.persona.data.FeaturePersonaRepository as PersonaRepository
-import com.astrbot.android.feature.plugin.runtime.AppChatPluginRuntime
+import com.astrbot.android.feature.plugin.domain.runtime.AppChatPluginRuntime
 import com.astrbot.android.feature.provider.data.FeatureProviderRepository as ProviderRepository
 import com.astrbot.android.model.BotProfile
 import com.astrbot.android.model.ConfigProfile

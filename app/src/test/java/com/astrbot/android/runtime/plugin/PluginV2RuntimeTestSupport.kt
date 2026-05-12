@@ -12,10 +12,16 @@ import com.astrbot.android.model.plugin.PluginSourceType
 import java.lang.reflect.InvocationTargetException
 import java.lang.reflect.Proxy
 
+private const val V2_API_RUNTIME_PACKAGE = "com.astrbot.android.feature.plugin.domain.runtime"
 private const val V2_RUNTIME_PACKAGE = "com.astrbot.android.feature.plugin.runtime"
 
 internal fun pluginV2Class(simpleName: String): Class<*> {
-    return Class.forName("$V2_RUNTIME_PACKAGE.$simpleName")
+    return sequenceOf(
+        V2_API_RUNTIME_PACKAGE,
+        V2_RUNTIME_PACKAGE,
+    ).firstNotNullOfOrNull { packageName ->
+        runCatching { Class.forName("$packageName.$simpleName") }.getOrNull()
+    } ?: throw ClassNotFoundException(simpleName)
 }
 
 internal fun newPluginV2RuntimeSession(

@@ -39,8 +39,8 @@ class PluginV2LlmContractsTest {
             "openai" to mutableListOf("gpt-4.1", "gpt-5"),
             "anthropic" to mutableListOf("claude-4"),
         )
-        val systemPart = PluginProviderMessagePartDto.TextPart(text = "system prompt")
-        val userPart = PluginProviderMessagePartDto.MediaRefPart(
+        val systemPart = com.astrbot.android.feature.plugin.domain.runtime.PluginProviderMessagePartDto.TextPart(text = "system prompt")
+        val userPart = com.astrbot.android.feature.plugin.domain.runtime.PluginProviderMessagePartDto.MediaRefPart(
             uri = "content://media/1",
             mimeType = "image/png",
         )
@@ -130,7 +130,7 @@ class PluginV2LlmContractsTest {
         request.messages = listOf(
             PluginProviderMessageDto(
                 role = PluginProviderMessageRole.ASSISTANT,
-                parts = listOf(PluginProviderMessagePartDto.TextPart("assistant")),
+                parts = listOf(com.astrbot.android.feature.plugin.domain.runtime.PluginProviderMessagePartDto.TextPart("assistant")),
                 metadata = mapOf("score" to 1),
             ),
         )
@@ -160,7 +160,7 @@ class PluginV2LlmContractsTest {
 
         val toolMessage = PluginProviderMessageDto(
             role = PluginProviderMessageRole.TOOL,
-            parts = listOf(PluginProviderMessagePartDto.TextPart("tool message")),
+            parts = listOf(com.astrbot.android.feature.plugin.domain.runtime.PluginProviderMessagePartDto.TextPart("tool message")),
             name = "web_search",
             metadata = mapOf("__host" to mapOf("toolCallId" to "call-1")),
         )
@@ -241,7 +241,7 @@ class PluginV2LlmContractsTest {
                 messages = listOf(
                     PluginProviderMessageDto(
                         role = PluginProviderMessageRole.SYSTEM,
-                        parts = listOf(PluginProviderMessagePartDto.TextPart("hello")),
+                        parts = listOf(com.astrbot.android.feature.plugin.domain.runtime.PluginProviderMessagePartDto.TextPart("hello")),
                     ),
                 ),
                 metadata = mapOf("allowed" to listOf("yes")),
@@ -252,7 +252,7 @@ class PluginV2LlmContractsTest {
         assertEquals("openai", decodedRequest.selectedProviderId)
         assertEquals("gpt-4.1", decodedRequest.selectedModelId)
         assertEquals("snapshot", decodedRequest.llmInputSnapshot)
-        assertEquals("hello", (decodedRequest.messages.single().parts.single() as PluginProviderMessagePartDto.TextPart).text)
+        assertEquals("hello", (decodedRequest.messages.single().parts.single() as com.astrbot.android.feature.plugin.domain.runtime.PluginProviderMessagePartDto.TextPart).text)
     }
 
     @Test
@@ -263,7 +263,7 @@ class PluginV2LlmContractsTest {
             text = "base",
             markdown = true,
             attachments = listOf(
-                PluginMessageEventResult.Attachment(
+                com.astrbot.android.feature.plugin.domain.runtime.PluginMessageEventResult.Attachment(
                     uri = "content://image/1",
                     mimeType = "image/png",
                 ),
@@ -273,7 +273,7 @@ class PluginV2LlmContractsTest {
         assertEquals("base", result.text)
         assertTrue(result.markdown)
         assertEquals(1, result.attachments.size)
-        assertEquals(PluginMessageEventResult.AttachmentMutationIntent.REPLACED, result.attachmentMutationIntent)
+        assertEquals(com.astrbot.android.feature.plugin.domain.runtime.PluginMessageEventResult.AttachmentMutationIntent.REPLACED, result.attachmentMutationIntent)
         assertFalse(result.isStopped)
         assertTrue(result.shouldSend)
 
@@ -281,7 +281,7 @@ class PluginV2LlmContractsTest {
         result.replaceText("override")
         result.clearText()
         result.appendAttachment(
-            PluginMessageEventResult.Attachment(
+            com.astrbot.android.feature.plugin.domain.runtime.PluginMessageEventResult.Attachment(
                 uri = "content://audio/2",
                 mimeType = "audio/mpeg",
             ),
@@ -290,11 +290,11 @@ class PluginV2LlmContractsTest {
 
         assertEquals("", result.text)
         assertTrue(result.attachments.isEmpty())
-        assertEquals(PluginMessageEventResult.AttachmentMutationIntent.CLEARED, result.attachmentMutationIntent)
+        assertEquals(com.astrbot.android.feature.plugin.domain.runtime.PluginMessageEventResult.AttachmentMutationIntent.CLEARED, result.attachmentMutationIntent)
 
         result.replaceAttachments(emptyList())
         assertTrue(result.attachments.isEmpty())
-        assertEquals(PluginMessageEventResult.AttachmentMutationIntent.REPLACED_EMPTY, result.attachmentMutationIntent)
+        assertEquals(com.astrbot.android.feature.plugin.domain.runtime.PluginMessageEventResult.AttachmentMutationIntent.REPLACED_EMPTY, result.attachmentMutationIntent)
 
         result.setShouldSend(false)
         assertFalse(result.shouldSend)
@@ -327,7 +327,7 @@ class PluginV2LlmContractsTest {
             requestId = "req-empty-3",
             conversationId = "conv-empty-3",
             attachments = listOf(
-                PluginMessageEventResult.Attachment(
+                com.astrbot.android.feature.plugin.domain.runtime.PluginMessageEventResult.Attachment(
                     uri = "content://image/2",
                     mimeType = "image/png",
                 ),
@@ -348,7 +348,7 @@ class PluginV2LlmContractsTest {
     @Test
     fun after_sent_view_is_read_only_and_copies_snapshot_inputs() {
         val deliveredEntries = mutableListOf(
-            PluginV2AfterSentView.DeliveredEntry(
+            com.astrbot.android.feature.plugin.domain.runtime.PluginV2AfterSentView.DeliveredEntry(
                 entryId = "entry-1",
                 entryType = "assistant_message",
                 textPreview = "hello",
@@ -364,7 +364,7 @@ class PluginV2LlmContractsTest {
             platformAdapterType = "onebot",
             platformInstanceKey = "bot-a",
             sentAtEpochMs = 1710000000000L,
-            deliveryStatus = PluginV2AfterSentView.DeliveryStatus.SUCCESS,
+            deliveryStatus = com.astrbot.android.feature.plugin.domain.runtime.PluginV2AfterSentView.DeliveryStatus.SUCCESS,
             receiptIds = receiptIds,
             deliveredEntries = deliveredEntries,
             usage = PluginLlmUsageSnapshot(totalTokens = 42),
@@ -394,14 +394,14 @@ class PluginV2LlmContractsTest {
         assertEquals("onebot", view.platformAdapterType)
         assertEquals("bot-a", view.platformInstanceKey)
         assertEquals(1710000000000L, view.sentAtEpochMs)
-        assertEquals(PluginV2AfterSentView.DeliveryStatus.SUCCESS, view.deliveryStatus)
+        assertEquals(com.astrbot.android.feature.plugin.domain.runtime.PluginV2AfterSentView.DeliveryStatus.SUCCESS, view.deliveryStatus)
         assertEquals(1, view.deliveredEntryCount)
         assertEquals(listOf("receipt-1"), view.receiptIds)
         assertEquals("entry-1", view.deliveredEntries.single().entryId)
         assertEquals(42, view.usage?.totalTokens)
 
         receiptIds += "receipt-2"
-        deliveredEntries += PluginV2AfterSentView.DeliveredEntry(
+        deliveredEntries += com.astrbot.android.feature.plugin.domain.runtime.PluginV2AfterSentView.DeliveredEntry(
             entryId = "entry-2",
             entryType = "assistant_message",
             textPreview = "world",
@@ -476,7 +476,7 @@ class PluginV2LlmContractsTest {
     fun provider_request_preserves_host_tool_round_order_across_construction_and_reset() {
         val user = PluginProviderMessageDto(
             role = PluginProviderMessageRole.USER,
-            parts = listOf(PluginProviderMessagePartDto.TextPart("search")),
+            parts = listOf(com.astrbot.android.feature.plugin.domain.runtime.PluginProviderMessagePartDto.TextPart("search")),
         )
         val firstAssistant = PluginProviderMessageDto(
             role = PluginProviderMessageRole.ASSISTANT,
@@ -491,7 +491,7 @@ class PluginV2LlmContractsTest {
         )
         val firstTool = PluginProviderMessageDto(
             role = PluginProviderMessageRole.TOOL,
-            parts = listOf(PluginProviderMessagePartDto.TextPart("first result")),
+            parts = listOf(com.astrbot.android.feature.plugin.domain.runtime.PluginProviderMessagePartDto.TextPart("first result")),
             name = "web_search",
             metadata = mapOf("__host" to mapOf("toolCallId" to "call-1")),
         )
@@ -508,7 +508,7 @@ class PluginV2LlmContractsTest {
         )
         val secondTool = PluginProviderMessageDto(
             role = PluginProviderMessageRole.TOOL,
-            parts = listOf(PluginProviderMessagePartDto.TextPart("second result")),
+            parts = listOf(com.astrbot.android.feature.plugin.domain.runtime.PluginProviderMessagePartDto.TextPart("second result")),
             name = "web_search",
             metadata = mapOf("__host" to mapOf("toolCallId" to "call-2")),
         )

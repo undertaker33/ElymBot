@@ -2,7 +2,8 @@ package com.astrbot.android.ui.viewmodel
 
 import com.astrbot.android.MainDispatcherRule
 import com.astrbot.android.model.NapCatLoginState
-import com.astrbot.android.feature.qq.data.NapCatLoginService
+import com.astrbot.android.feature.qq.domain.QqNewDeviceQrCodeResult
+import com.astrbot.android.feature.qq.domain.QqNewDeviceQrPollResult
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -163,11 +164,11 @@ class QQLoginViewModelTest {
 
         override suspend fun newDeviceLogin(uin: String, password: String, verifiedToken: String?) = Unit
 
-        override suspend fun getNewDeviceQRCode(): NapCatLoginService.NewDeviceQrCodeResult {
+        override suspend fun getNewDeviceQRCode(): QqNewDeviceQrCodeResult {
             error("Not needed in test")
         }
 
-        override suspend fun pollNewDeviceQRCode(bytesToken: String): NapCatLoginService.NewDeviceQrPollResult {
+        override suspend fun pollNewDeviceQRCode(bytesToken: String): QqNewDeviceQrPollResult {
             error("Not needed in test")
         }
 

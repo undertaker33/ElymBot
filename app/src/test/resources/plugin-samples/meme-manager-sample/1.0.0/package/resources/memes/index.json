@@ -1,0 +1,20 @@
+{
+  "categories": [
+    {
+      "id": "angry",
+      "title": "Angry",
+      "items": [
+        {
+          "id": "angry-001",
+          "file": "resources/memes/angry/9D03FF21BB828C2AF9CCC7FCCB1E25B3.jpg"
+        }
+      ]
+    }
+  ],
+  "triggers": [
+    {
+      "keyword": "/meme",
+      "category": "angry"
+    }
+  ]
+}

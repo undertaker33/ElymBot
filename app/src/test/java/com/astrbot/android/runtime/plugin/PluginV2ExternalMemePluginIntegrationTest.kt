@@ -121,12 +121,12 @@ class PluginV2ExternalMemePluginIntegrationTest {
                         PluginProviderMessageDto(
                             role = PluginProviderMessageRole.USER,
                             parts = listOf(
-                                PluginProviderMessagePartDto.TextPart("今天真开心 [happy]"),
+                                com.astrbot.android.feature.plugin.domain.runtime.PluginProviderMessagePartDto.TextPart("今天真开心 [happy]"),
                             ),
                         ),
                     ),
                     invokeProvider = { request, _ ->
-                        PluginV2ProviderInvocationResult.NonStreaming(
+                        com.astrbot.android.feature.plugin.domain.runtime.PluginV2ProviderInvocationResult.NonStreaming(
                             PluginLlmResponse(
                                 requestId = request.requestId,
                                 providerId = request.selectedProviderId.ifBlank { "provider-1" },

@@ -56,6 +56,8 @@ import com.astrbot.android.di.runtime.llm.toLlmConversationAttachment
 import com.astrbot.android.di.runtime.llm.toLlmFeatureSupportState
 import com.astrbot.android.di.runtime.llm.toProviderProfile
 import com.astrbot.android.di.runtime.llm.toProviderType
+import com.astrbot.android.feature.plugin.domain.PluginWorkspacePathPort
+import com.astrbot.android.feature.plugin.domain.runtime.PluginV2MessageDispatchPort
 import com.astrbot.android.feature.persona.data.FeaturePersonaRepository as PersonaRepository
 import com.astrbot.android.feature.qq.data.FeatureQqPlatformConfigPortAdapter
 import com.astrbot.android.runtime.IncomingMessageEvent
@@ -1242,12 +1244,31 @@ class PluginV2HostIngressTest {
             hostActionExecutor = ExternalPluginHostActionExecutor(),
             log = {},
             dispatchEngine = dispatchEngine,
-            executionService = QqPluginExecutionService(
-                pluginCatalog = PluginRuntimeCatalog::plugins,
-                failureStateStore = failureStateStore,
-                scopedFailureStateStore = scopedFailureStateStore,
-                logBus = logBus,
-            ),
+            messageDispatchPort = PluginV2MessageDispatchPort { event ->
+                dispatchEngine.dispatchMessage(event)
+            },
+            executionService = QqPluginExecutionService { trigger, contextFactory ->
+                val guard = PluginFailureGuard(
+                    store = failureStateStore,
+                    scopedStore = scopedFailureStateStore,
+                    logBus = logBus,
+                )
+                PluginExecutionEngine(
+                    dispatcher = PluginRuntimeDispatcher(
+                        failureGuard = guard,
+                        scheduler = PluginRuntimeScheduler(
+                            store = InMemoryPluginScheduleStateStore(),
+                        ),
+                        logBus = logBus,
+                    ),
+                    failureGuard = guard,
+                    logBus = logBus,
+                ).executeBatch(
+                    trigger = trigger,
+                    plugins = PluginRuntimeCatalog.plugins(),
+                    contextFactory = contextFactory,
+                )
+            },
         )
     }
 
@@ -1322,6 +1343,9 @@ class PluginV2HostIngressTest {
         QqOneBotBridgeServerTestAccess.updateRuntimeDependencies { current ->
             current.copy(
                 pluginV2DispatchEngine = PluginV2DispatchEngineProvider.engine(),
+                pluginMessageDispatchPort = PluginV2MessageDispatchPort { event ->
+                    PluginV2DispatchEngineProvider.engine().dispatchMessage(event)
+                },
                 failureStateStore = PluginRuntimeFailureStateStoreProvider.store(),
                 scopedFailureStateStore = PluginRuntimeScopedFailureStateStoreProvider.store(),
                 logBus = current.logBus,
@@ -1397,27 +1421,51 @@ class PluginV2HostIngressTest {
                 personaPort = CompatPersonaRepositoryPort(),
                 providerPort = CompatProviderRepositoryPort(),
                 conversationPort = CompatQqConversationPort(),
-                platformConfigPort = FeatureQqPlatformConfigPortAdapter(),
+                platformConfigPort = FeatureQqPlatformConfigPortAdapter(
+                    botsSnapshot = { listOf(bot) },
+                    selectedBotIdSnapshot = { bot.id },
+                    configReader = { config },
+                ),
                 orchestrator = DefaultRuntimeLlmOrchestrator(),
                     runtimeContextResolverPort = runtimeContextResolverPort,
                     appChatPluginRuntime = appChatPluginRuntime,
                     pluginCatalog = PluginRuntimeCatalog::plugins,
                     pluginV2DispatchEngine = pluginV2DispatchEngine,
+                    pluginMessageDispatchPort = PluginV2MessageDispatchPort { event ->
+                        pluginV2DispatchEngine.dispatchMessage(event)
+                    },
                     failureStateStore = failureStateStore,
                     scopedFailureStateStore = scopedFailureStateStore,
                 providerInvoker = DefaultQqProviderInvoker(ChatCompletionServiceLlmClient()),
                     gatewayFactory = gatewayFactory,
                     hostCapabilityGateway = hostCapabilityGateway,
                     hostActionExecutor = ExternalPluginHostActionExecutor(),
-                    pluginExecutionService = QqPluginExecutionService(
-                        pluginCatalog = PluginRuntimeCatalog::plugins,
-                        failureStateStore = failureStateStore,
-                        scopedFailureStateStore = scopedFailureStateStore,
-                        logBus = logBus,
-                    ),
+                    pluginExecutionService = QqPluginExecutionService { trigger, contextFactory ->
+                        val guard = PluginFailureGuard(
+                            store = failureStateStore,
+                            scopedStore = scopedFailureStateStore,
+                            logBus = logBus,
+                        )
+                        PluginExecutionEngine(
+                            dispatcher = PluginRuntimeDispatcher(
+                                failureGuard = guard,
+                                scheduler = PluginRuntimeScheduler(
+                                    store = InMemoryPluginScheduleStateStore(),
+                                ),
+                                logBus = logBus,
+                            ),
+                            failureGuard = guard,
+                            logBus = logBus,
+                        ).executeBatch(
+                            trigger = trigger,
+                            plugins = PluginRuntimeCatalog.plugins(),
+                            contextFactory = contextFactory,
+                        )
+                    },
                 llmProviderProbePort = chatCompletionServiceProbePort(),
                     logBus = logBus,
                     silkAudioEncoder = { input -> input },
+                    pluginWorkspacePathPort = testPluginWorkspacePathPort(),
                     executeLegacyPluginsDuringLlmDispatch = executeLegacyPluginsDuringLlmDispatch,
                 ),
             )
@@ -1688,7 +1736,7 @@ class PluginV2HostIngressTest {
             deliveredPipelineCalls.incrementAndGet()
             val pipelineResult = runLlmPipeline(request.pipelineInput)
             if (!pipelineResult.sendableResult.shouldSend) {
-                return PluginV2HostLlmDeliveryResult.Suppressed(pipelineResult)
+                return com.astrbot.android.feature.plugin.domain.runtime.PluginV2HostLlmDeliveryResult.Suppressed(pipelineResult)
             }
             val preparedReply = request.prepareReply(pipelineResult)
             val sendResult = request.sendReply(preparedReply)
@@ -1709,7 +1757,7 @@ class PluginV2HostIngressTest {
                         "reason" to sendResult.errorSummary.ifBlank { "send_failed" },
                     ),
                 )
-                return PluginV2HostLlmDeliveryResult.SendFailed(
+                return com.astrbot.android.feature.plugin.domain.runtime.PluginV2HostLlmDeliveryResult.SendFailed(
                     pipelineResult = pipelineResult,
                     sendResult = sendResult,
                 )
@@ -1722,7 +1770,7 @@ class PluginV2HostIngressTest {
                 platformAdapterType = request.platformAdapterType,
                 platformInstanceKey = request.platformInstanceKey,
                 sentAtEpochMs = 1L,
-                deliveryStatus = PluginV2AfterSentView.DeliveryStatus.SUCCESS,
+                deliveryStatus = com.astrbot.android.feature.plugin.domain.runtime.PluginV2AfterSentView.DeliveryStatus.SUCCESS,
                 receiptIds = sendResult.receiptIds,
                 deliveredEntries = preparedReply.deliveredEntries,
                 usage = pipelineResult.finalResponse.usage,
@@ -1745,7 +1793,7 @@ class PluginV2HostIngressTest {
                     tracebackText = afterSentError.stackTraceToString(),
                 )
             }
-            return PluginV2HostLlmDeliveryResult.Sent(
+            return com.astrbot.android.feature.plugin.domain.runtime.PluginV2HostLlmDeliveryResult.Sent(
                 pipelineResult = pipelineResult,
                 preparedReply = preparedReply,
                 sendResult = sendResult,
@@ -1946,6 +1994,13 @@ class PluginV2HostIngressTest {
             ),
             hostActionExecutor = ExternalPluginHostActionExecutor(),
         )
+    }
+
+    private fun testPluginWorkspacePathPort(): PluginWorkspacePathPort {
+        val root = Files.createTempDirectory("host-ingress-plugin-workspace")
+        return PluginWorkspacePathPort { pluginId ->
+            root.resolve(pluginId.ifBlank { "__unknown__" }).toFile().apply { mkdirs() }.absolutePath
+        }
     }
 
     private fun chatCompletionServiceProbePort(): LlmProviderProbePort {

@@ -1,4 +1,4 @@
-﻿package com.astrbot.android.ui.config
+package com.astrbot.android.ui.config
 import com.astrbot.android.ui.bot.SelectionField
 import com.astrbot.android.ui.config.detail.ConfigDetailDrawerContent
 import com.astrbot.android.ui.config.detail.ConfigFieldGroup
@@ -80,7 +80,7 @@ import com.astrbot.android.feature.provider.domain.model.ProviderProfile
 import com.astrbot.android.feature.provider.domain.model.ProviderType
 import com.astrbot.android.model.SkillEntry
 import com.astrbot.android.model.TtsVoiceCatalog
-import com.astrbot.android.model.TtsVoiceReferenceAsset
+import com.astrbot.android.feature.voiceasset.api.model.TtsVoiceReferenceAsset
 import com.astrbot.android.ui.app.MonochromeUi
 import com.astrbot.android.ui.app.ConfigDetailChromeBinding
 import com.astrbot.android.ui.app.monochromeOutlinedTextFieldColors

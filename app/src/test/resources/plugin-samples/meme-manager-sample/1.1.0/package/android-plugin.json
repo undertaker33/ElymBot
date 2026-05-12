@@ -1,0 +1,11 @@
+{
+  "protocolVersion": 2,
+  "runtime": {
+    "kind": "js_quickjs",
+    "bootstrap": "runtime/index.js",
+    "apiVersion": 1
+  },
+  "config": {
+    "staticSchema": "_conf_schema.json"
+  }
+}

@@ -5,6 +5,9 @@ import android.net.Uri
 import com.astrbot.android.di.ProductionConversationBackupDataPort
 import com.astrbot.android.model.chat.ConversationSession
 import com.astrbot.android.core.common.logging.RuntimeLogRepository
+import dagger.hilt.android.qualifiers.ApplicationContext
+import javax.inject.Inject
+import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -49,6 +52,58 @@ data class ConversationImportSource(
     val preview: ConversationImportPreview,
 )
 
+@Singleton
+class ConversationBackupService @Inject constructor(
+    @ApplicationContext context: Context,
+    dataPort: ConversationBackupDataPort,
+) {
+    init {
+        ConversationBackupRepository.initialize(context, dataPort)
+    }
+
+    val settings: StateFlow<ConversationBackupSettings> = ConversationBackupRepository.settings
+    val backups: StateFlow<List<ConversationBackupItem>> = ConversationBackupRepository.backups
+
+    suspend fun createBackup(trigger: String = "manual"): Result<ConversationBackupItem> {
+        return ConversationBackupRepository.createBackup(trigger)
+    }
+
+    suspend fun deleteBackup(backupId: String): Result<Unit> {
+        return ConversationBackupRepository.deleteBackup(backupId)
+    }
+
+    suspend fun exportBackupToUri(
+        context: Context,
+        backupId: String,
+        targetUri: Uri,
+    ): Result<Unit> {
+        return ConversationBackupRepository.exportBackupToUri(context, backupId, targetUri)
+    }
+
+    suspend fun prepareImportFromBackup(backupId: String): Result<ConversationImportSource> {
+        return ConversationBackupRepository.prepareImportFromBackup(backupId)
+    }
+
+    suspend fun prepareImportFromUri(context: Context, uri: Uri): Result<ConversationImportSource> {
+        return ConversationBackupRepository.prepareImportFromUri(context, uri)
+    }
+
+    suspend fun importSessions(
+        sessions: List<ConversationSession>,
+        overwriteDuplicates: Boolean,
+    ): Result<ConversationImportResult> {
+        return ConversationBackupRepository.importSessions(sessions, overwriteDuplicates)
+    }
+
+    fun setAutoBackupEnabled(enabled: Boolean) {
+        ConversationBackupRepository.setAutoBackupEnabled(enabled)
+    }
+
+    fun setAutoBackupTime(hour: Int, minute: Int) {
+        ConversationBackupRepository.setAutoBackupTime(hour, minute)
+    }
+}
+
 object ConversationBackupRepository {
     private const val PREFS_NAME = "conversation_backup_settings"
     private const val KEY_AUTO_ENABLED = "auto_enabled"
@@ -71,7 +126,14 @@ object ConversationBackupRepository {
     private val _backups = MutableStateFlow<List<ConversationBackupItem>>(emptyList())
     val backups: StateFlow<List<ConversationBackupItem>> = _backups.asStateFlow()
 
-    fun initialize(context: Context) {
+    @Volatile
+    private var hiltDataPort: ConversationBackupDataPort? = null
+
+    fun initialize(
+        context: Context,
+        dataPort: ConversationBackupDataPort = ProductionConversationBackupDataPort,
+    ) {
+        hiltDataPort = dataPort
         if (!initialized.compareAndSet(false, true)) return
 
         val appContext = context.applicationContext
@@ -79,17 +141,17 @@ object ConversationBackupRepository {
         prefs = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         _settings.value = loadSettings()
         refreshBackups()
-        val dataPort = ProductionConversationBackupDataPort
+        val activeDataPort = resolveDataPort()
 
         repositoryScope.launch {
-            dataPort.isReady.collectLatest { ready ->
+            activeDataPort.isReady.collectLatest { ready ->
                 if (ready) {
                     maybeRunAutoBackup()
                 }
             }
         }
         repositoryScope.launch {
-            dataPort.sessions.collectLatest {
+            activeDataPort.sessions.collectLatest {
                 maybeRunAutoBackup()
             }
         }
@@ -97,7 +159,7 @@ object ConversationBackupRepository {
 
     suspend fun createBackup(trigger: String = "manual"): Result<ConversationBackupItem> = withContext(Dispatchers.IO) {
         runCatching {
-            val sessions = ProductionConversationBackupDataPort.snapshotSessions()
+            val sessions = resolveDataPort().snapshotSessions()
             val now = System.currentTimeMillis()
             val dateTime = LocalDateTime.ofInstant(java.time.Instant.ofEpochMilli(now), ZoneId.systemDefault())
             val fileName = "conversation-backup-${timestampFormatter.format(dateTime)}-$trigger.json"
@@ -125,7 +187,7 @@ object ConversationBackupRepository {
         runCatching {
             val file = resolveBackupFile(backupId) ?: error("Backup not found")
             val sessions = loadSessionsFromBackupFile(file)
-            ProductionConversationBackupDataPort.restoreSessions(sessions)
+            resolveDataPort().restoreSessions(sessions)
             sessions.size
         }.onFailure { error ->
             RuntimeLogRepository.append("Conversation backup restore failed: ${error.message ?: error.javaClass.simpleName}")
@@ -166,7 +228,7 @@ object ConversationBackupRepository {
             ConversationImportSource(
                 label = file.nameWithoutExtension,
                 sessions = sessions,
-                preview = ProductionConversationBackupDataPort.previewImportedSessions(sessions),
+                preview = resolveDataPort().previewImportedSessions(sessions),
             )
         }
     }
@@ -177,7 +239,7 @@ object ConversationBackupRepository {
             ConversationImportSource(
                 label = uri.lastPathSegment?.substringAfterLast('/')?.ifBlank { "external-backup" } ?: "external-backup",
                 sessions = sessions,
-                preview = ProductionConversationBackupDataPort.previewImportedSessions(sessions),
+                preview = resolveDataPort().previewImportedSessions(sessions),
             )
         }.onFailure { error ->
             RuntimeLogRepository.append("Conversation backup external import failed: ${error.message ?: error.javaClass.simpleName}")
@@ -189,7 +251,7 @@ object ConversationBackupRepository {
         overwriteDuplicates: Boolean,
     ): Result<ConversationImportResult> = withContext(Dispatchers.IO) {
         runCatching {
-            ProductionConversationBackupDataPort.importSessionsDurable(
+            resolveDataPort().importSessionsDurable(
                 importedSessions = sessions,
                 overwriteDuplicates = overwriteDuplicates,
             )
@@ -242,7 +304,7 @@ object ConversationBackupRepository {
     }
 
     private suspend fun maybeRunAutoBackup() {
-        val dataPort = ProductionConversationBackupDataPort
+        val dataPort = resolveDataPort()
         if (!initialized.get()) return
         autoBackupMutex.withLock {
             val currentSettings = _settings.value
@@ -311,7 +373,7 @@ object ConversationBackupRepository {
     }
 
     private fun parseSessions(array: JSONArray): List<ConversationSession> {
-        val dataPort = ProductionConversationBackupDataPort
+        val dataPort = resolveDataPort()
         return buildList {
             for (index in 0 until array.length()) {
                 val item = array.optJSONObject(index) ?: continue
@@ -323,6 +385,10 @@ object ConversationBackupRepository {
                 )
             }
         }
+    }
+
+    private fun resolveDataPort(): ConversationBackupDataPort {
+        return hiltDataPort ?: ProductionConversationBackupDataPort
     }
 }
 

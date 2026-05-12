@@ -6,7 +6,3 @@
 # 3. Do not add directory-level allowlist entries.
 # 4. Do not use wildcards.
 # 5. owner, target, reason, expires, and issue must be non-empty.
-
-feature/qq/data/FeatureQqPlatformConfigPortAdapter.kt | import com.astrbot.android.feature.bot.data.FeatureBotRepository | architecture-worker-b | QQ platform config port migration | QQ data adapter still imports bot data facade for selected bot lookup | phase-4 | phase-1-governance
-feature/qq/data/FeatureQqPlatformConfigPortAdapter.kt | import com.astrbot.android.feature.config.data.FeatureConfigRepository | architecture-worker-b | QQ platform config port migration | QQ data adapter still imports config data facade for selected config lookup | phase-4 | phase-1-governance
-feature/qq/runtime/QqOneBotBridgeServer.kt | import com.astrbot.android.feature.plugin.data.PluginStoragePaths | architecture-worker-b | PluginStoragePathPort extraction | QQ runtime still imports plugin data storage path helper for media path resolution | phase-4 | phase-1-governance

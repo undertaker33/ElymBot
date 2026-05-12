@@ -13,7 +13,7 @@ internal fun createCompatPluginHostCapabilityGateway(
     openHostPageHandler: (String) -> Unit = {},
     hostToolHandlers: PluginExecutionHostToolHandlers = PluginExecutionHostToolHandlers(),
 ): PluginHostCapabilityGateway {
-    return createCompatPluginHostCapabilityGatewayFactory().create(
+    return createCompatPluginHostCapabilityGatewayFactory().createWithHostToolHandlers(
         sendMessageHandler = sendMessageHandler,
         sendNotificationHandler = sendNotificationHandler,
         openHostPageHandler = openHostPageHandler,

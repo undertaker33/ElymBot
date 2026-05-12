@@ -62,7 +62,7 @@ class PluginV2LlmPipelineCoordinatorTest {
                 event = event,
                 streamingMode = PluginV2StreamingMode.NON_STREAM,
             ) { request, _ ->
-                PluginV2ProviderInvocationResult.NonStreaming(
+                com.astrbot.android.feature.plugin.domain.runtime.PluginV2ProviderInvocationResult.NonStreaming(
                     PluginLlmResponse(
                         requestId = request.requestId,
                         providerId = request.selectedProviderId,
@@ -140,7 +140,7 @@ class PluginV2LlmPipelineCoordinatorTest {
                 event = sampleMessageEvent(rawText = "hello request"),
                 streamingMode = PluginV2StreamingMode.NON_STREAM,
             ) { request, _ ->
-                PluginV2ProviderInvocationResult.NonStreaming(
+                com.astrbot.android.feature.plugin.domain.runtime.PluginV2ProviderInvocationResult.NonStreaming(
                     PluginLlmResponse(
                         requestId = request.requestId,
                         providerId = request.selectedProviderId,
@@ -242,7 +242,7 @@ class PluginV2LlmPipelineCoordinatorTest {
                 streamingMode = PluginV2StreamingMode.NON_STREAM,
             ) { request, _ ->
                 requestedToolNames += request.tools.map { it.name }
-                PluginV2ProviderInvocationResult.NonStreaming(
+                com.astrbot.android.feature.plugin.domain.runtime.PluginV2ProviderInvocationResult.NonStreaming(
                     PluginLlmResponse(
                         requestId = request.requestId,
                         providerId = request.selectedProviderId,
@@ -287,7 +287,7 @@ class PluginV2LlmPipelineCoordinatorTest {
             ) { request, streamingMode ->
                 capturedStreamingEnabled = request.streamingEnabled
                 capturedInvocationMode = streamingMode
-                PluginV2ProviderInvocationResult.NonStreaming(
+                com.astrbot.android.feature.plugin.domain.runtime.PluginV2ProviderInvocationResult.NonStreaming(
                     PluginLlmResponse(
                         requestId = request.requestId,
                         providerId = request.selectedProviderId,
@@ -335,7 +335,7 @@ class PluginV2LlmPipelineCoordinatorTest {
                     event = sampleMessageEvent(rawText = "missing completion"),
                     streamingMode = PluginV2StreamingMode.NATIVE_STREAM,
                 ) { _, _ ->
-                    PluginV2ProviderInvocationResult.Streaming(
+                    com.astrbot.android.feature.plugin.domain.runtime.PluginV2ProviderInvocationResult.Streaming(
                         events = listOf(
                             PluginV2ProviderStreamChunk(deltaText = "partial-1"),
                             PluginV2ProviderStreamChunk(deltaText = "partial-2"),
@@ -382,7 +382,7 @@ class PluginV2LlmPipelineCoordinatorTest {
                 event = sampleMessageEvent(rawText = "decorate me"),
                 streamingMode = PluginV2StreamingMode.NON_STREAM,
             ) { request, _ ->
-                PluginV2ProviderInvocationResult.NonStreaming(
+                com.astrbot.android.feature.plugin.domain.runtime.PluginV2ProviderInvocationResult.NonStreaming(
                     PluginLlmResponse(
                         requestId = request.requestId,
                         providerId = request.selectedProviderId,
@@ -463,7 +463,7 @@ class PluginV2LlmPipelineCoordinatorTest {
                 event = sampleMessageEvent(rawText = "render points"),
                 streamingMode = PluginV2StreamingMode.NON_STREAM,
             ) { request, _ ->
-                PluginV2ProviderInvocationResult.NonStreaming(
+                com.astrbot.android.feature.plugin.domain.runtime.PluginV2ProviderInvocationResult.NonStreaming(
                     PluginLlmResponse(
                         requestId = request.requestId,
                         providerId = request.selectedProviderId,
@@ -559,7 +559,7 @@ class PluginV2LlmPipelineCoordinatorTest {
                 streamingMode = mode,
             ) { request, streamingMode ->
                 when (streamingMode) {
-                    PluginV2StreamingMode.NON_STREAM -> PluginV2ProviderInvocationResult.NonStreaming(
+                    PluginV2StreamingMode.NON_STREAM -> com.astrbot.android.feature.plugin.domain.runtime.PluginV2ProviderInvocationResult.NonStreaming(
                         PluginLlmResponse(
                             requestId = request.requestId,
                             providerId = request.selectedProviderId,
@@ -570,7 +570,7 @@ class PluginV2LlmPipelineCoordinatorTest {
 
                     PluginV2StreamingMode.PSEUDO_STREAM,
                     PluginV2StreamingMode.NATIVE_STREAM,
-                    -> PluginV2ProviderInvocationResult.Streaming(
+                    -> com.astrbot.android.feature.plugin.domain.runtime.PluginV2ProviderInvocationResult.Streaming(
                         events = listOf(
                             PluginV2ProviderStreamChunk(deltaText = "streamed-"),
                             PluginV2ProviderStreamChunk(deltaText = "final"),
@@ -612,7 +612,7 @@ class PluginV2LlmPipelineCoordinatorTest {
                 PluginProviderMessageDto(
                     role = PluginProviderMessageRole.USER,
                     parts = listOf(
-                        PluginProviderMessagePartDto.TextPart(event.rawText),
+                        com.astrbot.android.feature.plugin.domain.runtime.PluginProviderMessagePartDto.TextPart(event.rawText),
                     ),
                 ),
             ),

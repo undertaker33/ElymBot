@@ -51,7 +51,9 @@ class StrictHiltOnlyStartupHotspotSourceTest {
         val downloadManagerSource = projectRoot
             .resolve("download/impl/src/main/java/com/astrbot/android/download/DefaultDownloadManager.kt")
             .readText()
-        val localStoreSource = mainRoot.resolve("feature/qq/data/NapCatLoginLocalStore.kt").readText()
+        val localStoreSource = projectRoot
+            .resolve("feature/qq/data/src/main/java/com/astrbot/android/feature/qq/data/NapCatLoginLocalStore.kt")
+            .readText()
 
         assertTrue(
             "DownloadManager must not reach Room via AstrBotDatabase.get(...)",

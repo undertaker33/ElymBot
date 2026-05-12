@@ -34,4 +34,20 @@ data class QqSendResult(
     val success: Boolean,
     val receiptIds: List<String> = emptyList(),
     val errorSummary: String = "",
-)
+) {
+    companion object {
+        fun success(receiptIds: List<String> = emptyList()): QqSendResult {
+            return QqSendResult(
+                success = true,
+                receiptIds = receiptIds.filter(String::isNotBlank),
+            )
+        }
+
+        fun failure(errorSummary: String): QqSendResult {
+            return QqSendResult(
+                success = false,
+                errorSummary = errorSummary,
+            )
+        }
+    }
+}

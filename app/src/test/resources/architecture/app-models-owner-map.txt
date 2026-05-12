@@ -5,6 +5,7 @@
 # 2. Do not leave empty fields.
 # 3. target is the future feature-first owner path, not a guarantee that the file already exists.
 # 4. Use owner app-models-review when phase 2 must confirm the final module owner.
+# Voice asset models are intentionally not listed here; they are owned by feature:voiceasset:api.
 
 RuntimeAssetId | enum class | core-runtime | core/runtime/assets/model/RuntimeAssetId.kt | Runtime asset identity is shared runtime catalog state | phase2-model-owner-review | app-models-review
 RuntimeAssetCatalogItem | data class | core-runtime | core/runtime/assets/model/RuntimeAssetCatalogItem.kt | Runtime asset catalog item is shared runtime asset metadata | phase2-model-owner-review | app-models-review

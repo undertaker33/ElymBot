@@ -31,6 +31,7 @@ dependencies {
     implementation(project(":feature:conversation:api"))
     implementation(project(":feature:provider:api"))
     implementation(project(":feature:resource:api"))
+    implementation(project(":feature:voiceasset:api"))
 
     implementation(composeBom)
     implementation("androidx.compose.foundation:foundation")

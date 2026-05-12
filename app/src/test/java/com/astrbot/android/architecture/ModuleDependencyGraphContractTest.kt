@@ -6,6 +6,7 @@ import java.nio.file.Path
 import kotlin.io.path.exists
 import kotlin.io.path.isRegularFile
 import kotlin.io.path.readText
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -13,7 +14,9 @@ class ModuleDependencyGraphContractTest {
 
     private val projectRoot: Path = detectProjectRoot()
     private val settingsFile: Path = projectRoot.resolve("settings.gradle.kts")
+    private val rootBuildFile: Path = projectRoot.resolve("build.gradle.kts")
     private val appBuildFile: Path = projectRoot.resolve("app/build.gradle.kts")
+    private val appIntegrationBuildFile: Path = projectRoot.resolve("app-integration/build.gradle.kts")
 
     private val phase3Modules = listOf(
         ":core:common",
@@ -50,6 +53,49 @@ class ModuleDependencyGraphContractTest {
         ":feature:chat:presentation",
     )
 
+    private val phase18To20Modules = listOf(
+        ":app-integration",
+        ":core:backup",
+        ":core:logging",
+        ":core:runtime-container",
+        ":core:runtime-search",
+        ":feature:qq:api",
+        ":feature:qq:impl",
+        ":feature:cron:runtime",
+        ":feature:settings:api",
+        ":feature:settings:presentation",
+        ":feature:voiceasset:api",
+    )
+
+    private val phase22PluginModules = listOf(
+        ":feature:plugin:data",
+        ":feature:plugin:presentation",
+        ":feature:plugin:runtime",
+    )
+
+    private val phase23AppShellAllowedTransitionalDependencies = mapOf(
+        ":feature:voiceasset:api" to TransitionalDependency(
+            owner = "feature-voiceasset",
+            target = "phase-25 voiceasset data/presentation split",
+            reason = "Voice asset UI still keeps an app compatibility entry until the dedicated data/presentation split lands.",
+            expires = "phase-25",
+            issue = "module-split-phase-25",
+        ),
+    )
+
+    private val phase23ForbiddenAppShellDependencies = listOf(
+        ":download:impl",
+        ":feature:plugin:data",
+        ":feature:cron:data",
+        ":feature:cron:runtime",
+        ":feature:resource:data",
+        ":core:runtime-secret",
+        ":core:runtime-tool",
+        ":feature:qq:data",
+        ":feature:qq:impl",
+        ":feature:qq:runtime",
+    )
+
     @Test
     fun phase3_modules_must_be_registered_in_settings() {
         val text = settingsFile.readText(UTF_8)
@@ -77,30 +123,133 @@ class ModuleDependencyGraphContractTest {
     }
 
     @Test
-    fun app_must_depend_on_phase3_modules_during_transition() {
-        val text = appBuildFile.readText(UTF_8)
-        val missing = phase3Modules.filterNot { module ->
-            text.contains("""implementation(project("$module"))""") ||
-                text.contains("""api(project("$module"))""")
+    fun phase18_to_20_terminal_modules_must_be_registered_in_settings() {
+        val text = settingsFile.readText(UTF_8)
+        val missing = phase18To20Modules.filterNot { module ->
+            text.contains("""include("$module")""")
         }
 
         assertTrue(
-            "App must depend on Phase 3 modules while implementation still lives in :app: $missing",
+            "Phase 18-20 terminal modules must be registered in settings.gradle.kts: $missing",
             missing.isEmpty(),
         )
     }
 
     @Test
-    fun app_must_depend_on_phase14_modules_during_transition() {
-        val text = appBuildFile.readText(UTF_8)
-        val missing = phase14Modules.filterNot { module ->
-            text.contains("""implementation(project("$module"))""") ||
-                text.contains("""api(project("$module"))""")
+    fun phase22_plugin_modules_must_be_registered_in_settings() {
+        val text = settingsFile.readText(UTF_8)
+        val missing = phase22PluginModules.filterNot { module ->
+            text.contains("""include("$module")""")
         }
 
         assertTrue(
-            "App must depend on Phase 14 modules while shell wiring still composes chat: $missing",
+            "Phase 22 plugin data/runtime/presentation modules must be registered in settings.gradle.kts: $missing",
             missing.isEmpty(),
+        )
+    }
+
+    @Test
+    fun phase22_plugin_modules_must_be_in_architecture_source_roots() {
+        val text = rootBuildFile.readText(UTF_8)
+        val missing = phase22PluginModules
+            .map(::sourceRootForModule)
+            .filterNot { sourceRoot -> text.contains("\"$sourceRoot\"") }
+
+        assertTrue(
+            "Phase 22 plugin module source roots must be scanned by architecture contracts: $missing",
+            missing.isEmpty(),
+        )
+    }
+
+    @Test
+    fun phase18_to_20_terminal_modules_must_be_in_architecture_source_roots() {
+        val text = rootBuildFile.readText(UTF_8)
+        val missing = phase18To20Modules
+            .map(::sourceRootForModule)
+            .filterNot { sourceRoot -> text.contains("\"$sourceRoot\"") }
+
+        assertTrue(
+            "Phase 18-20 terminal module source roots must be scanned by architecture contracts: $missing",
+            missing.isEmpty(),
+        )
+    }
+
+    @Test
+    fun app_shell_must_depend_on_app_integration_module() {
+        val text = appBuildFile.readText(UTF_8)
+
+        assertTrue(
+            "App shell must depend on :app-integration for production wiring.",
+            text.contains("""implementation(project(":app-integration"))""") ||
+                text.contains("""api(project(":app-integration"))"""),
+        )
+    }
+
+    @Test
+    fun app_integration_must_not_depend_on_feature_presentation_modules() {
+        val text = appIntegrationBuildFile.readText(UTF_8)
+        val violations = Regex("""project\(":feature:[^"]+:presentation"\)""")
+            .findAll(text)
+            .map { match -> match.value }
+            .toList()
+
+        assertTrue(
+            "app-integration is wiring only and must not depend on feature presentation modules: $violations",
+            violations.isEmpty(),
+        )
+    }
+
+    @Test
+    fun phase23_app_shell_project_dependency_count_must_drop() {
+        val dependencies = projectDependencies(appBuildFile)
+
+        assertTrue(
+            "Phase 23 app shell must reduce direct project dependencies to at most $PHASE23_APP_DEPENDENCY_LIMIT, found ${dependencies.size}: $dependencies",
+            dependencies.size <= PHASE23_APP_DEPENDENCY_LIMIT,
+        )
+    }
+
+    @Test
+    fun phase23_app_shell_must_not_keep_split_feature_data_runtime_or_old_impl_dependencies() {
+        val dependencies = projectDependencies(appBuildFile)
+        val oldImplDependencies = dependencies
+            .filter { dependency -> Regex(""":feature:[^:]+:impl$""").matches(dependency) }
+            .filterNot(phase23AppShellAllowedTransitionalDependencies::containsKey)
+        val splitDataRuntimeDependencies = phase23ForbiddenAppShellDependencies.filter(dependencies::contains)
+
+        assertTrue(
+            "Phase 23 app shell must not directly depend on old feature impl modules except precise QQ transition: $oldImplDependencies",
+            oldImplDependencies.isEmpty(),
+        )
+        assertTrue(
+            "Phase 23 app shell must move split feature data/runtime and core runtime implementation dependencies behind app-integration: $splitDataRuntimeDependencies",
+            splitDataRuntimeDependencies.isEmpty(),
+        )
+    }
+
+    @Test
+    fun phase23_remaining_app_shell_transitional_dependencies_must_be_precise() {
+        val malformed = phase23AppShellAllowedTransitionalDependencies.filter { (_, entry) ->
+            entry.owner.isBlank() ||
+                entry.target.isBlank() ||
+                entry.reason.isBlank() ||
+                entry.expires.isBlank() ||
+                entry.issue.isBlank() ||
+                entry.owner.contains("*") ||
+                entry.target.contains("*")
+        }
+
+        assertTrue(
+            "Phase 23 app shell transition entries must be precise and documented: $malformed",
+            malformed.isEmpty(),
+        )
+
+        val dependencies = projectDependencies(appBuildFile)
+        val stale = phase23AppShellAllowedTransitionalDependencies.keys.filterNot(dependencies::contains)
+        assertEquals(
+            "Remove stale Phase 23 app shell transition entries once the direct dependency is gone.",
+            emptyList<String>(),
+            stale,
         )
     }
 
@@ -191,6 +340,18 @@ class ModuleDependencyGraphContractTest {
         return projectRoot.relativize(file).toString().replace('\\', '/')
     }
 
+    private fun sourceRootForModule(module: String): String {
+        return module.removePrefix(":").replace(':', '/') + "/src/main/java"
+    }
+
+    private fun projectDependencies(buildFile: Path): List<String> {
+        val text = buildFile.readText(UTF_8)
+        return Regex("""(?:api|implementation)\(project\("([^"]+)"\)\)""")
+            .findAll(text)
+            .map { match -> match.groupValues[1] }
+            .toList()
+    }
+
     private fun detectProjectRoot(): Path {
         val cwd = Path.of("").toAbsolutePath()
         return when {
@@ -201,6 +362,8 @@ class ModuleDependencyGraphContractTest {
     }
 
     private companion object {
+        private const val PHASE23_APP_DEPENDENCY_LIMIT = 45
+
         val forbiddenCoreModuleDependencyPatterns = listOf(
             Regex("""project\(":app"\)"""),
             Regex("""project\(":feature:"""),
@@ -214,4 +377,12 @@ class ModuleDependencyGraphContractTest {
             Regex("""project\(":feature:[^"]+:presentation"\)"""),
         )
     }
+
+    private data class TransitionalDependency(
+        val owner: String,
+        val target: String,
+        val reason: String,
+        val expires: String,
+        val issue: String,
+    )
 }

@@ -16,16 +16,6 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 import org.json.JSONObject
 
-enum class MeEntryKind {
-    QqAccount,
-    Settings,
-    CronJobs,
-    ResourceCenter,
-    Logs,
-    Assets,
-    Backup,
-}
-
 enum class ResourceKind(val routeSegment: String) {
     MCP("mcp"),
     SKILL("skill"),
@@ -210,18 +200,6 @@ data class HostToolPagerPresentation(
     val pages: List<List<HostToolCardPresentation>>,
     val totalPages: Int,
 )
-
-fun buildMeEntryKinds(): List<MeEntryKind> {
-    return listOf(
-        MeEntryKind.QqAccount,
-        MeEntryKind.Settings,
-        MeEntryKind.CronJobs,
-        MeEntryKind.ResourceCenter,
-        MeEntryKind.Logs,
-        MeEntryKind.Assets,
-        MeEntryKind.Backup,
-    )
-}
 
 fun buildResourceCenterPresentation(
     controller: ResourceCenterPresentationController,

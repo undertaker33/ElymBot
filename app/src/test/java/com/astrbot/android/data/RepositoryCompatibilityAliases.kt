@@ -1098,7 +1098,7 @@ object NapCatBridgeRepository {
     }
 
     private fun syncWithLoginRepository() {
-        NapCatLoginRepository.installBridgeStateAccessors(
+        NapCatLoginTestFixtures.repository.installBridgeStateAccessors(
             configSnapshot = { _config.value },
             runtimeStateSnapshot = { _runtimeState.value },
         )

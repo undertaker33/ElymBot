@@ -108,11 +108,11 @@ class DefaultAppChatPluginRuntimeTest {
                 messages = listOf(
                     PluginProviderMessageDto(
                         role = PluginProviderMessageRole.USER,
-                        parts = listOf(PluginProviderMessagePartDto.TextPart("hello runtime")),
+                        parts = listOf(com.astrbot.android.feature.plugin.domain.runtime.PluginProviderMessagePartDto.TextPart("hello runtime")),
                     ),
                 ),
                 invokeProvider = { request, _ ->
-                    PluginV2ProviderInvocationResult.NonStreaming(
+                    com.astrbot.android.feature.plugin.domain.runtime.PluginV2ProviderInvocationResult.NonStreaming(
                         response = PluginLlmResponse(
                             requestId = request.requestId,
                             providerId = request.selectedProviderId,
@@ -167,11 +167,11 @@ class DefaultAppChatPluginRuntimeTest {
                     messages = listOf(
                         PluginProviderMessageDto(
                             role = PluginProviderMessageRole.USER,
-                            parts = listOf(PluginProviderMessagePartDto.TextPart("hello runtime bypass")),
+                            parts = listOf(com.astrbot.android.feature.plugin.domain.runtime.PluginProviderMessagePartDto.TextPart("hello runtime bypass")),
                         ),
                     ),
                     invokeProvider = { request, _ ->
-                        PluginV2ProviderInvocationResult.NonStreaming(
+                        com.astrbot.android.feature.plugin.domain.runtime.PluginV2ProviderInvocationResult.NonStreaming(
                             response = PluginLlmResponse(
                                 requestId = request.requestId,
                                 providerId = request.selectedProviderId,
@@ -220,11 +220,11 @@ class DefaultAppChatPluginRuntimeTest {
                     messages = listOf(
                         PluginProviderMessageDto(
                             role = PluginProviderMessageRole.USER,
-                            parts = listOf(PluginProviderMessagePartDto.TextPart("hello delivery")),
+                            parts = listOf(com.astrbot.android.feature.plugin.domain.runtime.PluginProviderMessagePartDto.TextPart("hello delivery")),
                         ),
                     ),
                     invokeProvider = { requestPayload, _ ->
-                        PluginV2ProviderInvocationResult.NonStreaming(
+                        com.astrbot.android.feature.plugin.domain.runtime.PluginV2ProviderInvocationResult.NonStreaming(
                             response = PluginLlmResponse(
                                 requestId = requestPayload.requestId,
                                 providerId = requestPayload.selectedProviderId,
@@ -250,7 +250,7 @@ class DefaultAppChatPluginRuntimeTest {
                             ),
                         ),
                         deliveredEntries = listOf(
-                            PluginV2AfterSentView.DeliveredEntry(
+                            com.astrbot.android.feature.plugin.domain.runtime.PluginV2AfterSentView.DeliveredEntry(
                                 entryId = "assistant-1",
                                 entryType = "assistant",
                                 textPreview = pipelineResult.sendableResult.text,
@@ -277,8 +277,8 @@ class DefaultAppChatPluginRuntimeTest {
         assertEquals(1, sendCalls.get())
         assertEquals(1, persistCalls.get())
         assertEquals("delivery-response", result.pipelineResult.sendableResult.text)
-        assertTrue(result is PluginV2HostLlmDeliveryResult.Sent)
-        result as PluginV2HostLlmDeliveryResult.Sent
+        assertTrue(result is com.astrbot.android.feature.plugin.domain.runtime.PluginV2HostLlmDeliveryResult.Sent)
+        result as com.astrbot.android.feature.plugin.domain.runtime.PluginV2HostLlmDeliveryResult.Sent
         assertEquals("conv-delivery", result.afterSentView.conversationId)
         assertEquals(listOf("receipt-1"), result.afterSentView.receiptIds)
     }
@@ -313,14 +313,14 @@ class DefaultAppChatPluginRuntimeTest {
                     messages = listOf(
                         PluginProviderMessageDto(
                             role = PluginProviderMessageRole.USER,
-                            parts = listOf(PluginProviderMessagePartDto.TextPart("hello host tool")),
+                            parts = listOf(com.astrbot.android.feature.plugin.domain.runtime.PluginProviderMessagePartDto.TextPart("hello host tool")),
                         ),
                     ),
                     invokeProvider = { requestPayload, _ ->
                         when (providerCalls.incrementAndGet()) {
                             1 -> {
                                 order += "provider:tool-call"
-                                PluginV2ProviderInvocationResult.NonStreaming(
+                                com.astrbot.android.feature.plugin.domain.runtime.PluginV2ProviderInvocationResult.NonStreaming(
                                     response = PluginLlmResponse(
                                         requestId = requestPayload.requestId,
                                         providerId = requestPayload.selectedProviderId,
@@ -340,7 +340,7 @@ class DefaultAppChatPluginRuntimeTest {
 
                             else -> {
                                 order += "provider:final-response"
-                                PluginV2ProviderInvocationResult.NonStreaming(
+                                com.astrbot.android.feature.plugin.domain.runtime.PluginV2ProviderInvocationResult.NonStreaming(
                                     response = PluginLlmResponse(
                                         requestId = requestPayload.requestId,
                                         providerId = requestPayload.selectedProviderId,
@@ -390,7 +390,7 @@ class DefaultAppChatPluginRuntimeTest {
             ),
             order.toList(),
         )
-        assertTrue(result is PluginV2HostLlmDeliveryResult.Sent)
+        assertTrue(result is com.astrbot.android.feature.plugin.domain.runtime.PluginV2HostLlmDeliveryResult.Sent)
     }
 
     @Test
@@ -421,7 +421,7 @@ class DefaultAppChatPluginRuntimeTest {
                     messages = listOf(
                         PluginProviderMessageDto(
                             role = PluginProviderMessageRole.USER,
-                            parts = listOf(PluginProviderMessagePartDto.TextPart("hello disabled host tool")),
+                            parts = listOf(com.astrbot.android.feature.plugin.domain.runtime.PluginProviderMessagePartDto.TextPart("hello disabled host tool")),
                         ),
                     ),
                     personaToolEnablementSnapshot = PersonaToolEnablementSnapshot(
@@ -431,7 +431,7 @@ class DefaultAppChatPluginRuntimeTest {
                     ),
                     invokeProvider = { requestPayload, _ ->
                         when (providerCalls.incrementAndGet()) {
-                            1 -> PluginV2ProviderInvocationResult.NonStreaming(
+                            1 -> com.astrbot.android.feature.plugin.domain.runtime.PluginV2ProviderInvocationResult.NonStreaming(
                                 response = PluginLlmResponse(
                                     requestId = requestPayload.requestId,
                                     providerId = requestPayload.selectedProviderId,
@@ -448,7 +448,7 @@ class DefaultAppChatPluginRuntimeTest {
                                 ),
                             )
 
-                            else -> PluginV2ProviderInvocationResult.NonStreaming(
+                            else -> com.astrbot.android.feature.plugin.domain.runtime.PluginV2ProviderInvocationResult.NonStreaming(
                                 response = PluginLlmResponse(
                                     requestId = requestPayload.requestId,
                                     providerId = requestPayload.selectedProviderId,

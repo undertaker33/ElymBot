@@ -3,7 +3,8 @@ package com.astrbot.android.di
 import com.astrbot.android.feature.plugin.data.PluginCatalogVersionGateResult
 import com.astrbot.android.feature.plugin.domain.PluginGovernanceReadModel
 import com.astrbot.android.feature.plugin.domain.PluginRuntimeLogPresentationPort
-import com.astrbot.android.feature.qq.data.NapCatLoginService
+import com.astrbot.android.feature.qq.domain.QqNewDeviceQrCodeResult
+import com.astrbot.android.feature.qq.domain.QqNewDeviceQrPollResult
 import com.astrbot.android.model.NapCatLoginState
 import com.astrbot.android.model.plugin.PluginCatalogEntryRecord
 import com.astrbot.android.model.plugin.PluginCatalogSyncState
@@ -33,8 +34,8 @@ interface QQLoginViewModelDependencies {
     suspend fun passwordLogin(uin: String, password: String)
     suspend fun captchaLogin(uin: String, password: String, ticket: String, randstr: String, sid: String)
     suspend fun newDeviceLogin(uin: String, password: String, verifiedToken: String?)
-    suspend fun getNewDeviceQRCode(): NapCatLoginService.NewDeviceQrCodeResult
-    suspend fun pollNewDeviceQRCode(bytesToken: String): NapCatLoginService.NewDeviceQrPollResult
+    suspend fun getNewDeviceQRCode(): QqNewDeviceQrCodeResult
+    suspend fun pollNewDeviceQRCode(bytesToken: String): QqNewDeviceQrPollResult
     fun log(message: String)
 }
 

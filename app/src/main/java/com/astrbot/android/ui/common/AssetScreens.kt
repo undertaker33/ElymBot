@@ -96,13 +96,14 @@ import com.astrbot.android.data.AppPreferencesRepository
 import com.astrbot.android.data.ThemeMode
 import com.astrbot.android.core.runtime.audio.VoiceCloneService
 import com.astrbot.android.feature.provider.runtime.ProviderRuntimePort
+import com.astrbot.android.feature.voiceasset.api.model.displayLabel
 import com.astrbot.android.model.displayLabel
-import com.astrbot.android.model.ClonedVoiceBinding
+import com.astrbot.android.feature.voiceasset.api.model.ClonedVoiceBinding
 import com.astrbot.android.model.ProviderProfile
 import com.astrbot.android.model.RuntimeAssetEntryState
 import com.astrbot.android.model.RuntimeAssetId
 import com.astrbot.android.model.ProviderType
-import com.astrbot.android.model.TtsVoiceReferenceAsset
+import com.astrbot.android.feature.voiceasset.api.model.TtsVoiceReferenceAsset
 import com.astrbot.android.model.hasVoiceCloningSupport
 import com.astrbot.android.ui.navigation.AppUiTransitionState
 import com.astrbot.android.ui.app.MonochromeUi

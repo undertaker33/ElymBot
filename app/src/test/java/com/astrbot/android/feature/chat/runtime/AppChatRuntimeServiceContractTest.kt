@@ -35,7 +35,7 @@ class AppChatRuntimeServiceContractTest {
         )
         assertTrue(
             "Must import RuntimeLlmOrchestratorPort",
-            text.contains("import com.astrbot.android.feature.plugin.runtime.RuntimeLlmOrchestratorPort"),
+            text.contains("import com.astrbot.android.feature.plugin.domain.runtime.RuntimeLlmOrchestratorPort"),
         )
         assertTrue(
             "AppChatRuntimeService must not import the static RuntimeContextResolver or RuntimeOrchestrator compatibility shell",

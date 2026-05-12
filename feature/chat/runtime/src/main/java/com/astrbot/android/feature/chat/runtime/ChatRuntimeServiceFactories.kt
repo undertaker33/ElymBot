@@ -2,12 +2,12 @@
 
 import com.astrbot.android.feature.chat.domain.AppChatRuntimePort
 import com.astrbot.android.feature.plugin.data.PluginStoragePaths
-import com.astrbot.android.feature.plugin.runtime.AppChatPluginRuntime
+import com.astrbot.android.feature.plugin.domain.runtime.AppChatPluginRuntime
+import com.astrbot.android.feature.plugin.domain.runtime.PluginHostCapabilityGateway
+import com.astrbot.android.feature.plugin.domain.runtime.PluginHostCapabilityGatewayFactory
+import com.astrbot.android.feature.plugin.domain.runtime.PluginV2MessageDispatchPort
+import com.astrbot.android.feature.plugin.domain.runtime.RuntimeLlmOrchestratorPort
 import com.astrbot.android.feature.plugin.runtime.ExternalPluginHostActionExecutor
-import com.astrbot.android.feature.plugin.runtime.PluginHostCapabilityGateway
-import com.astrbot.android.feature.plugin.runtime.PluginHostCapabilityGatewayFactory
-import com.astrbot.android.feature.plugin.runtime.PluginV2DispatchEngine
-import com.astrbot.android.feature.plugin.runtime.RuntimeLlmOrchestratorPort
 import com.astrbot.android.feature.cron.runtime.ScheduledTaskIntentFallbackResponder
 import com.astrbot.android.feature.chat.runtime.botcommand.AndroidBotCommandStringResolver
 import javax.inject.Inject
@@ -70,7 +70,7 @@ class AppChatRuntimeServiceFactory @Inject constructor(
 class AppChatPluginCommandServiceFactory @Inject constructor(
     private val hostCapabilityGateway: PluginHostCapabilityGateway,
     private val hostActionExecutor: ExternalPluginHostActionExecutor,
-    private val dispatchEngine: PluginV2DispatchEngine,
+    private val messageDispatchPort: PluginV2MessageDispatchPort,
     private val pluginStoragePaths: PluginStoragePaths,
     private val strings: AndroidBotCommandStringResolver,
 ) {
@@ -83,7 +83,7 @@ class AppChatPluginCommandServiceFactory @Inject constructor(
             appChatPluginRuntime = appChatPluginRuntime,
             hostCapabilityGateway = hostCapabilityGateway,
             hostActionExecutor = hostActionExecutor,
-            dispatchEngine = dispatchEngine,
+            messageDispatchPort = messageDispatchPort,
             strings = strings,
             privateRootPathResolver = AppChatPluginPrivateRootPathResolver { pluginId ->
                 pluginStoragePaths.privateDir(pluginId).absolutePath

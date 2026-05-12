@@ -13,7 +13,7 @@ import com.astrbot.android.model.ConfigProfile
 import com.astrbot.android.model.ProviderCapability
 import com.astrbot.android.model.ProviderProfile
 import com.astrbot.android.model.ProviderType
-import com.astrbot.android.model.TtsVoiceReferenceAsset
+import com.astrbot.android.feature.voiceasset.api.model.TtsVoiceReferenceAsset
 import com.astrbot.android.ui.screen.ConfigScreen
 import com.astrbot.android.ui.viewmodel.ConfigViewModel
 import kotlinx.coroutines.flow.MutableStateFlow

@@ -24,18 +24,27 @@ class FeatureImportBoundaryContractTest {
         "feature/cron/impl/src/main/java/com/astrbot/android",
         "feature/persona/data/src/main/java/com/astrbot/android",
         "feature/persona/impl/src/main/java/com/astrbot/android",
-        "feature/plugin/impl/src/main/java/com/astrbot/android",
+        "feature/plugin/data/src/main/java/com/astrbot/android",
+        "feature/plugin/presentation/src/main/java/com/astrbot/android",
+        "feature/plugin/runtime/src/main/java/com/astrbot/android",
+        "feature/provider/api/src/main/java/com/astrbot/android",
         "feature/provider/data/src/main/java/com/astrbot/android",
         "feature/provider/impl/src/main/java/com/astrbot/android",
+        "feature/qq/data/src/main/java/com/astrbot/android",
         "feature/qq/impl/src/main/java/com/astrbot/android",
+        "feature/qq/presentation/src/main/java/com/astrbot/android",
+        "feature/qq/runtime/src/main/java/com/astrbot/android",
         "feature/resource/data/src/main/java/com/astrbot/android",
         "feature/resource/impl/src/main/java/com/astrbot/android",
+        "feature/settings/api/src/main/java/com/astrbot/android",
+        "feature/settings/presentation/src/main/java/com/astrbot/android",
+        "feature/voiceasset/api/src/main/java/com/astrbot/android",
     ).map(projectRoot::resolve).filter { root -> root.exists() }
     private val allowlistFile: Path =
         projectRoot.resolve("app/src/test/resources/architecture/feature-import-allowlist.txt")
 
     private val allowlist: FeatureImportAllowlist = loadAllowlist()
-    private val scannedSegments = setOf("data", "runtime", "presentation", "domain")
+    private val scannedSegments = setOf("api", "data", "runtime", "presentation", "domain")
 
     @Test
     fun allowlist_file_must_exist_and_be_well_formed() {
@@ -108,24 +117,16 @@ class FeatureImportBoundaryContractTest {
     }
 
     private fun findForbiddenFeatureImports(): List<ForbiddenFeatureImport> {
-        return featureDirectories().flatMap { featureDirectory ->
-            val sourceFeature = featureDirectory.fileName.toString()
-            scannedSegments.flatMap { segment ->
-                val segmentRoot = featureDirectory.resolve(segment)
-                if (!segmentRoot.exists()) {
-                    emptyList()
-                } else {
-                    kotlinFilesUnder(segmentRoot).flatMap { file ->
-                        val relative = relativePath(file)
-                        file.readLines().mapNotNull { line ->
-                            forbiddenImportOrNull(
-                                line = line,
-                                path = relative,
-                                sourceFeature = sourceFeature,
-                                sourceSegment = segment,
-                            )
-                        }
-                    }
+        return featureScanRoots().flatMap { scanRoot ->
+            kotlinFilesUnder(scanRoot.root).flatMap { file ->
+                val relative = relativePath(file)
+                file.readLines().mapNotNull { line ->
+                    forbiddenImportOrNull(
+                        line = line,
+                        path = relative,
+                        sourceFeature = scanRoot.sourceFeature,
+                        sourceSegment = scanRoot.sourceSegment,
+                    )
                 }
             }
         }
@@ -196,8 +197,12 @@ class FeatureImportBoundaryContractTest {
         return FeatureImportAllowlist(entries)
     }
 
-    private fun featureDirectories(): List<Path> {
+    private fun featureScanRoots(): List<FeatureScanRoot> {
         return productionSourceRoots.flatMap { sourceRoot ->
+            featureModuleScanRootOrNull(sourceRoot)?.let { scanRoot ->
+                return@flatMap listOf(scanRoot)
+            }
+
             val featureRoot = sourceRoot.resolve("feature")
             if (!featureRoot.exists()) {
                 emptyList()
@@ -205,9 +210,45 @@ class FeatureImportBoundaryContractTest {
                 Files.list(featureRoot).use { stream ->
                     stream
                         .filter { path -> path.isDirectory() }
+                        .flatMap { featureDirectory ->
+                            val sourceFeature = featureDirectory.fileName.toString()
+                            scannedSegments
+                                .map { segment ->
+                                    FeatureScanRoot(
+                                        root = featureDirectory.resolve(segment),
+                                        sourceFeature = sourceFeature,
+                                        sourceSegment = segment,
+                                    )
+                                }
+                                .filter { scanRoot -> scanRoot.root.exists() }
+                                .stream()
+                        }
                         .toList()
                 }
             }
+        }.distinctBy { scanRoot -> scanRoot.root }
+    }
+
+    private fun featureModuleScanRootOrNull(sourceRoot: Path): FeatureScanRoot? {
+        val relativeRoot = projectRoot.relativize(sourceRoot).map { path -> path.toString() }
+        val featureIndex = relativeRoot.indexOf("feature")
+        if (featureIndex < 0 || featureIndex + 2 >= relativeRoot.size) {
+            return null
+        }
+
+        val sourceFeature = relativeRoot[featureIndex + 1]
+        val sourceSegment = relativeRoot[featureIndex + 2]
+        return if (
+            sourceSegment in scannedSegments &&
+            relativeRoot.drop(featureIndex + 3).joinToString("/") == "src/main/java/com/astrbot/android"
+        ) {
+            FeatureScanRoot(
+                root = sourceRoot,
+                sourceFeature = sourceFeature,
+                sourceSegment = sourceSegment,
+            )
+        } else {
+            null
         }
     }
 
@@ -261,6 +302,12 @@ class FeatureImportBoundaryContractTest {
         val forbiddenImport: String,
         val sourceFeature: String,
         val targetFeature: String,
+    )
+
+    private data class FeatureScanRoot(
+        val root: Path,
+        val sourceFeature: String,
+        val sourceSegment: String,
     )
 
     private companion object {

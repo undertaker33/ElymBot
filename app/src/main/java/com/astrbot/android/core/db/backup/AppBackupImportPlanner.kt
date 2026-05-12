@@ -6,7 +6,7 @@ import com.astrbot.android.model.chat.ConversationSession
 import com.astrbot.android.model.PersonaProfile
 import com.astrbot.android.model.ProviderProfile
 import com.astrbot.android.model.SavedQqAccount
-import com.astrbot.android.model.TtsVoiceReferenceAsset
+import com.astrbot.android.feature.voiceasset.api.model.TtsVoiceReferenceAsset
 import com.astrbot.android.model.chat.importDedupKey
 
 enum class AppBackupModuleKind {

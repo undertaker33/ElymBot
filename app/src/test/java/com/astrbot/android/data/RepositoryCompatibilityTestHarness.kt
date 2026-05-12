@@ -13,7 +13,6 @@ import com.astrbot.android.data.db.TtsVoiceAssetWriteModel
 import com.astrbot.android.data.db.TtsVoiceClipEntity
 import com.astrbot.android.data.db.TtsVoiceProviderBindingEntity
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimeCompatRepositoryHarness
-import com.astrbot.android.feature.qq.data.NapCatLoginRepository
 import com.astrbot.android.model.BotProfile
 import com.astrbot.android.model.ConfigProfile
 import com.astrbot.android.model.PersonaProfile
@@ -69,6 +68,8 @@ internal object RepositoryCompatibilityTestHarness {
     }
 }
 
+private val compatibilityNapCatLoginRepository = NapCatLoginTestFixtures.repository
+
 private object CompatibilityAppBackupDataPort : AppBackupDataPort {
     override fun snapshotBots(): List<BotProfile> = BotRepository.snapshotProfiles()
 
@@ -81,7 +82,7 @@ private object CompatibilityAppBackupDataPort : AppBackupDataPort {
     override fun snapshotConversations(): List<ConversationSession> = ConversationRepository.snapshotSessions()
 
     override fun snapshotExternalState(): AppBackupExternalState {
-        val loginState = NapCatLoginRepository.loginState.value
+        val loginState = compatibilityNapCatLoginRepository.loginState.value
         return AppBackupExternalState(
             selectedBotId = BotRepository.selectedBotId.value,
             selectedConfigId = ConfigRepository.selectedProfileId.value,
@@ -115,7 +116,7 @@ private object CompatibilityAppBackupDataPort : AppBackupDataPort {
     }
 
     override fun restoreQqLoginState(quickLoginUin: String, savedAccounts: List<SavedQqAccount>) {
-        NapCatLoginRepository.restoreSavedLoginState(
+        compatibilityNapCatLoginRepository.restoreSavedLoginState(
             quickLoginUin = quickLoginUin,
             savedAccounts = savedAccounts,
         )

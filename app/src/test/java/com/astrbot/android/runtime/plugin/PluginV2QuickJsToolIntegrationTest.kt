@@ -57,7 +57,7 @@ class PluginV2QuickJsToolIntegrationTest {
                     input = quickJsToolPipelineInput { request, _ ->
                         seenRequests += request
                         when (providerCalls.incrementAndGet()) {
-                            1 -> PluginV2ProviderInvocationResult.NonStreaming(
+                            1 -> com.astrbot.android.feature.plugin.domain.runtime.PluginV2ProviderInvocationResult.NonStreaming(
                                 PluginLlmResponse(
                                     requestId = request.requestId,
                                     providerId = request.selectedProviderId,
@@ -76,11 +76,11 @@ class PluginV2QuickJsToolIntegrationTest {
                                 assertEquals(PluginProviderMessageRole.TOOL, toolMessage.role)
                                 assertEquals("quick_reply", toolMessage.name)
                                 val toolText = toolMessage.parts
-                                    .filterIsInstance<PluginProviderMessagePartDto.TextPart>()
+                                    .filterIsInstance<com.astrbot.android.feature.plugin.domain.runtime.PluginProviderMessagePartDto.TextPart>()
                                     .single()
                                     .text
                                 assertEquals("quickjs fixture tool result: fixtures", toolText)
-                                PluginV2ProviderInvocationResult.NonStreaming(
+                                com.astrbot.android.feature.plugin.domain.runtime.PluginV2ProviderInvocationResult.NonStreaming(
                                     PluginLlmResponse(
                                         requestId = request.requestId,
                                         providerId = request.selectedProviderId,
@@ -232,7 +232,7 @@ class PluginV2QuickJsToolIntegrationTest {
             messages = listOf(
                 PluginProviderMessageDto(
                     role = PluginProviderMessageRole.USER,
-                    parts = listOf(PluginProviderMessagePartDto.TextPart(event.rawText)),
+                    parts = listOf(com.astrbot.android.feature.plugin.domain.runtime.PluginProviderMessagePartDto.TextPart(event.rawText)),
                 ),
             ),
             invokeProvider = invokeProvider,

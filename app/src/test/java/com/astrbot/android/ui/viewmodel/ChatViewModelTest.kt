@@ -1,4 +1,4 @@
-﻿package com.astrbot.android.ui.viewmodel
+package com.astrbot.android.ui.viewmodel
 
 import com.astrbot.android.MainDispatcherRule
 import com.astrbot.android.core.runtime.context.RuntimeContextDataPort
@@ -394,8 +394,8 @@ class ChatViewModelTest {
                 val pipelineResult = fakePipelineResult(input = input, text = "")
                 val providerResult = input.invokeProvider(pipelineResult.finalRequest, input.streamingMode)
                 val text = when (providerResult) {
-                    is PluginV2ProviderInvocationResult.NonStreaming -> providerResult.response.text
-                    is PluginV2ProviderInvocationResult.Streaming ->
+                    is com.astrbot.android.feature.plugin.domain.runtime.PluginV2ProviderInvocationResult.NonStreaming -> providerResult.response.text
+                    is com.astrbot.android.feature.plugin.domain.runtime.PluginV2ProviderInvocationResult.Streaming ->
                         providerResult.events.joinToString("") { it.deltaText }
                 }
                 val result = fakePipelineResult(input = input, text = text)
@@ -409,10 +409,10 @@ class ChatViewModelTest {
                     platformAdapterType = request.platformAdapterType,
                     platformInstanceKey = request.platformInstanceKey,
                     sentAtEpochMs = 1L,
-                    deliveryStatus = PluginV2AfterSentView.DeliveryStatus.SUCCESS,
+                    deliveryStatus = com.astrbot.android.feature.plugin.domain.runtime.PluginV2AfterSentView.DeliveryStatus.SUCCESS,
                     deliveredEntries = preparedReply.deliveredEntries,
                 )
-                return PluginV2HostLlmDeliveryResult.Sent(
+                return com.astrbot.android.feature.plugin.domain.runtime.PluginV2HostLlmDeliveryResult.Sent(
                     pipelineResult = result,
                     preparedReply = preparedReply,
                     sendResult = sendResult,
@@ -533,10 +533,10 @@ class ChatViewModelTest {
                     platformAdapterType = request.platformAdapterType,
                     platformInstanceKey = request.platformInstanceKey,
                     sentAtEpochMs = 1L,
-                    deliveryStatus = PluginV2AfterSentView.DeliveryStatus.SUCCESS,
+                    deliveryStatus = com.astrbot.android.feature.plugin.domain.runtime.PluginV2AfterSentView.DeliveryStatus.SUCCESS,
                     deliveredEntries = preparedReply.deliveredEntries,
                 )
-                return PluginV2HostLlmDeliveryResult.Sent(
+                return com.astrbot.android.feature.plugin.domain.runtime.PluginV2HostLlmDeliveryResult.Sent(
                     pipelineResult = pipelineResult,
                     preparedReply = preparedReply,
                     sendResult = sendResult,
@@ -1737,8 +1737,8 @@ class ChatViewModelTest {
             )
             val providerResult = input.invokeProvider(finalRequest, input.streamingMode)
             val text = when (providerResult) {
-                is PluginV2ProviderInvocationResult.NonStreaming -> providerResult.response.text
-                is PluginV2ProviderInvocationResult.Streaming ->
+                is com.astrbot.android.feature.plugin.domain.runtime.PluginV2ProviderInvocationResult.NonStreaming -> providerResult.response.text
+                is com.astrbot.android.feature.plugin.domain.runtime.PluginV2ProviderInvocationResult.Streaming ->
                     providerResult.events.joinToString("") { it.deltaText }
             }
             val finalResponse = PluginLlmResponse(
@@ -1773,10 +1773,10 @@ class ChatViewModelTest {
                 platformAdapterType = request.platformAdapterType,
                 platformInstanceKey = request.platformInstanceKey,
                 sentAtEpochMs = 1L,
-                deliveryStatus = PluginV2AfterSentView.DeliveryStatus.SUCCESS,
+                deliveryStatus = com.astrbot.android.feature.plugin.domain.runtime.PluginV2AfterSentView.DeliveryStatus.SUCCESS,
                 deliveredEntries = preparedReply.deliveredEntries,
             )
-            return PluginV2HostLlmDeliveryResult.Sent(
+            return com.astrbot.android.feature.plugin.domain.runtime.PluginV2HostLlmDeliveryResult.Sent(
                 pipelineResult = pipelineResult,
                 preparedReply = preparedReply,
                 sendResult = sendResult,

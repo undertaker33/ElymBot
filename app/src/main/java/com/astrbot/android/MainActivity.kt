@@ -41,7 +41,7 @@ import com.astrbot.android.core.common.logging.RuntimeLogRepository
 import com.astrbot.android.core.runtime.container.ContainerBridgeStatePort
 import com.astrbot.android.core.runtime.container.ContainerRuntimeState
 import com.astrbot.android.core.runtime.container.RuntimeBridgeController
-import com.astrbot.android.feature.plugin.runtime.catalog.PluginInstallIntentHandler
+import com.astrbot.android.feature.plugin.domain.PluginCatalogRuntimePort
 import com.astrbot.android.model.NapCatRuntimeState
 import com.astrbot.android.model.plugin.PluginInstallIntent
 import com.astrbot.android.ui.app.AstrBotApp
@@ -60,7 +60,7 @@ import kotlinx.coroutines.withContext
 @AndroidEntryPoint
 class MainActivity : AppCompatActivity() {
     @Inject
-    lateinit var pluginInstallIntentHandler: PluginInstallIntentHandler
+    lateinit var pluginCatalogRuntimePort: PluginCatalogRuntimePort
 
     @Inject
     lateinit var bridgeStatePort: ContainerBridgeStatePort
@@ -290,7 +290,7 @@ class MainActivity : AppCompatActivity() {
         lifecycleScope.launch {
             runCatching {
                 withContext(Dispatchers.IO) {
-                    pluginInstallIntentHandler.handle(request.intent)
+                    pluginCatalogRuntimePort.handleInstallIntent(request.intent) { }
                 }
             }.onFailure { error ->
                 RuntimeLogRepository.append(

@@ -16,7 +16,7 @@ import com.astrbot.android.model.ConfigProfile
 import com.astrbot.android.model.FeatureSupportState
 import com.astrbot.android.model.ProviderCapability
 import com.astrbot.android.model.ProviderProfile
-import com.astrbot.android.model.TtsVoiceReferenceAsset
+import com.astrbot.android.feature.voiceasset.api.model.TtsVoiceReferenceAsset
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -37,7 +37,7 @@ class ConfigViewModelTest {
     val mainDispatcherRule = MainDispatcherRule(dispatcher)
 
     /**
-     * Task10 Phase3 – Task A contract:
+     * Task10 Phase3 鈥?Task A contract:
      * ConfigViewModel.delete() must delegate to a single atomic entry point,
      * NOT chain delete() + replaceConfigBinding() from the presentation layer.
      */

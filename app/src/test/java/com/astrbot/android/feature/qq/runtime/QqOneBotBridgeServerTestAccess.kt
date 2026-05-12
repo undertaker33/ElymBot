@@ -83,6 +83,7 @@ private object TestQqRuntimeGraphFactory : QqRuntimeGraphFactory {
             hostCapabilityGateway = dependencies.hostCapabilityGateway,
             hostActionExecutor = dependencies.hostActionExecutor,
             dispatchEngine = dependencies.pluginV2DispatchEngine,
+            messageDispatchPort = dependencies.pluginMessageDispatchPort,
             executionService = dependencies.pluginExecutionService,
             log = log,
         )

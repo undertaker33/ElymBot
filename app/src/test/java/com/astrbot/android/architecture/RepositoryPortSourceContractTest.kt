@@ -29,10 +29,15 @@ class RepositoryPortSourceContractTest {
         "feature/cron/runtime/src/main/java/com/astrbot/android",
         "feature/persona/data/src/main/java/com/astrbot/android",
         "feature/persona/impl/src/main/java/com/astrbot/android",
-        "feature/plugin/impl/src/main/java/com/astrbot/android",
+        "feature/plugin/data/src/main/java/com/astrbot/android",
+        "feature/plugin/presentation/src/main/java/com/astrbot/android",
+        "feature/plugin/runtime/src/main/java/com/astrbot/android",
         "feature/provider/data/src/main/java/com/astrbot/android",
         "feature/provider/impl/src/main/java/com/astrbot/android",
+        "feature/qq/data/src/main/java/com/astrbot/android",
         "feature/qq/impl/src/main/java/com/astrbot/android",
+        "feature/qq/presentation/src/main/java/com/astrbot/android",
+        "feature/qq/runtime/src/main/java/com/astrbot/android",
         "feature/resource/data/src/main/java/com/astrbot/android",
         "feature/resource/impl/src/main/java/com/astrbot/android",
     ).map(projectRoot::resolve).filter { root -> root.exists() }
@@ -42,6 +47,9 @@ class RepositoryPortSourceContractTest {
         val source = listOf(
             mainRoot.resolve("di/hilt/RepositoryPortModule.kt"),
             mainRoot.resolve("di/hilt/QqRepositoryPortModule.kt"),
+            projectRoot.resolve(
+                "feature/qq/data/src/main/java/com/astrbot/android/feature/qq/data/QqDataBootstrapModule.kt",
+            ),
             projectRoot.resolve("app-integration/src/main/java"),
         ).joinToString(separator = "\n") { sourcePath ->
             if (sourcePath.isRegularFile()) {

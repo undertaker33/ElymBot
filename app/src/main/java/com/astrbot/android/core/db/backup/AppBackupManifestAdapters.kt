@@ -2,7 +2,7 @@ package com.astrbot.android.core.db.backup
 
 import android.content.Context
 import com.astrbot.android.model.BotProfile
-import com.astrbot.android.model.ClonedVoiceBinding
+import com.astrbot.android.feature.voiceasset.api.model.ClonedVoiceBinding
 import com.astrbot.android.model.ConfigProfile
 import com.astrbot.android.model.FeatureSupportState
 import com.astrbot.android.model.PersonaProfile
@@ -10,8 +10,9 @@ import com.astrbot.android.model.ProviderCapability
 import com.astrbot.android.model.ProviderProfile
 import com.astrbot.android.model.ProviderType
 import com.astrbot.android.model.SavedQqAccount
-import com.astrbot.android.model.TtsVoiceReferenceAsset
-import com.astrbot.android.model.TtsVoiceReferenceClip
+import com.astrbot.android.feature.voiceasset.api.model.TtsVoiceReferenceAsset
+import com.astrbot.android.feature.voiceasset.api.model.TtsVoiceReferenceClip
+import com.astrbot.android.feature.voiceasset.api.model.VoiceAssetProviderType
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -263,7 +264,7 @@ private fun JSONArray?.toVoiceBindings(): List<ClonedVoiceBinding> {
                 ClonedVoiceBinding(
                     id = item.optString("id"),
                     providerId = item.optString("providerId"),
-                    providerType = runCatching { ProviderType.valueOf(item.optString("providerType")) }.getOrDefault(ProviderType.OPENAI_TTS),
+                    providerType = VoiceAssetProviderType.fromName(item.optString("providerType")),
                     model = item.optString("model"),
                     voiceId = item.optString("voiceId"),
                     displayName = item.optString("displayName"),

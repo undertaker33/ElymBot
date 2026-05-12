@@ -1,0 +1,7 @@
+{
+  "greeting_prefix": {
+    "type": "string",
+    "title": "Greeting prefix",
+    "default": "Hello"
+  }
+}
