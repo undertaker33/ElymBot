@@ -60,6 +60,7 @@ class GlobalSingletonAllowlistContractTest {
         "feature/provider/api/src/main/java/com/astrbot/android",
         "feature/provider/data/src/main/java/com/astrbot/android",
         "feature/provider/impl/src/main/java/com/astrbot/android",
+        "feature/provider/runtime/src/main/java/com/astrbot/android",
         "feature/qq/api/src/main/java/com/astrbot/android",
         "feature/qq/data/src/main/java/com/astrbot/android",
         "feature/qq/impl/src/main/java/com/astrbot/android",
@@ -71,6 +72,8 @@ class GlobalSingletonAllowlistContractTest {
         "feature/settings/api/src/main/java/com/astrbot/android",
         "feature/settings/presentation/src/main/java/com/astrbot/android",
         "feature/voiceasset/api/src/main/java/com/astrbot/android",
+        "feature/voiceasset/data/src/main/java/com/astrbot/android",
+        "feature/voiceasset/presentation/src/main/java/com/astrbot/android",
     ).map(projectRoot::resolve).filter { root -> root.exists() }
     private val allowlistFile: Path =
         projectRoot.resolve("app/src/test/resources/architecture/global-singleton-allowlist.txt")
@@ -174,6 +177,28 @@ class GlobalSingletonAllowlistContractTest {
     }
 
     @Test
+    fun allowlist_entries_must_match_current_singleton_declarations() {
+        val stale = allowlist.entries.filterNot { entry ->
+            sourceRoots
+                .map { root -> root.resolve(entry.path) }
+                .firstOrNull { file -> file.exists() }
+                ?.readText(UTF_8)
+                ?.let { text ->
+                    when (entry.type) {
+                        "object" -> containsObjectDeclaration(text)
+                        "companion" -> companionObjectBlocks(text).isNotEmpty()
+                        else -> false
+                    }
+                } == true
+        }
+
+        assertTrue(
+            "Global singleton allowlist entries must still match current object/companion declarations: $stale",
+            stale.isEmpty(),
+        )
+    }
+
+    @Test
     fun temporary_allowlist_entries_must_not_claim_permanent_expiry() {
         val violations = allowlist.entries.filter { entry ->
             entry.category == "temporary" &&
@@ -182,6 +207,34 @@ class GlobalSingletonAllowlistContractTest {
 
         assertTrue(
             "Temporary singleton allowlist entries must have a real phase/review expiry: $violations",
+            violations.isEmpty(),
+        )
+    }
+
+    @Test
+    fun phase26_temporary_entries_must_be_explicit_compat_or_legacy_direct_debt() {
+        val acceptedReasonTokens = listOf(
+            "compat",
+            "test-only",
+            "direct-test",
+            "direct-construction",
+            "legacy direct",
+            "direct caller",
+            "direct initialization",
+        )
+        val acceptedExpiryPattern = Regex("""^(phase-(2[7-9]|[3-9][0-9])(?:[-:][A-Za-z0-9_-]+)?|post-phase-26[-:][A-Za-z0-9_-]+)$""")
+        val violations = allowlist.entries.filter { entry ->
+            entry.category == "temporary" &&
+                (
+                    acceptedReasonTokens.none { token ->
+                        entry.reason.contains(token, ignoreCase = true)
+                    } ||
+                        !acceptedExpiryPattern.matches(entry.expires)
+                    )
+        }
+
+        assertTrue(
+            "Phase 26 remaining temporary singleton debt must be explicit compat/test-only or legacy direct-construction debt with a post-26 expiry: $violations",
             violations.isEmpty(),
         )
     }
@@ -364,6 +417,12 @@ class GlobalSingletonAllowlistContractTest {
         }
     }
 
+    private fun containsObjectDeclaration(text: String): Boolean {
+        return Regex("""(?m)^\s*(?:(?:internal|private|public)\s+)?(data\s+)?object\s+[A-Za-z0-9_]+""")
+            .findAll(text)
+            .any { match -> match.groupValues[1].isBlank() }
+    }
+
     private fun containsSuspiciousCompanionObject(text: String): Boolean {
         return companionObjectBlocks(text).any { block ->
             suspiciousCompanionTokens
@@ -407,7 +466,7 @@ class GlobalSingletonAllowlistContractTest {
     }
 
     private fun companionObjectBlocks(text: String): List<String> {
-        val companionRegex = Regex("""companion\s+object(?:\s+[A-Za-z0-9_]+)?\s*\{""")
+        val companionRegex = Regex("""companion\s+object(?:\s+[A-Za-z0-9_]+)?[^{]*\{""")
         return companionRegex.findAll(text).mapNotNull { match ->
             val openingBrace = text.indexOf('{', startIndex = match.range.first)
             if (openingBrace < 0) return@mapNotNull null

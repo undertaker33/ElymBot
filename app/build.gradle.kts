@@ -106,8 +106,8 @@ android {
     defaultConfig {
         applicationId = "com.astrbot.android"
         targetSdk = 36
-        versionCode = 70
-        versionName = "0.8.13"
+        versionCode = 71
+        versionName = "0.8.14"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -269,7 +269,6 @@ dependencies {
     val androidxHiltVersion = "1.2.0"
 
     implementation(project(":core:common"))
-    implementation(project(":core:backup"))
     implementation(project(":core:db"))
     implementation(project(":core:logging"))
     implementation(project(":core:network"))
@@ -285,25 +284,19 @@ dependencies {
     implementation(project(":download:api"))
     implementation(project(":app-integration"))
     implementation(project(":feature:bot:api"))
-    implementation(project(":feature:bot:data"))
     implementation(project(":feature:bot:presentation"))
     implementation(project(":feature:chat:api"))
     implementation(project(":feature:chat:presentation"))
-    implementation(project(":feature:chat:runtime"))
     implementation(project(":feature:config:api"))
-    implementation(project(":feature:config:data"))
     implementation(project(":feature:config:presentation"))
     implementation(project(":feature:conversation:api"))
-    implementation(project(":feature:conversation:data"))
     implementation(project(":feature:cron:api"))
     implementation(project(":feature:cron:presentation"))
     implementation(project(":feature:persona:api"))
-    implementation(project(":feature:persona:data"))
     implementation(project(":feature:persona:presentation"))
     implementation(project(":feature:plugin:api"))
     implementation(project(":feature:plugin:presentation"))
     implementation(project(":feature:provider:api"))
-    implementation(project(":feature:provider:data"))
     implementation(project(":feature:provider:presentation"))
     implementation(project(":feature:qq:api"))
     implementation(project(":feature:qq:presentation"))
@@ -311,7 +304,7 @@ dependencies {
     implementation(project(":feature:resource:presentation"))
     implementation(project(":feature:settings:api"))
     implementation(project(":feature:settings:presentation"))
-    implementation(project(":feature:voiceasset:api"))
+    implementation(project(":feature:voiceasset:presentation"))
 
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.appcompat:appcompat:1.7.0")
@@ -353,10 +346,20 @@ dependencies {
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 
     testImplementation("junit:junit:4.13.2")
+    testImplementation(project(":feature:bot:data"))
+    testImplementation(project(":feature:chat:runtime"))
+    testImplementation(project(":feature:config:data"))
+    testImplementation(project(":feature:conversation:data"))
+    testImplementation(project(":feature:cron:data"))
+    testImplementation(project(":feature:cron:runtime"))
+    testImplementation(project(":feature:persona:data"))
     testImplementation(project(":feature:plugin:data"))
     testImplementation(project(":feature:plugin:runtime"))
+    testImplementation(project(":feature:provider:data"))
     testImplementation(project(":feature:qq:data"))
     testImplementation(project(":feature:qq:runtime"))
+    testImplementation(project(":feature:resource:data"))
+    testImplementation(project(":feature:voiceasset:data"))
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
     testImplementation("com.squareup.okhttp3:mockwebserver:$okHttpVersion")
     testImplementation("org.json:json:20240303")

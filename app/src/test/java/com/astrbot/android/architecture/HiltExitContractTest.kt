@@ -144,7 +144,7 @@ class HiltExitContractTest {
             "feature/plugin/presentation/src/main/java/com/astrbot/android/feature/plugin/presentation/PluginViewModel.kt",
             "feature/qq/presentation/src/main/java/com/astrbot/android/feature/qq/presentation/QQLoginViewModel.kt",
             "feature/chat/presentation/src/main/java/com/astrbot/android/feature/chat/presentation/ChatViewModel.kt",
-            "app/src/main/java/com/astrbot/android/ui/viewmodel/RuntimeAssetViewModel.kt",
+            "feature/voiceasset/presentation/src/main/java/com/astrbot/android/ui/settings/RuntimeAssetViewModel.kt",
             "app/src/main/java/com/astrbot/android/ui/viewmodel/RuntimeLogViewModel.kt",
             "feature/cron/presentation/src/main/java/com/astrbot/android/ui/settings/CronJobsViewModel.kt",
         ).map(projectRoot::resolve)

@@ -2,6 +2,9 @@ package com.astrbot.android.core.db.backup
 
 import android.content.Context
 import android.net.Uri
+import com.astrbot.android.feature.settings.api.backup.ConversationBackupDataPort
+import com.astrbot.android.feature.settings.api.backup.ConversationImportPreview
+import com.astrbot.android.feature.settings.api.backup.ConversationImportResult
 import com.astrbot.android.model.chat.ConversationSession
 import com.astrbot.android.core.logging.SharedRuntimeLogStore
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -27,7 +30,6 @@ import java.time.LocalTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.UUID
-import java.util.concurrent.atomic.AtomicBoolean
 
 data class ConversationBackupSettings(
     val autoBackupEnabled: Boolean = false,
@@ -56,19 +58,20 @@ class ConversationBackupService @Inject constructor(
     @ApplicationContext context: Context,
     dataPort: ConversationBackupDataPort,
 ) {
-    init {
-        ConversationBackupRepository.initialize(context, dataPort)
-    }
+    private val repository = ConversationBackupRepository(
+        context = context,
+        dataPort = dataPort,
+    )
 
-    val settings: StateFlow<ConversationBackupSettings> = ConversationBackupRepository.settings
-    val backups: StateFlow<List<ConversationBackupItem>> = ConversationBackupRepository.backups
+    val settings: StateFlow<ConversationBackupSettings> = repository.settings
+    val backups: StateFlow<List<ConversationBackupItem>> = repository.backups
 
     suspend fun createBackup(trigger: String = "manual"): Result<ConversationBackupItem> {
-        return ConversationBackupRepository.createBackup(trigger)
+        return repository.createBackup(trigger)
     }
 
     suspend fun deleteBackup(backupId: String): Result<Unit> {
-        return ConversationBackupRepository.deleteBackup(backupId)
+        return repository.deleteBackup(backupId)
     }
 
     suspend fun exportBackupToUri(
@@ -76,48 +79,50 @@ class ConversationBackupService @Inject constructor(
         backupId: String,
         targetUri: Uri,
     ): Result<Unit> {
-        return ConversationBackupRepository.exportBackupToUri(context, backupId, targetUri)
+        return repository.exportBackupToUri(context, backupId, targetUri)
     }
 
     suspend fun prepareImportFromBackup(backupId: String): Result<ConversationImportSource> {
-        return ConversationBackupRepository.prepareImportFromBackup(backupId)
+        return repository.prepareImportFromBackup(backupId)
     }
 
     suspend fun prepareImportFromUri(context: Context, uri: Uri): Result<ConversationImportSource> {
-        return ConversationBackupRepository.prepareImportFromUri(context, uri)
+        return repository.prepareImportFromUri(context, uri)
     }
 
     suspend fun importSessions(
         sessions: List<ConversationSession>,
         overwriteDuplicates: Boolean,
     ): Result<ConversationImportResult> {
-        return ConversationBackupRepository.importSessions(sessions, overwriteDuplicates)
+        return repository.importSessions(sessions, overwriteDuplicates)
     }
 
     fun setAutoBackupEnabled(enabled: Boolean) {
-        ConversationBackupRepository.setAutoBackupEnabled(enabled)
+        repository.setAutoBackupEnabled(enabled)
     }
 
     fun setAutoBackupTime(hour: Int, minute: Int) {
-        ConversationBackupRepository.setAutoBackupTime(hour, minute)
+        repository.setAutoBackupTime(hour, minute)
     }
 }
 
-object ConversationBackupRepository {
-    private const val PREFS_NAME = "conversation_backup_settings"
-    private const val KEY_AUTO_ENABLED = "auto_enabled"
-    private const val KEY_AUTO_HOUR = "auto_hour"
-    private const val KEY_AUTO_MINUTE = "auto_minute"
-    private const val KEY_LAST_AUTO_DATE = "last_auto_date"
-    private const val BACKUP_SCHEMA = "conversation-backup-v1"
+internal class ConversationBackupRepository(
+    context: Context,
+    private val dataPort: ConversationBackupDataPort,
+) {
+    private val prefsName = "conversation_backup_settings"
+    private val keyAutoEnabled = "auto_enabled"
+    private val keyAutoHour = "auto_hour"
+    private val keyAutoMinute = "auto_minute"
+    private val keyLastAutoDate = "last_auto_date"
+    private val backupSchema = "conversation-backup-v1"
 
     private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val initialized = AtomicBoolean(false)
     private val autoBackupMutex = Mutex()
     private val timestampFormatter = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss")
 
-    private lateinit var backupDirectory: File
-    private lateinit var prefs: android.content.SharedPreferences
+    private val backupDirectory: File
+    private val prefs: android.content.SharedPreferences
 
     private val _settings = MutableStateFlow(ConversationBackupSettings())
     val settings: StateFlow<ConversationBackupSettings> = _settings.asStateFlow()
@@ -125,32 +130,22 @@ object ConversationBackupRepository {
     private val _backups = MutableStateFlow<List<ConversationBackupItem>>(emptyList())
     val backups: StateFlow<List<ConversationBackupItem>> = _backups.asStateFlow()
 
-    @Volatile
-    private var hiltDataPort: ConversationBackupDataPort? = null
-
-    fun initialize(
-        context: Context,
-        dataPort: ConversationBackupDataPort = MissingConversationBackupDataPort,
-    ) {
-        hiltDataPort = dataPort
-        if (!initialized.compareAndSet(false, true)) return
-
+    init {
         val appContext = context.applicationContext
         backupDirectory = File(appContext.filesDir, "conversation-backups").apply { mkdirs() }
-        prefs = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs = appContext.getSharedPreferences(prefsName, Context.MODE_PRIVATE)
         _settings.value = loadSettings()
         refreshBackups()
-        val activeDataPort = resolveDataPort()
 
         repositoryScope.launch {
-            activeDataPort.isReady.collectLatest { ready ->
+            dataPort.isReady.collectLatest { ready ->
                 if (ready) {
                     maybeRunAutoBackup()
                 }
             }
         }
         repositoryScope.launch {
-            activeDataPort.sessions.collectLatest {
+            dataPort.sessions.collectLatest {
                 maybeRunAutoBackup()
             }
         }
@@ -165,7 +160,7 @@ object ConversationBackupRepository {
             val file = File(backupDirectory, fileName)
             file.writeText(
                 JSONObject()
-                    .put("schema", BACKUP_SCHEMA)
+                    .put("schema", backupSchema)
                     .put("createdAt", now)
                     .put("trigger", trigger)
                     .put("sessions", JSONArray().apply {
@@ -260,7 +255,7 @@ object ConversationBackupRepository {
     }
 
     fun setAutoBackupEnabled(enabled: Boolean) {
-        prefs.edit().putBoolean(KEY_AUTO_ENABLED, enabled).apply()
+        prefs.edit().putBoolean(keyAutoEnabled, enabled).apply()
         _settings.value = _settings.value.copy(autoBackupEnabled = enabled)
         if (enabled) {
             repositoryScope.launch {
@@ -271,8 +266,8 @@ object ConversationBackupRepository {
 
     fun setAutoBackupTime(hour: Int, minute: Int) {
         prefs.edit()
-            .putInt(KEY_AUTO_HOUR, hour)
-            .putInt(KEY_AUTO_MINUTE, minute)
+            .putInt(keyAutoHour, hour)
+            .putInt(keyAutoMinute, minute)
             .apply()
         _settings.value = _settings.value.copy(autoBackupHour = hour, autoBackupMinute = minute)
         repositoryScope.launch {
@@ -290,21 +285,20 @@ object ConversationBackupRepository {
 
     private fun loadSettings(): ConversationBackupSettings {
         return ConversationBackupSettings(
-            autoBackupEnabled = prefs.getBoolean(KEY_AUTO_ENABLED, false),
-            autoBackupHour = prefs.getInt(KEY_AUTO_HOUR, 3),
-            autoBackupMinute = prefs.getInt(KEY_AUTO_MINUTE, 0),
-            lastAutoBackupDate = prefs.getString(KEY_LAST_AUTO_DATE, "").orEmpty(),
+            autoBackupEnabled = prefs.getBoolean(keyAutoEnabled, false),
+            autoBackupHour = prefs.getInt(keyAutoHour, 3),
+            autoBackupMinute = prefs.getInt(keyAutoMinute, 0),
+            lastAutoBackupDate = prefs.getString(keyLastAutoDate, "").orEmpty(),
         )
     }
 
     private fun saveLastAutoBackupDate(date: String) {
-        prefs.edit().putString(KEY_LAST_AUTO_DATE, date).apply()
+        prefs.edit().putString(keyLastAutoDate, date).apply()
         _settings.value = _settings.value.copy(lastAutoBackupDate = date)
     }
 
     private suspend fun maybeRunAutoBackup() {
         val dataPort = resolveDataPort()
-        if (!initialized.get()) return
         autoBackupMutex.withLock {
             val currentSettings = _settings.value
             if (!currentSettings.autoBackupEnabled) return
@@ -387,36 +381,7 @@ object ConversationBackupRepository {
     }
 
     private fun resolveDataPort(): ConversationBackupDataPort {
-        return hiltDataPort ?: MissingConversationBackupDataPort
-    }
-
-    private object MissingConversationBackupDataPort : ConversationBackupDataPort {
-        private val ready = MutableStateFlow(false)
-        private val emptySessions = MutableStateFlow<List<ConversationSession>>(emptyList())
-
-        override val isReady: StateFlow<Boolean> = ready.asStateFlow()
-        override val sessions: StateFlow<List<ConversationSession>> = emptySessions.asStateFlow()
-        override val defaultSessionTitle: String = "\u65B0\u5BF9\u8BDD"
-
-        override fun selectedBotId(): String = error(unavailableMessage())
-        override fun snapshotSessions(): List<ConversationSession> = error(unavailableMessage())
-        override fun restoreSessions(restoredSessions: List<ConversationSession>) = error(unavailableMessage())
-        override fun previewImportedSessions(importedSessions: List<ConversationSession>): ConversationImportPreview =
-            error(unavailableMessage())
-
-        override fun importSessions(
-            importedSessions: List<ConversationSession>,
-            overwriteDuplicates: Boolean,
-        ): ConversationImportResult = error(unavailableMessage())
-
-        override suspend fun importSessionsDurable(
-            importedSessions: List<ConversationSession>,
-            overwriteDuplicates: Boolean,
-        ): ConversationImportResult = error(unavailableMessage())
-
-        private fun unavailableMessage(): String {
-            return "ConversationBackupRepository requires an injected ConversationBackupDataPort before use."
-        }
+        return dataPort
     }
 }
 

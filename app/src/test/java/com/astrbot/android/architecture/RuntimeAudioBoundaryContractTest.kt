@@ -109,32 +109,22 @@ class RuntimeAudioBoundaryContractTest {
     }
 
     @Test
-    fun global_singleton_allowlist_must_assign_audio_debt_to_phase_9b_owners() {
+    fun global_singleton_allowlist_must_assign_audio_debt_to_runtime_audio_owners() {
         val entries = singletonAllowlistEntries()
         val expected = mapOf(
-            "core/runtime/audio/VoiceCloneService.kt" to ExpectedSingletonDebt(
-                owner = "feature-voiceasset:runtime",
-                expires = "phase-19",
-                requiredText = "feature voiceasset",
-            ),
             "core/runtime/audio/AndroidSystemTtsBridge.kt" to ExpectedSingletonDebt(
                 owner = "core:runtime-audio",
-                expires = "phase-19",
+                expires = "phase-27-compat-review",
                 requiredText = "AudioRuntimePort",
             ),
             "core/runtime/audio/SherpaOnnxBridge.kt" to ExpectedSingletonDebt(
                 owner = "core:runtime-audio",
-                expires = "phase-11",
+                expires = "phase-27-compat-review",
                 requiredText = "AudioRuntimePort",
-            ),
-            "core/runtime/audio/TtsVoiceAssetRepository.kt" to ExpectedSingletonDebt(
-                owner = "feature-voiceasset:data",
-                expires = "phase-19",
-                requiredText = "feature voiceasset data",
             ),
             "core/runtime/audio/SherpaOnnxAssetManager.kt" to ExpectedSingletonDebt(
                 owner = "core:runtime-audio",
-                expires = "phase-11",
+                expires = "phase-27-compat-review",
                 requiredText = "download port",
             ),
         )
@@ -153,7 +143,7 @@ class RuntimeAudioBoundaryContractTest {
         }
 
         assertTrue(
-            "Phase 9-B audio singleton allowlist entries must not retain stale core-audio/phase-5 ownership: $violations",
+            "Audio singleton allowlist entries must stay owned by runtime-audio and use the Phase 26+ compat expiry: $violations",
             violations.isEmpty(),
         )
     }

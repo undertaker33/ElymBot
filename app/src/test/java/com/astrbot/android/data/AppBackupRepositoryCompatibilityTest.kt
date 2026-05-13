@@ -1,7 +1,5 @@
 package com.astrbot.android.data
 
-import com.astrbot.android.core.db.backup.AppBackupDataPort
-import com.astrbot.android.core.db.backup.AppBackupExternalState
 import com.astrbot.android.core.db.backup.AppBackupAppState
 import com.astrbot.android.core.db.backup.AppBackupImportMode
 import com.astrbot.android.core.db.backup.AppBackupJson
@@ -9,6 +7,8 @@ import com.astrbot.android.core.db.backup.AppBackupManifest
 import com.astrbot.android.core.db.backup.AppBackupModuleSnapshot
 import com.astrbot.android.core.db.backup.AppBackupModules
 import com.astrbot.android.core.db.backup.AppBackupRepository
+import com.astrbot.android.feature.settings.api.backup.AppBackupDataPort
+import com.astrbot.android.feature.settings.api.backup.AppBackupExternalState
 import com.astrbot.android.data.db.ConversationAggregate
 import com.astrbot.android.data.db.ConversationAggregateDao
 import com.astrbot.android.data.db.ConversationAttachmentEntity
@@ -41,9 +41,12 @@ class AppBackupRepositoryCompatibilityTest {
     private lateinit var selectedBotId: String
     private lateinit var selectedConfigId: String
     private lateinit var originalConversationDao: ConversationAggregateDao
+    private lateinit var backupRepository: AppBackupRepository
 
     @Before
     fun captureSnapshot() {
+        RepositoryCompatibilityTestHarness.ensureInstalled()
+        backupRepository = RepositoryCompatibilityTestHarness.appBackupRepository()
         botSnapshot = BotRepository.snapshotProfiles()
         providerSnapshot = ProviderRepository.snapshotProfiles()
         personaSnapshot = PersonaRepository.snapshotProfiles()
@@ -61,6 +64,7 @@ class AppBackupRepositoryCompatibilityTest {
      */
     @After
     fun restoreSnapshot() {
+        if (!this::originalConversationDao.isInitialized) return
         runBlocking {
             setConversationDao(originalConversationDao)
             ProviderRepository.restoreProfiles(providerSnapshot)
@@ -69,14 +73,13 @@ class AppBackupRepositoryCompatibilityTest {
             BotRepository.restoreProfiles(botSnapshot, selectedBotId)
             ConversationRepository.restoreSessions(conversationSnapshot)
         }
-        AppBackupRepository.setDataPortOverrideForTests(null)
     }
 
     @Test
     fun importLegacyManifest_restoresAggregateBackedRepositories() = runBlocking {
         val manifest = AppBackupJson.parseManifest(legacyManifestJson())
 
-        val result = AppBackupRepository.importBackup(
+        val result = backupRepository.importBackup(
             manifest = manifest,
             mode = AppBackupImportMode.REPLACE_ALL,
         )
@@ -104,7 +107,7 @@ class AppBackupRepositoryCompatibilityTest {
         setConversationDao(FailingConversationAggregateDao())
         val manifest = AppBackupJson.parseManifest(legacyManifestJson())
 
-        val result = AppBackupRepository.importBackup(
+        val result = backupRepository.importBackup(
             manifest = manifest,
             mode = AppBackupImportMode.REPLACE_ALL,
         )
@@ -131,7 +134,7 @@ class AppBackupRepositoryCompatibilityTest {
             savedAccounts = listOf(SavedQqAccount(uin = "10001", nickName = "Old Account")),
             failAt = RestoreStageFailure.QQ_ACCOUNTS,
         )
-        AppBackupRepository.setDataPortOverrideForTests(rollbackProbe)
+        backupRepository = RepositoryCompatibilityTestHarness.appBackupRepository(rollbackProbe)
         val manifest = AppBackupManifest(
             createdAt = 1L,
             trigger = "rollback-test",
@@ -172,7 +175,7 @@ class AppBackupRepositoryCompatibilityTest {
             ),
         )
 
-        val result = AppBackupRepository.importBackup(
+        val result = backupRepository.importBackup(
             manifest = manifest,
             mode = AppBackupImportMode.REPLACE_ALL,
         )

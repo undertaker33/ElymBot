@@ -10,6 +10,8 @@ import org.junit.Test
 class PluginV2RuntimeHiltOwnershipContractTest {
 
     private val projectRoot: Path = detectProjectRoot()
+    private val pluginRuntimeModulePath =
+        "app-integration/src/main/java/com/astrbot/android/di/hilt/PluginRuntimeModule.kt"
 
     @Test
     fun plugin_v2_runtime_hotspots_are_constructor_owned_not_static_provider_owned() {
@@ -47,7 +49,7 @@ class PluginV2RuntimeHiltOwnershipContractTest {
 
     @Test
     fun hilt_module_provides_singleton_plugin_v2_runtime_graph() {
-        val hiltModule = productionFile("app/src/main/java/com/astrbot/android/di/hilt/PluginRuntimeModule.kt")
+        val hiltModule = productionFile(pluginRuntimeModulePath)
             .readText()
 
         val requiredProviders = listOf(
@@ -83,6 +85,7 @@ class PluginV2RuntimeHiltOwnershipContractTest {
     private fun productionKotlinFiles(): List<Path> {
         val roots = listOf(
             "app/src/main/java/com/astrbot/android",
+            "app-integration/src/main/java/com/astrbot/android",
             "feature/plugin/runtime/src/main/java/com/astrbot/android",
             "feature/chat/runtime/src/main/java/com/astrbot/android",
             "feature/qq/impl/src/main/java/com/astrbot/android",

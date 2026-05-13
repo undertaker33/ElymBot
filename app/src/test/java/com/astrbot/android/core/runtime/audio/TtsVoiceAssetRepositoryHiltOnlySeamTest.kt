@@ -9,7 +9,7 @@ class TtsVoiceAssetRepositoryHiltOnlySeamTest {
 
     private val projectRoot: Path = detectProjectRoot()
     private val sourceFile: Path = projectRoot.resolve(
-        "app/src/main/java/com/astrbot/android/core/runtime/audio/TtsVoiceAssetRepository.kt",
+        "feature/voiceasset/data/src/main/java/com/astrbot/android/feature/voiceasset/data/TtsVoiceAssetRepository.kt",
     )
 
     @Test
@@ -23,6 +23,10 @@ class TtsVoiceAssetRepositoryHiltOnlySeamTest {
         assertFalse(
             "TtsVoiceAssetRepository should no longer be the state-owning Kotlin object.",
             source.contains("object TtsVoiceAssetRepository"),
+        )
+        assertFalse(
+            "TtsVoiceAssetRepository must not keep graphInstance static forwarding.",
+            source.contains("graphInstance"),
         )
     }
 

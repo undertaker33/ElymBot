@@ -7,8 +7,8 @@ import com.astrbot.android.data.ProviderRepository
 import com.astrbot.android.feature.config.domain.ConfigRepositoryPort
 import com.astrbot.android.feature.provider.data.FeatureProviderRepository
 import com.astrbot.android.feature.provider.domain.ProviderRepositoryPort
-import com.astrbot.android.feature.provider.runtime.ProviderRuntimePort
-import com.astrbot.android.feature.provider.runtime.ProviderRuntimeSttProbeResult
+import com.astrbot.android.feature.provider.api.runtime.ProviderRuntimePort
+import com.astrbot.android.feature.provider.api.runtime.ProviderRuntimeSttProbeResult
 import org.junit.Assert.assertFalse
 import com.astrbot.android.model.ConfigProfile
 import com.astrbot.android.model.FeatureSupportState
@@ -322,7 +322,7 @@ class ProviderViewModelTest {
             sourceUri: android.net.Uri,
             name: String,
             assetId: String?,
-        ): com.astrbot.android.feature.provider.runtime.VoiceAssetImportResult {
+        ): com.astrbot.android.feature.provider.api.runtime.VoiceAssetImportResult {
             error("Not needed in test")
         }
 
@@ -343,7 +343,7 @@ class ProviderViewModelTest {
 
         override fun deleteVoiceBinding(assetId: String, bindingId: String) = Unit
 
-        override fun ttsAssetState(context: android.content.Context): com.astrbot.android.feature.provider.runtime.ProviderRuntimeTtsAssetState {
+        override fun ttsAssetState(context: android.content.Context): com.astrbot.android.feature.provider.api.runtime.ProviderRuntimeTtsAssetState {
             error("Not needed in test")
         }
 

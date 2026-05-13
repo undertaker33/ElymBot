@@ -4,14 +4,14 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.astrbot.android.feature.config.domain.ConfigRepositoryPort
 import com.astrbot.android.feature.provider.domain.ProviderRepositoryPort
-import com.astrbot.android.feature.provider.runtime.ProviderRuntimePort
+import com.astrbot.android.feature.provider.api.runtime.ProviderRuntimePort
 import com.astrbot.android.feature.config.domain.model.ConfigProfile
 import com.astrbot.android.feature.provider.domain.model.FeatureSupportState
 import com.astrbot.android.feature.provider.domain.model.ProviderCapability
 import com.astrbot.android.feature.provider.domain.model.ProviderProfile
 import com.astrbot.android.feature.provider.domain.model.ProviderType
 import com.astrbot.android.model.chat.ConversationAttachment
-import com.astrbot.android.feature.provider.runtime.ProviderRuntimeTtsAssetState
+import com.astrbot.android.feature.provider.api.runtime.ProviderRuntimeTtsAssetState
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineStart

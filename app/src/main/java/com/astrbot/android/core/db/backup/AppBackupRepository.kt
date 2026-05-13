@@ -1,7 +1,5 @@
 package com.astrbot.android.core.db.backup
 
-import com.astrbot.android.core.runtime.audio.TtsVoiceAssetRepository
-
 import android.content.Context
 import android.net.Uri
 import com.astrbot.android.core.backup.BackupParticipantRegistry
@@ -41,12 +39,14 @@ import com.astrbot.android.core.db.backup.toProviderProfile
 import com.astrbot.android.core.db.backup.toSavedAccounts
 import com.astrbot.android.core.db.backup.toTtsAsset
 import com.astrbot.android.core.db.backup.writeAppBackupZip
+import com.astrbot.android.feature.settings.api.backup.AppBackupDataPort
 import com.astrbot.android.model.BotProfile
 import com.astrbot.android.model.ConfigProfile
 import com.astrbot.android.model.PersonaProfile
 import com.astrbot.android.model.ProviderProfile
 import com.astrbot.android.model.SavedQqAccount
 import com.astrbot.android.feature.voiceasset.api.model.TtsVoiceReferenceAsset
+import com.astrbot.android.feature.voiceasset.api.TtsVoiceAssetPort
 import com.astrbot.android.model.chat.ConversationSession
 import com.astrbot.android.core.logging.SharedRuntimeLogStore
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -65,22 +65,24 @@ import java.time.LocalDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.UUID
-import java.util.concurrent.atomic.AtomicBoolean
 
 @Singleton
 class AppBackupService @Inject constructor(
     @ApplicationContext context: Context,
     dataPort: AppBackupDataPort,
+    ttsVoiceAssetPort: TtsVoiceAssetPort,
     private val participantRegistry: BackupParticipantRegistry,
 ) {
-    init {
-        AppBackupRepository.initialize(context, dataPort)
-    }
+    private val repository = AppBackupRepository(
+        context = context,
+        dataPort = dataPort,
+        ttsVoiceAssetPort = ttsVoiceAssetPort,
+    )
 
-    val backups: StateFlow<List<AppBackupItem>> = AppBackupRepository.backups
+    val backups: StateFlow<List<AppBackupItem>> = repository.backups
 
     fun backupsForModule(module: AppBackupModuleKind): StateFlow<List<ModuleBackupItem>> {
-        return AppBackupRepository.backupsForModule(module)
+        return repository.backupsForModule(module)
     }
 
     fun participantKeys(): List<String> {
@@ -88,25 +90,25 @@ class AppBackupService @Inject constructor(
     }
 
     suspend fun createBackup(trigger: String = "manual"): Result<AppBackupItem> {
-        return AppBackupRepository.createBackup(trigger)
+        return repository.createBackup(trigger)
     }
 
     suspend fun createModuleBackup(
         module: AppBackupModuleKind,
         trigger: String = "manual",
     ): Result<ModuleBackupItem> {
-        return AppBackupRepository.createModuleBackup(module, trigger)
+        return repository.createModuleBackup(module, trigger)
     }
 
     suspend fun deleteBackup(backupId: String): Result<Unit> {
-        return AppBackupRepository.deleteBackup(backupId)
+        return repository.deleteBackup(backupId)
     }
 
     suspend fun deleteModuleBackup(
         module: AppBackupModuleKind,
         backupId: String,
     ): Result<Unit> {
-        return AppBackupRepository.deleteModuleBackup(module, backupId)
+        return repository.deleteModuleBackup(module, backupId)
     }
 
     suspend fun exportBackupToUri(
@@ -114,7 +116,7 @@ class AppBackupService @Inject constructor(
         backupId: String,
         targetUri: Uri,
     ): Result<Unit> {
-        return AppBackupRepository.exportBackupToUri(context, backupId, targetUri)
+        return repository.exportBackupToUri(context, backupId, targetUri)
     }
 
     suspend fun exportModuleBackupToUri(
@@ -123,22 +125,22 @@ class AppBackupService @Inject constructor(
         backupId: String,
         targetUri: Uri,
     ): Result<Unit> {
-        return AppBackupRepository.exportModuleBackupToUri(context, module, backupId, targetUri)
+        return repository.exportModuleBackupToUri(context, module, backupId, targetUri)
     }
 
     suspend fun prepareImportFromBackup(backupId: String): Result<AppBackupImportSource> {
-        return AppBackupRepository.prepareImportFromBackup(backupId)
+        return repository.prepareImportFromBackup(backupId)
     }
 
     suspend fun prepareImportFromUri(context: Context, uri: Uri): Result<AppBackupImportSource> {
-        return AppBackupRepository.prepareImportFromUri(context, uri)
+        return repository.prepareImportFromUri(context, uri)
     }
 
     suspend fun prepareModuleImportFromBackup(
         module: AppBackupModuleKind,
         backupId: String,
     ): Result<ModuleBackupImportSource> {
-        return AppBackupRepository.prepareModuleImportFromBackup(module, backupId)
+        return repository.prepareModuleImportFromBackup(module, backupId)
     }
 
     suspend fun prepareModuleImportFromUri(
@@ -146,35 +148,33 @@ class AppBackupService @Inject constructor(
         module: AppBackupModuleKind,
         uri: Uri,
     ): Result<ModuleBackupImportSource> {
-        return AppBackupRepository.prepareModuleImportFromUri(context, module, uri)
+        return repository.prepareModuleImportFromUri(context, module, uri)
     }
 
     suspend fun importBackup(
         source: AppBackupImportSource,
         plan: AppBackupImportPlan,
     ): Result<AppBackupRestoreResult> {
-        return AppBackupRepository.importBackup(source, plan)
+        return repository.importBackup(source, plan)
     }
 
     suspend fun importModuleBackup(
         source: ModuleBackupImportSource,
         mode: AppBackupImportMode,
     ): Result<Int> {
-        return AppBackupRepository.importModuleBackup(source, mode)
+        return repository.importModuleBackup(source, mode)
     }
 }
 
-object AppBackupRepository {
-    private val initialized = AtomicBoolean(false)
+class AppBackupRepository(
+    context: Context,
+    private val dataPort: AppBackupDataPort,
+    private val ttsVoiceAssetPort: TtsVoiceAssetPort,
+) {
     private val timestampFormatter = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss")
-    @Volatile
-    private var dataPortOverrideForTests: AppBackupDataPort? = null
-    @Volatile
-    private var hiltDataPort: AppBackupDataPort? = null
-
-    private lateinit var appContext: Context
-    private lateinit var backupDirectory: File
-    private lateinit var moduleBackupRootDirectory: File
+    private val appContext: Context = context.applicationContext
+    private val backupDirectory: File = File(appContext.filesDir, "app-backups").apply { mkdirs() }
+    private val moduleBackupRootDirectory: File = File(appContext.filesDir, "module-backups").apply { mkdirs() }
 
     private val _backups = MutableStateFlow<List<AppBackupItem>>(emptyList())
     val backups: StateFlow<List<AppBackupItem>> = _backups.asStateFlow()
@@ -182,29 +182,13 @@ object AppBackupRepository {
         MutableStateFlow<List<ModuleBackupItem>>(emptyList())
     }
 
-    fun initialize(
-        context: Context,
-        dataPort: AppBackupDataPort = MissingAppBackupDataPort,
-    ) {
-        hiltDataPort = dataPort
-        if (!initialized.compareAndSet(false, true)) return
-        appContext = context.applicationContext
-        backupDirectory = File(appContext.filesDir, "app-backups").apply { mkdirs() }
-        moduleBackupRootDirectory = File(appContext.filesDir, "module-backups").apply { mkdirs() }
+    init {
         refreshBackups()
         refreshModuleBackups()
     }
 
     fun backupsForModule(module: AppBackupModuleKind): StateFlow<List<ModuleBackupItem>> {
         return moduleBackupFlows.getValue(module).asStateFlow()
-    }
-
-    internal fun setDataPortOverrideForTests(dataPort: AppBackupDataPort?) {
-        dataPortOverrideForTests = dataPort
-    }
-
-    internal fun hasDataPortOverrideForTests(): Boolean {
-        return dataPortOverrideForTests != null
     }
 
     suspend fun createBackup(trigger: String = "manual"): Result<AppBackupItem> = withContext(Dispatchers.IO) {
@@ -458,7 +442,6 @@ object AppBackupRepository {
     }
 
     private fun refreshBackups() {
-        if (!initialized.get()) return
         _backups.value = backupDirectory
             .listFiles { file ->
                 file.isFile && (
@@ -472,7 +455,6 @@ object AppBackupRepository {
     }
 
     private fun refreshModuleBackups(module: AppBackupModuleKind? = null) {
-        if (!initialized.get()) return
         val modules = module?.let(::listOf) ?: AppBackupModuleKind.entries
         modules.forEach { kind ->
             moduleBackupFlows.getValue(kind).value = resolveModuleBackupDirectory(kind)
@@ -552,7 +534,7 @@ object AppBackupRepository {
         val configProfiles = dataPort.snapshotConfigs()
         val conversations = dataPort.snapshotConversations()
         val externalState = dataPort.snapshotExternalState()
-        val ttsAssets = TtsVoiceAssetRepository.snapshotAssets()
+        val ttsAssets = resolveTtsVoiceAssetPort().snapshotAssets()
         return AppBackupManifest(
             createdAt = now,
             trigger = trigger,
@@ -665,8 +647,8 @@ object AppBackupRepository {
             AppBackupRestoreStage(
                 name = "ttsAssets",
                 shouldApply = current.ttsAssets != resolved.ttsAssets,
-                apply = { TtsVoiceAssetRepository.restoreAssets(resolved.ttsAssets) },
-                rollback = { TtsVoiceAssetRepository.restoreAssets(current.ttsAssets) },
+                apply = { resolveTtsVoiceAssetPort().restoreAssets(resolved.ttsAssets) },
+                rollback = { resolveTtsVoiceAssetPort().restoreAssets(current.ttsAssets) },
             ),
         )
 
@@ -832,7 +814,7 @@ object AppBackupRepository {
             conversations = dataPort.snapshotConversations(),
             quickLoginUin = externalState.quickLoginUin,
             savedAccounts = externalState.savedAccounts,
-            ttsAssets = TtsVoiceAssetRepository.snapshotAssets(),
+            ttsAssets = resolveTtsVoiceAssetPort().snapshotAssets(),
             appState = AppBackupAppState(
                 selectedBotId = externalState.selectedBotId,
                 selectedConfigId = externalState.selectedConfigId,
@@ -979,26 +961,11 @@ object AppBackupRepository {
     }
 
     private fun resolveDataPort(): AppBackupDataPort {
-        return dataPortOverrideForTests ?: hiltDataPort ?: MissingAppBackupDataPort
+        return dataPort
     }
 
-    private object MissingAppBackupDataPort : AppBackupDataPort {
-        private fun unavailable(): Nothing {
-            error("AppBackupRepository requires an injected AppBackupDataPort before use.")
-        }
-
-        override fun snapshotBots(): List<BotProfile> = unavailable()
-        override fun snapshotProviders(): List<ProviderProfile> = unavailable()
-        override fun snapshotPersonas(): List<PersonaProfile> = unavailable()
-        override fun snapshotConfigs(): List<ConfigProfile> = unavailable()
-        override fun snapshotConversations(): List<ConversationSession> = unavailable()
-        override fun snapshotExternalState(): AppBackupExternalState = unavailable()
-        override suspend fun restoreBots(profiles: List<BotProfile>, selectedBotId: String) = unavailable()
-        override fun restoreProviders(profiles: List<ProviderProfile>) = unavailable()
-        override fun restorePersonas(profiles: List<PersonaProfile>) = unavailable()
-        override fun restoreConfigs(profiles: List<ConfigProfile>, selectedConfigId: String) = unavailable()
-        override suspend fun restoreConversations(sessions: List<ConversationSession>) = unavailable()
-        override fun restoreQqLoginState(quickLoginUin: String, savedAccounts: List<SavedQqAccount>) = unavailable()
+    private fun resolveTtsVoiceAssetPort(): TtsVoiceAssetPort {
+        return ttsVoiceAssetPort
     }
 
     private fun ttsAssetToJson(asset: TtsVoiceReferenceAsset): JSONObject {

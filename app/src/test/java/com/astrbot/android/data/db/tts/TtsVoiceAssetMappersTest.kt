@@ -4,8 +4,8 @@ import com.astrbot.android.data.db.TtsVoiceAssetAggregate
 import com.astrbot.android.data.db.TtsVoiceAssetEntity
 import com.astrbot.android.data.db.TtsVoiceClipEntity
 import com.astrbot.android.data.db.TtsVoiceProviderBindingEntity
-import com.astrbot.android.data.db.toModel
-import com.astrbot.android.data.db.toWriteModel
+import com.astrbot.android.feature.voiceasset.data.toModel
+import com.astrbot.android.feature.voiceasset.data.toWriteModel
 import com.astrbot.android.feature.voiceasset.api.model.ClonedVoiceBinding
 import com.astrbot.android.model.ProviderType
 import com.astrbot.android.feature.voiceasset.api.model.TtsVoiceReferenceAsset

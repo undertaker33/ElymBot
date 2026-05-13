@@ -40,7 +40,8 @@ class ToolJsonValueNormalizerTest {
 
         assertTrue(
             ":core:runtime-tool must be a pure Kotlin/JVM module so runtime-context can reuse ToolJsonValueNormalizer.",
-            runtimeToolBuild.contains("org.jetbrains.kotlin.jvm") &&
+            (runtimeToolBuild.contains("org.jetbrains.kotlin.jvm") ||
+                runtimeToolBuild.contains("elymbot.kotlin.jvm")) &&
                 !runtimeToolBuild.contains("com.android.library") &&
                 !runtimeToolBuild.contains("org.jetbrains.kotlin.android") &&
                 !runtimeToolBuild.contains("android {") &&

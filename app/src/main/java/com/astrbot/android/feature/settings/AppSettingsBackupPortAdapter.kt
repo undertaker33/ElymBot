@@ -17,10 +17,10 @@ import com.astrbot.android.core.db.backup.AppBackupService
 import com.astrbot.android.core.db.backup.ConversationBackupItem
 import com.astrbot.android.core.db.backup.ConversationBackupService
 import com.astrbot.android.core.db.backup.ConversationBackupSettings
-import com.astrbot.android.core.db.backup.ConversationImportResult
 import com.astrbot.android.core.db.backup.ConversationImportSource
 import com.astrbot.android.core.db.backup.ModuleBackupImportSource
 import com.astrbot.android.core.db.backup.ModuleBackupItem
+import com.astrbot.android.feature.settings.api.backup.ConversationImportResult
 import com.astrbot.android.feature.settings.api.SettingsAppBackupConflictPreview
 import com.astrbot.android.feature.settings.api.SettingsAppBackupImportMode
 import com.astrbot.android.feature.settings.api.SettingsAppBackupImportPlan

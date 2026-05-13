@@ -22,7 +22,6 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import com.astrbot.android.R
-import com.astrbot.android.feature.config.data.FeatureConfigRepository as ConfigRepository
 import com.astrbot.android.feature.resource.presentation.ResourceCenterViewModel
 import com.astrbot.android.feature.settings.api.SettingsBackupModuleKind
 import com.astrbot.android.model.BotProfile
@@ -78,6 +77,7 @@ import com.astrbot.android.ui.settings.SettingsHubScreen
 import com.astrbot.android.ui.settings.SettingsScreen
 import com.astrbot.android.ui.common.SubPageScaffold
 import com.astrbot.android.ui.viewmodel.ChatViewModel
+import com.astrbot.android.ui.viewmodel.ConfigViewModel
 import com.astrbot.android.ui.viewmodel.QQLoginViewModel
 
 @Composable
@@ -418,7 +418,10 @@ internal fun AstrBotAppNavGraph(
                 )
             } else {
                 val resourceCenterViewModel: ResourceCenterViewModel = hiltViewModel()
+                val configViewModel: ConfigViewModel = hiltViewModel()
                 val repositoryResources by resourceCenterViewModel.resources.collectAsState()
+                val configProfiles by configViewModel.configProfiles.collectAsState()
+                val selectedConfigProfileId by configViewModel.selectedConfigProfileId.collectAsState()
                 val controller = resourceCenterViewModel.controller
                 ResourceListScreen(
                     kind = kind,
@@ -426,7 +429,12 @@ internal fun AstrBotAppNavGraph(
                     onBack = { AppNavigator.back(navController) },
                     onAddResource = { resource ->
                         val savedResource = controller.saveResource(resource)
-                        val selectedConfigId = ConfigRepository.resolveExistingId(ConfigRepository.selectedProfileId.value)
+                        val selectedConfigId = configProfiles
+                            .firstOrNull { profile -> profile.id == selectedConfigProfileId }
+                            ?.id
+                            ?: configProfiles.firstOrNull()?.id
+                            ?: selectedConfigProfileId.takeIf(String::isNotBlank)
+                            ?: "default"
                         val nextSortIndex = controller.projectionsForConfig(selectedConfigId)
                             .count { projection -> projection.kind == savedResource.kind }
                         controller.setProjection(

@@ -8,8 +8,6 @@ import com.astrbot.android.feature.chat.domain.AppChatRuntimePort
 import com.astrbot.android.feature.conversation.domain.ConversationRepositoryPort
 import com.astrbot.android.feature.chat.domain.SendAppMessageUseCase
 import com.astrbot.android.feature.chat.presentation.AppChatSendHandler
-import com.astrbot.android.feature.chat.runtime.AppChatRuntimeBindings
-import com.astrbot.android.feature.chat.runtime.AppChatPluginCommandService
 import com.astrbot.android.feature.config.domain.model.ConfigProfile
 import com.astrbot.android.feature.persona.domain.model.PersonaProfile
 import com.astrbot.android.feature.plugin.domain.runtime.AppChatPluginRuntime
@@ -20,7 +18,40 @@ import com.astrbot.android.model.chat.ConversationSession
 import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.flow.StateFlow
 
-interface ChatViewModelRuntimeBindings : AppChatRuntimeBindings {
+enum class ChatPluginTrigger {
+    BeforeSendMessage,
+    AfterModelResponse,
+}
+
+interface ChatPluginCommandPort {
+    fun isUnsupportedPluginCommand(content: String): Boolean
+
+    fun handlePluginCommand(
+        session: ConversationSession,
+        bot: BotProfile,
+        content: String,
+        provider: ProviderProfile?,
+        personaId: String,
+        languageTag: String,
+    ): Boolean
+
+    fun dispatchPlugins(
+        trigger: ChatPluginTrigger,
+        session: ConversationSession,
+        message: ConversationMessage,
+        provider: ProviderProfile,
+        bot: BotProfile?,
+        personaId: String,
+        config: ConfigProfile?,
+        suppressV2CommandStage: Boolean = false,
+    ): Boolean
+}
+
+interface ChatViewModelRuntimeBindings {
+    val bots: StateFlow<List<BotProfile>>
+    val providers: StateFlow<List<ProviderProfile>>
+    val runtimeContextResolverPort: RuntimeContextResolverPort
+
     val defaultSessionId: String
     val defaultSessionTitle: String
     val defaultAppChatPluginRuntime: AppChatPluginRuntime
@@ -30,6 +61,8 @@ interface ChatViewModelRuntimeBindings : AppChatRuntimeBindings {
     val personas: StateFlow<List<PersonaProfile>>
 
     fun createSession(botId: String): ConversationSession
+
+    fun session(sessionId: String): ConversationSession
 
     fun deleteSession(sessionId: String)
 
@@ -51,6 +84,15 @@ interface ChatViewModelRuntimeBindings : AppChatRuntimeBindings {
     )
 
     fun syncSystemSessionTitle(sessionId: String, title: String)
+
+    fun resolveConfig(profileId: String): ConfigProfile
+
+    fun appendMessage(
+        sessionId: String,
+        role: String,
+        content: String,
+        attachments: List<ConversationAttachment> = emptyList(),
+    ): String
 
     fun saveConfig(profile: ConfigProfile)
 
@@ -79,6 +121,35 @@ interface ChatViewModelRuntimeBindings : AppChatRuntimeBindings {
 
     suspend fun <T> withSessionLock(sessionId: String, block: suspend () -> T): T
 
+    suspend fun sendConfiguredChatWithTools(
+        provider: ProviderProfile,
+        messages: List<ConversationMessage>,
+        systemPrompt: String?,
+        config: ConfigProfile?,
+        availableProviders: List<ProviderProfile>,
+        tools: List<LlmToolDefinition>,
+    ): LlmInvocationResult
+
+    suspend fun sendConfiguredChatStreamWithTools(
+        provider: ProviderProfile,
+        messages: List<ConversationMessage>,
+        systemPrompt: String?,
+        config: ConfigProfile?,
+        availableProviders: List<ProviderProfile>,
+        tools: List<LlmToolDefinition>,
+        onDelta: suspend (String) -> Unit,
+        onToolCallDelta: suspend (index: Int, name: String, argumentsFragment: String) -> Unit,
+    ): LlmInvocationResult
+
+    suspend fun synthesizeSpeech(
+        provider: ProviderProfile,
+        text: String,
+        voiceId: String,
+        readBracketedContent: Boolean,
+    ): ConversationAttachment
+
+    fun log(message: String)
+
     val conversationRepositoryPort: ConversationRepositoryPort
     val appChatRuntimePort: AppChatRuntimePort
     val chatSessionController: ChatSessionController
@@ -91,7 +162,7 @@ interface ChatViewModelRuntimeBindings : AppChatRuntimeBindings {
 
     fun createAppChatPluginCommandService(
         appChatPluginRuntime: AppChatPluginRuntime,
-    ): AppChatPluginCommandService
+    ): ChatPluginCommandPort
 }
 
 

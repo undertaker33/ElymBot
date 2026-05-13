@@ -1,4 +1,6 @@
 pluginManagement {
+    includeBuild("build-logic")
+
     repositories {
         google()
         mavenCentral()
@@ -17,6 +19,7 @@ dependencyResolutionManagement {
 rootProject.name = "AstrBotAndroidNative"
 include(":app")
 include(":app-integration")
+include(":architecture-tests")
 include(":core:common")
 include(":core:backup")
 include(":core:db")
@@ -67,6 +70,7 @@ include(":feature:provider:api")
 include(":feature:provider:data")
 include(":feature:provider:impl")
 include(":feature:provider:presentation")
+include(":feature:provider:runtime")
 include(":feature:qq:api")
 include(":feature:qq:data")
 include(":feature:qq:impl")
@@ -79,3 +83,5 @@ include(":feature:resource:presentation")
 include(":feature:settings:api")
 include(":feature:settings:presentation")
 include(":feature:voiceasset:api")
+include(":feature:voiceasset:data")
+include(":feature:voiceasset:presentation")

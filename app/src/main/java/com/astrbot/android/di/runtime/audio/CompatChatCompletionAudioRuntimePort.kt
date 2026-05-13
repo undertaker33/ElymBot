@@ -8,6 +8,7 @@ import com.astrbot.android.core.runtime.audio.AudioRuntimePort
 import com.astrbot.android.core.runtime.audio.AudioSttProbeResult
 import com.astrbot.android.core.runtime.audio.SherpaOnnxBridge
 import com.astrbot.android.core.runtime.llm.ChatCompletionService
+import com.astrbot.android.feature.voiceasset.api.TtsVoiceAssetPort
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 
@@ -20,6 +21,7 @@ import javax.inject.Inject
  */
 internal class CompatChatCompletionAudioRuntimePort @Inject constructor(
     @ApplicationContext appContext: Context,
+    private val ttsVoiceAssetPort: TtsVoiceAssetPort,
 ) : AudioRuntimePort {
     private val appContext = appContext.applicationContext
 
@@ -59,6 +61,7 @@ internal class CompatChatCompletionAudioRuntimePort @Inject constructor(
             text = text,
             voiceId = voiceId,
             readBracketedContent = readBracketedContent,
+            voiceChoicesProvider = { profile -> ttsVoiceAssetPort.listVoiceChoicesFor(profile.id) },
         ).toAudioConversationAttachment()
     }
 

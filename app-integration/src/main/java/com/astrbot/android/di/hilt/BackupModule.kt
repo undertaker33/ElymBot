@@ -5,10 +5,10 @@ import com.astrbot.android.core.backup.BackupParticipantCoverage
 import com.astrbot.android.core.backup.BackupParticipantRegistry
 import com.astrbot.android.core.backup.BackupParticipantRestoreResult
 import com.astrbot.android.core.backup.BackupParticipantSnapshot
-import com.astrbot.android.core.db.backup.AppBackupDataPort
-import com.astrbot.android.core.db.backup.ConversationBackupDataPort
 import com.astrbot.android.di.HiltAppBackupDataPort
 import com.astrbot.android.di.HiltConversationBackupDataPort
+import com.astrbot.android.feature.settings.api.backup.AppBackupDataPort
+import com.astrbot.android.feature.settings.api.backup.ConversationBackupDataPort
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn

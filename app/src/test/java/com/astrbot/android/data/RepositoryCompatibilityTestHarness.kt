@@ -2,10 +2,9 @@ package com.astrbot.android.data
 
 import android.content.SharedPreferences
 import android.content.ContextWrapper
-import com.astrbot.android.core.db.backup.AppBackupDataPort
-import com.astrbot.android.core.db.backup.AppBackupExternalState
 import com.astrbot.android.core.db.backup.AppBackupRepository
-import com.astrbot.android.core.runtime.audio.TtsVoiceAssetRepository
+import com.astrbot.android.feature.settings.api.backup.AppBackupDataPort
+import com.astrbot.android.feature.settings.api.backup.AppBackupExternalState
 import com.astrbot.android.data.db.TtsVoiceAssetAggregate
 import com.astrbot.android.data.db.TtsVoiceAssetAggregateDao
 import com.astrbot.android.data.db.TtsVoiceAssetEntity
@@ -13,6 +12,7 @@ import com.astrbot.android.data.db.TtsVoiceAssetWriteModel
 import com.astrbot.android.data.db.TtsVoiceClipEntity
 import com.astrbot.android.data.db.TtsVoiceProviderBindingEntity
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimeCompatRepositoryHarness
+import com.astrbot.android.feature.voiceasset.data.TtsVoiceAssetRepository
 import com.astrbot.android.model.BotProfile
 import com.astrbot.android.model.ConfigProfile
 import com.astrbot.android.model.PersonaProfile
@@ -29,7 +29,6 @@ internal object RepositoryCompatibilityTestHarness {
 
     fun ensureInstalled() {
         if (installed) {
-            installBackupPortOverrideIfAbsent()
             return
         }
         if (installing) return
@@ -38,33 +37,26 @@ internal object RepositoryCompatibilityTestHarness {
             PluginRuntimeCompatRepositoryHarness.ensureInstalled()
             installing = false
             installed = true
-            installBackupPortOverrideIfAbsent()
         } finally {
             installing = false
         }
     }
 
-    private fun installBackupPortOverrideIfAbsent() {
-        installTtsAssetRepositoryForBackupTests()
-        if (!AppBackupRepository.hasDataPortOverrideForTests()) {
-            AppBackupRepository.setDataPortOverrideForTests(CompatibilityAppBackupDataPort)
-        }
+    fun appBackupRepository(
+        dataPort: AppBackupDataPort = CompatibilityAppBackupDataPort,
+    ): AppBackupRepository {
+        return AppBackupRepository(
+            context = CompatibilityContext,
+            dataPort = dataPort,
+            ttsVoiceAssetPort = ttsAssetRepositoryForBackupTests(),
+        )
     }
 
-    private fun installTtsAssetRepositoryForBackupTests() {
-        val existing = runCatching { TtsVoiceAssetRepository.snapshotAssets() }.getOrNull()
-        if (existing != null) return
-        val repository = TtsVoiceAssetRepository(
+    private fun ttsAssetRepositoryForBackupTests(): TtsVoiceAssetRepository {
+        return TtsVoiceAssetRepository(
             appContext = CompatibilityContext,
             assetDao = InMemoryTtsVoiceAssetAggregateDao(),
         )
-        val field = runCatching {
-            TtsVoiceAssetRepository::class.java.getDeclaredField("graphInstance")
-        }.getOrElse {
-            TtsVoiceAssetRepository.Companion::class.java.getDeclaredField("graphInstance")
-        }
-        field.isAccessible = true
-        field.set(TtsVoiceAssetRepository.Companion, repository)
     }
 }
 
@@ -139,6 +131,8 @@ private fun waitUntilCompat(
 private object CompatibilityContext : ContextWrapper(null) {
     private val root = File(System.getProperty("java.io.tmpdir"), "elymbot-compat-context").apply { mkdirs() }
     private val preferences = mutableMapOf<String, SharedPreferences>()
+
+    override fun getApplicationContext(): ContextWrapper = this
 
     override fun getFilesDir(): File = root
 

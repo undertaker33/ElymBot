@@ -24,7 +24,7 @@ class CronResourceContractTest {
     @Test
     fun active_capability_runtime_code_keeps_large_user_facing_prompts_in_resources() {
         val provider = productionFile(
-            "feature/plugin/impl/src/main/java/com/astrbot/android/feature/plugin/runtime/toolsource/ActiveCapabilityToolSourceProvider.kt",
+            "feature/plugin/runtime/src/main/java/com/astrbot/android/feature/plugin/runtime/toolsource/ActiveCapabilityToolSourceProvider.kt",
         ).readText()
         val fallbackResponder = productionFile(
             "feature/cron/runtime/src/main/java/com/astrbot/android/feature/cron/runtime/ScheduledTaskIntentFallbackResponder.kt",
