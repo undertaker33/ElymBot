@@ -73,15 +73,17 @@ class ModuleDependencyGraphContractTest {
         ":feature:plugin:runtime",
     )
 
-    private val phase23AppShellAllowedTransitionalDependencies = mapOf(
-        ":feature:voiceasset:api" to TransitionalDependency(
-            owner = "feature-voiceasset",
-            target = "phase-25 voiceasset data/presentation split",
-            reason = "Voice asset UI still keeps an app compatibility entry until the dedicated data/presentation split lands.",
-            expires = "phase-25",
-            issue = "module-split-phase-25",
-        ),
+    private val phase25Modules = listOf(
+        ":feature:provider:runtime",
+        ":feature:voiceasset:data",
+        ":feature:voiceasset:presentation",
     )
+
+    private val phase26ArchitectureTestModules = listOf(
+        ":architecture-tests",
+    )
+
+    private val phase23AppShellAllowedTransitionalDependencies = emptyMap<String, TransitionalDependency>()
 
     private val phase23ForbiddenAppShellDependencies = listOf(
         ":download:impl",
@@ -94,6 +96,17 @@ class ModuleDependencyGraphContractTest {
         ":feature:qq:data",
         ":feature:qq:impl",
         ":feature:qq:runtime",
+    )
+
+    private val phase25ForbiddenAppShellDependencies = listOf(
+        ":feature:bot:data",
+        ":feature:chat:runtime",
+        ":feature:config:data",
+        ":feature:conversation:data",
+        ":feature:persona:data",
+        ":feature:provider:data",
+        ":feature:provider:runtime",
+        ":feature:voiceasset:data",
     )
 
     @Test
@@ -149,6 +162,43 @@ class ModuleDependencyGraphContractTest {
     }
 
     @Test
+    fun phase25_voiceasset_and_provider_runtime_modules_must_be_registered_in_settings() {
+        val text = settingsFile.readText(UTF_8)
+        val missing = phase25Modules.filterNot { module ->
+            text.contains("""include("$module")""")
+        }
+
+        assertTrue(
+            "Phase 25 voiceasset/provider runtime modules must be registered in settings.gradle.kts: $missing",
+            missing.isEmpty(),
+        )
+    }
+
+    @Test
+    fun phase26_architecture_tests_module_must_be_registered_in_settings() {
+        val text = settingsFile.readText(UTF_8)
+        val missing = phase26ArchitectureTestModules.filterNot { module ->
+            text.contains("""include("$module")""")
+        }
+
+        assertTrue(
+            "Phase 26 architecture test modules must be registered in settings.gradle.kts: $missing",
+            missing.isEmpty(),
+        )
+    }
+
+    @Test
+    fun architecture_check_must_run_independent_architecture_tests_module() {
+        val text = rootBuildFile.readText(UTF_8)
+
+        assertTrue(
+            "architectureCheck must run :architecture-tests:test after Phase 26-A.",
+            text.contains("""dependsOn(":architecture-tests:test")""") ||
+                text.contains("""dependsOn(project(":architecture-tests").tasks.named("test"))"""),
+        )
+    }
+
+    @Test
     fun phase22_plugin_modules_must_be_in_architecture_source_roots() {
         val text = rootBuildFile.readText(UTF_8)
         val missing = phase22PluginModules
@@ -157,6 +207,19 @@ class ModuleDependencyGraphContractTest {
 
         assertTrue(
             "Phase 22 plugin module source roots must be scanned by architecture contracts: $missing",
+            missing.isEmpty(),
+        )
+    }
+
+    @Test
+    fun phase25_voiceasset_and_provider_runtime_modules_must_be_in_architecture_source_roots() {
+        val text = rootBuildFile.readText(UTF_8)
+        val missing = phase25Modules
+            .map(::sourceRootForModule)
+            .filterNot { sourceRoot -> text.contains("\"$sourceRoot\"") }
+
+        assertTrue(
+            "Phase 25 voiceasset/provider runtime module source roots must be scanned by architecture contracts: $missing",
             missing.isEmpty(),
         )
     }
@@ -224,6 +287,40 @@ class ModuleDependencyGraphContractTest {
         assertTrue(
             "Phase 23 app shell must move split feature data/runtime and core runtime implementation dependencies behind app-integration: $splitDataRuntimeDependencies",
             splitDataRuntimeDependencies.isEmpty(),
+        )
+    }
+
+    @Test
+    fun phase25_app_shell_must_not_keep_feature_data_or_runtime_dependencies() {
+        val dependencies = projectDependencies(appBuildFile)
+        val forbiddenDependencies = phase25ForbiddenAppShellDependencies.filter(dependencies::contains)
+
+        assertTrue(
+            "Phase 25 app shell must not directly depend on feature data/runtime modules; move wiring behind :app-integration or owner modules: $forbiddenDependencies",
+            forbiddenDependencies.isEmpty(),
+        )
+    }
+
+    @Test
+    fun phase25_app_shell_hilt_and_navigation_must_not_import_feature_implementation_packages() {
+        val sourceRoots = listOf(
+            projectRoot.resolve("app/src/main/java/com/astrbot/android/di/hilt"),
+            projectRoot.resolve("app/src/main/java/com/astrbot/android/di/startup"),
+            projectRoot.resolve("app/src/main/java/com/astrbot/android/ui/navigation"),
+        )
+        val forbiddenReferencePattern = Regex(
+            """(?:import\s+)?com\.astrbot\.android\.feature\.[A-Za-z0-9_]+\.(data|runtime|impl)(?:\.|\s)""",
+        )
+        val violations = sourceRoots
+            .flatMap(::kotlinFilesUnder)
+            .flatMap { file ->
+                forbiddenReferencePattern.findAll(file.readText(UTF_8))
+                    .map { match -> "${relativePath(file)} -> ${match.value.trim()}" }
+            }
+
+        assertTrue(
+            "Phase 25 app shell Hilt/startup/navigation glue must depend on feature api/presentation contracts, not data/runtime/impl packages: $violations",
+            violations.isEmpty(),
         )
     }
 
@@ -324,6 +421,24 @@ class ModuleDependencyGraphContractTest {
         )
     }
 
+    @Test
+    fun api_configurations_must_not_expose_feature_data_runtime_or_impl_modules() {
+        val buildFiles = buildFilesUnder(projectRoot.resolve("feature"))
+            .filter { file -> relativePath(file).contains("/api/build.gradle.kts") } +
+            listOf(appIntegrationBuildFile).filter { it.exists() }
+        val forbiddenApiExposurePattern =
+            Regex("""api\(project\(":feature:[^"]+:(?:data|runtime|impl|presentation)"\)\)""")
+        val violations = buildFiles.flatMap { file ->
+            forbiddenApiExposurePattern.findAll(file.readText(UTF_8))
+                .map { match -> "${relativePath(file)} -> ${match.value}" }
+        }
+
+        assertTrue(
+            "API configurations must not expose feature data/runtime/impl/presentation modules; feature API fan-out remains a later 26-B/26-C cleanup: $violations",
+            violations.isEmpty(),
+        )
+    }
+
     private fun buildFilesUnder(root: Path): List<Path> {
         if (!root.exists()) {
             return emptyList()
@@ -332,6 +447,18 @@ class ModuleDependencyGraphContractTest {
         return Files.walk(root).use { stream ->
             stream
                 .filter { path -> path.isRegularFile() && path.fileName.toString() == "build.gradle.kts" }
+                .toList()
+        }
+    }
+
+    private fun kotlinFilesUnder(root: Path): List<Path> {
+        if (!root.exists()) {
+            return emptyList()
+        }
+
+        return Files.walk(root).use { stream ->
+            stream
+                .filter { path -> path.isRegularFile() && path.fileName.toString().endsWith(".kt") }
                 .toList()
         }
     }
@@ -346,7 +473,7 @@ class ModuleDependencyGraphContractTest {
 
     private fun projectDependencies(buildFile: Path): List<String> {
         val text = buildFile.readText(UTF_8)
-        return Regex("""(?:api|implementation)\(project\("([^"]+)"\)\)""")
+        return Regex("""(?:api|implementation|compileOnly|runtimeOnly)\(project\("([^"]+)"\)\)""")
             .findAll(text)
             .map { match -> match.groupValues[1] }
             .toList()

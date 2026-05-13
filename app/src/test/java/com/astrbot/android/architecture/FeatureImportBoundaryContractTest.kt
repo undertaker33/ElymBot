@@ -13,38 +13,13 @@ class FeatureImportBoundaryContractTest {
 
     private val projectRoot: Path = detectProjectRoot()
     private val mainRoot: Path = projectRoot.resolve("app/src/main/java/com/astrbot/android")
-    private val productionSourceRoots: List<Path> = listOf(
-        "app/src/main/java/com/astrbot/android",
-        "feature/bot/data/src/main/java/com/astrbot/android",
-        "feature/bot/impl/src/main/java/com/astrbot/android",
-        "feature/chat/api/src/main/java/com/astrbot/android",
-        "feature/chat/impl/src/main/java/com/astrbot/android",
-        "feature/config/data/src/main/java/com/astrbot/android",
-        "feature/config/impl/src/main/java/com/astrbot/android",
-        "feature/cron/impl/src/main/java/com/astrbot/android",
-        "feature/persona/data/src/main/java/com/astrbot/android",
-        "feature/persona/impl/src/main/java/com/astrbot/android",
-        "feature/plugin/data/src/main/java/com/astrbot/android",
-        "feature/plugin/presentation/src/main/java/com/astrbot/android",
-        "feature/plugin/runtime/src/main/java/com/astrbot/android",
-        "feature/provider/api/src/main/java/com/astrbot/android",
-        "feature/provider/data/src/main/java/com/astrbot/android",
-        "feature/provider/impl/src/main/java/com/astrbot/android",
-        "feature/qq/data/src/main/java/com/astrbot/android",
-        "feature/qq/impl/src/main/java/com/astrbot/android",
-        "feature/qq/presentation/src/main/java/com/astrbot/android",
-        "feature/qq/runtime/src/main/java/com/astrbot/android",
-        "feature/resource/data/src/main/java/com/astrbot/android",
-        "feature/resource/impl/src/main/java/com/astrbot/android",
-        "feature/settings/api/src/main/java/com/astrbot/android",
-        "feature/settings/presentation/src/main/java/com/astrbot/android",
-        "feature/voiceasset/api/src/main/java/com/astrbot/android",
-    ).map(projectRoot::resolve).filter { root -> root.exists() }
+    private val scannedSegments = setOf("api", "data", "runtime", "presentation", "impl", "domain")
+    private val productionSourceRoots: List<Path> = (listOf(mainRoot) + discoverFeatureSourceRoots())
+        .filter { root -> root.exists() }
     private val allowlistFile: Path =
         projectRoot.resolve("app/src/test/resources/architecture/feature-import-allowlist.txt")
 
     private val allowlist: FeatureImportAllowlist = loadAllowlist()
-    private val scannedSegments = setOf("api", "data", "runtime", "presentation", "domain")
 
     @Test
     fun allowlist_file_must_exist_and_be_well_formed() {
@@ -106,13 +81,43 @@ class FeatureImportBoundaryContractTest {
     }
 
     @Test
-    fun feature_modules_must_not_add_unallowlisted_cross_feature_data_or_domain_imports() {
+    fun feature_scan_roots_must_cover_all_current_feature_source_roots() {
+        val scannedRoots = featureScanRoots()
+            .map { scanRoot -> scanRoot.root }
+            .toSet()
+        val missingRoots = discoverFeatureSourceRoots()
+            .filterNot { expectedRoot -> expectedRoot in scannedRoots }
+            .map { missingRoot -> projectRoot.relativize(missingRoot).toString().replace('\\', '/') }
+
+        assertTrue(
+            "Feature import scan must cover every current feature source root: $missingRoots",
+            missingRoots.isEmpty(),
+        )
+    }
+
+    @Test
+    fun feature_modules_must_not_add_unallowlisted_forbidden_feature_imports() {
         val violations = findForbiddenFeatureImports()
             .filterNot { usage -> allowlist.isAllowed(usage.path, usage.forbiddenImport) }
 
         assertTrue(
-            "Feature modules must not add unallowlisted cross-feature data imports or domain imports. Found: $violations",
+            "Feature modules must not add unallowlisted forbidden feature imports. Found: $violations",
             violations.isEmpty(),
+        )
+    }
+
+    @Test
+    fun provider_presentation_must_not_import_legacy_provider_runtime_package() {
+        val forbiddenImport = forbiddenImportOrNull(
+            line = "import com.astrbot.android.feature.provider.runtime.ProviderRuntimePort",
+            path = "feature/provider/presentation/src/main/java/com/astrbot/android/feature/provider/presentation/ProviderViewModel.kt",
+            sourceFeature = "provider",
+            sourceSegment = "presentation",
+        )
+
+        assertTrue(
+            "Provider presentation must reject imports from the legacy provider runtime package.",
+            forbiddenImport != null,
         )
     }
 
@@ -143,19 +148,22 @@ class FeatureImportBoundaryContractTest {
         val targetFeature = match.groupValues[1]
         val targetRemainder = match.groupValues[2]
 
-        if (targetFeature == sourceFeature) {
-            return null
-        }
-        if (isIntentionalCrossFeatureApiImport(
+        val targetSegment = targetRemainder.substringBefore('.')
+        val forbidden = when {
+            sourceSegment == "api" && targetSegment in forbiddenApiTargetSegments -> true
+            sourceSegment == "runtime" && targetSegment == "presentation" -> true
+            sourceSegment == "presentation" &&
+                targetSegment in forbiddenPresentationTargetSegments &&
+                (targetFeature != sourceFeature || sourceFeature == "provider") -> true
+            isIntentionalCrossFeatureApiImport(
                 sourceFeature = sourceFeature,
                 targetFeature = targetFeature,
                 targetRemainder = targetRemainder,
-            )
-        ) {
-            return null
+            ) -> false
+            targetFeature == sourceFeature -> false
+            sourceSegment == "domain" -> true
+            else -> false
         }
-
-        val forbidden = targetRemainder.startsWith("data.") || sourceSegment == "domain"
         return if (forbidden) {
             ForbiddenFeatureImport(
                 path = path,
@@ -229,6 +237,27 @@ class FeatureImportBoundaryContractTest {
         }.distinctBy { scanRoot -> scanRoot.root }
     }
 
+    private fun discoverFeatureSourceRoots(): List<Path> {
+        val featureRoot = projectRoot.resolve("feature")
+        if (!featureRoot.exists()) {
+            return emptyList()
+        }
+
+        return Files.list(featureRoot).use { featureStream ->
+            featureStream
+                .filter { path -> path.isDirectory() }
+                .flatMap { featureDirectory ->
+                    scannedSegments
+                        .map { segment ->
+                            featureDirectory.resolve(segment).resolve("src/main/java/com/astrbot/android")
+                        }
+                        .filter { sourceRoot -> sourceRoot.exists() }
+                        .stream()
+                }
+                .toList()
+        }
+    }
+
     private fun featureModuleScanRootOrNull(sourceRoot: Path): FeatureScanRoot? {
         val relativeRoot = projectRoot.relativize(sourceRoot).map { path -> path.toString() }
         val featureIndex = relativeRoot.indexOf("feature")
@@ -261,13 +290,14 @@ class FeatureImportBoundaryContractTest {
     }
 
     private fun relativePath(file: Path): String {
-        val sourceRoot = productionSourceRoots.firstOrNull { root -> file.startsWith(root) }
-            ?: error("File $file is not under configured production source roots")
-        return sourceRoot.relativize(file).toString().replace('\\', '/')
+        val projectRelative = projectRoot.relativize(file).toString().replace('\\', '/')
+        return projectRelative.removePrefix("app/src/main/java/com/astrbot/android/")
     }
 
     private fun productionFileExists(relativePath: String): Boolean {
-        return productionSourceRoots.any { sourceRoot -> sourceRoot.resolve(relativePath).exists() }
+        return projectRoot.resolve(relativePath).exists() ||
+            mainRoot.resolve(relativePath).exists() ||
+            productionSourceRoots.any { sourceRoot -> sourceRoot.resolve(relativePath).exists() }
     }
 
     private fun detectProjectRoot(): Path {
@@ -313,6 +343,8 @@ class FeatureImportBoundaryContractTest {
     private companion object {
         private val featureImportRegex =
             Regex("""import\s+com\.astrbot\.android\.feature\.([A-Za-z0-9_]+)\.(.+)""")
+        private val forbiddenApiTargetSegments = setOf("data", "runtime", "presentation", "impl")
+        private val forbiddenPresentationTargetSegments = setOf("data", "runtime", "impl")
 
         private fun isIntentionalCrossFeatureApiImport(
             sourceFeature: String,

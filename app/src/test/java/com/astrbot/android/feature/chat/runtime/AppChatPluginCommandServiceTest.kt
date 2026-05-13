@@ -21,7 +21,6 @@ import com.astrbot.android.model.chat.MessageType
 import com.astrbot.android.model.plugin.HostActionRequest
 import com.astrbot.android.model.plugin.PluginExecutionContext
 import com.astrbot.android.model.plugin.PluginTriggerSource
-import com.astrbot.android.ui.viewmodel.ChatViewModelRuntimeBindings
 import java.lang.reflect.Proxy
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -114,13 +113,13 @@ class AppChatPluginCommandServiceTest {
         ) as PluginMessageEvent
     }
 
-    private fun unsupportedBindingsProxy(): ChatViewModelRuntimeBindings {
+    private fun unsupportedBindingsProxy(): AppChatRuntimeBindings {
         return Proxy.newProxyInstance(
-            ChatViewModelRuntimeBindings::class.java.classLoader,
-            arrayOf(ChatViewModelRuntimeBindings::class.java),
+            AppChatRuntimeBindings::class.java.classLoader,
+            arrayOf(AppChatRuntimeBindings::class.java),
         ) { _, method, _ ->
-            throw UnsupportedOperationException("Unexpected ChatViewModelRuntimeBindings call: ${method.name}")
-        } as ChatViewModelRuntimeBindings
+            throw UnsupportedOperationException("Unexpected AppChatRuntimeBindings call: ${method.name}")
+        } as AppChatRuntimeBindings
     }
 }
 

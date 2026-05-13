@@ -63,6 +63,7 @@ val architectureMainSourceRoots = listOf(
     "feature/provider/data/src/main/java",
     "feature/provider/impl/src/main/java",
     "feature/provider/presentation/src/main/java",
+    "feature/provider/runtime/src/main/java",
     "feature/qq/api/src/main/java",
     "feature/qq/data/src/main/java",
     "feature/qq/impl/src/main/java",
@@ -75,6 +76,8 @@ val architectureMainSourceRoots = listOf(
     "feature/settings/api/src/main/java",
     "feature/settings/presentation/src/main/java",
     "feature/voiceasset/api/src/main/java",
+    "feature/voiceasset/data/src/main/java",
+    "feature/voiceasset/presentation/src/main/java",
 )
 val architectureSourceRootsReportPath = "build/reports/architecture/source-roots.txt"
 val architectureDebtReportPath = "build/reports/architecture/debt.txt"
@@ -85,7 +88,6 @@ plugins {
     id("com.android.application") version "8.13.2" apply false
     id("com.android.library") version "8.13.2" apply false
     id("org.jetbrains.kotlin.android") version "1.9.24" apply false
-    id("org.jetbrains.kotlin.jvm") version "1.9.24" apply false
     id("com.google.devtools.ksp") version "1.9.24-1.0.20" apply false
     id("com.google.dagger.hilt.android") version "2.52" apply false
 }
@@ -118,14 +120,6 @@ subprojects {
     }
 
     plugins.withId("org.jetbrains.kotlin.android") {
-        tasks.withType<KotlinCompile>().configureEach {
-            kotlinOptions {
-                jvmTarget = ELYMBOT_JVM_TARGET
-            }
-        }
-    }
-
-    plugins.withId("org.jetbrains.kotlin.jvm") {
         tasks.withType<KotlinCompile>().configureEach {
             kotlinOptions {
                 jvmTarget = ELYMBOT_JVM_TARGET
@@ -238,6 +232,7 @@ tasks.register("architectureCheck") {
 
     dependsOn("architectureSourceRootsReport")
     dependsOn("architectureDebtReport")
+    dependsOn(":architecture-tests:test")
     dependsOn(":app:architectureDebugUnitTest")
 }
 

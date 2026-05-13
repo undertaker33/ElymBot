@@ -48,10 +48,39 @@ class RuntimePersistenceBoundaryContractTest {
         val missing = allowlist.entries
             .map { entry -> entry.path }
             .distinct()
-            .filterNot { path -> mainRoot.resolve(path).exists() }
+            .filterNot { path -> projectRoot.resolve(path).exists() || mainRoot.resolve(path).exists() }
 
         assertTrue(
             "Runtime persistence allowlist points to missing production files: $missing",
+            missing.isEmpty(),
+        )
+    }
+
+    @Test
+    fun runtime_scan_roots_must_cover_current_feature_and_core_runtime_modules() {
+        val expectedRoots = listOf(
+            "feature/chat/runtime/src/main/java",
+            "feature/cron/runtime/src/main/java",
+            "feature/plugin/runtime/src/main/java",
+            "feature/provider/runtime/src/main/java",
+            "feature/qq/runtime/src/main/java",
+            "core/runtime-audio/src/main/java",
+            "core/runtime-container/src/main/java",
+            "core/runtime-context/src/main/java",
+            "core/runtime-llm/src/main/java",
+            "core/runtime-search/src/main/java",
+            "core/runtime-secret/src/main/java",
+            "core/runtime-session/src/main/java",
+            "core/runtime-tool/src/main/java",
+        ).filter { root -> projectRoot.resolve(root).exists() }
+
+        val scannedRoots = runtimeSourceRoots()
+            .map { root -> projectRoot.relativize(root).toString().replace('\\', '/') }
+            .toSet()
+        val missing = expectedRoots.filterNot(scannedRoots::contains)
+
+        assertTrue(
+            "Runtime persistence contract must scan current feature/*/runtime and core/runtime-* roots: $missing",
             missing.isEmpty(),
         )
     }
@@ -78,27 +107,44 @@ class RuntimePersistenceBoundaryContractTest {
     }
 
     private fun runtimeFiles(): List<Path> {
-        val roots = buildList {
-            val featureRoot = mainRoot.resolve("feature")
-            if (featureRoot.exists()) {
-                Files.list(featureRoot).use { stream ->
-                    stream
-                        .filter { path -> Files.isDirectory(path) }
-                        .map { path -> path.resolve("runtime") }
-                        .filter { path -> path.exists() }
-                        .forEach(::add)
-                }
-            }
-            mainRoot.resolve("core/runtime").takeIf { it.exists() }?.let(::add)
-        }
-
-        return roots.flatMap { root ->
+        return runtimeSourceRoots().flatMap { root ->
             Files.walk(root).use { stream ->
                 stream
                     .filter { path -> path.isRegularFile() && path.fileName.toString().endsWith(".kt") }
                     .toList()
             }
         }
+    }
+
+    private fun runtimeSourceRoots(): List<Path> {
+        val featureRuntimeRoots = projectRoot.resolve("feature").takeIf { it.exists() }
+            ?.let { featureRoot ->
+                Files.list(featureRoot).use { stream ->
+                    stream
+                        .filter { path -> Files.isDirectory(path) }
+                        .map { path -> path.resolve("runtime/src/main/java") }
+                        .filter { path -> path.exists() }
+                        .toList()
+                }
+            }
+            .orEmpty()
+        val coreRuntimeRoots = projectRoot.resolve("core").takeIf { it.exists() }
+            ?.let { coreRoot ->
+                Files.list(coreRoot).use { stream ->
+                    stream
+                        .filter { path -> Files.isDirectory(path) }
+                        .filter { path ->
+                            val moduleName = path.fileName.toString()
+                            moduleName == "runtime" || moduleName.startsWith("runtime-")
+                        }
+                        .map { path -> path.resolve("src/main/java") }
+                        .filter { path -> path.exists() }
+                        .toList()
+                }
+            }
+            .orEmpty()
+
+        return (featureRuntimeRoots + coreRuntimeRoots).distinct()
     }
 
     private fun databaseImports(file: Path): List<String> {
@@ -139,7 +185,10 @@ class RuntimePersistenceBoundaryContractTest {
         return ImportAllowlist(entries)
     }
 
-    private fun relativePath(file: Path): String = mainRoot.relativize(file).toString().replace('\\', '/')
+    private fun relativePath(file: Path): String {
+        val projectRelative = projectRoot.relativize(file).toString().replace('\\', '/')
+        return projectRelative.removePrefix("app/src/main/java/com/astrbot/android/")
+    }
 
     private fun detectProjectRoot(): Path {
         val cwd = Path.of("").toAbsolutePath()

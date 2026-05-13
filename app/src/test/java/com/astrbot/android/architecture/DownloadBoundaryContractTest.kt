@@ -16,7 +16,8 @@ class DownloadBoundaryContractTest {
     private val rootBuildFile: Path = projectRoot.resolve("build.gradle.kts")
     private val appBuildFile: Path = projectRoot.resolve("app/build.gradle.kts")
     private val appIntegrationBuildFile: Path = projectRoot.resolve("app-integration/build.gradle.kts")
-    private val manifestFile: Path = projectRoot.resolve("app/src/main/AndroidManifest.xml")
+    private val appManifestFile: Path = projectRoot.resolve("app/src/main/AndroidManifest.xml")
+    private val downloadImplManifestFile: Path = projectRoot.resolve("download/impl/src/main/AndroidManifest.xml")
     private val appMainRoot: Path = projectRoot.resolve("app/src/main/java/com/astrbot/android")
     private val downloadApiRoot: Path =
         projectRoot.resolve("download/api/src/main/java/com/astrbot/android/download")
@@ -104,16 +105,27 @@ class DownloadBoundaryContractTest {
     }
 
     @Test
-    fun manifest_must_register_download_impl_service_real_class() {
-        val manifest = manifestFile.readText(UTF_8)
+    fun download_impl_manifest_must_own_foreground_service_declaration() {
+        val appManifest = appManifestFile.readText(UTF_8)
+        val downloadImplManifest = downloadImplManifestFile.takeIf { it.exists() }
+            ?.readText(UTF_8)
+            .orEmpty()
 
         assertTrue(
-            "AndroidManifest.xml must register the download impl foreground service by real class name.",
-            manifest.contains("""android:name="com.astrbot.android.download.DownloadForegroundService""""),
+            "App AndroidManifest.xml must not directly reference the download impl foreground service.",
+            !appManifest.contains("""com.astrbot.android.download.DownloadForegroundService"""),
         )
         assertTrue(
-            "AndroidManifest.xml must not keep app-relative .download.DownloadForegroundService.",
-            !manifest.contains("""android:name=".download.DownloadForegroundService""""),
+            "download/impl AndroidManifest.xml must register the download foreground service by real implementation class.",
+            downloadImplManifest.contains("""android:name="com.astrbot.android.download.DownloadForegroundService""""),
+        )
+        assertTrue(
+            "download/impl AndroidManifest.xml must keep the service non-exported.",
+            downloadImplManifest.contains("""android:exported="false""""),
+        )
+        assertTrue(
+            "download/impl AndroidManifest.xml must declare the dataSync foreground service type.",
+            downloadImplManifest.contains("""android:foregroundServiceType="dataSync""""),
         )
     }
 

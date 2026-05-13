@@ -2,8 +2,6 @@ package com.astrbot.android.core.runtime.llm
 
 import com.astrbot.android.core.runtime.audio.TtsVoiceCatalog
 
-import com.astrbot.android.core.runtime.audio.TtsVoiceAssetRepository
-
 import com.astrbot.android.core.runtime.audio.SherpaOnnxBridge
 
 import com.astrbot.android.core.runtime.audio.PreparedTtsRequest
@@ -393,6 +391,7 @@ object ChatCompletionService {
         text: String,
         voiceId: String = "",
         readBracketedContent: Boolean = true,
+        voiceChoicesProvider: ((ProviderProfile) -> List<Pair<String, String>>)? = null,
     ): ConversationAttachment {
         require(ProviderCapability.TTS in provider.capabilities) { "This provider is not configured as a TTS model." }
         val preparedInput = prepareTtsRequest(
@@ -404,8 +403,8 @@ object ChatCompletionService {
         )
         return when (provider.providerType) {
             ProviderType.OPENAI_TTS -> synthesizeWithOpenAiTts(provider, preparedInput, voiceId)
-            ProviderType.BAILIAN_TTS -> synthesizeWithBailianTts(provider, preparedInput, voiceId)
-            ProviderType.MINIMAX_TTS -> synthesizeWithMiniMaxTts(provider, preparedInput, voiceId)
+            ProviderType.BAILIAN_TTS -> synthesizeWithBailianTts(provider, preparedInput, voiceId, voiceChoicesProvider)
+            ProviderType.MINIMAX_TTS -> synthesizeWithMiniMaxTts(provider, preparedInput, voiceId, voiceChoicesProvider)
             ProviderType.SHERPA_ONNX_TTS -> SherpaOnnxBridge.synthesizeSpeech(
                 provider = provider,
                 text = text,
@@ -885,6 +884,7 @@ object ChatCompletionService {
         provider: ProviderProfile,
         request: PreparedTtsRequest,
         voiceId: String,
+        voiceChoicesProvider: ((ProviderProfile) -> List<Pair<String, String>>)? = null,
     ): ConversationAttachment {
         require(provider.apiKey.isNotBlank()) { "Provider API key is empty." }
         val modelName = provider.model.trim()
@@ -898,7 +898,7 @@ object ChatCompletionService {
         if (request.stylePrompt.isNotBlank() && !supportsInstructions) {
             SharedRuntimeLogStore.append("TTS style prompt skipped: DashScope model $modelName needs qwen3-tts-instruct-flash")
         }
-        val effectiveVoiceId = resolveEffectiveTtsVoiceId(provider, voiceId)
+        val effectiveVoiceId = resolveEffectiveTtsVoiceId(provider, voiceId, voiceChoicesProvider)
         val requiresClonedVoice = modelName.lowercase(Locale.US).contains("-vc")
         if (requiresClonedVoice && effectiveVoiceId.isBlank()) {
             throw IllegalStateException("This Qwen voice-clone model needs a cloned voice. Select a cloned voice in config or the TTS model card first.")
@@ -957,10 +957,11 @@ object ChatCompletionService {
         provider: ProviderProfile,
         request: PreparedTtsRequest,
         voiceId: String,
+        voiceChoicesProvider: ((ProviderProfile) -> List<Pair<String, String>>)? = null,
     ): ConversationAttachment {
         require(provider.apiKey.isNotBlank()) { "Provider API key is empty." }
         require(provider.model.isNotBlank()) { "TTS model is empty." }
-        val effectiveVoiceId = resolveEffectiveTtsVoiceId(provider, voiceId)
+        val effectiveVoiceId = resolveEffectiveTtsVoiceId(provider, voiceId, voiceChoicesProvider)
         val minimaxTags = request.styleHints
             .takeIf { supportsMiniMaxExpressiveTag(provider.model) }
             ?.miniMaxTags
@@ -2559,12 +2560,13 @@ object ChatCompletionService {
     private fun resolveEffectiveTtsVoiceId(
         provider: ProviderProfile,
         requestedVoiceId: String,
+        voiceChoicesProvider: ((ProviderProfile) -> List<Pair<String, String>>)? = null,
     ): String {
         val normalized = requestedVoiceId.trim()
         if (normalized.isNotBlank()) {
             return normalized
         }
-        val clonedVoiceChoices = TtsVoiceAssetRepository.listVoiceChoicesFor(provider)
+        val clonedVoiceChoices = voiceChoicesProvider?.invoke(provider).orEmpty()
         if (
             (provider.providerType == ProviderType.BAILIAN_TTS &&
                 provider.model.trim().lowercase(Locale.US).contains("-vc")) ||

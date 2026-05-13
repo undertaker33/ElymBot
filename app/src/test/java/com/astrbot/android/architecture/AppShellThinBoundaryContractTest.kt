@@ -31,10 +31,8 @@ class AppShellThinBoundaryContractTest {
             "data/LegacyProfileImport.kt",
             "data/LegacyRuntimeStateImport.kt",
             "data/LegacyStructuredStateImport.kt",
-            "data/RuntimeAssetRepository.kt",
             "data/RuntimeCacheRepository.kt",
             "data/db/SavedQqAccountMappers.kt",
-            "data/db/tts/TtsVoiceAssetMappers.kt",
         )
 
         val actual = kotlinFilesUnder(appMainRoot.resolve("data"))
@@ -52,12 +50,9 @@ class AppShellThinBoundaryContractTest {
     fun app_core_runtime_files_must_remain_explicit_transition_debt() {
         val allowed = setOf(
             "core/runtime/audio/AndroidSystemTtsBridge.kt",
-            "core/runtime/audio/SherpaOnnxAssetManager.kt",
             "core/runtime/audio/SherpaOnnxBridge.kt",
             "core/runtime/audio/TencentSilkEncoder.kt",
-            "core/runtime/audio/TtsVoiceAssetRepository.kt",
             "core/runtime/audio/TtsVoiceCatalog.kt",
-            "core/runtime/audio/VoiceCloneService.kt",
             "core/runtime/container/ContainerBridgeService.kt",
             "core/runtime/context/PlatformRuntimeAdapter.kt",
             "core/runtime/context/PromptAssembler.kt",
@@ -84,6 +79,23 @@ class AppShellThinBoundaryContractTest {
         assertTrue(
             "Task 12 app-thin boundary: new runtime implementation must move to :core:runtime or owner modules, not app shell. Found: $unexpected",
             unexpected.isEmpty(),
+        )
+    }
+
+    @Test
+    fun phase25_retired_voiceasset_root_paths_must_not_reappear_in_app_shell() {
+        val retiredPaths = listOf(
+            "data/RuntimeAssetRepository.kt",
+            "data/db/tts/TtsVoiceAssetMappers.kt",
+            "core/runtime/audio/SherpaOnnxAssetManager.kt",
+            "core/runtime/audio/TtsVoiceAssetRepository.kt",
+            "core/runtime/audio/VoiceCloneService.kt",
+        )
+        val reintroduced = retiredPaths.filter { path -> appMainRoot.resolve(path).exists() }
+
+        assertTrue(
+            "Phase 25 voiceasset implementation moved to owner modules; do not write retired app shell paths back: $reintroduced",
+            reintroduced.isEmpty(),
         )
     }
 

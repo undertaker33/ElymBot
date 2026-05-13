@@ -90,7 +90,8 @@ class RuntimeContextBoundaryContractTest {
         )
         assertTrue(
             ":core:runtime-context must apply the Kotlin JVM plugin.",
-            text.contains("org.jetbrains.kotlin.jvm"),
+            text.contains("org.jetbrains.kotlin.jvm") ||
+                text.contains("elymbot.kotlin.jvm"),
         )
     }
 

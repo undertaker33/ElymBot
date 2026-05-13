@@ -14,7 +14,7 @@ import com.astrbot.android.feature.plugin.runtime.PluginToolDescriptor
 import com.astrbot.android.feature.plugin.runtime.PluginToolResult
 import com.astrbot.android.feature.plugin.runtime.PluginToolSourceKind
 import com.astrbot.android.feature.plugin.runtime.PluginV2ActiveRuntimeSnapshot
-import com.astrbot.android.feature.plugin.runtime.PluginV2AfterSentView
+import com.astrbot.android.feature.plugin.domain.runtime.PluginV2AfterSentView
 import com.astrbot.android.feature.plugin.runtime.PluginV2HostPreparedReply
 import com.astrbot.android.feature.plugin.runtime.PluginV2ToolRegistryEntry
 import com.astrbot.android.model.chat.ConversationAttachment

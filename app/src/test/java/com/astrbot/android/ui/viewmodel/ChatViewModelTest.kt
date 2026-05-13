@@ -1622,15 +1622,15 @@ class ChatViewModelTest {
                 SendAppMessageUseCase(
                     conversations = conversationRepositoryPort,
                     runtime = com.astrbot.android.feature.chat.runtime.AppChatRuntimeService(
-                        chatDependencies = this,
+                        chatDependencies = runtimeBindings(),
                         appChatPluginRuntime = appChatPluginRuntime,
                         llmOrchestrator = com.astrbot.android.feature.plugin.runtime.DefaultRuntimeLlmOrchestrator(),
                         providerInvocationService = com.astrbot.android.feature.chat.runtime.AppChatProviderInvocationService(
-                            chatDependencies = this,
+                            chatDependencies = runtimeBindings(),
                             ioDispatcher = ioDispatcher,
                         ),
                         preparedReplyService = com.astrbot.android.feature.chat.runtime.AppChatPreparedReplyService(
-                            chatDependencies = this,
+                            chatDependencies = runtimeBindings(),
                             ioDispatcher = ioDispatcher,
                         ),
                         gatewayFactory = testPluginHostCapabilityGatewayFactory(),
@@ -1641,14 +1641,132 @@ class ChatViewModelTest {
 
         override fun createAppChatPluginCommandService(
             appChatPluginRuntime: AppChatPluginRuntime,
-        ): com.astrbot.android.feature.chat.runtime.AppChatPluginCommandService {
-            return com.astrbot.android.feature.chat.runtime.AppChatPluginCommandService(
-                dependencies = this,
+        ): ChatPluginCommandPort {
+            val service = com.astrbot.android.feature.chat.runtime.AppChatPluginCommandService(
+                dependencies = runtimeBindings(),
                 appChatPluginRuntime = appChatPluginRuntime,
                 hostCapabilityGateway = testPluginHostCapabilityGateway(),
                 hostActionExecutor = ExternalPluginHostActionExecutor(),
                 dispatchEngine = dispatchEngine,
             )
+            return object : ChatPluginCommandPort {
+                override fun isUnsupportedPluginCommand(content: String): Boolean =
+                    service.isUnsupportedPluginCommand(content)
+
+                override fun handlePluginCommand(
+                    session: ConversationSession,
+                    bot: BotProfile,
+                    content: String,
+                    provider: ProviderProfile?,
+                    personaId: String,
+                    languageTag: String,
+                ): Boolean = service.handlePluginCommand(
+                    session = session,
+                    bot = bot,
+                    content = content,
+                    provider = provider,
+                    personaId = personaId,
+                    languageTag = languageTag,
+                )
+
+                override fun dispatchPlugins(
+                    trigger: ChatPluginTrigger,
+                    session: ConversationSession,
+                    message: ConversationMessage,
+                    provider: ProviderProfile,
+                    bot: BotProfile?,
+                    personaId: String,
+                    config: ConfigProfile?,
+                    suppressV2CommandStage: Boolean,
+                ): Boolean = service.dispatchPlugins(
+                    trigger = when (trigger) {
+                        ChatPluginTrigger.BeforeSendMessage ->
+                            com.astrbot.android.model.plugin.PluginTriggerSource.BeforeSendMessage
+                        ChatPluginTrigger.AfterModelResponse ->
+                            com.astrbot.android.model.plugin.PluginTriggerSource.AfterModelResponse
+                    },
+                    session = session,
+                    message = message,
+                    provider = provider,
+                    bot = bot,
+                    personaId = personaId,
+                    config = config,
+                    suppressV2CommandStage = suppressV2CommandStage,
+                )
+            }
+        }
+
+        private fun runtimeBindings(): com.astrbot.android.feature.chat.runtime.AppChatRuntimeBindings {
+            return object : com.astrbot.android.feature.chat.runtime.AppChatRuntimeBindings {
+                override val bots: StateFlow<List<BotProfile>> = this@FakeChatDependencies.bots
+                override val providers: StateFlow<List<ProviderProfile>> = this@FakeChatDependencies.providers
+                override val runtimeContextResolverPort = this@FakeChatDependencies.runtimeContextResolverPort
+
+                override fun session(sessionId: String): ConversationSession =
+                    this@FakeChatDependencies.session(sessionId)
+
+                override fun resolveConfig(profileId: String): ConfigProfile =
+                    this@FakeChatDependencies.resolveConfig(profileId)
+
+                override fun appendMessage(
+                    sessionId: String,
+                    role: String,
+                    content: String,
+                    attachments: List<ConversationAttachment>,
+                ): String = this@FakeChatDependencies.appendMessage(sessionId, role, content, attachments)
+
+                override suspend fun sendConfiguredChatWithTools(
+                    provider: ProviderProfile,
+                    messages: List<ConversationMessage>,
+                    systemPrompt: String?,
+                    config: ConfigProfile?,
+                    availableProviders: List<ProviderProfile>,
+                    tools: List<LlmToolDefinition>,
+                ): LlmInvocationResult = this@FakeChatDependencies.sendConfiguredChatWithTools(
+                    provider = provider,
+                    messages = messages,
+                    systemPrompt = systemPrompt,
+                    config = config,
+                    availableProviders = availableProviders,
+                    tools = tools,
+                )
+
+                override suspend fun sendConfiguredChatStreamWithTools(
+                    provider: ProviderProfile,
+                    messages: List<ConversationMessage>,
+                    systemPrompt: String?,
+                    config: ConfigProfile?,
+                    availableProviders: List<ProviderProfile>,
+                    tools: List<LlmToolDefinition>,
+                    onDelta: suspend (String) -> Unit,
+                    onToolCallDelta: suspend (index: Int, name: String, argumentsFragment: String) -> Unit,
+                ): LlmInvocationResult = this@FakeChatDependencies.sendConfiguredChatStreamWithTools(
+                    provider = provider,
+                    messages = messages,
+                    systemPrompt = systemPrompt,
+                    config = config,
+                    availableProviders = availableProviders,
+                    tools = tools,
+                    onDelta = onDelta,
+                    onToolCallDelta = onToolCallDelta,
+                )
+
+                override suspend fun synthesizeSpeech(
+                    provider: ProviderProfile,
+                    text: String,
+                    voiceId: String,
+                    readBracketedContent: Boolean,
+                ): ConversationAttachment = this@FakeChatDependencies.synthesizeSpeech(
+                    provider = provider,
+                    text = text,
+                    voiceId = voiceId,
+                    readBracketedContent = readBracketedContent,
+                )
+
+                override fun log(message: String) {
+                    this@FakeChatDependencies.log(message)
+                }
+            }
         }
 
         fun clearRecordedSignals() {

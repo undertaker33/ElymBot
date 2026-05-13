@@ -28,6 +28,9 @@ class StrictHiltOnlyContractTest {
         projectRoot.resolve("feature/qq/impl/src/main/java/com/astrbot/android"),
         projectRoot.resolve("feature/qq/presentation/src/main/java/com/astrbot/android"),
         projectRoot.resolve("feature/qq/runtime/src/main/java/com/astrbot/android"),
+        projectRoot.resolve("feature/provider/runtime/src/main/java/com/astrbot/android"),
+        projectRoot.resolve("feature/voiceasset/data/src/main/java/com/astrbot/android"),
+        projectRoot.resolve("feature/voiceasset/presentation/src/main/java/com/astrbot/android"),
     ).filter { root -> root.exists() }
     private val contractDoc: Path = projectRoot.resolve("docs/architecture/post-hilt-a-round1-contract.md")
 
@@ -125,11 +128,11 @@ class StrictHiltOnlyContractTest {
         assertTokenConfinedToAllowedProductionFiles(
             "RuntimeAssetRepository",
             setOf(
-                "data/RuntimeAssetRepository.kt",
                 "di/hilt/ViewModelDependencyModule.kt",
                 "di/startup/BootstrapPrerequisitesStartupChain.kt",
-                "feature/provider/runtime/ProviderRuntimePort.kt",
-                "ui/common/AssetScreens.kt",
+                "feature/provider/runtime/DefaultProviderRuntimePort.kt",
+                "feature/voiceasset/data/RuntimeAssetRepository.kt",
+                "ui/settings/AssetScreens.kt",
             ),
         )
     }
@@ -275,7 +278,7 @@ class StrictHiltOnlyContractTest {
                 "NapCatBridgeRepository.config",
                 "NapCatBridgeRepository.runtimeState",
             ),
-            "ui/common/AssetScreens.kt" to listOf(
+            "ui/settings/AssetScreens.kt" to listOf(
                 "ProviderRepository.providers",
                 "TtsVoiceAssetRepository.assets",
                 "TtsVoiceAssetRepository.importReferenceAudio",
@@ -324,7 +327,7 @@ class StrictHiltOnlyContractTest {
             "feature/plugin/runtime/ExternalPluginRuntimeCatalog.kt" to listOf(
                 "FeaturePluginRepository.records",
             ),
-            "feature/provider/runtime/ProviderRuntimePort.kt" to listOf(
+            "feature/provider/runtime/DefaultProviderRuntimePort.kt" to listOf(
                 "RuntimeAssetRepository.ttsAssetState",
             ),
             "data/http/AstrBotHttpClient.kt" to listOf(
@@ -347,7 +350,7 @@ class StrictHiltOnlyContractTest {
                 "val config: StateFlow<NapCatBridgeConfig> = NapCatBridgeRepository.config",
                 "val runtimeState: StateFlow<NapCatRuntimeState> = NapCatBridgeRepository.runtimeState",
             ),
-            "data/RuntimeAssetRepository.kt" to listOf(
+            "feature/voiceasset/data/RuntimeAssetRepository.kt" to listOf(
                 "val state: StateFlow<RuntimeAssetState> = RuntimeAssetRepository.state",
                 "RuntimeAssetRepository.refresh(context)",
                 "RuntimeAssetRepository.downloadAsset(context, assetId)",

@@ -8,7 +8,6 @@ import com.astrbot.android.feature.chat.presentation.AppChatRuntimeDecision
 import com.astrbot.android.feature.chat.presentation.AppChatSendEvent
 import com.astrbot.android.feature.chat.presentation.AppChatSendHandler
 import com.astrbot.android.feature.chat.presentation.AppChatSendRequest
-import com.astrbot.android.feature.chat.runtime.AppChatPluginCommandService
 import com.astrbot.android.feature.chat.runtime.botcommand.AndroidBotCommandStringResolver
 import com.astrbot.android.feature.chat.runtime.botcommand.BotCommandStringResolver
 import com.astrbot.android.feature.bot.domain.model.BotProfile
@@ -34,7 +33,6 @@ import com.astrbot.android.model.plugin.PluginHostAction
 import com.astrbot.android.model.plugin.PluginMessageSummary
 import com.astrbot.android.model.plugin.PluginPermissionGrant
 import com.astrbot.android.model.plugin.PluginTriggerMetadata
-import com.astrbot.android.model.plugin.PluginTriggerSource
 import com.astrbot.android.model.plugin.TextResult
 import com.astrbot.android.feature.plugin.domain.runtime.AppChatPluginRuntime
 import com.astrbot.android.feature.chat.runtime.botcommand.BotCommandContext
@@ -131,7 +129,7 @@ class ChatViewModel private constructor(
         appChatPluginRuntime = appChatPluginRuntime,
         ioDispatcher = ioDispatcher,
     )
-    private val appChatPluginCommandService: AppChatPluginCommandService =
+    private val appChatPluginCommandService: ChatPluginCommandPort =
         dependencies.createAppChatPluginCommandService(appChatPluginRuntime)
     private val chatSessionController: ChatSessionController = dependencies.chatSessionController
     val bots = dependencies.bots
@@ -399,7 +397,7 @@ class ChatViewModel private constructor(
                                     .firstOrNull { it.id == context.userMessageId }
                                     ?: error("User message ${context.userMessageId} not found in session ${context.sessionId}")
                                 val consumedByPlugin = appChatPluginCommandService.dispatchPlugins(
-                                    trigger = PluginTriggerSource.BeforeSendMessage,
+                                    trigger = ChatPluginTrigger.BeforeSendMessage,
                                     session = dependencies.session(context.sessionId),
                                     message = userMessage,
                                     provider = provider,
@@ -455,7 +453,7 @@ class ChatViewModel private constructor(
                         .firstOrNull { it.id == llmAssistantMessageId }
                         ?: return@sessionLock
                     appChatPluginCommandService.dispatchPlugins(
-                        trigger = PluginTriggerSource.AfterModelResponse,
+                        trigger = ChatPluginTrigger.AfterModelResponse,
                         session = dependencies.session(sessionId),
                         message = llmAssistantMessage,
                         provider = provider,

@@ -10,6 +10,10 @@ import org.junit.Test
 class PluginRuntimeHiltOwnershipContractTest {
 
     private val projectRoot: Path = detectProjectRoot()
+    private val pluginRuntimeModulePath =
+        "app-integration/src/main/java/com/astrbot/android/di/hilt/PluginRuntimeModule.kt"
+    private val pluginHostCapabilityModulePath =
+        "app-integration/src/main/java/com/astrbot/android/di/hilt/PluginHostCapabilityModule.kt"
 
     @Test
     fun plugin_runtime_log_bus_and_cleanup_are_hilt_owned_services() {
@@ -17,7 +21,7 @@ class PluginRuntimeHiltOwnershipContractTest {
             .readText()
         val cleanup = productionFile("feature/plugin/runtime/src/main/java/com/astrbot/android/feature/plugin/runtime/PluginRuntimeLogCleanupRepository.kt")
             .readText()
-        val hiltModule = productionFile("app/src/main/java/com/astrbot/android/di/hilt/PluginRuntimeModule.kt")
+        val hiltModule = productionFile(pluginRuntimeModulePath)
             .readText()
 
         assertTrue("PluginRuntimeLogBus must be an injected contract, not an object facade.", logBus.contains("interface PluginRuntimeLogBus"))
@@ -48,7 +52,7 @@ class PluginRuntimeHiltOwnershipContractTest {
         )
         assertNoProductionTokens(forbidden)
 
-        val module = productionFile("app/src/main/java/com/astrbot/android/di/hilt/PluginHostCapabilityModule.kt")
+        val module = productionFile(pluginHostCapabilityModulePath)
             .readText()
         assertTrue(module.contains("bindPluginExecutionHostResolver"))
         assertTrue(module.contains("providePluginHostCapabilityGatewayFactory"))
@@ -73,6 +77,7 @@ class PluginRuntimeHiltOwnershipContractTest {
     private fun productionKotlinFiles(): List<Path> {
         val roots = listOf(
             "app/src/main/java/com/astrbot/android",
+            "app-integration/src/main/java/com/astrbot/android",
             "feature/plugin/runtime/src/main/java/com/astrbot/android",
             "feature/chat/runtime/src/main/java/com/astrbot/android",
             "feature/qq/impl/src/main/java/com/astrbot/android",

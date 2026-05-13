@@ -1,10 +1,10 @@
 package com.astrbot.android.di
 
-import com.astrbot.android.core.db.backup.AppBackupDataPort
-import com.astrbot.android.core.db.backup.AppBackupExternalState
-import com.astrbot.android.core.db.backup.ConversationBackupDataPort
-import com.astrbot.android.core.db.backup.ConversationImportPreview
-import com.astrbot.android.core.db.backup.ConversationImportResult
+import com.astrbot.android.feature.settings.api.backup.AppBackupDataPort
+import com.astrbot.android.feature.settings.api.backup.AppBackupExternalState
+import com.astrbot.android.feature.settings.api.backup.ConversationBackupDataPort
+import com.astrbot.android.feature.settings.api.backup.ConversationImportPreview
+import com.astrbot.android.feature.settings.api.backup.ConversationImportResult
 import com.astrbot.android.feature.bot.data.FeatureBotRepositoryStore
 import com.astrbot.android.feature.bot.domain.BotRepositoryPort
 import com.astrbot.android.feature.bot.domain.model.BotProfile
