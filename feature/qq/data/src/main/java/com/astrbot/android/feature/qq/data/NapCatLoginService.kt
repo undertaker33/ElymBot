@@ -6,8 +6,8 @@ import com.astrbot.android.data.http.HttpFailureCategory
 import com.astrbot.android.data.http.HttpMethod
 import com.astrbot.android.data.http.HttpRequestSpec
 import com.astrbot.android.data.http.OkHttpAstrBotHttpClient
+import com.astrbot.android.core.logging.DefaultRuntimeLogStore
 import com.astrbot.android.core.logging.RuntimeLogStore
-import com.astrbot.android.core.logging.SharedRuntimeLogStore
 import com.astrbot.android.core.runtime.network.OkHttpRuntimeNetworkTransport
 import com.astrbot.android.feature.qq.domain.QqWebUiTokenProvider
 import com.astrbot.android.feature.qq.domain.model.NapCatLoginState
@@ -27,7 +27,7 @@ import org.json.JSONException
 class NapCatLoginService @Inject constructor(
     private val runtimeLogStore: RuntimeLogStore,
 ) {
-    constructor() : this(SharedRuntimeLogStore)
+    constructor() : this(DefaultRuntimeLogStore())
 
     private var credential: String = ""
     private var postJsonOverride: ((String, JSONObject, String?) -> JSONObject)? = null

@@ -153,17 +153,6 @@ class EngineBackedAppChatPluginRuntime(
     }
 }
 
-internal object AppChatPluginRuntimeCoordinatorProvider {
-    internal fun setCoordinatorOverrideForTests(
-        coordinator: PluginV2LlmPipelineCoordinator?,
-    ) {
-        coordinatorOverrideForTests = coordinator
-    }
-}
-
-@Volatile
-private var coordinatorOverrideForTests: PluginV2LlmPipelineCoordinator? = null
-
 private fun createAppChatPluginRuntimeCoordinator(
     hostCapabilityGateway: PluginHostCapabilityGateway,
     dispatchEngine: PluginV2DispatchEngine,
@@ -174,7 +163,7 @@ private fun createAppChatPluginRuntimeCoordinator(
     toolSourceContext: com.astrbot.android.feature.plugin.runtime.toolsource.ToolSourceContext? = null,
     toolRegistrySnapshot: PluginV2ToolRegistrySnapshot? = null,
 ): PluginV2LlmPipelineCoordinator {
-    return coordinatorOverrideForTests ?: PluginV2LlmPipelineCoordinator(
+    return PluginV2LlmPipelineCoordinator(
         dispatchEngine = dispatchEngine,
         logBus = logBus,
         lifecycleManager = lifecycleManager,
@@ -223,36 +212,6 @@ private fun extractConfigProfileId(args: PluginToolArgs): String? {
     val host = args.metadata?.get("__host") as? Map<*, *> ?: return null
     val eventExtras = host["eventExtras"] as? Map<*, *> ?: return null
     return (eventExtras["configProfileId"] as? String)?.trim()?.takeIf { it.isNotBlank() }
-}
-
-object PluginRuntimeRegistry {
-    @Volatile
-    private var pluginProvider: () -> List<PluginRuntimePlugin> = { emptyList() }
-
-    @Volatile
-    private var externalProviders: List<() -> List<PluginRuntimePlugin>> = emptyList()
-
-    fun plugins(): List<PluginRuntimePlugin> {
-        return buildList {
-            addAll(pluginProvider())
-            externalProviders.forEach { provider ->
-                addAll(provider())
-            }
-        }
-    }
-
-    fun registerProvider(provider: () -> List<PluginRuntimePlugin>) {
-        pluginProvider = provider
-    }
-
-    fun registerExternalProvider(provider: () -> List<PluginRuntimePlugin>) {
-        externalProviders = externalProviders + provider
-    }
-
-    fun reset() {
-        pluginProvider = { emptyList() }
-        externalProviders = emptyList()
-    }
 }
 
 private data class InMemoryAppChatRuntimeServices(

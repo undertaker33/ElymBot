@@ -1,4 +1,4 @@
-
+﻿
 package com.astrbot.android.ui.viewmodel
 
 import android.content.Context
@@ -9,7 +9,7 @@ import kotlinx.coroutines.flow.collect
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.astrbot.android.feature.plugin.presentation.R
-import com.astrbot.android.core.logging.SharedRuntimeLogStore
+import com.astrbot.android.core.common.logging.RuntimeLogger
 import com.astrbot.android.feature.plugin.data.PluginCatalogVersionGate
 import com.astrbot.android.feature.plugin.data.PluginUninstallResult
 import com.astrbot.android.feature.plugin.presentation.PluginCatalogEntries
@@ -490,6 +490,7 @@ class DefaultPluginViewModelBindings @Inject constructor(
     private val pluginPackageValidator: PluginPackageValidationPort,
     private val injectedLogBus: PluginRuntimeLogPresentationPort,
     private val injectedLogMaintenanceService: PluginLogMaintenancePort,
+    private val runtimeLogger: RuntimeLogger,
 ) : PluginViewModelBindings,
     PluginMarketBindings,
     PluginConfigBindings,
@@ -558,7 +559,7 @@ class DefaultPluginViewModelBindings @Inject constructor(
             } ?: repositorySources.value.firstOrNull { source ->
                 source.catalogUrl == LEGACY_OFFICIAL_MARKET_CATALOG_URL
             }
-            SharedRuntimeLogStore.append(
+            runtimeLogger.append(
                 "Plugin market ensure-official start: " +
                     "existing=${existing != null} " +
                     "sourceCount=${repositorySources.value.size} " +
@@ -575,7 +576,7 @@ class DefaultPluginViewModelBindings @Inject constructor(
             } else {
                 pluginCatalogRuntimePort.subscribeAndSync(OFFICIAL_MARKET_CATALOG_URL)
             }
-            SharedRuntimeLogStore.append(
+            runtimeLogger.append(
                 "Plugin market ensure-official finished: " +
                     "sourceId=${syncState.sourceId} " +
                     "status=${syncState.lastSyncStatus.name}",
@@ -587,7 +588,7 @@ class DefaultPluginViewModelBindings @Inject constructor(
     override suspend fun refreshMarketCatalog(): List<PluginCatalogSyncState> {
         return withContext(Dispatchers.IO) {
             val existingSources = repositorySources.value
-            SharedRuntimeLogStore.append(
+            runtimeLogger.append(
                 "Plugin market refresh flow start: sourceCount=${existingSources.size}",
             )
             val states = if (existingSources.isEmpty()) {
@@ -597,13 +598,13 @@ class DefaultPluginViewModelBindings @Inject constructor(
                     pluginCatalogRuntimePort.sync(source.sourceId)
                 }
             }
-            SharedRuntimeLogStore.append(
+            runtimeLogger.append(
                 "Plugin market refresh flow finished: " +
                     "resultCount=${states.size} " +
                     "statuses=${states.joinToString(separator = ",") { "${it.sourceId}:${it.lastSyncStatus.name}" }}",
             )
             if (states.any { it.lastSyncStatus == PluginCatalogSyncStatus.FAILED }) {
-                SharedRuntimeLogStore.append("Plugin market refresh flow failed: at least one source sync failed")
+                runtimeLogger.append("Plugin market refresh flow failed: at least one source sync failed")
                 error("Market catalog refresh failed.")
             }
             states
@@ -795,6 +796,7 @@ class PluginViewModel @Inject constructor(
     private val pluginPresentationController: PluginPresentationController,
     private val hostCapabilityGateway: PluginHostCapabilityPresentationPort,
     private val entryExecutionService: PluginEntryExecutionPort,
+    private val runtimeLogger: RuntimeLogger,
 ) : ViewModel() {
     private val marketBindings = bindings.market
     private val configBindings = bindings.config
@@ -1063,23 +1065,23 @@ class PluginViewModel @Inject constructor(
                 if (officialMarketBootstrapAttempted) return@collect
                 if (sources.isNotEmpty()) {
                     officialMarketBootstrapAttempted = true
-                    SharedRuntimeLogStore.append(
+                    runtimeLogger.append(
                         "Plugin market bootstrap skipped: sourceCount=${sources.size}",
                     )
                     return@collect
                 }
                 officialMarketBootstrapAttempted = true
-                SharedRuntimeLogStore.append("Plugin market bootstrap requested: sourceCount=0")
+                runtimeLogger.append("Plugin market bootstrap requested: sourceCount=0")
                 runCatching {
                     ensureOfficialMarketCatalogSubscribed()
                 }.onSuccess { syncState ->
-                    SharedRuntimeLogStore.append(
+                    runtimeLogger.append(
                         "Plugin market bootstrap finished: " +
                             "sourceId=${syncState.sourceId} " +
                             "status=${syncState.lastSyncStatus.name}",
                     )
                 }.onFailure { error ->
-                    SharedRuntimeLogStore.append(
+                    runtimeLogger.append(
                         "Plugin market bootstrap failed: error=${error.toRuntimeLogSummary()}",
                     )
                 }
@@ -1210,7 +1212,7 @@ class PluginViewModel @Inject constructor(
         marketRefreshRunning.value = true
         marketRefreshFeedback.value = null
         return try {
-            SharedRuntimeLogStore.append(
+            runtimeLogger.append(
                 "Plugin market refresh requested: sourceCount=${repositorySources.value.size}",
             )
             runCatching {
@@ -1219,7 +1221,7 @@ class PluginViewModel @Inject constructor(
                 }
             }.fold(
                 onSuccess = { states ->
-                    SharedRuntimeLogStore.append(
+                    runtimeLogger.append(
                         "Plugin market refresh finished: " +
                             "resultCount=${states.size} " +
                             "statuses=${states.joinToString(separator = ",") { "${it.sourceId}:${it.lastSyncStatus.name}" }}",
@@ -1228,14 +1230,14 @@ class PluginViewModel @Inject constructor(
                 },
                 onFailure = { error ->
                     if (error is TimeoutCancellationException) {
-                        SharedRuntimeLogStore.append(
+                        runtimeLogger.append(
                             "Plugin market refresh timed out: timeoutMs=$MARKET_REFRESH_TIMEOUT_MILLIS",
                         )
                         marketRefreshFeedback.value = PluginActionFeedback.Resource(
                             R.string.plugin_market_refresh_timeout,
                         )
                     } else {
-                        SharedRuntimeLogStore.append(
+                        runtimeLogger.append(
                             "Plugin market refresh failed: error=${error.toRuntimeLogSummary()}",
                         )
                         marketRefreshFeedback.value = PluginActionFeedback.Resource(R.string.plugin_market_refresh_failed)
@@ -1505,7 +1507,7 @@ class PluginViewModel @Inject constructor(
                     successCount += 1
                 }.onFailure { error ->
                     failureCount += 1
-                    SharedRuntimeLogStore.append(
+                    runtimeLogger.append(
                         "Plugin batch uninstall failed: pluginId=$pluginId error=${error.toRuntimeLogSummary()}",
                     )
                 }
@@ -2788,4 +2790,5 @@ class PluginViewModel @Inject constructor(
         }
     }
 }
+
 

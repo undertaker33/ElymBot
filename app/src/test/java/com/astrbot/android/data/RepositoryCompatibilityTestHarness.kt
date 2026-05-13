@@ -2,6 +2,7 @@ package com.astrbot.android.data
 
 import android.content.SharedPreferences
 import android.content.ContextWrapper
+import com.astrbot.android.core.common.logging.RuntimeLogger
 import com.astrbot.android.core.db.backup.AppBackupRepository
 import com.astrbot.android.feature.settings.api.backup.AppBackupDataPort
 import com.astrbot.android.feature.settings.api.backup.AppBackupExternalState
@@ -56,6 +57,7 @@ internal object RepositoryCompatibilityTestHarness {
         return TtsVoiceAssetRepository(
             appContext = CompatibilityContext,
             assetDao = InMemoryTtsVoiceAssetAggregateDao(),
+            runtimeLogger = RuntimeLogger.noop(),
         )
     }
 }

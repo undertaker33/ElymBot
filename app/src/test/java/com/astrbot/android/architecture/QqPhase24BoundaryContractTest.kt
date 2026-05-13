@@ -92,6 +92,7 @@ class QqPhase24BoundaryContractTest {
         val appIntegrationRoot = projectRoot.resolve("app-integration/src/main/java")
         val allowedPluginImplementationImportFiles = setOf(
             "app-integration/src/main/java/com/astrbot/android/di/hilt/PluginHostCapabilityModule.kt",
+            "app-integration/src/main/java/com/astrbot/android/di/hilt/PluginDataWiringFactory.kt",
             "app-integration/src/main/java/com/astrbot/android/di/hilt/PluginProvisioningModule.kt",
             "app-integration/src/main/java/com/astrbot/android/di/hilt/PluginRuntimeModule.kt",
             "app-integration/src/main/java/com/astrbot/android/di/hilt/QqPhase24PortModule.kt",

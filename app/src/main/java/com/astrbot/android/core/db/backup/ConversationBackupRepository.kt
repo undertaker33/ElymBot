@@ -1,4 +1,4 @@
-package com.astrbot.android.core.db.backup
+﻿package com.astrbot.android.core.db.backup
 
 import android.content.Context
 import android.net.Uri
@@ -6,7 +6,7 @@ import com.astrbot.android.feature.settings.api.backup.ConversationBackupDataPor
 import com.astrbot.android.feature.settings.api.backup.ConversationImportPreview
 import com.astrbot.android.feature.settings.api.backup.ConversationImportResult
 import com.astrbot.android.model.chat.ConversationSession
-import com.astrbot.android.core.logging.SharedRuntimeLogStore
+import com.astrbot.android.core.common.logging.RuntimeLogger
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -57,10 +57,12 @@ data class ConversationImportSource(
 class ConversationBackupService @Inject constructor(
     @ApplicationContext context: Context,
     dataPort: ConversationBackupDataPort,
+    runtimeLogger: RuntimeLogger,
 ) {
     private val repository = ConversationBackupRepository(
         context = context,
         dataPort = dataPort,
+        runtimeLogger = runtimeLogger,
     )
 
     val settings: StateFlow<ConversationBackupSettings> = repository.settings
@@ -109,6 +111,7 @@ class ConversationBackupService @Inject constructor(
 internal class ConversationBackupRepository(
     context: Context,
     private val dataPort: ConversationBackupDataPort,
+    private val runtimeLogger: RuntimeLogger = RuntimeLogger.noop(),
 ) {
     private val prefsName = "conversation_backup_settings"
     private val keyAutoEnabled = "auto_enabled"
@@ -173,7 +176,7 @@ internal class ConversationBackupRepository(
             buildBackupItem(file)
                 ?: error("Backup file was created but could not be read back")
         }.onFailure { error ->
-            SharedRuntimeLogStore.append("Conversation backup create failed: ${error.message ?: error.javaClass.simpleName}")
+            runtimeLogger.append("Conversation backup create failed: ${error.message ?: error.javaClass.simpleName}")
         }
     }
 
@@ -184,7 +187,7 @@ internal class ConversationBackupRepository(
             resolveDataPort().restoreSessions(sessions)
             sessions.size
         }.onFailure { error ->
-            SharedRuntimeLogStore.append("Conversation backup restore failed: ${error.message ?: error.javaClass.simpleName}")
+            runtimeLogger.append("Conversation backup restore failed: ${error.message ?: error.javaClass.simpleName}")
         }
     }
 
@@ -194,7 +197,7 @@ internal class ConversationBackupRepository(
             if (!file.delete()) error("Delete failed")
             refreshBackups()
         }.onFailure { error ->
-            SharedRuntimeLogStore.append("Conversation backup delete failed: ${error.message ?: error.javaClass.simpleName}")
+            runtimeLogger.append("Conversation backup delete failed: ${error.message ?: error.javaClass.simpleName}")
         }
     }
 
@@ -211,7 +214,7 @@ internal class ConversationBackupRepository(
                 output.flush()
             } ?: error("Unable to open export target")
         }.onFailure { error ->
-            SharedRuntimeLogStore.append("Conversation backup export failed: ${error.message ?: error.javaClass.simpleName}")
+            runtimeLogger.append("Conversation backup export failed: ${error.message ?: error.javaClass.simpleName}")
         }
     }
 
@@ -236,7 +239,7 @@ internal class ConversationBackupRepository(
                 preview = resolveDataPort().previewImportedSessions(sessions),
             )
         }.onFailure { error ->
-            SharedRuntimeLogStore.append("Conversation backup external import failed: ${error.message ?: error.javaClass.simpleName}")
+            runtimeLogger.append("Conversation backup external import failed: ${error.message ?: error.javaClass.simpleName}")
         }
     }
 
@@ -250,7 +253,7 @@ internal class ConversationBackupRepository(
                 overwriteDuplicates = overwriteDuplicates,
             )
         }.onFailure { error ->
-            SharedRuntimeLogStore.append("Conversation backup import apply failed: ${error.message ?: error.javaClass.simpleName}")
+            runtimeLogger.append("Conversation backup import apply failed: ${error.message ?: error.javaClass.simpleName}")
         }
     }
 
@@ -315,7 +318,7 @@ internal class ConversationBackupRepository(
 
             createBackup(trigger = "auto").onSuccess {
                 saveLastAutoBackupDate(today)
-                SharedRuntimeLogStore.append("Conversation auto backup created: file=${it.fileName}")
+                runtimeLogger.append("Conversation auto backup created: file=${it.fileName}")
             }
         }
     }
@@ -384,4 +387,5 @@ internal class ConversationBackupRepository(
         return dataPort
     }
 }
+
 

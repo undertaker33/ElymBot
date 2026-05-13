@@ -1,6 +1,6 @@
 package com.astrbot.android.di.startup
 
-import com.astrbot.android.core.logging.SharedRuntimeLogStore
+import com.astrbot.android.core.common.logging.RuntimeLogger
 import com.astrbot.android.core.runtime.container.ContainerRuntimeInstaller
 import com.astrbot.android.app.integration.cron.CronRuntimeReconciliationPort
 import com.astrbot.android.di.hilt.ApplicationScope
@@ -12,6 +12,7 @@ internal class RuntimeLaunchStartupChain @Inject constructor(
     private val qqStartupPort: QqStartupPort,
     private val containerRuntimeInstaller: ContainerRuntimeInstaller,
     private val cronRuntimeReconciliationPort: CronRuntimeReconciliationPort,
+    private val runtimeLogger: RuntimeLogger,
     @ApplicationScope private val appScope: CoroutineScope,
 ) : AppStartupChain {
 
@@ -19,6 +20,6 @@ internal class RuntimeLaunchStartupChain @Inject constructor(
         qqStartupPort.start()
         containerRuntimeInstaller.warmUpAsync(appScope)
         cronRuntimeReconciliationPort.reconcileAsync(appScope)
-        SharedRuntimeLogStore.append("App started")
+        runtimeLogger.append("App started")
     }
 }

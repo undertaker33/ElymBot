@@ -1,7 +1,7 @@
 
 package com.astrbot.android.di.hilt
 
-import com.astrbot.android.core.logging.SharedRuntimeLogStore
+import com.astrbot.android.core.common.logging.RuntimeLogger
 import com.astrbot.android.core.runtime.context.RuntimeContextResolverPort
 import com.astrbot.android.core.runtime.llm.LlmClientPort
 import com.astrbot.android.core.runtime.llm.LlmInvocationRequest
@@ -53,6 +53,7 @@ internal class DefaultChatViewModelRuntimeBindings @Inject constructor(
     private val sendAppMessageUseCaseFactory: SendAppMessageUseCaseFactory,
     private val appChatSendHandlerFactory: AppChatSendHandlerFactory,
     private val sessionLockCoordinator: SessionLockCoordinator,
+    private val runtimeLogger: RuntimeLogger,
 ) : ChatViewModelRuntimeBindings, ChatRuntimeBindingsPort {
 
     override val defaultSessionId: String = "chat-main"
@@ -256,7 +257,7 @@ internal class DefaultChatViewModelRuntimeBindings @Inject constructor(
     }
 
     override fun log(message: String) {
-        SharedRuntimeLogStore.append(message)
+        runtimeLogger.append(message)
     }
 
     private fun createAppChatRuntimePort(

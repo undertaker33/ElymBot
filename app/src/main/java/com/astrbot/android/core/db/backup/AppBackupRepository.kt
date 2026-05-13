@@ -1,4 +1,4 @@
-package com.astrbot.android.core.db.backup
+﻿package com.astrbot.android.core.db.backup
 
 import android.content.Context
 import android.net.Uri
@@ -48,7 +48,7 @@ import com.astrbot.android.model.SavedQqAccount
 import com.astrbot.android.feature.voiceasset.api.model.TtsVoiceReferenceAsset
 import com.astrbot.android.feature.voiceasset.api.TtsVoiceAssetPort
 import com.astrbot.android.model.chat.ConversationSession
-import com.astrbot.android.core.logging.SharedRuntimeLogStore
+import com.astrbot.android.core.common.logging.RuntimeLogger
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -72,11 +72,13 @@ class AppBackupService @Inject constructor(
     dataPort: AppBackupDataPort,
     ttsVoiceAssetPort: TtsVoiceAssetPort,
     private val participantRegistry: BackupParticipantRegistry,
+    runtimeLogger: RuntimeLogger,
 ) {
     private val repository = AppBackupRepository(
         context = context,
         dataPort = dataPort,
         ttsVoiceAssetPort = ttsVoiceAssetPort,
+        runtimeLogger = runtimeLogger,
     )
 
     val backups: StateFlow<List<AppBackupItem>> = repository.backups
@@ -170,6 +172,7 @@ class AppBackupRepository(
     context: Context,
     private val dataPort: AppBackupDataPort,
     private val ttsVoiceAssetPort: TtsVoiceAssetPort,
+    private val runtimeLogger: RuntimeLogger = RuntimeLogger.noop(),
 ) {
     private val timestampFormatter = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss")
     private val appContext: Context = context.applicationContext
@@ -200,7 +203,7 @@ class AppBackupRepository(
             refreshBackups()
             buildBackupItem(file) ?: error("Backup file was created but could not be parsed")
         }.onFailure { error ->
-            SharedRuntimeLogStore.append("Full backup create failed: ${error.message ?: error.javaClass.simpleName}")
+            runtimeLogger.append("Full backup create failed: ${error.message ?: error.javaClass.simpleName}")
         }
     }
 
@@ -217,7 +220,7 @@ class AppBackupRepository(
             refreshModuleBackups(module)
             buildModuleBackupItem(module, file) ?: error("Module backup file was created but could not be parsed")
         }.onFailure { error ->
-            SharedRuntimeLogStore.append("${module.storageLabel} backup create failed: ${error.message ?: error.javaClass.simpleName}")
+            runtimeLogger.append("${module.storageLabel} backup create failed: ${error.message ?: error.javaClass.simpleName}")
         }
     }
 
@@ -240,7 +243,7 @@ class AppBackupRepository(
                 ),
             )
         }.onFailure { error ->
-            SharedRuntimeLogStore.append("Full backup restore failed: ${error.message ?: error.javaClass.simpleName}")
+            runtimeLogger.append("Full backup restore failed: ${error.message ?: error.javaClass.simpleName}")
         }
     }
 
@@ -250,7 +253,7 @@ class AppBackupRepository(
             if (!file.delete()) error("Delete failed")
             refreshBackups()
         }.onFailure { error ->
-            SharedRuntimeLogStore.append("Full backup delete failed: ${error.message ?: error.javaClass.simpleName}")
+            runtimeLogger.append("Full backup delete failed: ${error.message ?: error.javaClass.simpleName}")
         }
     }
 
@@ -263,7 +266,7 @@ class AppBackupRepository(
             if (!file.delete()) error("Delete failed")
             refreshModuleBackups(module)
         }.onFailure { error ->
-            SharedRuntimeLogStore.append("${module.storageLabel} backup delete failed: ${error.message ?: error.javaClass.simpleName}")
+            runtimeLogger.append("${module.storageLabel} backup delete failed: ${error.message ?: error.javaClass.simpleName}")
         }
     }
 
@@ -279,7 +282,7 @@ class AppBackupRepository(
                 output.flush()
             } ?: error("Unable to open export target")
         }.onFailure { error ->
-            SharedRuntimeLogStore.append("Full backup export failed: ${error.message ?: error.javaClass.simpleName}")
+            runtimeLogger.append("Full backup export failed: ${error.message ?: error.javaClass.simpleName}")
         }
     }
 
@@ -296,7 +299,7 @@ class AppBackupRepository(
                 output.flush()
             } ?: error("Unable to open export target")
         }.onFailure { error ->
-            SharedRuntimeLogStore.append("${module.storageLabel} backup export failed: ${error.message ?: error.javaClass.simpleName}")
+            runtimeLogger.append("${module.storageLabel} backup export failed: ${error.message ?: error.javaClass.simpleName}")
         }
     }
 
@@ -328,7 +331,7 @@ class AppBackupRepository(
                 extractedFiles = payload.extractedFiles,
             )
         }.onFailure { error ->
-            SharedRuntimeLogStore.append("Full backup external import failed: ${error.message ?: error.javaClass.simpleName}")
+            runtimeLogger.append("Full backup external import failed: ${error.message ?: error.javaClass.simpleName}")
         }
     }
 
@@ -365,7 +368,7 @@ class AppBackupRepository(
                 extractedFiles = payload.extractedFiles,
             )
         }.onFailure { error ->
-            SharedRuntimeLogStore.append("${module.storageLabel} external import failed: ${error.message ?: error.javaClass.simpleName}")
+            runtimeLogger.append("${module.storageLabel} external import failed: ${error.message ?: error.javaClass.simpleName}")
         }
     }
 
@@ -392,7 +395,7 @@ class AppBackupRepository(
         runCatching {
             restoreFromManifest(manifest, plan)
         }.onFailure { error ->
-            SharedRuntimeLogStore.append("Full backup import failed: ${error.message ?: error.javaClass.simpleName}")
+            runtimeLogger.append("Full backup import failed: ${error.message ?: error.javaClass.simpleName}")
         }
     }
 
@@ -403,7 +406,7 @@ class AppBackupRepository(
         runCatching {
             restoreFromManifest(source.manifest, plan, source.extractedFiles)
         }.onFailure { error ->
-            SharedRuntimeLogStore.append("Full backup import failed: ${error.message ?: error.javaClass.simpleName}")
+            runtimeLogger.append("Full backup import failed: ${error.message ?: error.javaClass.simpleName}")
         }
     }
 
@@ -420,7 +423,7 @@ class AppBackupRepository(
             refreshModuleBackups(module)
             moduleCountFromRestoreResult(module, result)
         }.onFailure { error ->
-            SharedRuntimeLogStore.append("${module.storageLabel} import failed: ${error.message ?: error.javaClass.simpleName}")
+            runtimeLogger.append("${module.storageLabel} import failed: ${error.message ?: error.javaClass.simpleName}")
         }
     }
 
@@ -437,7 +440,7 @@ class AppBackupRepository(
             refreshModuleBackups(source.module)
             moduleCountFromRestoreResult(source.module, result)
         }.onFailure { error ->
-            SharedRuntimeLogStore.append("${source.module.storageLabel} import failed: ${error.message ?: error.javaClass.simpleName}")
+            runtimeLogger.append("${source.module.storageLabel} import failed: ${error.message ?: error.javaClass.simpleName}")
         }
     }
 
@@ -706,7 +709,7 @@ class AppBackupRepository(
                 stage.rollback()
             }.onFailure { rollbackError ->
                 restoreError.addSuppressed(rollbackError)
-                SharedRuntimeLogStore.append(
+                runtimeLogger.append(
                     "Full backup rollback failed at ${stage.name}: ${rollbackError.message ?: rollbackError.javaClass.simpleName}",
                 )
             }
@@ -1072,3 +1075,4 @@ private fun looksLikeZip(input: InputStream): Boolean {
         header[2] == 3.toByte() &&
         header[3] == 4.toByte()
 }
+

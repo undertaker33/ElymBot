@@ -6,19 +6,20 @@ import com.astrbot.android.feature.cron.domain.model.CronJob
 
 class AndroidCronSchedulerPort(
     private val contextProvider: () -> Context?,
+    private val scheduler: WorkManagerCronJobScheduler = WorkManagerCronJobScheduler(),
 ) : CronSchedulerPort {
     override fun schedule(job: CronJob) {
         val context = contextProvider() ?: return
-        CronJobScheduler.scheduleJob(context, job)
+        scheduler.scheduleJob(context, job)
     }
 
     override fun cancel(jobId: String) {
         val context = contextProvider() ?: return
-        CronJobScheduler.cancelJob(context, jobId)
+        scheduler.cancelJob(context, jobId)
     }
 
     override fun cancelAll() {
         val context = contextProvider() ?: return
-        CronJobScheduler.cancelAll(context)
+        scheduler.cancelAll(context)
     }
 }

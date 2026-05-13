@@ -1,6 +1,6 @@
-package com.astrbot.android.feature.plugin.runtime.toolsource
+﻿package com.astrbot.android.feature.plugin.runtime.toolsource
 
-import com.astrbot.android.core.logging.SharedRuntimeLogStore
+import com.astrbot.android.core.common.logging.RuntimeLogger
 import com.astrbot.android.core.runtime.search.SearchAttemptDiagnostic
 import com.astrbot.android.core.runtime.search.UnifiedSearchException
 import com.astrbot.android.core.runtime.search.UnifiedSearchPort
@@ -19,6 +19,7 @@ import java.time.ZoneId
 class WebSearchToolSourceProvider @Inject constructor(
     private val searchPort: UnifiedSearchPort,
     override val contextResolver: FutureToolSourceContextResolver,
+    private val runtimeLogger: RuntimeLogger,
 ) : FutureToolSourceProvider {
     override val sourceKind: PluginToolSourceKind = PluginToolSourceKind.WEB_SEARCH
 
@@ -120,7 +121,7 @@ class WebSearchToolSourceProvider @Inject constructor(
                 ),
             )
         } catch (e: UnifiedSearchException) {
-            SharedRuntimeLogStore.append("WebSearch invoke error: ${e.message}")
+            runtimeLogger.append("WebSearch invoke error: ${e.message}")
             errorResult(
                 request = request,
                 errorCode = "web_search_error",
@@ -131,7 +132,7 @@ class WebSearchToolSourceProvider @Inject constructor(
                 ),
             )
         } catch (e: Exception) {
-            SharedRuntimeLogStore.append("WebSearch invoke error: ${e.message}")
+            runtimeLogger.append("WebSearch invoke error: ${e.message}")
             errorResult(
                 request = request,
                 errorCode = "web_search_error",
@@ -241,3 +242,4 @@ private fun SearchAttemptDiagnostic.toStructuredMap(): Map<String, Any?> {
         "relevanceAccepted" to relevanceAccepted,
     ).filterValues { value -> value != null }
 }
+

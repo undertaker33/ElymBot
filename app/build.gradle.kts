@@ -7,6 +7,7 @@ plugins {
 
 import java.util.Properties
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
+import org.gradle.api.tasks.testing.Test
 
 fun sanitizeBranchName(name: String): String {
     return name
@@ -106,8 +107,8 @@ android {
     defaultConfig {
         applicationId = "com.astrbot.android"
         targetSdk = 36
-        versionCode = 71
-        versionName = "0.8.14"
+        versionCode = 72
+        versionName = "0.9.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -261,6 +262,97 @@ tasks.withType<KotlinCompile>().configureEach {
     }
 }
 
+val coreRuntimeModulePrefix = ":core:runtime-"
+val appUnitTestRuntimeProjects = listOf(
+    ":app-integration",
+    ":core:backup",
+    ":core:common",
+    ":core:db",
+    ":core:logging",
+    ":core:network",
+    ":core:runtime",
+    coreRuntimeModulePrefix + "audio",
+    ":core:runtime-cache",
+    coreRuntimeModulePrefix + "container",
+    ":core:runtime-llm",
+    ":core:runtime-search",
+    ":core:runtime-secret",
+    ":core:runtime-session",
+    ":core:ui",
+    ":download:api",
+    ":download:impl",
+    ":feature:bot:api",
+    ":feature:bot:data",
+    ":feature:bot:impl",
+    ":feature:bot:presentation",
+    ":feature:chat:api",
+    ":feature:chat:impl",
+    ":feature:chat:presentation",
+    ":feature:chat:runtime",
+    ":feature:config:api",
+    ":feature:config:data",
+    ":feature:config:impl",
+    ":feature:config:presentation",
+    ":feature:conversation:api",
+    ":feature:conversation:data",
+    ":feature:cron:api",
+    ":feature:cron:data",
+    ":feature:cron:impl",
+    ":feature:cron:presentation",
+    ":feature:cron:runtime",
+    ":feature:persona:api",
+    ":feature:persona:data",
+    ":feature:persona:impl",
+    ":feature:persona:presentation",
+    ":feature:plugin:api",
+    ":feature:plugin:data",
+    ":feature:plugin:impl",
+    ":feature:plugin:presentation",
+    ":feature:plugin:runtime",
+    ":feature:provider:api",
+    ":feature:provider:data",
+    ":feature:provider:impl",
+    ":feature:provider:presentation",
+    ":feature:provider:runtime",
+    ":feature:qq:api",
+    ":feature:qq:data",
+    ":feature:qq:impl",
+    ":feature:qq:presentation",
+    ":feature:qq:runtime",
+    ":feature:resource:api",
+    ":feature:resource:data",
+    ":feature:resource:impl",
+    ":feature:resource:presentation",
+    ":feature:settings:api",
+    ":feature:settings:presentation",
+    ":feature:voiceasset:api",
+    ":feature:voiceasset:data",
+    ":feature:voiceasset:presentation",
+)
+
+tasks.withType<Test>().configureEach {
+    if (name == "testDebugUnitTest") {
+        appUnitTestRuntimeProjects.forEach { path ->
+            dependsOn("$path:compileDebugKotlin")
+            dependsOn("$path:bundleLibCompileToJarDebug")
+            dependsOn("$path:bundleLibRuntimeToJarDebug")
+        }
+        val runtimeOutputFiles = appUnitTestRuntimeProjects.flatMap { path ->
+            val buildDir = project(path).layout.buildDirectory
+            listOf(
+                buildDir.dir("tmp/kotlin-classes/debug").get().asFile,
+                buildDir.file("intermediates/compile_library_classes_jar/debug/bundleLibCompileToJarDebug/classes.jar")
+                    .get()
+                    .asFile,
+                buildDir.file("intermediates/runtime_library_classes_jar/debug/bundleLibRuntimeToJarDebug/classes.jar")
+                    .get()
+                    .asFile,
+            ).map { it.absoluteFile }
+        }
+        classpath = classpath.plus(files(runtimeOutputFiles))
+    }
+}
+
 dependencies {
     val composeBom = platform("androidx.compose:compose-bom:2024.09.00")
     val okHttpVersion = "4.12.0"
@@ -268,41 +360,17 @@ dependencies {
     val roomVersion = "2.6.1"
     val androidxHiltVersion = "1.2.0"
 
-    implementation(project(":core:common"))
-    implementation(project(":core:db"))
-    implementation(project(":core:logging"))
-    implementation(project(":core:network"))
-    implementation(project(":core:runtime"))
-    implementation(project(":core:runtime-audio"))
-    implementation(project(":core:runtime-cache"))
-    implementation(project(":core:runtime-container"))
-    implementation(project(":core:runtime-context"))
-    implementation(project(":core:runtime-llm"))
-    implementation(project(":core:runtime-search"))
-    implementation(project(":core:runtime-session"))
     implementation(project(":core:ui"))
-    implementation(project(":download:api"))
     implementation(project(":app-integration"))
-    implementation(project(":feature:bot:api"))
     implementation(project(":feature:bot:presentation"))
-    implementation(project(":feature:chat:api"))
     implementation(project(":feature:chat:presentation"))
-    implementation(project(":feature:config:api"))
     implementation(project(":feature:config:presentation"))
-    implementation(project(":feature:conversation:api"))
-    implementation(project(":feature:cron:api"))
     implementation(project(":feature:cron:presentation"))
-    implementation(project(":feature:persona:api"))
     implementation(project(":feature:persona:presentation"))
-    implementation(project(":feature:plugin:api"))
     implementation(project(":feature:plugin:presentation"))
-    implementation(project(":feature:provider:api"))
     implementation(project(":feature:provider:presentation"))
-    implementation(project(":feature:qq:api"))
     implementation(project(":feature:qq:presentation"))
-    implementation(project(":feature:resource:api"))
     implementation(project(":feature:resource:presentation"))
-    implementation(project(":feature:settings:api"))
     implementation(project(":feature:settings:presentation"))
     implementation(project(":feature:voiceasset:presentation"))
 

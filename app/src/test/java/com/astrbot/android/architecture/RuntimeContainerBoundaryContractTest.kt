@@ -7,6 +7,7 @@ import kotlin.io.path.exists
 import kotlin.io.path.isRegularFile
 import kotlin.io.path.readText
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -37,9 +38,9 @@ class RuntimeContainerBoundaryContractTest {
             "Architecture source roots must include core/runtime-container/src/main/java.",
             rootBuildText.contains("core/runtime-container/src/main/java"),
         )
-        assertTrue(
-            "App must depend on :core:runtime-container while Android service adapters remain in :app.",
-            appBuildText.contains("""implementation(project(":core:runtime-container"))"""),
+        assertFalse(
+            "Phase 27 app shell must not directly depend on :core:runtime-container; app-integration owns runtime wiring.",
+            appBuildText.contains(""":core:runtime-container"""),
         )
         assertTrue(
             "app-integration must depend on :core:runtime-container for container runtime port wiring.",

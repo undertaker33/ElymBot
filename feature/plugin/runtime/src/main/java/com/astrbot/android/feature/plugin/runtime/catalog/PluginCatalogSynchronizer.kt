@@ -1,13 +1,13 @@
-package com.astrbot.android.feature.plugin.runtime.catalog
+﻿package com.astrbot.android.feature.plugin.runtime.catalog
 import com.astrbot.android.feature.plugin.data.catalog.PluginCatalogJson
 import com.astrbot.android.feature.plugin.data.catalog.PluginCatalogSyncStore
+import com.astrbot.android.core.common.logging.RuntimeLogger
 import com.astrbot.android.model.plugin.PluginCatalogEntry
 import com.astrbot.android.model.plugin.PluginCatalogSyncState
 import com.astrbot.android.model.plugin.PluginCatalogSyncStatus
 import com.astrbot.android.model.plugin.PluginCatalogVersion
 import com.astrbot.android.model.plugin.PluginInstallIntent
 import com.astrbot.android.model.plugin.PluginRepositorySource
-import com.astrbot.android.core.logging.SharedRuntimeLogStore
 import com.astrbot.android.feature.plugin.runtime.InMemoryPluginRuntimeLogBus
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimeLogBus
 import com.astrbot.android.feature.plugin.runtime.publishMarketV2ValidationCompleted
@@ -17,6 +17,7 @@ class PluginCatalogSynchronizer @Inject constructor(
     private val store: PluginCatalogSyncStore,
     private val fetcher: PluginCatalogFetcher,
     private val logBus: PluginRuntimeLogBus,
+    private val runtimeLogger: RuntimeLogger,
 ) {
     private var now: () -> Long = System::currentTimeMillis
     private var decode: (String) -> PluginRepositorySource = PluginCatalogJson::decodeRepositorySource
@@ -27,7 +28,8 @@ class PluginCatalogSynchronizer @Inject constructor(
         now: () -> Long = System::currentTimeMillis,
         decode: (String) -> PluginRepositorySource = PluginCatalogJson::decodeRepositorySource,
         logBus: PluginRuntimeLogBus = InMemoryPluginRuntimeLogBus(),
-    ) : this(store = store, fetcher = fetcher, logBus = logBus) {
+        runtimeLogger: RuntimeLogger = RuntimeLogger.noop(),
+    ) : this(store = store, fetcher = fetcher, logBus = logBus, runtimeLogger = runtimeLogger) {
         this.now = now
         this.decode = decode
     }
@@ -37,7 +39,7 @@ class PluginCatalogSynchronizer @Inject constructor(
             ?: error("Plugin repository source not found for sourceId=$sourceId")
         val syncSource = subscribedSource.withNormalizedCatalogUrl()
         if (syncSource.catalogUrl != subscribedSource.catalogUrl) {
-            SharedRuntimeLogStore.append(
+            runtimeLogger.append(
                 "Plugin market sync normalized source URL: " +
                     "sourceId=${subscribedSource.sourceId} " +
                     "from=${subscribedSource.catalogUrl} " +
@@ -47,7 +49,7 @@ class PluginCatalogSynchronizer @Inject constructor(
         }
 
         val attemptAt = now()
-        SharedRuntimeLogStore.append(
+        runtimeLogger.append(
             "Plugin market sync start: " +
                 "sourceId=${syncSource.sourceId} " +
                 "url=${syncSource.catalogUrl} " +
@@ -55,11 +57,11 @@ class PluginCatalogSynchronizer @Inject constructor(
         )
         return runCatching {
             val rawJson = fetcher.fetch(syncSource.catalogUrl)
-            SharedRuntimeLogStore.append(
+            runtimeLogger.append(
                 "Plugin market sync fetched: sourceId=${syncSource.sourceId} chars=${rawJson.length}",
             )
             val parsedSource = decode(rawJson)
-            SharedRuntimeLogStore.append(
+            runtimeLogger.append(
                 "Plugin market sync decoded: " +
                     "sourceId=${syncSource.sourceId} " +
                     "upstreamSourceId=${parsedSource.sourceId} " +
@@ -78,10 +80,10 @@ class PluginCatalogSynchronizer @Inject constructor(
                     outcome = PluginCatalogSyncStatus.EMPTY.name,
                     occurredAtEpochMillis = now(),
                 )
-                SharedRuntimeLogStore.append(
+                runtimeLogger.append(
                     "Plugin market sync empty: sourceId=${emptySource.sourceId} cachedPlugins=${syncSource.plugins.size}",
                 )
-                SharedRuntimeLogStore.flush()
+
                 emptySource.toSyncState()
             } else {
                 val successSource = normalized.copy(lastSyncStatus = PluginCatalogSyncStatus.SUCCESS)
@@ -91,13 +93,13 @@ class PluginCatalogSynchronizer @Inject constructor(
                     outcome = PluginCatalogSyncStatus.SUCCESS.name,
                     occurredAtEpochMillis = now(),
                 )
-                SharedRuntimeLogStore.append(
+                runtimeLogger.append(
                     "Plugin market sync success: " +
                         "sourceId=${successSource.sourceId} " +
                         "plugins=${successSource.plugins.size} " +
                         "versions=${successSource.plugins.sumOf { it.versions.size }}",
                 )
-                SharedRuntimeLogStore.flush()
+
                 successSource.toSyncState()
             }
         }.getOrElse { failure ->
@@ -116,10 +118,10 @@ class PluginCatalogSynchronizer @Inject constructor(
                 v2VersionCount = 0,
                 issueCount = 1,
             )
-            SharedRuntimeLogStore.append(
+            runtimeLogger.append(
                 "Plugin market sync failed: sourceId=${failedSource.sourceId} error=${failure.toRuntimeLogSummary()}",
             )
-            SharedRuntimeLogStore.flush()
+
             failedSource.toSyncState()
         }
     }
@@ -196,3 +198,4 @@ private fun Throwable.toRuntimeLogSummary(): String {
 }
 
 private const val MAX_ERROR_SUMMARY_LENGTH = 240
+

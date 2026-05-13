@@ -1,4 +1,4 @@
-package com.astrbot.android.architecture
+﻿package com.astrbot.android.architecture
 
 import java.nio.charset.StandardCharsets.UTF_8
 import java.nio.file.Files
@@ -7,6 +7,7 @@ import kotlin.io.path.exists
 import kotlin.io.path.isRegularFile
 import kotlin.io.path.readLines
 import kotlin.io.path.readText
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -16,6 +17,7 @@ class RuntimeAudioBoundaryContractTest {
     private val settingsFile: Path = projectRoot.resolve("settings.gradle.kts")
     private val rootBuildFile: Path = projectRoot.resolve("build.gradle.kts")
     private val appBuildFile: Path = projectRoot.resolve("app/build.gradle.kts")
+    private val appIntegrationBuildFile: Path = projectRoot.resolve("app-integration/build.gradle.kts")
     private val appMainRoot: Path = projectRoot.resolve("app/src/main/java/com/astrbot/android")
     private val globalSingletonAllowlistFile: Path =
         projectRoot.resolve("app/src/test/resources/architecture/global-singleton-allowlist.txt")
@@ -27,14 +29,20 @@ class RuntimeAudioBoundaryContractTest {
         val settingsText = settingsFile.readText(UTF_8)
         val rootBuildText = rootBuildFile.readText(UTF_8)
         val appBuildText = appBuildFile.readText(UTF_8)
+        val appIntegrationBuildText = appIntegrationBuildFile.readText(UTF_8)
 
         assertTrue(
             "settings.gradle.kts must declare :core:runtime-audio for phase 9-B.",
             settingsText.contains("""include(":core:runtime-audio")"""),
         )
+        assertFalse(
+            "Phase 27 app shell must not directly depend on :core:runtime-audio; app-integration owns runtime wiring.",
+            appBuildText.contains(""":core:runtime-audio"""),
+        )
         assertTrue(
-            "app must depend on :core:runtime-audio while app-side adapters still live in :app.",
-            appBuildText.contains("""implementation(project(":core:runtime-audio"))"""),
+            "app-integration must consume :core:runtime-audio while app-side Android adapters remain in :app.",
+            appIntegrationBuildText.contains("""implementation(project(":core:runtime-audio"))""") ||
+                appIntegrationBuildText.contains("""api(project(":core:runtime-audio"))"""),
         )
         assertTrue(
             "architecture source root report must include core/runtime-audio/src/main/java.",
@@ -109,41 +117,17 @@ class RuntimeAudioBoundaryContractTest {
     }
 
     @Test
-    fun global_singleton_allowlist_must_assign_audio_debt_to_runtime_audio_owners() {
+    fun global_singleton_allowlist_must_not_keep_audio_runtime_singleton_debt() {
         val entries = singletonAllowlistEntries()
-        val expected = mapOf(
-            "core/runtime/audio/AndroidSystemTtsBridge.kt" to ExpectedSingletonDebt(
-                owner = "core:runtime-audio",
-                expires = "phase-27-compat-review",
-                requiredText = "AudioRuntimePort",
-            ),
-            "core/runtime/audio/SherpaOnnxBridge.kt" to ExpectedSingletonDebt(
-                owner = "core:runtime-audio",
-                expires = "phase-27-compat-review",
-                requiredText = "AudioRuntimePort",
-            ),
-            "core/runtime/audio/SherpaOnnxAssetManager.kt" to ExpectedSingletonDebt(
-                owner = "core:runtime-audio",
-                expires = "phase-27-compat-review",
-                requiredText = "download port",
-            ),
+        val retiredAudioDebts = setOf(
+            "core/runtime/audio/SherpaOnnxBridge.kt",
+            "core/runtime/audio/SherpaOnnxAssetManager.kt",
         )
 
-        val violations = expected.mapNotNull { (path, debt) ->
-            val entry = entries[path] ?: return@mapNotNull "$path is missing from global singleton allowlist"
-            val combinedText = "${entry.target} ${entry.reason}"
-            when {
-                entry.owner != debt.owner -> "$path owner=${entry.owner}, expected ${debt.owner}"
-                entry.expires != debt.expires -> "$path expires=${entry.expires}, expected ${debt.expires}"
-                !combinedText.contains(debt.requiredText) -> {
-                    "$path must explain ${debt.requiredText} ownership in target/reason"
-                }
-                else -> null
-            }
-        }
+        val violations = retiredAudioDebts.filter(entries::containsKey)
 
         assertTrue(
-            "Audio singleton allowlist entries must stay owned by runtime-audio and use the Phase 26+ compat expiry: $violations",
+            "Audio runtime singleton allowlist debt must be retired after Phase 27 closure: $violations",
             violations.isEmpty(),
         )
     }
@@ -213,12 +197,6 @@ class RuntimeAudioBoundaryContractTest {
         }
     }
 
-    private data class ExpectedSingletonDebt(
-        val owner: String,
-        val expires: String,
-        val requiredText: String,
-    )
-
     private data class SingletonAllowlistEntry(
         val path: String,
         val owner: String,
@@ -227,3 +205,5 @@ class RuntimeAudioBoundaryContractTest {
         val expires: String,
     )
 }
+
+

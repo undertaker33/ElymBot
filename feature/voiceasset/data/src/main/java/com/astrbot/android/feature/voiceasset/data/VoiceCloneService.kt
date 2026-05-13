@@ -1,6 +1,6 @@
-package com.astrbot.android.feature.voiceasset.data
+﻿package com.astrbot.android.feature.voiceasset.data
 
-import com.astrbot.android.core.logging.SharedRuntimeLogStore
+import com.astrbot.android.core.common.logging.RuntimeLogger
 import com.astrbot.android.feature.voiceasset.api.VoiceCloneProviderProfile
 import com.astrbot.android.feature.voiceasset.api.VoiceCloneRuntimePort
 import com.astrbot.android.feature.voiceasset.api.model.TtsVoiceReferenceAsset
@@ -16,7 +16,9 @@ import javax.inject.Singleton
 import org.json.JSONObject
 
 @Singleton
-class VoiceCloneService @Inject constructor() : VoiceCloneRuntimePort {
+class VoiceCloneService @Inject constructor(
+    private val runtimeLogger: RuntimeLogger,
+) : VoiceCloneRuntimePort {
     private val clipGapMs = 300
 
     override fun cloneVoice(
@@ -111,7 +113,7 @@ class VoiceCloneService @Inject constructor() : VoiceCloneRuntimePort {
         }
         return try {
             executeJsonRequest(connection, payload) { body ->
-                SharedRuntimeLogStore.append("MiniMax voice clone response: ${body.ifBlank { "-" }}")
+                runtimeLogger.append("MiniMax voice clone response: ${body.ifBlank { "-" }}")
                 val json = JSONObject(body)
                 val baseResp = json.optJSONObject("base_resp")
                 val statusCode = baseResp?.optInt("status_code", 0) ?: 0
@@ -153,7 +155,7 @@ class VoiceCloneService @Inject constructor() : VoiceCloneRuntimePort {
                 throw IllegalStateException("HTTP $responseCode while uploading reference audio to MiniMax.")
             }
             val body = connection.inputStream.bufferedReader(StandardCharsets.UTF_8).use { it.readText() }
-            SharedRuntimeLogStore.append("MiniMax file upload response: ${body.ifBlank { "-" }}")
+            runtimeLogger.append("MiniMax file upload response: ${body.ifBlank { "-" }}")
             val json = JSONObject(body)
             val baseResp = json.optJSONObject("base_resp")
             val statusCode = baseResp?.optInt("status_code", 0) ?: 0
@@ -457,7 +459,7 @@ class VoiceCloneService @Inject constructor() : VoiceCloneRuntimePort {
     }
 
     private fun openJsonConnection(endpoint: String): HttpURLConnection {
-        SharedRuntimeLogStore.append("Voice clone request: endpoint=$endpoint")
+        runtimeLogger.append("Voice clone request: endpoint=$endpoint")
         return (URL(endpoint).openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
             connectTimeout = 20_000
@@ -483,7 +485,7 @@ class VoiceCloneService @Inject constructor() : VoiceCloneRuntimePort {
             ?.use { it.readText() }
             .orEmpty()
         if (responseCode !in 200..299) {
-            SharedRuntimeLogStore.append(
+            runtimeLogger.append(
                 "Voice clone HTTP error: code=$responseCode body=${body.ifBlank { "-" }}",
             )
             throw IllegalStateException("HTTP $responseCode: $body")
@@ -555,3 +557,4 @@ class VoiceCloneService @Inject constructor() : VoiceCloneRuntimePort {
         val pcmData: ByteArray,
     )
 }
+

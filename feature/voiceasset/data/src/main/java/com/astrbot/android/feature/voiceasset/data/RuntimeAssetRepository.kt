@@ -1,8 +1,10 @@
 package com.astrbot.android.feature.voiceasset.data
 
 import android.content.Context
-import com.astrbot.android.core.logging.SharedRuntimeLogStore
-import com.astrbot.android.core.runtime.audio.SherpaOnnxAssetManager
+import com.astrbot.android.core.common.logging.RuntimeLogger
+import com.astrbot.android.core.runtime.audio.AudioAssetSubState
+import com.astrbot.android.core.runtime.audio.AudioTtsAssetState
+import com.astrbot.android.core.runtime.audio.SherpaOnnxAssetService
 import com.astrbot.android.core.runtime.container.CommandRunner
 import com.astrbot.android.core.runtime.container.ContainerRuntimeInstallerPort
 import com.astrbot.android.core.runtime.container.ContainerRuntimeScript
@@ -33,6 +35,8 @@ class RuntimeAssetStateOwner @Inject constructor(
     private val containerRuntimeInstaller: ContainerRuntimeInstallerPort,
     private val commandRunner: CommandRunner,
     private val downloadManager: DownloadManagerPort,
+    private val sherpaOnnxAssetService: SherpaOnnxAssetService,
+    private val runtimeLogger: RuntimeLogger,
     @Suppress("unused") private val ttsVoiceAssetPort: TtsVoiceAssetPort,
 ) : RuntimeAssetPort {
     private val _state = MutableStateFlow(RuntimeAssetState(assets = assetCatalog.map(::buildInitialEntry)))
@@ -40,7 +44,7 @@ class RuntimeAssetStateOwner @Inject constructor(
     override val state: StateFlow<RuntimeAssetState> = _state.asStateFlow()
 
     init {
-        SherpaOnnxAssetManager.clearDeprecatedTtsAssets(appContext)
+        sherpaOnnxAssetService.clearDeprecatedTtsAssets(appContext)
         refreshInternal(detailsOverrides = emptyMap())
     }
 
@@ -96,7 +100,7 @@ class RuntimeAssetStateOwner @Inject constructor(
     }
 
     override fun ttsAssetState(@Suppress("UNUSED_PARAMETER") context: Context): RuntimeAssetTtsState {
-        return SherpaOnnxAssetManager.ttsState(appContext).toRuntimeAssetTtsState()
+        return sherpaOnnxAssetService.ttsState(appContext).toRuntimeAssetTtsState()
     }
 
     private suspend fun downloadTtsAssets(context: Context) {
@@ -109,7 +113,7 @@ class RuntimeAssetStateOwner @Inject constructor(
         )
         try {
             containerRuntimeInstaller.ensureInstalled()
-            SharedRuntimeLogStore.append("Runtime assets download requested: TTS conversion")
+            runtimeLogger.append("Runtime assets download requested: TTS conversion")
             val result = commandRunner.execute(
                 ContainerRuntimeScripts.command(
                     filesDir = context.filesDir,
@@ -121,11 +125,11 @@ class RuntimeAssetStateOwner @Inject constructor(
                 val details = parseDownloadSummary(result.stdout)
                     ?: "TTS conversion assets downloaded."
                 refreshInternal(detailsOverrides = mapOf(RuntimeAssetId.TTS to details))
-                SharedRuntimeLogStore.append("Runtime assets download finished: $details")
+                runtimeLogger.append("Runtime assets download finished: $details")
                 updateAsset(RuntimeAssetId.TTS, lastAction = "Downloaded")
             } else {
                 val message = result.stderr.ifBlank { result.stdout }.ifBlank { "Unknown error" }
-                SharedRuntimeLogStore.append("Runtime assets download failed: $message")
+                runtimeLogger.append("Runtime assets download failed: $message")
                 updateAsset(
                     RuntimeAssetId.TTS,
                     busy = false,
@@ -135,7 +139,7 @@ class RuntimeAssetStateOwner @Inject constructor(
             }
         } catch (error: Exception) {
             val message = error.message ?: error.javaClass.simpleName
-            SharedRuntimeLogStore.append("Runtime assets download exception: $message")
+            runtimeLogger.append("Runtime assets download exception: $message")
             updateAsset(
                 RuntimeAssetId.TTS,
                 busy = false,
@@ -155,7 +159,7 @@ class RuntimeAssetStateOwner @Inject constructor(
         )
         try {
             containerRuntimeInstaller.ensureInstalled()
-            SharedRuntimeLogStore.append("Runtime assets clear requested: TTS conversion")
+            runtimeLogger.append("Runtime assets clear requested: TTS conversion")
             val result = commandRunner.execute(
                 ContainerRuntimeScripts.command(
                     filesDir = context.filesDir,
@@ -165,11 +169,11 @@ class RuntimeAssetStateOwner @Inject constructor(
             )
             if (result.exitCode == 0) {
                 refreshInternal(detailsOverrides = mapOf(RuntimeAssetId.TTS to "TTS conversion assets removed."))
-                SharedRuntimeLogStore.append("Runtime assets cleared: TTS conversion")
+                runtimeLogger.append("Runtime assets cleared: TTS conversion")
                 updateAsset(RuntimeAssetId.TTS, lastAction = "Cleared")
             } else {
                 val message = result.stderr.ifBlank { result.stdout }.ifBlank { "Unknown error" }
-                SharedRuntimeLogStore.append("Runtime assets clear failed: $message")
+                runtimeLogger.append("Runtime assets clear failed: $message")
                 updateAsset(
                     RuntimeAssetId.TTS,
                     busy = false,
@@ -179,7 +183,7 @@ class RuntimeAssetStateOwner @Inject constructor(
             }
         } catch (error: Exception) {
             val message = error.message ?: error.javaClass.simpleName
-            SharedRuntimeLogStore.append("Runtime assets clear exception: $message")
+            runtimeLogger.append("Runtime assets clear exception: $message")
             updateAsset(
                 RuntimeAssetId.TTS,
                 busy = false,
@@ -198,7 +202,7 @@ class RuntimeAssetStateOwner @Inject constructor(
             details = "Activating the bundled Sherpa ONNX Android runtime.",
         )
         try {
-            SherpaOnnxAssetManager.ensureFrameworkActivated(context)
+            sherpaOnnxAssetService.ensureFrameworkActivated(context)
             refreshInternal(detailsOverrides = emptyMap())
             updateAsset(RuntimeAssetId.ON_DEVICE_FRAMEWORK, lastAction = "Downloaded")
         } catch (error: Exception) {
@@ -220,7 +224,7 @@ class RuntimeAssetStateOwner @Inject constructor(
             details = "Removing the Sherpa ONNX activation marker and local model assets.",
         )
         try {
-            SherpaOnnxAssetManager.clearFramework(context)
+            sherpaOnnxAssetService.clearFramework(context)
             refreshInternal(detailsOverrides = emptyMap())
             updateAsset(RuntimeAssetId.ON_DEVICE_FRAMEWORK, lastAction = "Cleared")
         } catch (error: Exception) {
@@ -242,7 +246,7 @@ class RuntimeAssetStateOwner @Inject constructor(
             details = "Downloading Sherpa ONNX STT assets.",
         )
         try {
-            val archiveFile = SherpaOnnxAssetManager.sttArchiveFile(context)
+            val archiveFile = sherpaOnnxAssetService.sttArchiveFile(context)
             downloadManager.enqueue(
                 DownloadRequest(
                     taskKey = STT_DOWNLOAD_TASK_KEY,
@@ -254,7 +258,7 @@ class RuntimeAssetStateOwner @Inject constructor(
                 ),
             )
             downloadManager.awaitCompletion(STT_DOWNLOAD_TASK_KEY)
-            SherpaOnnxAssetManager.installSttAssetsFromArchive(context, archiveFile)
+            sherpaOnnxAssetService.installSttAssetsFromArchive(context, archiveFile)
             refreshInternal(detailsOverrides = emptyMap())
             updateAsset(RuntimeAssetId.ON_DEVICE_STT, lastAction = "Downloaded")
         } catch (error: Exception) {
@@ -276,7 +280,7 @@ class RuntimeAssetStateOwner @Inject constructor(
             details = "Removing Sherpa ONNX STT assets.",
         )
         try {
-            SherpaOnnxAssetManager.clearSttAssets(context)
+            sherpaOnnxAssetService.clearSttAssets(context)
             refreshInternal(detailsOverrides = emptyMap())
             updateAsset(RuntimeAssetId.ON_DEVICE_STT, lastAction = "Cleared")
         } catch (error: Exception) {
@@ -297,7 +301,7 @@ class RuntimeAssetStateOwner @Inject constructor(
             details = "Downloading kokoro local TTS assets.",
         )
         try {
-            val archiveFile = SherpaOnnxAssetManager.kokoroArchiveFile(context)
+            val archiveFile = sherpaOnnxAssetService.kokoroArchiveFile(context)
             downloadManager.enqueue(
                 DownloadRequest(
                     taskKey = KOKORO_DOWNLOAD_TASK_KEY,
@@ -309,14 +313,14 @@ class RuntimeAssetStateOwner @Inject constructor(
                 ),
             )
             downloadManager.awaitCompletion(KOKORO_DOWNLOAD_TASK_KEY)
-            SherpaOnnxAssetManager.installKokoroAssetsFromArchive(context, archiveFile)
-            check(SherpaOnnxAssetManager.ttsState(context).kokoro.installed) {
+            sherpaOnnxAssetService.installKokoroAssetsFromArchive(context, archiveFile)
+            check(sherpaOnnxAssetService.ttsState(context).kokoro.installed) {
                 "Kokoro assets are still missing after download."
             }
             refreshInternal(detailsOverrides = emptyMap())
             updateAsset(RuntimeAssetId.ON_DEVICE_TTS, lastAction = "Downloaded kokoro")
         } catch (error: Exception) {
-            runCatching { SherpaOnnxAssetManager.clearKokoroAssets(context) }
+            runCatching { sherpaOnnxAssetService.clearKokoroAssets(context) }
             updateAsset(
                 RuntimeAssetId.ON_DEVICE_TTS,
                 busy = false,
@@ -334,7 +338,7 @@ class RuntimeAssetStateOwner @Inject constructor(
             details = "Removing kokoro local TTS assets.",
         )
         try {
-            SherpaOnnxAssetManager.clearKokoroAssets(context)
+            sherpaOnnxAssetService.clearKokoroAssets(context)
             refreshInternal(detailsOverrides = emptyMap())
             updateAsset(RuntimeAssetId.ON_DEVICE_TTS, lastAction = "Cleared kokoro")
         } catch (error: Exception) {
@@ -367,9 +371,9 @@ class RuntimeAssetStateOwner @Inject constructor(
 
     private fun isInstalled(context: Context, assetId: RuntimeAssetId): Boolean = when (assetId) {
         RuntimeAssetId.TTS -> ttsMarkerFile(context).exists()
-        RuntimeAssetId.ON_DEVICE_FRAMEWORK -> SherpaOnnxAssetManager.frameworkState(context).installed
-        RuntimeAssetId.ON_DEVICE_STT -> SherpaOnnxAssetManager.sttState(context).installed
-        RuntimeAssetId.ON_DEVICE_TTS -> SherpaOnnxAssetManager.ttsState(context).kokoro.installed
+        RuntimeAssetId.ON_DEVICE_FRAMEWORK -> sherpaOnnxAssetService.frameworkState(context).installed
+        RuntimeAssetId.ON_DEVICE_STT -> sherpaOnnxAssetService.sttState(context).installed
+        RuntimeAssetId.ON_DEVICE_TTS -> sherpaOnnxAssetService.ttsState(context).kokoro.installed
         RuntimeAssetId.TTS_VOICE_ASSETS,
         -> false
     }
@@ -385,13 +389,13 @@ class RuntimeAssetStateOwner @Inject constructor(
             "TTS conversion assets are not downloaded."
         }
         RuntimeAssetId.ON_DEVICE_FRAMEWORK -> context?.let {
-            SherpaOnnxAssetManager.frameworkState(it).details
+            sherpaOnnxAssetService.frameworkState(it).details
         } ?: "Activate the bundled Sherpa ONNX Android runtime before downloading local STT or TTS model assets."
         RuntimeAssetId.ON_DEVICE_STT -> context?.let {
-            SherpaOnnxAssetManager.sttState(it).details
+            sherpaOnnxAssetService.sttState(it).details
         } ?: "Offline Paraformer STT assets are not downloaded."
         RuntimeAssetId.ON_DEVICE_TTS -> context?.let {
-            val state = SherpaOnnxAssetManager.ttsState(it)
+            val state = sherpaOnnxAssetService.ttsState(it)
             "Framework: ${state.framework.details} Kokoro: ${state.kokoro.details}"
         } ?: "Framework and kokoro asset status will appear after initialization."
         RuntimeAssetId.TTS_VOICE_ASSETS -> "Cloud TTS voice asset entry is ready. Reference audio import and clone management will be connected in this iteration."
@@ -486,14 +490,14 @@ class RuntimeAssetStateOwner @Inject constructor(
     }
 }
 
-private fun SherpaOnnxAssetManager.TtsAssetState.toRuntimeAssetTtsState(): RuntimeAssetTtsState {
+private fun AudioTtsAssetState.toRuntimeAssetTtsState(): RuntimeAssetTtsState {
     return RuntimeAssetTtsState(
         framework = framework.toRuntimeAssetSubState(),
         kokoro = kokoro.toRuntimeAssetSubState(),
     )
 }
 
-private fun SherpaOnnxAssetManager.SubAssetState.toRuntimeAssetSubState(): RuntimeAssetSubState {
+private fun AudioAssetSubState.toRuntimeAssetSubState(): RuntimeAssetSubState {
     return RuntimeAssetSubState(
         installed = installed,
         details = details,

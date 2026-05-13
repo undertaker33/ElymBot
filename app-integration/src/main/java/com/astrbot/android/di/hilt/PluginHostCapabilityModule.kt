@@ -8,7 +8,6 @@ import com.astrbot.android.feature.plugin.runtime.DefaultPluginExecutionHostOper
 import com.astrbot.android.feature.plugin.runtime.PluginExecutionHostOperations
 import com.astrbot.android.feature.plugin.runtime.PluginExecutionHostResolver
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimeLogBus
-import com.astrbot.android.feature.plugin.data.config.PluginHostConfigResolver
 import dagger.Binds
 import dagger.Module
 import dagger.Provides
@@ -31,10 +30,8 @@ internal abstract class PluginHostCapabilityModule {
         @Singleton
         @JvmStatic
         fun provideDefaultPluginExecutionHostOperations(
-            hostConfigResolver: PluginHostConfigResolver,
-        ): DefaultPluginExecutionHostOperations = DefaultPluginExecutionHostOperations(
-            hostConfigResolver = hostConfigResolver,
-        )
+            factory: PluginDataWiringFactory,
+        ): DefaultPluginExecutionHostOperations = factory.createDefaultPluginExecutionHostOperations()
 
         @Provides
         @Singleton

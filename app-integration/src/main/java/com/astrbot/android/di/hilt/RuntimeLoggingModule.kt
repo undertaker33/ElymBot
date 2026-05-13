@@ -2,11 +2,11 @@ package com.astrbot.android.di.hilt
 
 import android.content.Context
 import com.astrbot.android.core.common.logging.RuntimeLogger
+import com.astrbot.android.core.logging.DefaultRuntimeLogStore
 import com.astrbot.android.core.logging.DefaultRuntimeLogMaintenanceService
 import com.astrbot.android.core.logging.RuntimeLogCleanupSettingsStore
 import com.astrbot.android.core.logging.RuntimeLogMaintenanceService
 import com.astrbot.android.core.logging.RuntimeLogStore
-import com.astrbot.android.core.logging.SharedRuntimeLogStore
 import com.astrbot.android.core.logging.SharedPreferencesRuntimeLogCleanupSettingsStore
 import dagger.Module
 import dagger.Provides
@@ -22,7 +22,7 @@ internal object RuntimeLoggingModule {
     @Provides
     @Singleton
     fun provideRuntimeLogStore(): RuntimeLogStore {
-        return SharedRuntimeLogStore
+        return DefaultRuntimeLogStore()
     }
 
     @Provides

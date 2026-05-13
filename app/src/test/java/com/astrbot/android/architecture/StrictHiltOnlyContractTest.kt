@@ -254,7 +254,7 @@ class StrictHiltOnlyContractTest {
             "di/hilt/PluginRuntimeModule.kt",
         ).joinToString("\n") { relativePath -> resolveProductionFile(relativePath).readText() }
         val requiredTokens = listOf(
-            "repositoryStatePort: PluginRepositoryStatePort",
+            "repositoryStatePort: PluginStateRepositoryPort",
             "activeRuntimeStore: PluginV2ActiveRuntimeStore",
             "failureStateStore: PluginFailureStateStore",
             "logBus: PluginRuntimeLogBus",

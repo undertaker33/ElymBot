@@ -34,6 +34,9 @@ class ContainerBridgeService : Service() {
     @Inject
     lateinit var runtimeLogger: RuntimeLogger
 
+    @Inject
+    lateinit var bridgeHealthChecker: BridgeHealthChecker
+
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var progressMonitorJob: Job? = null
     private var healthMonitorJob: Job? = null
@@ -81,7 +84,7 @@ class ContainerBridgeService : Service() {
             syncProgressFromRuntimeFiles()
             runtimeLogger.append("Waiting for NapCat health endpoint")
 
-            val health = BridgeHealthChecker.checkWithRetry(config.healthUrl)
+            val health = bridgeHealthChecker.checkWithRetry(config.healthUrl)
             if (health.ok) {
                 stopHealthMonitor()
                 stopProgressMonitor()
@@ -149,7 +152,7 @@ class ContainerBridgeService : Service() {
                 .takeIf { it > 0L }
                 ?.let { lastActivityAt = maxOf(lastActivityAt, it) }
 
-            val health = BridgeHealthChecker.check(url)
+            val health = bridgeHealthChecker.check(url)
             if (health.ok) {
                 stopProgressMonitor()
                 bridgeStatePort.markRunning(pidHint = pidHint)
@@ -242,7 +245,7 @@ class ContainerBridgeService : Service() {
             },
         )
 
-        val health = BridgeHealthChecker.check(config.healthUrl)
+        val health = bridgeHealthChecker.check(config.healthUrl)
         if (health.ok) {
             stopHealthMonitor()
             stopProgressMonitor()

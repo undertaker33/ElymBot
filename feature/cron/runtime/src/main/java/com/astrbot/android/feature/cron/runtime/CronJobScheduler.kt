@@ -7,10 +7,11 @@ import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.workDataOf
-import com.astrbot.android.core.logging.SharedRuntimeLogStore
+import com.astrbot.android.core.common.logging.RuntimeLogger
 import com.astrbot.android.feature.cron.domain.CronExpressionParser
 import com.astrbot.android.feature.cron.domain.model.CronJob
 import java.util.concurrent.TimeUnit
+import javax.inject.Inject
 
 /**
  * Manages scheduling of cron jobs via Android WorkManager.
@@ -19,10 +20,11 @@ import java.util.concurrent.TimeUnit
  * For recurring cron jobs, schedules the next occurrence as a OneTimeWorkRequest
  * (re-enqueued after each execution by CronJobWorker).
  */
-@Suppress("DEPRECATION")
-object CronJobScheduler {
+class WorkManagerCronJobScheduler @Inject constructor(
+    private val runtimeLogger: RuntimeLogger,
+) {
+    constructor() : this(RuntimeLogger { })
 
-    private const val WORK_TAG = "cron_job"
 
     fun scheduleJob(context: Context, job: CronJob) {
         if (!job.enabled) {
@@ -31,7 +33,7 @@ object CronJobScheduler {
         }
         val delayMs = computeDelayMs(job)
         if (delayMs < 0) {
-            SharedRuntimeLogStore.append("CronJobScheduler: skipping job ${job.jobId} 鈥?invalid delay")
+            runtimeLogger.append("CronJobScheduler: skipping job ${job.jobId} - invalid delay")
             return
         }
         val constraints = Constraints.Builder()
@@ -49,12 +51,12 @@ object CronJobScheduler {
             ExistingWorkPolicy.REPLACE,
             workRequest,
         )
-        SharedRuntimeLogStore.append("CronJobScheduler: scheduled job ${job.jobId} '${job.name}' with delay ${delayMs}ms")
+        runtimeLogger.append("CronJobScheduler: scheduled job ${job.jobId} '${job.name}' with delay ${delayMs}ms")
     }
 
     fun cancelJob(context: Context, jobId: String) {
         WorkManager.getInstance(context).cancelUniqueWork("cron_job_$jobId")
-        SharedRuntimeLogStore.append("CronJobScheduler: cancelled job $jobId")
+        runtimeLogger.append("CronJobScheduler: cancelled job $jobId")
     }
 
     fun cancelAll(context: Context) {
@@ -67,7 +69,7 @@ object CronJobScheduler {
      * For `run_once` jobs: parse the `run_at` field in payload (ISO 8601) or `nextRunTime`.
      * For recurring cron jobs: parse cron expression to find next occurrence.
      */
-    internal fun computeDelayMs(job: CronJob): Long {
+    fun computeDelayMs(job: CronJob): Long {
         val now = System.currentTimeMillis()
 
         // If nextRunTime is already set and in the future, use it.
@@ -94,5 +96,8 @@ object CronJobScheduler {
             java.time.OffsetDateTime.parse(runAtStr).toInstant().toEpochMilli()
         }.getOrDefault(0L)
     }
-}
 
+    private companion object {
+        private const val WORK_TAG = "cron_job"
+    }
+}

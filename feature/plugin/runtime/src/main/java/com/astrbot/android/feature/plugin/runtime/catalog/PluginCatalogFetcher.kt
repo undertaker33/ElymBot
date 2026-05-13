@@ -1,6 +1,6 @@
 package com.astrbot.android.feature.plugin.runtime.catalog
 
-import com.astrbot.android.core.logging.SharedRuntimeLogStore
+import com.astrbot.android.core.common.logging.RuntimeLogger
 import java.net.HttpURLConnection
 import java.net.URL
 import javax.inject.Inject
@@ -9,9 +9,11 @@ fun interface PluginCatalogFetcher {
     suspend fun fetch(catalogUrl: String): String
 }
 
-class UrlConnectionPluginCatalogFetcher @Inject constructor() : PluginCatalogFetcher {
+class UrlConnectionPluginCatalogFetcher @Inject constructor(
+    private val runtimeLogger: RuntimeLogger,
+) : PluginCatalogFetcher {
     override suspend fun fetch(catalogUrl: String): String {
-        SharedRuntimeLogStore.append("Plugin market fetch start: url=$catalogUrl")
+        runtimeLogger.append("Plugin market fetch start: url=$catalogUrl")
         val connection = (URL(catalogUrl).openConnection() as HttpURLConnection).apply {
             requestMethod = "GET"
             connectTimeout = 15_000
@@ -36,12 +38,12 @@ class UrlConnectionPluginCatalogFetcher @Inject constructor() : PluginCatalogFet
                     .orEmpty()
                 "Plugin catalog fetch failed with HTTP $responseCode${if (preview.isNotBlank()) " body=$preview" else ""}"
             }
-            SharedRuntimeLogStore.append(
+            runtimeLogger.append(
                 "Plugin market fetch completed: url=$catalogUrl code=$responseCode chars=${responseBody.length}",
             )
             responseBody
         } catch (error: Throwable) {
-            SharedRuntimeLogStore.append("Plugin market fetch failed: url=$catalogUrl error=${error.toRuntimeLogSummary()}")
+            runtimeLogger.append("Plugin market fetch failed: url=$catalogUrl error=${error.toRuntimeLogSummary()}")
             throw error
         } finally {
             connection.disconnect()

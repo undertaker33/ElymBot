@@ -21,26 +21,24 @@ import javax.inject.Inject
  */
 internal class CompatChatCompletionAudioRuntimePort @Inject constructor(
     @ApplicationContext appContext: Context,
+    private val chatCompletionService: ChatCompletionService,
+    private val sherpaOnnxBridge: SherpaOnnxBridge,
     private val ttsVoiceAssetPort: TtsVoiceAssetPort,
 ) : AudioRuntimePort {
     private val appContext = appContext.applicationContext
-
-    init {
-        ChatCompletionService.initialize(this.appContext)
-    }
 
     override fun transcribeAudio(
         provider: AudioProviderProfile,
         attachment: AudioConversationAttachment,
     ): String {
-        return ChatCompletionService.transcribeAudio(
+        return chatCompletionService.transcribeAudio(
             provider = provider.toProviderProfile(),
             attachment = attachment.toConversationAttachment(),
         )
     }
 
     override fun probeSttSupport(provider: AudioProviderProfile): AudioSttProbeResult {
-        val result = ChatCompletionService.probeSttSupport(
+        val result = chatCompletionService.probeSttSupport(
             provider = provider.toProviderProfile(),
             context = appContext,
         )
@@ -56,7 +54,7 @@ internal class CompatChatCompletionAudioRuntimePort @Inject constructor(
         voiceId: String,
         readBracketedContent: Boolean,
     ): AudioConversationAttachment {
-        return ChatCompletionService.synthesizeSpeech(
+        return chatCompletionService.synthesizeSpeech(
             provider = provider.toProviderProfile(),
             text = text,
             voiceId = voiceId,
@@ -66,15 +64,15 @@ internal class CompatChatCompletionAudioRuntimePort @Inject constructor(
     }
 
     override fun probeTtsSupport(provider: AudioProviderProfile): AudioFeatureSupportState {
-        val result = ChatCompletionService.probeTtsSupport(provider.toProviderProfile())
+        val result = chatCompletionService.probeTtsSupport(provider.toProviderProfile())
         return AudioFeatureSupportState.valueOf(result.name)
     }
 
     override fun isSherpaFrameworkReady(): Boolean {
-        return SherpaOnnxBridge.isFrameworkReady()
+        return sherpaOnnxBridge.isFrameworkReady()
     }
 
     override fun isSherpaSttReady(): Boolean {
-        return SherpaOnnxBridge.isSttReady()
+        return sherpaOnnxBridge.isSttReady()
     }
 }

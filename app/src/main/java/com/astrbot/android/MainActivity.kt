@@ -39,7 +39,7 @@ import androidx.lifecycle.lifecycleScope
 import com.astrbot.android.data.AppPreferencesRepository
 import com.astrbot.android.data.AppSettings
 import com.astrbot.android.data.ThemeMode
-import com.astrbot.android.core.logging.SharedRuntimeLogStore
+import com.astrbot.android.core.common.logging.RuntimeLogger
 import com.astrbot.android.core.runtime.container.ContainerBridgeStatePort
 import com.astrbot.android.core.runtime.container.ContainerRuntimeState
 import com.astrbot.android.core.runtime.container.RuntimeBridgeController
@@ -69,6 +69,9 @@ class MainActivity : AppCompatActivity() {
 
     @Inject
     lateinit var runtimeBridgeController: RuntimeBridgeController
+
+    @Inject
+    lateinit var runtimeLogger: RuntimeLogger
 
     private val pendingPluginDeepLinkRequest = MutableStateFlow<PluginDeepLinkInstallRequest?>(null)
 
@@ -266,7 +269,7 @@ class MainActivity : AppCompatActivity() {
             )
         ) return
 
-        SharedRuntimeLogStore.append("Bridge auto-start triggered from app launch")
+        runtimeLogger.append("Bridge auto-start triggered from app launch")
         runtimeBridgeController.startBridge()
     }
 
@@ -297,7 +300,7 @@ class MainActivity : AppCompatActivity() {
                     pluginCatalogRuntimePort.handleInstallIntent(request.intent) { }
                 }
             }.onFailure { error ->
-                SharedRuntimeLogStore.append(
+                runtimeLogger.append(
                     "Plugin deep link failed: ${error.message ?: error.javaClass.simpleName}",
                 )
             }

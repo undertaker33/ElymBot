@@ -42,17 +42,19 @@ class FeatureBotRepositorySelectedStateTest {
             appPreferenceDao = FakeConfigPreferenceDao(defaultConfig.id),
             preferences = InMemorySharedPreferences(),
         )
+        FeatureConfigRepository.installDelegate(configStore)
         val alpha = botProfile(id = "bot-alpha", displayName = "Alpha")
         val beta = botProfile(id = "bot-beta", displayName = "Beta")
         val botDao = FakeBotAggregateDao(listOf(alpha, beta))
         val appPreferenceDao = FakeBotPreferenceDao(alpha.id)
 
-        FeatureBotRepositoryStore(
+        val botStore = FeatureBotRepositoryStore(
             botDao = botDao,
             appPreferenceDao = appPreferenceDao,
             bindingsPreferences = InMemorySharedPreferences(),
             configRepositoryProvider = Provider { FeatureConfigRepositoryPortAdapter(configStore) },
         )
+        FeatureBotRepository.installDelegate(botStore)
 
         waitUntil("initial bot state should sync from fake persistence") {
             FeatureBotRepository.selectedBotId.value == alpha.id &&

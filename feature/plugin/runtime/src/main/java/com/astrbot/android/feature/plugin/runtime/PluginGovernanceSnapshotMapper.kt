@@ -9,7 +9,6 @@ import com.astrbot.android.model.plugin.PluginBootstrapStatusSnapshot
 import com.astrbot.android.model.plugin.PluginGovernanceFailureSnapshot
 import com.astrbot.android.model.plugin.PluginGovernanceSnapshot
 import com.astrbot.android.model.plugin.PluginLifecycleDiagnostic
-import com.astrbot.android.model.plugin.PluginLifecycleDiagnosticsStore
 import com.astrbot.android.model.plugin.PluginRegistrationSummary
 import com.astrbot.android.model.plugin.PluginReviewState
 import com.astrbot.android.model.plugin.PluginRiskLevel
@@ -26,7 +25,7 @@ object PluginGovernanceSnapshotMapper {
         installRecord: PluginInstallRecord,
         runtimeSnapshot: PluginV2ActiveRuntimeSnapshot = PluginV2ActiveRuntimeSnapshot(),
         failureSnapshot: PluginFailureSnapshot? = null,
-        lifecycleDiagnostics: List<PluginLifecycleDiagnostic> = PluginLifecycleDiagnosticsStore.snapshot(),
+        lifecycleDiagnostics: List<PluginLifecycleDiagnostic> = emptyList(),
         clock: () -> Long = System::currentTimeMillis,
         logBus: PluginRuntimeLogBus = InMemoryPluginRuntimeLogBus(),
         publishProjectionLogs: Boolean = true,

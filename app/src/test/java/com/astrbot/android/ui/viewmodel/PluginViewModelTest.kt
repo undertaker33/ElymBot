@@ -2,6 +2,7 @@ package com.astrbot.android.ui.viewmodel
 
 import com.astrbot.android.R
 import com.astrbot.android.MainDispatcherRule
+import com.astrbot.android.core.common.logging.RuntimeLogger
 import com.astrbot.android.data.PluginUninstallResult
 import com.astrbot.android.data.PluginRepository
 import com.astrbot.android.model.plugin.CardResult
@@ -3549,10 +3550,11 @@ private fun createPluginViewModel(
     val managementBindings = bindings as? PluginManagementBindings
         ?: error("Test bindings must implement PluginManagementBindings")
     return com.astrbot.android.ui.viewmodel.PluginViewModel(
-        bindings = bindings,
-        pluginPresentationController = PluginPresentationController(managementBindings),
-        hostCapabilityGateway = hostCapabilityGateway,
-        entryExecutionService = entryExecutionService,
+        bindings,
+        PluginPresentationController(managementBindings),
+        hostCapabilityGateway,
+        entryExecutionService,
+        RuntimeLogger(RuntimeLogRepository::append),
     )
 }
 

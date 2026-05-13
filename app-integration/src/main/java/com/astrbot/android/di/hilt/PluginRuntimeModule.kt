@@ -1,15 +1,5 @@
 package com.astrbot.android.di.hilt
 
-import com.astrbot.android.feature.plugin.data.PluginRepositoryStatePort
-import com.astrbot.android.feature.plugin.data.EmptyPluginRepositoryStatePort
-import com.astrbot.android.feature.plugin.data.FeaturePluginRepositoryStateOwner
-import com.astrbot.android.feature.plugin.data.config.DefaultPluginHostConfigResolver
-import com.astrbot.android.feature.plugin.data.config.PluginConfigStorage
-import com.astrbot.android.feature.plugin.data.config.PluginHostConfigResolver
-import com.astrbot.android.feature.plugin.data.config.RoomPluginConfigStorage
-import com.astrbot.android.feature.plugin.data.state.PluginStateStore
-import com.astrbot.android.feature.plugin.data.state.RoomPluginStateStore
-import com.astrbot.android.data.db.PluginStateEntryDao
 import com.astrbot.android.feature.plugin.domain.PluginCatalogRepositoryPort
 import com.astrbot.android.feature.plugin.domain.PluginCatalogRuntimePort
 import com.astrbot.android.feature.plugin.domain.PluginConfigRepositoryPort
@@ -24,10 +14,8 @@ import com.astrbot.android.feature.plugin.domain.PluginPackageValidationPort
 import com.astrbot.android.feature.plugin.domain.PluginRepositoryPort
 import com.astrbot.android.feature.plugin.domain.PluginRuntimeLogPresentationPort
 import com.astrbot.android.feature.plugin.domain.PluginStateRepositoryPort
-import com.astrbot.android.feature.plugin.domain.cleanup.DefaultPluginDataCleanupService
-import com.astrbot.android.feature.plugin.domain.cleanup.PluginDataCleanupService
-import com.astrbot.android.feature.plugin.domain.cleanup.PluginRuntimeArtifactCleaner
-import com.astrbot.android.feature.plugin.runtime.DefaultPluginRuntimeArtifactCleaner
+import com.astrbot.android.feature.plugin.domain.PluginHostVersion
+import com.astrbot.android.feature.plugin.domain.SupportedPluginProtocolVersion
 import com.astrbot.android.feature.plugin.runtime.InMemoryPluginScheduleStateStore
 import com.astrbot.android.feature.plugin.runtime.InMemoryPluginScopedFailureStateStore
 import com.astrbot.android.feature.plugin.runtime.InMemoryPluginRuntimeLogBus
@@ -46,7 +34,6 @@ import com.astrbot.android.feature.plugin.runtime.RuntimePluginGovernanceReadPor
 import com.astrbot.android.feature.plugin.runtime.RuntimePluginHostCapabilityPresentationPort
 import com.astrbot.android.feature.plugin.runtime.RuntimePluginInstallerPort
 import com.astrbot.android.feature.plugin.runtime.RuntimePluginLogMaintenancePort
-import com.astrbot.android.feature.plugin.runtime.RuntimePluginPackageValidationPort
 import com.astrbot.android.feature.plugin.runtime.RuntimePluginRuntimeLogPresentationPort
 import com.astrbot.android.feature.plugin.runtime.PluginScheduleStateStore
 import com.astrbot.android.feature.plugin.runtime.PluginScopedFailureStateStore
@@ -54,9 +41,7 @@ import com.astrbot.android.feature.plugin.runtime.PluginV2ActiveRuntimeStore
 import com.astrbot.android.feature.plugin.runtime.PluginV2DispatchEngine
 import com.astrbot.android.feature.plugin.runtime.PluginV2FilterEvaluator
 import com.astrbot.android.feature.plugin.runtime.PluginV2LifecycleManager
-import com.astrbot.android.feature.plugin.runtime.PluginV2RegistryCompiler
 import com.astrbot.android.feature.plugin.runtime.PluginV2RuntimeLoader
-import com.astrbot.android.feature.plugin.runtime.PluginV2RuntimeSessionFactory
 import com.astrbot.android.feature.plugin.runtime.createSharedPreferencesPluginLogMaintenanceService
 import android.content.Context
 import dagger.Module
@@ -64,6 +49,7 @@ import dagger.Provides
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
+import javax.inject.Provider
 import javax.inject.Singleton
 
 @Module
@@ -72,65 +58,36 @@ internal object PluginRuntimeModule {
 
     @Provides
     @Singleton
-    fun providePluginRepositoryStatePort(
-        owner: FeaturePluginRepositoryStateOwner,
-    ): PluginRepositoryStatePort = owner
-
-    @Provides
-    @Singleton
     fun providePluginRepositoryPort(
-        owner: FeaturePluginRepositoryStateOwner,
-    ): PluginRepositoryPort = owner
-
-    @Provides
-    @Singleton
-    fun providePluginInstallRepositoryPort(
-        owner: FeaturePluginRepositoryStateOwner,
-    ): PluginInstallRepositoryPort = owner
-
-    @Provides
-    @Singleton
-    fun providePluginCatalogRepositoryPort(
-        owner: FeaturePluginRepositoryStateOwner,
-    ): PluginCatalogRepositoryPort = owner
-
-    @Provides
-    @Singleton
-    fun providePluginConfigRepositoryPort(
-        owner: FeaturePluginRepositoryStateOwner,
-    ): PluginConfigRepositoryPort = owner
-
-    @Provides
-    @Singleton
-    fun providePluginConfigStorage(
-        storage: RoomPluginConfigStorage,
-    ): PluginConfigStorage = storage
-
-    @Provides
-    @Singleton
-    fun providePluginHostConfigResolver(
-        resolver: DefaultPluginHostConfigResolver,
-    ): PluginHostConfigResolver = resolver
-
-    @Provides
-    @Singleton
-    fun providePluginStateStore(
-        dao: PluginStateEntryDao,
-    ): PluginStateStore = RoomPluginStateStore(
-        dao = dao,
+        factory: PluginDataWiringFactory,
+        runtimeLoaderProvider: Provider<PluginV2RuntimeLoader>,
+    ): PluginRepositoryPort = factory.createPluginRepositoryPort(
+        runtimeLoaderProvider = runtimeLoaderProvider,
     )
 
     @Provides
     @Singleton
-    fun providePluginRuntimeArtifactCleaner(
-        cleaner: DefaultPluginRuntimeArtifactCleaner,
-    ): PluginRuntimeArtifactCleaner = cleaner
+    fun providePluginStateRepositoryPort(
+        repository: PluginRepositoryPort,
+    ): PluginStateRepositoryPort = repository
 
     @Provides
     @Singleton
-    fun providePluginDataCleanupService(
-        service: DefaultPluginDataCleanupService,
-    ): PluginDataCleanupService = service
+    fun providePluginInstallRepositoryPort(
+        repository: PluginRepositoryPort,
+    ): PluginInstallRepositoryPort = repository
+
+    @Provides
+    @Singleton
+    fun providePluginCatalogRepositoryPort(
+        repository: PluginRepositoryPort,
+    ): PluginCatalogRepositoryPort = repository
+
+    @Provides
+    @Singleton
+    fun providePluginConfigRepositoryPort(
+        repository: PluginRepositoryPort,
+    ): PluginConfigRepositoryPort = repository
 
     @Provides
     @Singleton
@@ -179,8 +136,13 @@ internal object PluginRuntimeModule {
     @Provides
     @Singleton
     fun providePluginPackageValidationPort(
-        adapter: RuntimePluginPackageValidationPort,
-    ): PluginPackageValidationPort = adapter
+        factory: PluginDataWiringFactory,
+        @PluginHostVersion hostVersion: String,
+        @SupportedPluginProtocolVersion supportedProtocolVersion: Int,
+    ): PluginPackageValidationPort = factory.createPluginPackageValidationPort(
+        hostVersion = hostVersion,
+        supportedProtocolVersion = supportedProtocolVersion,
+    )
 
     @Provides
     @Singleton
@@ -209,7 +171,7 @@ internal object PluginRuntimeModule {
     @Provides
     @Singleton
     fun providePluginGovernanceRepository(
-        repositoryStatePort: PluginRepositoryStatePort,
+        repositoryStatePort: PluginStateRepositoryPort,
         activeRuntimeStore: PluginV2ActiveRuntimeStore,
         failureStateStore: PluginFailureStateStore,
         logBus: PluginRuntimeLogBus,
@@ -284,52 +246,17 @@ internal object PluginRuntimeModule {
     @Provides
     @Singleton
     fun providePluginV2RuntimeLoader(
+        factory: PluginDataWiringFactory,
         activeRuntimeStore: PluginV2ActiveRuntimeStore,
         logBus: PluginRuntimeLogBus,
         lifecycleManager: PluginV2LifecycleManager,
         hostOperations: PluginExecutionHostOperations,
-        repositoryStatePort: PluginRepositoryStatePort,
-        stateStore: PluginStateStore,
-    ): PluginV2RuntimeLoader = createPluginV2RuntimeLoader(
+        repositoryStatePort: PluginStateRepositoryPort,
+    ): PluginV2RuntimeLoader = factory.createPluginV2RuntimeLoader(
         activeRuntimeStore = activeRuntimeStore,
         logBus = logBus,
         lifecycleManager = lifecycleManager,
         hostOperations = hostOperations,
         repositoryStatePort = repositoryStatePort,
-        stateStore = stateStore,
-    )
-
-    internal fun providePluginV2RuntimeLoader(
-        activeRuntimeStore: PluginV2ActiveRuntimeStore,
-        logBus: PluginRuntimeLogBus,
-        lifecycleManager: PluginV2LifecycleManager,
-        hostOperations: PluginExecutionHostOperations,
-        stateStore: PluginStateStore,
-    ): PluginV2RuntimeLoader = createPluginV2RuntimeLoader(
-        activeRuntimeStore = activeRuntimeStore,
-        logBus = logBus,
-        lifecycleManager = lifecycleManager,
-        hostOperations = hostOperations,
-        repositoryStatePort = EmptyPluginRepositoryStatePort,
-        stateStore = stateStore,
-    )
-
-    private fun createPluginV2RuntimeLoader(
-        activeRuntimeStore: PluginV2ActiveRuntimeStore,
-        logBus: PluginRuntimeLogBus,
-        lifecycleManager: PluginV2LifecycleManager,
-        hostOperations: PluginExecutionHostOperations,
-        repositoryStatePort: PluginRepositoryStatePort,
-        stateStore: PluginStateStore,
-    ): PluginV2RuntimeLoader = PluginV2RuntimeLoader(
-        sessionFactory = PluginV2RuntimeSessionFactory(),
-        compiler = PluginV2RegistryCompiler(logBus = logBus),
-        clock = System::currentTimeMillis,
-        logBus = logBus,
-        store = activeRuntimeStore,
-        lifecycleManager = lifecycleManager,
-        hostOperations = hostOperations,
-        repositoryStatePort = repositoryStatePort,
-        stateStore = stateStore,
     )
 }

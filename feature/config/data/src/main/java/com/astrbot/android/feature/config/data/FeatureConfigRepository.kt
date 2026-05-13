@@ -8,6 +8,7 @@ import com.astrbot.android.data.db.AppPreferenceEntity
 import com.astrbot.android.data.db.ConfigAggregateDao
 import com.astrbot.android.data.db.toProfile
 import com.astrbot.android.data.db.toWriteModel
+import com.astrbot.android.feature.config.domain.ConfigRepositoryPort
 import com.astrbot.android.feature.config.domain.model.ConfigProfile
 import java.util.UUID
 import javax.inject.Inject
@@ -26,57 +27,17 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
-// Static compatibility facade. Production imports are governed by source contracts.
-object FeatureConfigRepository {
-    private const val KEY_PROFILES_JSON = "profiles_json"
-    private const val KEY_SELECTED_ID = "selected_id"
-    const val PREF_SELECTED_PROFILE_ID = "selected_config_profile_id"
-    const val DEFAULT_CONFIG_ID = "default"
+internal const val FEATURE_CONFIG_PREF_SELECTED_PROFILE_ID = "selected_config_profile_id"
+internal const val FEATURE_CONFIG_DEFAULT_CONFIG_ID = ConfigRepositoryPort.DEFAULT_CONFIG_ID
 
-    @Volatile
-    private var delegate: FeatureConfigRepositoryStore? = null
+private const val KEY_PROFILES_JSON = "profiles_json"
+private const val KEY_SELECTED_ID = "selected_id"
 
-    internal fun installDelegate(store: FeatureConfigRepositoryStore) {
-        delegate = store
-    }
+private fun legacyConfigProfilesJson(preferences: SharedPreferences): String? =
+    preferences.getString(KEY_PROFILES_JSON, null)
 
-    private fun repository(): FeatureConfigRepositoryStore {
-        return checkNotNull(delegate) {
-            "FeatureConfigRepository was accessed before the Hilt graph created FeatureConfigRepositoryStore."
-        }
-    }
-
-    val profiles: StateFlow<List<ConfigProfile>>
-        get() = repository().profiles
-
-    val selectedProfileId: StateFlow<String>
-        get() = repository().selectedProfileId
-
-    fun select(profileId: String) = repository().select(profileId)
-
-    fun save(profile: ConfigProfile): ConfigProfile = repository().save(profile)
-
-    fun create(name: String = "New Config"): ConfigProfile = repository().create(name)
-
-    fun delete(profileId: String): String = repository().delete(profileId)
-
-    fun resolve(profileId: String): ConfigProfile = repository().resolve(profileId)
-
-    fun resolveExistingId(profileId: String?): String = repository().resolveExistingId(profileId)
-
-    fun snapshotProfiles(): List<ConfigProfile> = repository().snapshotProfiles()
-
-    fun restoreProfiles(
-        profiles: List<ConfigProfile>,
-        selectedProfileId: String?,
-    ) = repository().restoreProfiles(profiles, selectedProfileId)
-
-    internal fun legacyProfilesJson(preferences: SharedPreferences): String? =
-        preferences.getString(KEY_PROFILES_JSON, null)
-
-    internal fun legacySelectedId(preferences: SharedPreferences): String? =
-        preferences.getString(KEY_SELECTED_ID, DEFAULT_CONFIG_ID)
-}
+private fun legacyConfigSelectedId(preferences: SharedPreferences): String? =
+    preferences.getString(KEY_SELECTED_ID, FEATURE_CONFIG_DEFAULT_CONFIG_ID)
 
 @Singleton
 class FeatureConfigRepositoryStore @Inject constructor(
@@ -90,13 +51,12 @@ class FeatureConfigRepositoryStore @Inject constructor(
     private var syncJob: Job? = null
 
     private val _profiles = MutableStateFlow(defaultProfiles())
-    private val _selectedProfileId = MutableStateFlow(FeatureConfigRepository.DEFAULT_CONFIG_ID)
+    private val _selectedProfileId = MutableStateFlow(FEATURE_CONFIG_DEFAULT_CONFIG_ID)
 
     val profiles: StateFlow<List<ConfigProfile>> = _profiles.asStateFlow()
     val selectedProfileId: StateFlow<String> = _selectedProfileId.asStateFlow()
 
     init {
-        FeatureConfigRepository.installDelegate(this)
         repositoryScope.launch {
             writeMutex.withLock {
                 seedStorageIfNeeded()
@@ -146,11 +106,11 @@ class FeatureConfigRepositoryStore @Inject constructor(
 
     fun delete(profileId: String): String {
         if (_profiles.value.size == 1) {
-            return FeatureConfigRepository.DEFAULT_CONFIG_ID
+            return FEATURE_CONFIG_DEFAULT_CONFIG_ID
         }
         val updatedProfiles = _profiles.value.filterNot { it.id == profileId }
         val updatedSelected = if (_selectedProfileId.value == profileId) {
-            updatedProfiles.firstOrNull()?.id ?: FeatureConfigRepository.DEFAULT_CONFIG_ID
+            updatedProfiles.firstOrNull()?.id ?: FEATURE_CONFIG_DEFAULT_CONFIG_ID
         } else {
             resolveExistingId(_selectedProfileId.value)
         }
@@ -169,7 +129,7 @@ class FeatureConfigRepositoryStore @Inject constructor(
         val requestedId = profileId?.takeIf { it.isNotBlank() }
         return when {
             requestedId != null && _profiles.value.any { it.id == requestedId } -> requestedId
-            else -> _profiles.value.firstOrNull()?.id ?: FeatureConfigRepository.DEFAULT_CONFIG_ID
+            else -> _profiles.value.firstOrNull()?.id ?: FEATURE_CONFIG_DEFAULT_CONFIG_ID
         }
     }
 
@@ -208,7 +168,7 @@ class FeatureConfigRepositoryStore @Inject constructor(
         syncJob = repositoryScope.launch {
             combine(
                 configProfileDao.observeConfigAggregates(),
-                appPreferenceDao.observeValue(FeatureConfigRepository.PREF_SELECTED_PROFILE_ID),
+                appPreferenceDao.observeValue(FEATURE_CONFIG_PREF_SELECTED_PROFILE_ID),
             ) { entities, selectedId ->
                 entities to selectedId
             }.collect { (entities, selectedId) ->
@@ -245,7 +205,7 @@ class FeatureConfigRepositoryStore @Inject constructor(
         }
         appPreferenceDao.upsert(
             AppPreferenceEntity(
-                key = FeatureConfigRepository.PREF_SELECTED_PROFILE_ID,
+                key = FEATURE_CONFIG_PREF_SELECTED_PROFILE_ID,
                 value = selectedId,
                 updatedAt = System.currentTimeMillis(),
             ),
@@ -255,7 +215,7 @@ class FeatureConfigRepositoryStore @Inject constructor(
     private suspend fun persistSelectedProfileId(selectedId: String) {
         appPreferenceDao.upsert(
             AppPreferenceEntity(
-                key = FeatureConfigRepository.PREF_SELECTED_PROFILE_ID,
+                key = FEATURE_CONFIG_PREF_SELECTED_PROFILE_ID,
                 value = selectedId,
                 updatedAt = System.currentTimeMillis(),
             ),
@@ -265,13 +225,13 @@ class FeatureConfigRepositoryStore @Inject constructor(
     private suspend fun seedStorageIfNeeded() {
         val imported = runCatching {
             parseLegacyConfigProfiles(
-                rawProfilesJson = FeatureConfigRepository.legacyProfilesJson(preferences),
-                rawSelectedId = FeatureConfigRepository.legacySelectedId(preferences),
+                rawProfilesJson = legacyConfigProfilesJson(preferences),
+                rawSelectedId = legacyConfigSelectedId(preferences),
             )
         }.onFailure { error ->
             runtimeLogger.append("Config profiles legacy import failed: ${error.message ?: error.javaClass.simpleName}")
         }.getOrElse {
-            LegacyConfigImport(emptyList(), FeatureConfigRepository.DEFAULT_CONFIG_ID)
+            LegacyConfigImport(emptyList(), FEATURE_CONFIG_DEFAULT_CONFIG_ID)
         }
 
         if (configProfileDao.count() == 0) {
@@ -288,16 +248,16 @@ class FeatureConfigRepositoryStore @Inject constructor(
             )
         }
 
-        if (appPreferenceDao.getValue(FeatureConfigRepository.PREF_SELECTED_PROFILE_ID).isNullOrBlank()) {
+        if (appPreferenceDao.getValue(FEATURE_CONFIG_PREF_SELECTED_PROFILE_ID).isNullOrBlank()) {
             val availableIds = configProfileDao.listConfigAggregates().map { it.config.id }
             val resolvedSelected = when {
                 imported.selectedProfileId != null && availableIds.contains(imported.selectedProfileId) -> imported.selectedProfileId
                 availableIds.isNotEmpty() -> availableIds.first()
-                else -> FeatureConfigRepository.DEFAULT_CONFIG_ID
+                else -> FEATURE_CONFIG_DEFAULT_CONFIG_ID
             }
             appPreferenceDao.upsert(
                 AppPreferenceEntity(
-                    key = FeatureConfigRepository.PREF_SELECTED_PROFILE_ID,
+                    key = FEATURE_CONFIG_PREF_SELECTED_PROFILE_ID,
                     value = resolvedSelected,
                     updatedAt = System.currentTimeMillis(),
                 ),
@@ -307,7 +267,7 @@ class FeatureConfigRepositoryStore @Inject constructor(
 
     private fun normalizeProfile(profile: ConfigProfile): ConfigProfile {
         return profile.copy(
-            id = profile.id.ifBlank { FeatureConfigRepository.DEFAULT_CONFIG_ID },
+            id = profile.id.ifBlank { FEATURE_CONFIG_DEFAULT_CONFIG_ID },
             name = profile.name.trim().ifBlank { "Unnamed Config" },
             streamingMessageIntervalMs = profile.streamingMessageIntervalMs.coerceIn(0, 5000),
             imageCaptionPrompt = profile.imageCaptionPrompt.trim().ifBlank { defaultProfiles().first().imageCaptionPrompt },
@@ -328,7 +288,7 @@ class FeatureConfigRepositoryStore @Inject constructor(
     private fun defaultProfiles(): List<ConfigProfile> {
         return listOf(
             ConfigProfile(
-                id = FeatureConfigRepository.DEFAULT_CONFIG_ID,
+                id = FEATURE_CONFIG_DEFAULT_CONFIG_ID,
                 name = "Default Config",
             ),
         )

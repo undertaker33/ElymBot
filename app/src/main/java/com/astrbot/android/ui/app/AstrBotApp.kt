@@ -2,10 +2,12 @@
 package com.astrbot.android.ui.app
 import com.astrbot.android.ui.navigation.AppDestination
 import com.astrbot.android.ui.navigation.AppNavigator
+import com.astrbot.android.ui.navigation.LocalAppUiTransitionState
 import com.astrbot.android.ui.navigation.MainSwipePage
 import com.astrbot.android.ui.navigation.botWorkspaceTabForMainSwipePage
 import com.astrbot.android.ui.navigation.currentMainSwipePage
 import com.astrbot.android.ui.navigation.pluginWorkspaceTabForMainSwipePage
+import com.astrbot.android.ui.navigation.rememberAppUiTransitionState
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -54,6 +56,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun AstrBotApp(bridgeViewModel: BridgeViewModel = hiltViewModel()) {
     val navController = rememberNavController()
+    val appUiTransitionState = rememberAppUiTransitionState()
     val context = LocalContext.current
     val chatViewModel: ChatViewModel = hiltViewModel()
     val configViewModel: ConfigViewModel = hiltViewModel()
@@ -205,6 +208,7 @@ fun AstrBotApp(bridgeViewModel: BridgeViewModel = hiltViewModel()) {
                         LocalConfigDetailChromeRegistrar provides { binding ->
                             configDetailChromeBinding = binding
                         },
+                        LocalAppUiTransitionState provides appUiTransitionState,
                     ) {
                         AstrBotAppNavGraph(
                             navController = navController,

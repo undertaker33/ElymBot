@@ -1,7 +1,7 @@
-package com.astrbot.android.feature.plugin.runtime.toolsource
+﻿package com.astrbot.android.feature.plugin.runtime.toolsource
 
 import com.astrbot.android.core.runtime.context.RuntimeMcpServerSnapshot
-import com.astrbot.android.core.logging.SharedRuntimeLogStore
+import com.astrbot.android.core.common.logging.RuntimeLogger
 import com.astrbot.android.feature.plugin.runtime.PluginToolDescriptor
 import com.astrbot.android.feature.plugin.runtime.PluginToolResult
 import com.astrbot.android.feature.plugin.runtime.PluginToolResultStatus
@@ -22,6 +22,7 @@ import javax.inject.Inject
  */
 class McpToolSourceProvider @Inject constructor(
     override val contextResolver: FutureToolSourceContextResolver,
+    private val runtimeLogger: RuntimeLogger,
 ) : FutureToolSourceProvider {
     override val sourceKind: PluginToolSourceKind = PluginToolSourceKind.MCP
 
@@ -31,7 +32,7 @@ class McpToolSourceProvider @Inject constructor(
         val activeServers = context.toolSourceContext.mcpServers.filter { it.active }
         return activeServers.flatMap { server ->
             if (!isStreamableHttp(server.transport)) {
-                SharedRuntimeLogStore.append(
+                runtimeLogger.append(
                     "MCP tools discovery skipped: server=${server.serverId} unsupported transport=${server.transport}",
                 )
                 return@flatMap emptyList()
@@ -40,7 +41,7 @@ class McpToolSourceProvider @Inject constructor(
                 val tools = sessionManager.discoverTools(context.configProfileId, server.toMcpServerEntry())
                 buildBindingsForServer(server, tools)
             }.onFailure { error ->
-                SharedRuntimeLogStore.append(
+                runtimeLogger.append(
                     "MCP tools discovery failed: server=${server.serverId} reason=${error.message ?: error.javaClass.simpleName}",
                 )
             }.getOrDefault(emptyList())
@@ -240,3 +241,4 @@ class McpToolSourceProvider @Inject constructor(
         private val sessionManager = McpSessionManager()
     }
 }
+

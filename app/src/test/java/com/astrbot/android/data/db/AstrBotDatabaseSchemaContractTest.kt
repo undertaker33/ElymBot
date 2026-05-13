@@ -17,7 +17,7 @@ class AstrBotDatabaseSchemaContractTest {
     @Test
     fun migrations_include8To9Step() {
         assertTrue(
-            AstrBotDatabase.allMigrations.any { migration ->
+            astrBotDatabaseMigrations.any { migration ->
                 migration.startVersion == 8 && migration.endVersion == 9
             },
         )
@@ -26,7 +26,7 @@ class AstrBotDatabaseSchemaContractTest {
     @Test
     fun migrations_include9To10Step() {
         assertTrue(
-            AstrBotDatabase.allMigrations.any { migration ->
+            astrBotDatabaseMigrations.any { migration ->
                 migration.startVersion == 9 && migration.endVersion == 10
             },
         )
@@ -35,7 +35,7 @@ class AstrBotDatabaseSchemaContractTest {
     @Test
     fun migrations_include10To11Step() {
         assertTrue(
-            AstrBotDatabase.allMigrations.any { migration ->
+            astrBotDatabaseMigrations.any { migration ->
                 migration.startVersion == 10 && migration.endVersion == 11
             },
         )
@@ -44,7 +44,7 @@ class AstrBotDatabaseSchemaContractTest {
     @Test
     fun migrations_include11To12Step() {
         assertTrue(
-            AstrBotDatabase.allMigrations.any { migration ->
+            astrBotDatabaseMigrations.any { migration ->
                 migration.startVersion == 11 && migration.endVersion == 12
             },
         )
@@ -53,7 +53,7 @@ class AstrBotDatabaseSchemaContractTest {
     @Test
     fun migrations_include12To13Step() {
         assertTrue(
-            AstrBotDatabase.allMigrations.any { migration ->
+            astrBotDatabaseMigrations.any { migration ->
                 migration.startVersion == 12 && migration.endVersion == 13
             },
         )
@@ -62,7 +62,7 @@ class AstrBotDatabaseSchemaContractTest {
     @Test
     fun migrations_include13To14Step() {
         assertTrue(
-            AstrBotDatabase.allMigrations.any { migration ->
+            astrBotDatabaseMigrations.any { migration ->
                 migration.startVersion == 13 && migration.endVersion == 14
             },
         )
@@ -71,7 +71,7 @@ class AstrBotDatabaseSchemaContractTest {
     @Test
     fun migrations_include14To15Step() {
         assertTrue(
-            AstrBotDatabase.allMigrations.any { migration ->
+            astrBotDatabaseMigrations.any { migration ->
                 migration.startVersion == 14 && migration.endVersion == 15
             },
         )
@@ -79,7 +79,7 @@ class AstrBotDatabaseSchemaContractTest {
 
     @Test
     fun latestMigration_targetsVersion20() {
-        assertTrue(AstrBotDatabase.allMigrations.maxOf { it.endVersion } == 22)
+        assertTrue(astrBotDatabaseMigrations.maxOf { it.endVersion } == 22)
     }
 
     @Test
@@ -110,7 +110,7 @@ class AstrBotDatabaseSchemaContractTest {
     @Test
     fun migrations_include19To20Step() {
         assertTrue(
-            AstrBotDatabase.allMigrations.any { migration ->
+            astrBotDatabaseMigrations.any { migration ->
                 migration.startVersion == 19 && migration.endVersion == 20
             },
         )
@@ -119,7 +119,7 @@ class AstrBotDatabaseSchemaContractTest {
     @Test
     fun migrations_include20To21Step() {
         assertTrue(
-            AstrBotDatabase.allMigrations.any { migration ->
+            astrBotDatabaseMigrations.any { migration ->
                 migration.startVersion == 20 && migration.endVersion == 21
             },
         )
@@ -128,7 +128,7 @@ class AstrBotDatabaseSchemaContractTest {
     @Test
     fun migrations_include21To22Step() {
         assertTrue(
-            AstrBotDatabase.allMigrations.any { migration ->
+            astrBotDatabaseMigrations.any { migration ->
                 migration.startVersion == 21 && migration.endVersion == 22
             },
         )

@@ -1,12 +1,25 @@
 package com.astrbot.android.core.runtime.search
 
 import androidx.annotation.StringRes
+import com.astrbot.android.AppStringResolver
 import com.astrbot.android.AppStrings
 import com.astrbot.android.R
 import com.astrbot.android.core.runtime.context.RuntimeWebSearchPromptIntent
 import com.astrbot.android.core.runtime.context.RuntimeWebSearchPromptStringProvider
+import javax.inject.Inject
 
 class AndroidWebSearchPromptStringProvider : WebSearchPromptStringProvider, RuntimeWebSearchPromptStringProvider {
+    private val stringResolver: AppStringResolver?
+
+    @Inject
+    constructor(stringResolver: AppStringResolver) {
+        this.stringResolver = stringResolver
+    }
+
+    constructor() {
+        this.stringResolver = null
+    }
+
     override fun guidanceFor(intent: WebSearchTriggerIntent): String? {
         val resId = when (intent) {
             WebSearchTriggerIntent.NEWS -> R.string.web_search_prompt_news_guidance
@@ -49,7 +62,10 @@ class AndroidWebSearchPromptStringProvider : WebSearchPromptStringProvider, Runt
     private fun string(
         @StringRes resId: Int,
         vararg args: Any,
-    ): String = AppStrings.get(resId, *args)
+    ): String {
+        val resolver = stringResolver ?: return AppStrings::class.simpleName.orEmpty().take(0)
+        return resolver.get(resId, *args)
+    }
 
     private companion object {
         const val WEB_SEARCH_TOOL_NAME = "web_search"

@@ -1,5 +1,6 @@
 package com.astrbot.android.feature.cron.runtime
 
+import com.astrbot.android.core.common.logging.RuntimeLogger
 import com.astrbot.android.core.runtime.context.ResolvedRuntimeContext
 import com.astrbot.android.core.runtime.context.RuntimeContextDataPort
 import com.astrbot.android.core.runtime.context.RuntimeContextResolver
@@ -89,7 +90,7 @@ class ScheduledTaskRuntimeExecutorTest {
         )
         val orchestrator = RecordingOrchestrator()
 
-        val summary = ScheduledTaskRuntimeExecutor.execute(
+        val summary = ScheduledTaskRuntimeExecutor(NoOpRuntimeLogger).execute(
             context = CronJobExecutionContext(
                 jobId = "job-1",
                 name = "鍠濇按鎻愰啋",
@@ -165,7 +166,7 @@ class ScheduledTaskRuntimeExecutorTest {
         )
         val orchestrator = RecordingOrchestrator()
 
-        ScheduledTaskRuntimeExecutor.execute(
+        ScheduledTaskRuntimeExecutor(NoOpRuntimeLogger).execute(
             context = CronJobExecutionContext(
                 jobId = "job-1",
                 name = "鍠濇按鎻愰啋",
@@ -434,6 +435,10 @@ private class FakeLlmClient : LlmClientPort {
         LlmInvocationResult(text = "璇ュ枬姘翠簡")
 
     override fun streamWithTools(request: LlmInvocationRequest): Flow<LlmStreamEvent> = emptyFlow()
+}
+
+private object NoOpRuntimeLogger : RuntimeLogger {
+    override fun append(message: String) = Unit
 }
 
 private class FakeScheduledMessageDeliveryPort : ScheduledMessageDeliveryPort {

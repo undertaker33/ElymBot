@@ -55,11 +55,41 @@ jobs:
       - name: Run architecture contracts
         run: ./gradlew architectureCheck --console=plain --no-daemon --stacktrace
 
+  tooling:
+    name: Build logic and architecture tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up JDK
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4.0.1
+
+      - name: Install Android SDK 36
+        run: |
+          yes | sdkmanager --licenses >/dev/null
+          sdkmanager "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Make Gradle wrapper executable
+        run: chmod +x ./gradlew
+
+      - name: Run build logic and architecture tests
+        run: ./gradlew :build-logic:check :architecture-tests:test --console=plain --no-daemon --stacktrace
+
   module-slices:
     name: ${{ matrix.name }}
     runs-on: ubuntu-latest
     timeout-minutes: 35
-    needs: architecture
+    needs: [architecture, tooling]
     strategy:
       fail-fast: false
       matrix:
@@ -72,6 +102,8 @@ jobs:
           - name: Core runtime
             gradle_tasks: >-
               :core:runtime:testDebugUnitTest
+              :core:runtime-container:testDebugUnitTest
+              :core:runtime-search:testDebugUnitTest
           - name: Stable feature owners
             gradle_tasks: >-
               :feature:bot:api:testDebugUnitTest
@@ -82,6 +114,7 @@ jobs:
               :feature:persona:impl:testDebugUnitTest
               :feature:provider:api:testDebugUnitTest
               :feature:provider:impl:testDebugUnitTest
+              :feature:provider:runtime:compileDebugKotlin
               :feature:resource:api:testDebugUnitTest
               :feature:resource:impl:testDebugUnitTest
           - name: Chat and cron runtime
@@ -90,14 +123,27 @@ jobs:
               :feature:chat:impl:testDebugUnitTest
               :feature:cron:api:testDebugUnitTest
               :feature:cron:impl:testDebugUnitTest
+              :feature:cron:data:testDebugUnitTest
+              :feature:cron:runtime:testDebugUnitTest
+              :feature:cron:presentation:compileDebugKotlin
           - name: Plugin platform
             gradle_tasks: >-
               :feature:plugin:api:testDebugUnitTest
               :feature:plugin:impl:testDebugUnitTest
-          - name: QQ runtime
+              :feature:plugin:data:testDebugUnitTest
+              :feature:plugin:runtime:testDebugUnitTest
+              :feature:plugin:presentation:compileDebugKotlin
+          - name: QQ split
             gradle_tasks: >-
               :feature:qq:api:testDebugUnitTest
               :feature:qq:impl:testDebugUnitTest
+              :feature:qq:data:testDebugUnitTest
+              :feature:qq:runtime:testDebugUnitTest
+              :feature:qq:presentation:compileDebugKotlin
+          - name: Voice asset split
+            gradle_tasks: >-
+              :feature:voiceasset:data:testDebugUnitTest
+              :feature:voiceasset:presentation:compileDebugKotlin
 
     steps:
       - name: Check out repository

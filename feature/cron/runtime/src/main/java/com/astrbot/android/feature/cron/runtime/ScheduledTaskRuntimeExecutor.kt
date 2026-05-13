@@ -1,6 +1,6 @@
 package com.astrbot.android.feature.cron.runtime
 
-import com.astrbot.android.core.logging.SharedRuntimeLogStore
+import com.astrbot.android.core.common.logging.RuntimeLogger
 import com.astrbot.android.core.runtime.context.RuntimeBotSnapshot
 import com.astrbot.android.core.runtime.context.RuntimeContextResolverPort
 import com.astrbot.android.core.runtime.context.RuntimeIngressEvent
@@ -17,6 +17,7 @@ import com.astrbot.android.feature.plugin.domain.runtime.RuntimeLlmOrchestratorP
 import com.astrbot.android.model.chat.ConversationMessage
 import com.astrbot.android.model.chat.MessageType
 import com.astrbot.android.model.plugin.PluginTriggerSource
+import javax.inject.Inject
 
 data class ScheduledTaskRuntimeDependencies(
     val llmClient: LlmClientPort,
@@ -28,7 +29,9 @@ data class ScheduledTaskRuntimeDependencies(
     val hostCapabilityGateway: PluginHostCapabilityGateway,
 )
 
-object ScheduledTaskRuntimeExecutor {
+class ScheduledTaskRuntimeExecutor @Inject constructor(
+    private val runtimeLogger: RuntimeLogger,
+) {
 
     suspend fun execute(
         context: CronJobExecutionContext,
@@ -122,7 +125,7 @@ object ScheduledTaskRuntimeExecutor {
         if (deliveryResult is PluginV2HostLlmDeliveryResult.SendFailed) {
             error(deliveryResult.sendResult.errorSummary.ifBlank { "scheduled_task_send_failed" })
         }
-        SharedRuntimeLogStore.append(
+        runtimeLogger.append(
             "CronJobBridge: job=${context.jobId} completed with ${deliveryResult::class.simpleName.orEmpty()} conversation=$conversationId",
         )
         return when (deliveryResult) {
@@ -134,7 +137,7 @@ object ScheduledTaskRuntimeExecutor {
                 textPreview = deliveryResult.preparedReply.text.take(160),
             )
             is PluginV2HostLlmDeliveryResult.Suppressed -> {
-                SharedRuntimeLogStore.append(
+                runtimeLogger.append(
                     "CronJobBridge: job=${context.jobId} suppressed without sending conversation=$conversationId",
                 )
                 throw CronJobExecutionFailure(

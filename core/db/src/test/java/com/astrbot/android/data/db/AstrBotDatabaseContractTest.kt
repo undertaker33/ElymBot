@@ -43,7 +43,7 @@ class AstrBotDatabaseContractTest {
             updatedAt = 1L,
         )
 
-        assertEquals(22, AstrBotDatabase.allMigrations.last().endVersion)
+        assertEquals(22, astrBotDatabaseMigrations.last().endVersion)
         assertEquals("exec-1", executionRecord.executionId)
         assertEquals("plugin", pluginState.pluginId)
         assertEquals("resource", resource.resourceId)

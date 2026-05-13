@@ -1,5 +1,6 @@
 package com.astrbot.android.feature.cron.runtime
 
+import com.astrbot.android.core.common.logging.RuntimeLogger
 import com.astrbot.android.core.runtime.context.ContextPolicy
 import com.astrbot.android.core.runtime.context.DeliveryPolicy
 import com.astrbot.android.core.runtime.context.IngressTrigger
@@ -69,7 +70,7 @@ class ScheduledTaskRuntimeExecutorTest {
         val deliveryPort = RecordingScheduledMessageDeliveryPort()
         val orchestrator = DeliveringRuntimeOrchestrator()
 
-        val summary = ScheduledTaskRuntimeExecutor.execute(
+        val summary = ScheduledTaskRuntimeExecutor(NoOpRuntimeLogger).execute(
             context = scheduledContext(platform = "qq", conversationId = "group:10001"),
             runtimeDependencies = ScheduledTaskRuntimeDependencies(
                 llmClient = NoOpLlmClient,
@@ -111,7 +112,7 @@ class ScheduledTaskRuntimeExecutorTest {
         val orchestrator = DeliveringRuntimeOrchestrator()
 
         val failure = runCatching {
-            ScheduledTaskRuntimeExecutor.execute(
+            ScheduledTaskRuntimeExecutor(NoOpRuntimeLogger).execute(
                 context = scheduledContext(note = "", description = "   "),
                 runtimeDependencies = ScheduledTaskRuntimeDependencies(
                     llmClient = NoOpLlmClient,
@@ -235,6 +236,10 @@ private object NoOpLlmClient : LlmClientPort {
         LlmInvocationResult(text = "")
 
     override fun streamWithTools(request: LlmInvocationRequest): Flow<LlmStreamEvent> = emptyFlow()
+}
+
+private object NoOpRuntimeLogger : RuntimeLogger {
+    override fun append(message: String) = Unit
 }
 
 private object ThrowingCronAppChatLlmPipelineRuntime : AppChatLlmPipelineRuntime {

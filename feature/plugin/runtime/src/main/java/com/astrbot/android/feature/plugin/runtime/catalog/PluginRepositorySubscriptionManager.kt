@@ -1,10 +1,10 @@
-package com.astrbot.android.feature.plugin.runtime.catalog
+﻿package com.astrbot.android.feature.plugin.runtime.catalog
 
 import com.astrbot.android.feature.plugin.data.catalog.PluginCatalogSyncStore
+import com.astrbot.android.core.common.logging.RuntimeLogger
 import com.astrbot.android.model.plugin.PluginCatalogSyncState
 import com.astrbot.android.model.plugin.PluginInstallIntent
 import com.astrbot.android.model.plugin.PluginRepositorySource
-import com.astrbot.android.core.logging.SharedRuntimeLogStore
 import java.net.URI
 import java.security.MessageDigest
 import javax.inject.Inject
@@ -17,6 +17,7 @@ data class PluginRepositorySubscriptionResult(
 class PluginRepositorySubscriptionManager @Inject constructor(
     private val store: PluginCatalogSyncStore,
     private val synchronizer: PluginCatalogSynchronizer,
+    private val runtimeLogger: RuntimeLogger,
 ) {
     private var sourceIdFactory: (String) -> String = ::defaultPluginRepositorySourceId
     private var now: () -> Long = System::currentTimeMillis
@@ -26,13 +27,14 @@ class PluginRepositorySubscriptionManager @Inject constructor(
         synchronizer: PluginCatalogSynchronizer,
         sourceIdFactory: (String) -> String = ::defaultPluginRepositorySourceId,
         now: () -> Long = System::currentTimeMillis,
-    ) : this(store = store, synchronizer = synchronizer) {
+        runtimeLogger: RuntimeLogger = RuntimeLogger.noop(),
+    ) : this(store = store, synchronizer = synchronizer, runtimeLogger = runtimeLogger) {
         this.sourceIdFactory = sourceIdFactory
         this.now = now
     }
 
     suspend fun subscribeAndSync(rawCatalogUrl: String): PluginRepositorySubscriptionResult {
-        SharedRuntimeLogStore.append("Plugin market subscribe start: rawUrl=$rawCatalogUrl")
+        runtimeLogger.append("Plugin market subscribe start: rawUrl=$rawCatalogUrl")
         val intent = PluginInstallIntent.repositoryUrl(rawCatalogUrl)
         val catalogUrl = intent.url
         val existing = store.listRepositorySources().firstOrNull { it.catalogUrl == catalogUrl }
@@ -42,7 +44,7 @@ class PluginRepositorySubscriptionManager @Inject constructor(
             catalogUrl = catalogUrl,
             updatedAt = now(),
         )
-        SharedRuntimeLogStore.append(
+        runtimeLogger.append(
             "Plugin market subscribe normalized: " +
                 "catalogUrl=$catalogUrl " +
                 "existing=${existing != null} " +
@@ -51,7 +53,7 @@ class PluginRepositorySubscriptionManager @Inject constructor(
         store.upsertRepositorySource(source)
         val syncState = synchronizer.sync(source.sourceId)
         val refreshed = store.getRepositorySource(source.sourceId) ?: source
-        SharedRuntimeLogStore.append(
+        runtimeLogger.append(
             "Plugin market subscribe finished: " +
                 "sourceId=${refreshed.sourceId} " +
                 "status=${syncState.lastSyncStatus.name} " +
@@ -77,3 +79,4 @@ private fun defaultPluginRepositorySourceId(catalogUrl: String): String {
         .take(12)
     return "repo-$digest"
 }
+

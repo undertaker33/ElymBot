@@ -277,47 +277,6 @@ internal abstract class BaseQqOneBotBridgeRuntime : QqBridgeRuntime {
     }
 }
 
-internal object QqOneBotBridgeServer : BaseQqOneBotBridgeRuntime() {
-    @Volatile
-    private var appChatPluginRuntimeOverrideForTests: AppChatLlmPipelineRuntime? = null
-
-    @Volatile
-    private var runtimeDependencies: QqOneBotRuntimeDependencies? = null
-
-    @Volatile
-    private var runtimeGraphFactoryOverrideForTests: QqRuntimeGraphFactory? = null
-
-    @Volatile
-    private var replySenderOverrideForTests: ((IncomingMessageEvent, String, List<ConversationAttachment>) -> OneBotSendResult)? =
-        null
-
-    internal fun setAppChatPluginRuntimeOverrideForTests(runtime: AppChatLlmPipelineRuntime?) {
-        appChatPluginRuntimeOverrideForTests = runtime
-    }
-
-    internal fun setReplySenderOverrideForTests(
-        sender: ((IncomingMessageEvent, String, List<ConversationAttachment>) -> OneBotSendResult)?,
-    ) {
-        replySenderOverrideForTests = sender
-    }
-
-    override fun requireRuntimeDependencies(): QqOneBotRuntimeDependencies {
-        return runtimeDependencies
-            ?: error("QqOneBotBridgeServer requires runtime dependencies from the Hilt runtime graph.")
-    }
-
-    override fun runtimeGraphFactory(): QqRuntimeGraphFactory {
-        return runtimeGraphFactoryOverrideForTests
-            ?: error("QqOneBotBridgeServer requires a runtime graph factory override from test access.")
-    }
-
-    override fun currentAppChatPluginRuntime(): AppChatLlmPipelineRuntime =
-        appChatPluginRuntimeOverrideForTests ?: requireRuntimeDependencies().appChatPluginRuntime
-
-    override fun currentReplySenderOverride():
-        ((IncomingMessageEvent, String, List<ConversationAttachment>) -> OneBotSendResult)? = replySenderOverrideForTests
-}
-
 @Singleton
 internal class HiltQqOneBotBridgeRuntime @Inject constructor(
     private val runtimeDependencies: QqOneBotRuntimeDependencies,

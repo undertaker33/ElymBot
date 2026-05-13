@@ -365,29 +365,3 @@ class OkHttpRuntimeNetworkTransport(
     }
 }
 
-/**
- * Singleton access to the shared runtime transport.
- */
-object SharedRuntimeNetworkTransport {
-    @Volatile
-    private var instance: RuntimeNetworkTransport = OkHttpRuntimeNetworkTransport()
-
-    fun get(): RuntimeNetworkTransport = instance
-
-    /** Access the underlying [OkHttpClient] base for transport-aligned adapters. */
-    fun sharedBaseClient(): OkHttpClient {
-        val transport = instance
-        return if (transport is OkHttpRuntimeNetworkTransport) {
-            transport.baseClient
-        } else {
-            OkHttpClient()
-        }
-    }
-
-    /**
-     * For tests only — replace the shared transport with a fake/mock.
-     */
-    internal fun setOverrideForTests(transport: RuntimeNetworkTransport?) {
-            instance = transport ?: OkHttpRuntimeNetworkTransport()
-    }
-}
