@@ -57,10 +57,16 @@ class AppIntegrationBoundaryContractTest {
             "Module.kt",
             "Modules.kt",
         )
+        val allowedExactNames = setOf(
+            "PluginDataWiringFactory.kt",
+        )
 
         val violations = kotlinFilesUnder(appIntegrationRoot)
             .map { file -> relativePath(file) }
-            .filterNot { path -> allowedNameSuffixes.any(path::endsWith) }
+            .filterNot { path ->
+                path.substringAfterLast("/") in allowedExactNames ||
+                    allowedNameSuffixes.any(path::endsWith)
+            }
 
         assertTrue(
             "app-integration files must stay wiring-shaped, not business-shaped. Found: $violations",

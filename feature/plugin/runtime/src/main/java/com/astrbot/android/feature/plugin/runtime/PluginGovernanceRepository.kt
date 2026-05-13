@@ -10,7 +10,6 @@ import com.astrbot.android.model.plugin.PluginFailureState
 import com.astrbot.android.model.plugin.PluginGovernanceSnapshot
 import com.astrbot.android.model.plugin.PluginInstallRecord
 import com.astrbot.android.model.plugin.PluginLifecycleDiagnostic
-import com.astrbot.android.model.plugin.PluginLifecycleDiagnosticsStore
 import com.astrbot.android.model.plugin.PluginRepositorySource
 import com.astrbot.android.model.plugin.PluginRuntimeLogRecord
 import com.astrbot.android.model.plugin.PluginSuspensionState
@@ -24,7 +23,7 @@ class PluginGovernanceRepository(
     private val repositoryStatePort: PluginRepositoryStatePort,
     private val runtimeSnapshotProvider: () -> PluginV2ActiveRuntimeSnapshot,
     private val failureStateStore: PluginFailureStateStore,
-    private val diagnosticsSnapshotProvider: () -> List<PluginLifecycleDiagnostic> = PluginLifecycleDiagnosticsStore::snapshot,
+    private val diagnosticsSnapshotProvider: (() -> List<PluginLifecycleDiagnostic>)? = null,
     private val logBus: PluginRuntimeLogBus,
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
@@ -35,7 +34,7 @@ class PluginGovernanceRepository(
         findInstallRecord: (String) -> PluginInstallRecord?,
         runtimeSnapshotProvider: () -> PluginV2ActiveRuntimeSnapshot,
         failureStateStore: PluginFailureStateStore,
-        diagnosticsSnapshotProvider: () -> List<PluginLifecycleDiagnostic> = PluginLifecycleDiagnosticsStore::snapshot,
+        diagnosticsSnapshotProvider: (() -> List<PluginLifecycleDiagnostic>)? = null,
         logBus: PluginRuntimeLogBus = InMemoryPluginRuntimeLogBus(),
         clock: () -> Long = System::currentTimeMillis,
     ) : this(
@@ -95,8 +94,10 @@ class PluginGovernanceRepository(
     ): PluginGovernanceReadModel? {
         val pluginId = installRecord.pluginId
         val runtimeSnapshot = runtimeSnapshotProvider()
-        val lifecycleDiagnostics = diagnosticsSnapshotProvider()
-            .filter { diagnostic -> diagnostic.pluginId == pluginId }
+        val lifecycleDiagnostics = resolveLifecycleDiagnostics(
+            pluginId = pluginId,
+            logLimit = logLimit,
+        )
         val failureSnapshot = failureStateStore.get(pluginId)
         val recentLogs = logBus.snapshot(
             limit = logLimit,
@@ -128,6 +129,29 @@ class PluginGovernanceRepository(
                 recentLogs = recentLogs,
             ),
         )
+    }
+
+    private fun resolveLifecycleDiagnostics(
+        pluginId: String,
+        logLimit: Int,
+    ): List<PluginLifecycleDiagnostic> {
+        diagnosticsSnapshotProvider?.invoke()
+            ?.filter { diagnostic -> diagnostic.pluginId == pluginId }
+            ?.let { return it }
+        return logBus.snapshot(
+            limit = logLimit,
+            pluginId = pluginId,
+            code = "plugin_error_hook_failed",
+        ).map { record ->
+            PluginLifecycleDiagnostic(
+                pluginId = record.pluginId,
+                hook = record.metadata["hook"].orEmpty(),
+                code = record.code,
+                message = record.message,
+                tracebackText = record.metadata["tracebackText"].orEmpty(),
+                occurredAtEpochMillis = record.occurredAtEpochMillis,
+            )
+        }
     }
 }
 

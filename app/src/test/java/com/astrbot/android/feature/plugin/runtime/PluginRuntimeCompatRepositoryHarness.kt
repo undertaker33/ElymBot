@@ -113,6 +113,7 @@ internal object PluginRuntimeCompatRepositoryHarness {
             appPreferenceDao = configPreferenceDao,
             preferences = InMemorySharedPreferences(),
         )
+        FeatureConfigRepository.installDelegate(configStore)
 
         botDao = InMemoryBotAggregateDao(
             initialProfiles = listOf(
@@ -133,18 +134,21 @@ internal object PluginRuntimeCompatRepositoryHarness {
             bindingsPreferences = InMemorySharedPreferences(),
             configRepositoryProvider = Provider { FeatureConfigRepositoryPortAdapter(configStore) },
         )
+        FeatureBotRepository.installDelegate(botStore)
 
         providerDao = InMemoryProviderAggregateDao()
         providerStore = FeatureProviderRepositoryStore(
             providerDao = providerDao,
             preferences = InMemorySharedPreferences(),
         )
+        FeatureProviderRepository.installDelegate(providerStore)
 
         personaDao = InMemoryPersonaAggregateDao()
         personaStore = FeaturePersonaRepositoryStore(
             personaDao = personaDao,
             preferences = InMemorySharedPreferences(),
         )
+        FeaturePersonaRepository.installDelegate(personaStore)
 
         conversationDao = InMemoryConversationAggregateDao()
         conversationStore = FeatureConversationRepositoryStore(
@@ -152,12 +156,14 @@ internal object PluginRuntimeCompatRepositoryHarness {
             legacyStorageFile = File.createTempFile("plugin-runtime-compat", ".json").apply { deleteOnExit() },
             botRepositoryProvider = Provider { FeatureBotRepositoryPortAdapter(botStore) },
         )
+        FeatureConversationRepository.installDelegate(conversationStore)
 
         resourceCenterDao = InMemoryResourceCenterDao()
         resourceCenterStore = FeatureResourceCenterRepositoryStore(
             resourceCenterDao = resourceCenterDao,
             configAggregateDao = configDao,
         )
+        FeatureResourceCenterRepository.installDelegate(resourceCenterStore)
 
         waitUntil("compat repositories should initialize") {
             runCatching {

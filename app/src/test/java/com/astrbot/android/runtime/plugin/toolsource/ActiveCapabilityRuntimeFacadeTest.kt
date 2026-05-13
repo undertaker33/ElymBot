@@ -8,6 +8,7 @@ import com.astrbot.android.model.ConfigProfile
 import com.astrbot.android.model.CronJob
 import com.astrbot.android.model.CronJobExecutionRecord
 import com.astrbot.android.core.common.logging.RuntimeLogRepository
+import com.astrbot.android.core.common.logging.RuntimeLogger
 import com.astrbot.android.core.runtime.context.RuntimePlatform
 import com.astrbot.android.di.runtime.context.toRuntimeConfigSnapshot
 import com.astrbot.android.feature.plugin.runtime.toolsource.ToolSourceContext
@@ -434,6 +435,7 @@ class ActiveCapabilityRuntimeFacadeTest {
             promptStrings = com.astrbot.android.feature.cron.runtime.TestActiveCapabilityPromptStrings,
             clock = { 1_000L },
             idGenerator = { "job-1" },
+            runtimeLogger = RuntimeLogger(RuntimeLogRepository::append),
         )
 
         val result = facade.createFutureTask(
@@ -451,6 +453,7 @@ class ActiveCapabilityRuntimeFacadeTest {
                 targetContext = null,
             ),
         )
+        RuntimeLogRepository.flush()
 
         assertTrue(result is ActiveCapabilityTaskCreation.Failed)
         val failed = result as ActiveCapabilityTaskCreation.Failed

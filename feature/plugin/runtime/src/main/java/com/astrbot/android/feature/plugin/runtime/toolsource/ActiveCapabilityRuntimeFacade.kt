@@ -1,4 +1,4 @@
-package com.astrbot.android.feature.plugin.runtime.toolsource
+﻿package com.astrbot.android.feature.plugin.runtime.toolsource
 
 import com.astrbot.android.feature.cron.domain.CronJobRepositoryPort
 import com.astrbot.android.feature.cron.domain.CronJobRunNowPort
@@ -8,7 +8,7 @@ import com.astrbot.android.feature.cron.domain.ActiveCapabilityPromptStrings
 import com.astrbot.android.feature.cron.domain.CronExpressionParser
 import com.astrbot.android.feature.cron.domain.model.CronJob
 import com.astrbot.android.feature.cron.domain.model.CronJobExecutionRecord
-import com.astrbot.android.core.logging.SharedRuntimeLogStore
+import com.astrbot.android.core.common.logging.RuntimeLogger
 import com.astrbot.android.core.runtime.context.RuntimePlatform
 import java.time.Instant
 import java.time.OffsetDateTime
@@ -49,6 +49,7 @@ class ActiveCapabilityRuntimeFacade(
     private val promptStrings: ActiveCapabilityPromptStrings,
     private val runNowPort: CronJobRunNowPort? = null,
     private val runNowPortProvider: () -> CronJobRunNowPort? = { runNowPort },
+    private val runtimeLogger: RuntimeLogger = RuntimeLogger.noop(),
 ) {
     @Inject
     constructor(
@@ -57,6 +58,7 @@ class ActiveCapabilityRuntimeFacade(
         naturalLanguageParser: ActiveCapabilityNaturalLanguageParser,
         promptStrings: ActiveCapabilityPromptStrings,
         runNowPortProvider: Provider<CronJobRunNowPort>,
+        runtimeLogger: RuntimeLogger,
     ) : this(
         repository = repository,
         scheduler = scheduler,
@@ -65,6 +67,7 @@ class ActiveCapabilityRuntimeFacade(
         naturalLanguageParser = naturalLanguageParser,
         promptStrings = promptStrings,
         runNowPortProvider = { runNowPortProvider.get() },
+        runtimeLogger = runtimeLogger,
     )
 
     suspend fun createFutureTask(request: ActiveCapabilityCreateTaskRequest): ActiveCapabilityTaskCreation {
@@ -175,7 +178,7 @@ class ActiveCapabilityRuntimeFacade(
         )
         val created = repository.create(job)
         if (created.enabled) scheduler.schedule(created)
-        SharedRuntimeLogStore.append(
+        runtimeLogger.append(
             "ActiveCapability: create_future_task success jobId=${created.jobId} " +
                 "nextRun=${created.nextRunTime.toIsoStringOrBlank()} source=${adjustedSchedule.source} " +
                 "payload=$payloadSummary rawText=${hostRawText.toQuotedLogValue()}",
@@ -606,7 +609,7 @@ class ActiveCapabilityRuntimeFacade(
         payloadSummary: String,
         rawText: String?,
     ) {
-        SharedRuntimeLogStore.append(
+        runtimeLogger.append(
             "ActiveCapability: create_future_task failed code=${error.code} message=${error.message} " +
                 "missing=${error.missingFields.joinToString(prefix = "[", postfix = "]")} " +
                 "payload=$payloadSummary rawText=${rawText.toQuotedLogValue()}",
@@ -767,4 +770,5 @@ private fun updatePayloadJson(
     if (enabled) json.put("enabled", enabledValue)
     return json.toString()
 }
+
 

@@ -1,6 +1,6 @@
 package com.astrbot.android.data.http
 
-import com.astrbot.android.core.logging.SharedRuntimeLogStore
+import com.astrbot.android.core.common.logging.RuntimeLogger
 import com.astrbot.android.core.runtime.network.RuntimeNetworkCapability
 import com.astrbot.android.core.runtime.network.RuntimeNetworkException
 import com.astrbot.android.core.runtime.network.RuntimeNetworkFailure
@@ -36,7 +36,7 @@ interface AstrBotHttpClient {
 
 class OkHttpAstrBotHttpClient(
     private val transport: RuntimeNetworkTransport,
-    private val logger: (String) -> Unit = SharedRuntimeLogStore::append,
+    private val logger: (String) -> Unit = RuntimeLogger.noop()::append,
 ) : AstrBotHttpClient {
     override fun execute(requestSpec: HttpRequestSpec): HttpResponsePayload {
         val sanitizedUrl = sanitizeUrlForLogs(requestSpec.url)

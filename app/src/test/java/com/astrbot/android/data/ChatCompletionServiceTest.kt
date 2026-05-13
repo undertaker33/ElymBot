@@ -1,6 +1,7 @@
-package com.astrbot.android.data
+﻿package com.astrbot.android.data
 
 import com.astrbot.android.core.runtime.llm.ChatCompletionService
+
 import com.astrbot.android.model.ConfigProfile
 import com.astrbot.android.model.FeatureSupportState
 import com.astrbot.android.model.ProviderCapability
@@ -18,6 +19,8 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
+private val chatCompletionService = ChatCompletionService()
+
 class ChatCompletionServiceTest {
     @Test
     fun openai_stream_chunk_with_null_content_produces_empty_delta() {
@@ -25,7 +28,7 @@ class ChatCompletionServiceTest {
             {"choices":[{"delta":{"content":null}}]}
         """.trimIndent()
 
-        assertEquals("", ChatCompletionService.extractOpenAiStyleStreamingContentForTests(chunk))
+        assertEquals("", chatCompletionService.extractOpenAiStyleStreamingContentForTests(chunk))
     }
 
     @Test
@@ -34,7 +37,7 @@ class ChatCompletionServiceTest {
             {"choices":[{"delta":{"role":"assistant"}}]}
         """.trimIndent()
 
-        assertEquals("", ChatCompletionService.extractOpenAiStyleStreamingContentForTests(chunk))
+        assertEquals("", chatCompletionService.extractOpenAiStyleStreamingContentForTests(chunk))
     }
 
     @Test
@@ -43,12 +46,12 @@ class ChatCompletionServiceTest {
             {"choices":[{"delta":{"content":"hello"}}]}
         """.trimIndent()
 
-        assertEquals("hello", ChatCompletionService.extractOpenAiStyleStreamingContentForTests(chunk))
+        assertEquals("hello", chatCompletionService.extractOpenAiStyleStreamingContentForTests(chunk))
     }
 
     @Test
     fun image_route_requires_explicit_caption_provider_selection() {
-        val plan = ChatCompletionService.resolveImageHandlingPlanForTests(
+        val plan = chatCompletionService.resolveImageHandlingPlanForTests(
             provider = plainChatProvider(),
             messages = imageMessages(),
             config = ConfigProfile(
@@ -64,7 +67,7 @@ class ChatCompletionServiceTest {
 
     @Test
     fun image_route_uses_selected_caption_provider_when_chat_model_cannot_read_images() {
-        val plan = ChatCompletionService.resolveImageHandlingPlanForTests(
+        val plan = chatCompletionService.resolveImageHandlingPlanForTests(
             provider = plainChatProvider(),
             messages = imageMessages(),
             config = ConfigProfile(
@@ -81,7 +84,7 @@ class ChatCompletionServiceTest {
 
     @Test
     fun image_route_prefers_direct_multimodal_chat_when_chat_model_supports_images() {
-        val plan = ChatCompletionService.resolveImageHandlingPlanForTests(
+        val plan = chatCompletionService.resolveImageHandlingPlanForTests(
             provider = multimodalChatProvider(),
             messages = imageMessages(),
             config = ConfigProfile(
@@ -165,7 +168,7 @@ class ChatCompletionServiceTest {
         val body = """
             {"choices":[{"message":{"role":"assistant","content":"Hello!"}}]}
         """.trimIndent()
-        val result = ChatCompletionService.parseOpenAiChatCompletionResult(body)
+        val result = chatCompletionService.parseOpenAiChatCompletionResult(body)
         assertEquals("Hello!", result.text)
         assertEquals(0, result.toolCalls.size)
     }
@@ -177,7 +180,7 @@ class ChatCompletionServiceTest {
                 {"id":"call_1","type":"function","function":{"name":"web_search","arguments":"{\"query\":\"weather\"}"}}
             ]}}]}
         """.trimIndent()
-        val result = ChatCompletionService.parseOpenAiChatCompletionResult(body)
+        val result = chatCompletionService.parseOpenAiChatCompletionResult(body)
         assertEquals("", result.text)
         assertEquals(1, result.toolCalls.size)
         assertEquals("call_1", result.toolCalls[0].id)
@@ -194,7 +197,7 @@ class ChatCompletionServiceTest {
                 {"id":"call_b","type":"function","function":{"name":"web_search","arguments":"{\"q\":\"news\"}"}}
             ]}}]}
         """.trimIndent()
-        val result = ChatCompletionService.parseOpenAiChatCompletionResult(body)
+        val result = chatCompletionService.parseOpenAiChatCompletionResult(body)
         assertEquals("Let me search for that.", result.text)
         assertEquals(2, result.toolCalls.size)
         assertEquals("get_time", result.toolCalls[0].name)
@@ -203,7 +206,7 @@ class ChatCompletionServiceTest {
 
     @Test
     fun build_openai_payload_preserves_assistant_tool_calls_and_tool_call_id() {
-        val payload = ChatCompletionService.buildOpenAiPayloadForTests(
+        val payload = chatCompletionService.buildOpenAiPayloadForTests(
             provider = plainChatProvider(),
             messages = listOf(
                 ConversationMessage(
@@ -259,12 +262,12 @@ class ChatCompletionServiceTest {
         val body = """
             {"choices":[{"message":{"role":"assistant","content":""}}]}
         """.trimIndent()
-        ChatCompletionService.parseOpenAiChatCompletionResult(body)
+        chatCompletionService.parseOpenAiChatCompletionResult(body)
     }
 
     @Test
     fun build_openai_payload_assistant_tool_calls_empty_content_uses_empty_string_not_null() {
-        val payload = ChatCompletionService.buildOpenAiPayloadForTests(
+        val payload = chatCompletionService.buildOpenAiPayloadForTests(
             provider = plainChatProvider(),
             messages = listOf(
                 ConversationMessage(
@@ -306,9 +309,9 @@ class ChatCompletionServiceTest {
     @Test
     fun configured_chat_with_tools_keeps_web_search_assistant_tool_call_round_after_sanitizing() {
         val captureClient = CapturingHttpClient()
-        ChatCompletionService.setHttpClientOverrideForTests(captureClient)
+        chatCompletionService.setHttpClientOverrideForTests(captureClient)
         try {
-            ChatCompletionService.sendConfiguredChatWithTools(
+            chatCompletionService.sendConfiguredChatWithTools(
                 provider = plainChatProvider(),
                 messages = listOf(
                     ConversationMessage(
@@ -366,16 +369,16 @@ class ChatCompletionServiceTest {
             assertEquals("call_web_search", tool.getString("tool_call_id"))
             assertEquals("search result", tool.getString("content"))
         } finally {
-            ChatCompletionService.setHttpClientOverrideForTests(null)
+            chatCompletionService.setHttpClientOverrideForTests(null)
         }
     }
 
     @Test
     fun configured_chat_with_tools_still_removes_plain_empty_assistant_after_sanitizing() {
         val captureClient = CapturingHttpClient()
-        ChatCompletionService.setHttpClientOverrideForTests(captureClient)
+        chatCompletionService.setHttpClientOverrideForTests(captureClient)
         try {
-            ChatCompletionService.sendConfiguredChatWithTools(
+            chatCompletionService.sendConfiguredChatWithTools(
                 provider = plainChatProvider(),
                 messages = listOf(
                     ConversationMessage(
@@ -399,16 +402,16 @@ class ChatCompletionServiceTest {
             assertEquals("user", messages.getJSONObject(0).getString("role"))
             assertEquals("hello", messages.getJSONObject(0).getString("content"))
         } finally {
-            ChatCompletionService.setHttpClientOverrideForTests(null)
+            chatCompletionService.setHttpClientOverrideForTests(null)
         }
     }
 
     @Test
     fun configured_chat_with_tools_keeps_empty_tool_result_with_tool_call_id_after_sanitizing() {
         val captureClient = CapturingHttpClient()
-        ChatCompletionService.setHttpClientOverrideForTests(captureClient)
+        chatCompletionService.setHttpClientOverrideForTests(captureClient)
         try {
-            ChatCompletionService.sendConfiguredChatWithTools(
+            chatCompletionService.sendConfiguredChatWithTools(
                 provider = plainChatProvider(),
                 messages = listOf(
                     ConversationMessage(
@@ -448,7 +451,7 @@ class ChatCompletionServiceTest {
             assertEquals("call_web_search_empty", tool.getString("tool_call_id"))
             assertEquals("", tool.getString("content"))
         } finally {
-            ChatCompletionService.setHttpClientOverrideForTests(null)
+            chatCompletionService.setHttpClientOverrideForTests(null)
         }
     }
 
@@ -461,10 +464,10 @@ class ChatCompletionServiceTest {
                 "data: [DONE]",
             ),
         )
-        ChatCompletionService.setHttpClientOverrideForTests(captureClient)
+        chatCompletionService.setHttpClientOverrideForTests(captureClient)
         try {
             val deltas = mutableListOf<String>()
-            val text = ChatCompletionService.sendConfiguredChatStream(
+            val text = chatCompletionService.sendConfiguredChatStream(
                 provider = plainChatProvider(),
                 messages = listOf(
                     ConversationMessage(
@@ -481,7 +484,7 @@ class ChatCompletionServiceTest {
             assertEquals(listOf("hello"), deltas)
             assertTrue(captureClient.requireBody().contains("\"stream\":true"))
         } finally {
-            ChatCompletionService.setHttpClientOverrideForTests(null)
+            chatCompletionService.setHttpClientOverrideForTests(null)
         }
     }
 
@@ -494,10 +497,10 @@ class ChatCompletionServiceTest {
                 "data: [DONE]",
             ),
         )
-        ChatCompletionService.setHttpClientOverrideForTests(captureClient)
+        chatCompletionService.setHttpClientOverrideForTests(captureClient)
         try {
             val deltas = mutableListOf<String>()
-            val result = ChatCompletionService.sendConfiguredChatStreamWithTools(
+            val result = chatCompletionService.sendConfiguredChatStreamWithTools(
                 provider = plainChatProvider(),
                 messages = listOf(
                     ConversationMessage(
@@ -522,7 +525,7 @@ class ChatCompletionServiceTest {
             assertEquals(0, result.toolCalls.size)
             assertTrue(captureClient.requireBody().contains("\"stream\":true"))
         } finally {
-            ChatCompletionService.setHttpClientOverrideForTests(null)
+            chatCompletionService.setHttpClientOverrideForTests(null)
         }
     }
 
@@ -562,3 +565,5 @@ class ChatCompletionServiceTest {
         fun requireBody(): String = requireNotNull(body) { "Expected request body to be captured." }
     }
 }
+
+

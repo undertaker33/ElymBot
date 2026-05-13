@@ -89,3 +89,39 @@ object PluginRuntimeCatalog {
         compatProvider = null
     }
 }
+
+object PluginRuntimeRegistry {
+    @Volatile
+    private var pluginProvider: () -> List<PluginRuntimePlugin> = { emptyList() }
+
+    @Volatile
+    private var externalProviders: List<() -> List<PluginRuntimePlugin>> = emptyList()
+
+    fun plugins(): List<PluginRuntimePlugin> {
+        return buildList {
+            addAll(pluginProvider())
+            externalProviders.forEach { provider ->
+                addAll(provider())
+            }
+        }
+    }
+
+    fun registerProvider(provider: () -> List<PluginRuntimePlugin>) {
+        pluginProvider = provider
+    }
+
+    fun registerExternalProvider(provider: () -> List<PluginRuntimePlugin>) {
+        externalProviders = externalProviders + provider
+    }
+
+    fun reset() {
+        pluginProvider = { emptyList() }
+        externalProviders = emptyList()
+    }
+}
+
+internal object AppChatPluginRuntimeCoordinatorProvider {
+    internal fun setCoordinatorOverrideForTests(
+        coordinator: PluginV2LlmPipelineCoordinator?,
+    ) = Unit
+}

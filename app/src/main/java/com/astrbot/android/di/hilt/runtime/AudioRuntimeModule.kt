@@ -1,9 +1,12 @@
 package com.astrbot.android.di.hilt.runtime
 
 import android.content.Context
+import com.astrbot.android.core.common.logging.RuntimeLogger
 import com.astrbot.android.core.runtime.audio.AudioRuntimePort
+import com.astrbot.android.core.runtime.audio.DefaultSherpaOnnxAssetService
+import com.astrbot.android.core.runtime.audio.SherpaOnnxAssetService
+import com.astrbot.android.core.runtime.audio.SherpaOnnxBridge
 import com.astrbot.android.di.runtime.audio.CompatChatCompletionAudioRuntimePort
-import com.astrbot.android.feature.voiceasset.api.TtsVoiceAssetPort
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -17,8 +20,25 @@ internal object AudioRuntimeModule {
 
     @Provides
     @Singleton
-    fun provideAudioRuntimePort(
+    fun provideSherpaOnnxAssetService(
+        runtimeLogger: RuntimeLogger,
+    ): SherpaOnnxAssetService = DefaultSherpaOnnxAssetService(runtimeLogger)
+
+    @Provides
+    @Singleton
+    fun provideSherpaOnnxBridge(
         @ApplicationContext appContext: Context,
-        ttsVoiceAssetPort: TtsVoiceAssetPort,
-    ): AudioRuntimePort = CompatChatCompletionAudioRuntimePort(appContext, ttsVoiceAssetPort)
+        sherpaOnnxAssetService: SherpaOnnxAssetService,
+        runtimeLogger: RuntimeLogger,
+    ): SherpaOnnxBridge = SherpaOnnxBridge(
+        context = appContext,
+        assetService = sherpaOnnxAssetService,
+        runtimeLogger = runtimeLogger,
+    )
+
+    @Provides
+    @Singleton
+    fun provideAudioRuntimePort(
+        compatPort: CompatChatCompletionAudioRuntimePort,
+    ): AudioRuntimePort = compatPort
 }

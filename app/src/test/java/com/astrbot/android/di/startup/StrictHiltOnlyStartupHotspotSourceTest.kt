@@ -1,4 +1,4 @@
-package com.astrbot.android.di.startup
+﻿package com.astrbot.android.di.startup
 
 import java.nio.file.Path
 import kotlin.io.path.exists
@@ -38,7 +38,7 @@ class StrictHiltOnlyStartupHotspotSourceTest {
 
         assertTrue(
             "HiltLlmProviderProbePort must not initialize ChatCompletionService from constructor context bootstrap",
-            !probeSource.contains("ChatCompletionService.initialize("),
+            !probeSource.contains("chatCompletionService.initialize("),
         )
         assertTrue(
             "ContainerRuntimeInstaller must not initialize RuntimeSecretRepository from app context bootstrap",
@@ -74,3 +74,4 @@ class StrictHiltOnlyStartupHotspotSourceTest {
         }
     }
 }
+

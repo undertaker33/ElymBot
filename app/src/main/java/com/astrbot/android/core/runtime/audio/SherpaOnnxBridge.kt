@@ -6,9 +6,9 @@ import android.media.MediaCodec
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.util.Base64
-import com.astrbot.android.model.chat.ConversationAttachment
+import com.astrbot.android.core.common.logging.RuntimeLogger
 import com.astrbot.android.model.ProviderProfile
-import com.astrbot.android.core.logging.SharedRuntimeLogStore
+import com.astrbot.android.model.chat.ConversationAttachment
 import com.k2fsa.sherpa.onnx.FeatureConfig
 import com.k2fsa.sherpa.onnx.GeneratedAudio
 import com.k2fsa.sherpa.onnx.OfflineModelConfig
@@ -29,16 +29,16 @@ import java.nio.ByteOrder
 import java.nio.charset.StandardCharsets
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import javax.inject.Inject
 
-object SherpaOnnxBridge {
-    private const val TARGET_STT_SAMPLE_RATE = 16_000
-    private const val TARGET_STT_FEATURE_DIM = 80
-    private const val TTS_LEADING_SILENCE_MS = 200
-    private const val TTS_FADE_IN_MS = 10
-    private const val TTS_FADE_OUT_MS = 14
-
+class SherpaOnnxBridge @Inject constructor(
+    context: Context,
+    private val assetService: SherpaOnnxAssetService,
+    private val runtimeLogger: RuntimeLogger,
+) {
     private val recognizerCache = ConcurrentHashMap<String, OfflineRecognizer>()
     private val ttsCache = ConcurrentHashMap<String, OfflineTts>()
+    private val appContext: Context = context.applicationContext
 
     private val bracketPatterns = listOf(
         Regex("\\(([^()]*)\\)"),
@@ -47,18 +47,10 @@ object SherpaOnnxBridge {
         Regex("【[^【】]*】"),
     )
 
-    @Volatile
-    private var appContext: Context? = null
-
-    fun initialize(context: Context) {
-        appContext = context.applicationContext
-    }
-
     fun transcribeAudio(
         @Suppress("UNUSED_PARAMETER") provider: ProviderProfile,
         attachment: ConversationAttachment,
     ): String {
-        ensureInitialized()
         ensureFrameworkReady()
         ensureSttReady()
         val context = requireContext()
@@ -80,7 +72,6 @@ object SherpaOnnxBridge {
         voiceId: String,
         readBracketedContent: Boolean,
     ): ConversationAttachment {
-        ensureInitialized()
         ensureFrameworkReady()
         ensureTtsReady(provider.model)
 
@@ -91,7 +82,7 @@ object SherpaOnnxBridge {
 
         val runtimeConfig = buildTtsRuntimeConfig(context, normalizedModel)
         val speakerId = resolveSpeakerId(normalizedModel, voiceId)
-        SharedRuntimeLogStore.append(
+        runtimeLogger.append(
             "Sherpa ONNX TTS generate: model=$normalizedModel speakerId=$speakerId chars=${preparedText.length}",
         )
 
@@ -111,18 +102,18 @@ object SherpaOnnxBridge {
     }
 
     fun isFrameworkReady(): Boolean {
-        val context = appContext ?: return false
-        return SherpaOnnxAssetManager.frameworkState(context).installed
+        val context = appContext
+        return assetService.frameworkState(context).installed
     }
 
     fun isSttReady(): Boolean {
-        val context = appContext ?: return false
-        return SherpaOnnxAssetManager.sttState(context).installed
+        val context = appContext
+        return assetService.sttState(context).installed
     }
 
     fun isTtsReady(model: String): Boolean {
-        val context = appContext ?: return false
-        val state = SherpaOnnxAssetManager.ttsState(context)
+        val context = appContext
+        val state = assetService.ttsState(context)
         return when (model.trim().lowercase()) {
             "kokoro" -> state.kokoro.installed
             else -> false
@@ -130,7 +121,7 @@ object SherpaOnnxBridge {
     }
 
     private fun buildRecognizer(context: Context): OfflineRecognizer {
-        val sttDir = SherpaOnnxAssetManager.sttDir(context)
+        val sttDir = assetService.sttDir(context)
         val config = OfflineRecognizerConfig(
             featConfig = FeatureConfig(TARGET_STT_SAMPLE_RATE, TARGET_STT_FEATURE_DIM, 0.0f),
             modelConfig = OfflineModelConfig(
@@ -168,9 +159,9 @@ object SherpaOnnxBridge {
     ): OfflineTts {
         return ttsCache[model] ?: synchronized(ttsCache) {
             ttsCache[model] ?: run {
-                SharedRuntimeLogStore.append("Sherpa ONNX TTS init start: model=$model")
+                runtimeLogger.append("Sherpa ONNX TTS init start: model=$model")
                 val created = OfflineTts(runtimeConfig.assetManager, runtimeConfig.config)
-                SharedRuntimeLogStore.append("Sherpa ONNX TTS init done: model=$model")
+                runtimeLogger.append("Sherpa ONNX TTS init done: model=$model")
                 ttsCache[model] = created
                 created
             }
@@ -178,7 +169,7 @@ object SherpaOnnxBridge {
     }
 
     private fun buildKokoroConfig(context: Context): OfflineTtsConfig {
-        val kokoroDir = SherpaOnnxAssetManager.kokoroDir(context)
+        val kokoroDir = assetService.kokoroDir(context)
         return getOfflineTtsConfig(
             modelDir = kokoroDir.absolutePath,
             modelName = "model.int8.onnx",
@@ -244,7 +235,7 @@ object SherpaOnnxBridge {
         val sampleRate = tts.sampleRate()
         val pcmBytes = ByteArrayOutputStream()
         var callbackChunks = 0
-        SharedRuntimeLogStore.append(
+        runtimeLogger.append(
             "Sherpa ONNX TTS callback start: sampleRate=$sampleRate speakerId=$speakerId chars=${text.length}",
         )
         tts.generateWithCallback(
@@ -254,14 +245,14 @@ object SherpaOnnxBridge {
         ) { samples ->
             callbackChunks += 1
             if (callbackChunks == 1) {
-                SharedRuntimeLogStore.append(
+                runtimeLogger.append(
                     "Sherpa ONNX TTS callback chunk: samples=${samples.size}",
                 )
             }
             pcmBytes.write(floatArrayToPcmBytes(samples))
             1
         }
-        SharedRuntimeLogStore.append(
+        runtimeLogger.append(
             "Sherpa ONNX TTS callback done: chunks=$callbackChunks bytes=${pcmBytes.size()}",
         )
         check(pcmBytes.size() > 0) { "Sherpa ONNX TTS generated empty audio." }
@@ -698,10 +689,6 @@ object SherpaOnnxBridge {
         return Base64.decode(encoded, Base64.DEFAULT)
     }
 
-    private fun ensureInitialized() {
-        check(appContext != null) { "SherpaOnnxBridge is not initialized." }
-    }
-
     private fun ensureFrameworkReady() {
         check(isFrameworkReady()) {
             "Sherpa ONNX framework assets are missing. Open Asset Management and activate the on-device framework first."
@@ -725,9 +712,7 @@ object SherpaOnnxBridge {
         }
     }
 
-    private fun requireContext(): Context {
-        return requireNotNull(appContext) { "SherpaOnnxBridge is not initialized." }
-    }
+    private fun requireContext(): Context = appContext
 
     private data class DecodedPcm(
         val samples: FloatArray,
@@ -739,3 +724,9 @@ object SherpaOnnxBridge {
         val assetManager: AssetManager?,
     )
 }
+
+private const val TARGET_STT_SAMPLE_RATE = 16_000
+private const val TARGET_STT_FEATURE_DIM = 80
+private const val TTS_LEADING_SILENCE_MS = 200
+private const val TTS_FADE_IN_MS = 10
+private const val TTS_FADE_OUT_MS = 14

@@ -65,7 +65,7 @@ class AstrBotDatabaseMigrationTest {
             close()
         }
 
-        helper.runMigrationsAndValidate(databaseName, 8, true, *AstrBotDatabase.allMigrations)
+        helper.runMigrationsAndValidate(databaseName, 8, true, *astrBotDatabaseMigrations)
 
         val database = context.openDatabaseForVerification(databaseName)
         database.rawQuery("SELECT COUNT(*) FROM bots", null).use { cursor ->
@@ -127,7 +127,7 @@ class AstrBotDatabaseMigrationTest {
             close()
         }
 
-        helper.runMigrationsAndValidate(databaseName, 8, true, *AstrBotDatabase.allMigrations)
+        helper.runMigrationsAndValidate(databaseName, 8, true, *astrBotDatabaseMigrations)
 
         val database = context.openDatabaseForVerification(databaseName)
         database.rawQuery(
@@ -171,7 +171,7 @@ class AstrBotDatabaseMigrationTest {
             close()
         }
 
-        helper.runMigrationsAndValidate(databaseName, 9, true, *AstrBotDatabase.allMigrations)
+        helper.runMigrationsAndValidate(databaseName, 9, true, *astrBotDatabaseMigrations)
 
         val database = context.openDatabaseForVerification(databaseName)
         database.rawQuery(
@@ -209,7 +209,7 @@ class AstrBotDatabaseMigrationTest {
             close()
         }
 
-        helper.runMigrationsAndValidate(databaseName, 10, true, *AstrBotDatabase.allMigrations)
+        helper.runMigrationsAndValidate(databaseName, 10, true, *astrBotDatabaseMigrations)
 
         val database = context.openDatabaseForVerification(databaseName)
         listOf(
@@ -316,7 +316,7 @@ class AstrBotDatabaseMigrationTest {
             close()
         }
 
-        helper.runMigrationsAndValidate(databaseName, 11, true, *AstrBotDatabase.allMigrations)
+        helper.runMigrationsAndValidate(databaseName, 11, true, *astrBotDatabaseMigrations)
 
         val database = context.openDatabaseForVerification(databaseName)
         database.rawQuery(
@@ -398,7 +398,7 @@ class AstrBotDatabaseMigrationTest {
             close()
         }
 
-        helper.runMigrationsAndValidate(databaseName, 12, true, *AstrBotDatabase.allMigrations)
+        helper.runMigrationsAndValidate(databaseName, 12, true, *astrBotDatabaseMigrations)
 
         val database = context.openDatabaseForVerification(databaseName)
         database.rawQuery(
@@ -448,7 +448,7 @@ class AstrBotDatabaseMigrationTest {
             close()
         }
 
-        helper.runMigrationsAndValidate(databaseName, 13, true, *AstrBotDatabase.allMigrations)
+        helper.runMigrationsAndValidate(databaseName, 13, true, *astrBotDatabaseMigrations)
 
         val database = context.openDatabaseForVerification(databaseName)
         database.rawQuery(
@@ -563,7 +563,7 @@ class AstrBotDatabaseMigrationTest {
             close()
         }
 
-        helper.runMigrationsAndValidate(databaseName, 20, true, *AstrBotDatabase.allMigrations)
+        helper.runMigrationsAndValidate(databaseName, 20, true, *astrBotDatabaseMigrations)
 
         val database = context.openDatabaseForVerification(databaseName)
         listOf("resource_center_items", "config_resource_projections").forEach { tableName ->

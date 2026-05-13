@@ -160,9 +160,10 @@ class StaticRepositoryUsageContractTest {
                 val callRegexes = importedNames
                     .ifEmpty { setOf(symbol) }
                     .map { importedName -> Regex("""\b${Regex.escape(importedName)}\s*\.""") }
+                val hasStaticCall = callRegexes.any { regex -> regex.containsMatchIn(text) }
                 val kinds = buildList {
-                    if (importedNames.isNotEmpty()) add("import")
-                    if (callRegexes.any { regex -> regex.containsMatchIn(text) }) add("call")
+                    if (importedNames.isNotEmpty() && hasStaticCall) add("import")
+                    if (hasStaticCall) add("call")
                 }
 
                 if (kinds.isEmpty()) {

@@ -1,6 +1,6 @@
-package com.astrbot.android.feature.plugin.runtime.toolsource
+﻿package com.astrbot.android.feature.plugin.runtime.toolsource
 
-import com.astrbot.android.core.logging.SharedRuntimeLogStore
+import com.astrbot.android.core.common.logging.RuntimeLogger
 import com.astrbot.android.core.runtime.context.IngressTrigger
 import com.astrbot.android.feature.plugin.runtime.PluginToolDescriptor
 import com.astrbot.android.feature.plugin.runtime.PluginToolResult
@@ -21,6 +21,7 @@ class ActiveCapabilityToolSourceProvider @Inject constructor(
     private val facade: ActiveCapabilityRuntimeFacade,
     private val promptStrings: ActiveCapabilityPromptStrings,
     override val contextResolver: FutureToolSourceContextResolver,
+    private val runtimeLogger: RuntimeLogger,
 ) : FutureToolSourceProvider {
     override val sourceKind: PluginToolSourceKind = PluginToolSourceKind.ACTIVE_CAPABILITY
 
@@ -101,7 +102,7 @@ class ActiveCapabilityToolSourceProvider @Inject constructor(
                 ),
             )
         } catch (e: Exception) {
-            SharedRuntimeLogStore.append("ActiveCapability invoke error: ${e.message}")
+            runtimeLogger.append("ActiveCapability invoke error: ${e.message}")
             ToolSourceInvokeResult(
                 result = PluginToolResult(
                     toolCallId = request.args.toolCallId,
@@ -371,4 +372,5 @@ private data class ActiveCapabilityToolInvocation(
     val errorCode: String? = null,
     val text: String,
 )
+
 

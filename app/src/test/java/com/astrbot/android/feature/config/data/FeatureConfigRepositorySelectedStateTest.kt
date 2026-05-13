@@ -31,11 +31,12 @@ class FeatureConfigRepositorySelectedStateTest {
         val configDao = FakeConfigAggregateDao(listOf(defaultProfile, customProfile))
         val appPreferenceDao = FakeAppPreferenceDao(defaultProfile.id)
 
-        FeatureConfigRepositoryStore(
+        val store = FeatureConfigRepositoryStore(
             configProfileDao = configDao,
             appPreferenceDao = appPreferenceDao,
             preferences = InMemorySharedPreferences(),
         )
+        FeatureConfigRepository.installDelegate(store)
 
         waitUntil("initial config state should sync from fake persistence") {
             FeatureConfigRepository.profiles.value.map { it.id } == listOf(defaultProfile.id, customProfile.id) &&
@@ -63,11 +64,12 @@ class FeatureConfigRepositorySelectedStateTest {
         val configDao = FakeConfigAggregateDao(listOf(defaultProfile))
         val appPreferenceDao = FakeAppPreferenceDao(defaultProfile.id)
 
-        FeatureConfigRepositoryStore(
+        val store = FeatureConfigRepositoryStore(
             configProfileDao = configDao,
             appPreferenceDao = appPreferenceDao,
             preferences = InMemorySharedPreferences(),
         )
+        FeatureConfigRepository.installDelegate(store)
 
         waitUntil("initial config state should sync from fake persistence") {
             FeatureConfigRepository.profiles.value.map { it.id } == listOf(defaultProfile.id)
@@ -96,11 +98,12 @@ class FeatureConfigRepositorySelectedStateTest {
         val configDao = FakeConfigAggregateDao(listOf(defaultProfile, customProfile))
         val appPreferenceDao = FakeAppPreferenceDao(customProfile.id)
 
-        FeatureConfigRepositoryStore(
+        val store = FeatureConfigRepositoryStore(
             configProfileDao = configDao,
             appPreferenceDao = appPreferenceDao,
             preferences = InMemorySharedPreferences(),
         )
+        FeatureConfigRepository.installDelegate(store)
 
         waitUntil("initial config state should sync from fake persistence") {
             FeatureConfigRepository.selectedProfileId.value == customProfile.id
@@ -132,11 +135,12 @@ class FeatureConfigRepositorySelectedStateTest {
         val configDao = FakeConfigAggregateDao(listOf(defaultProfile))
         val appPreferenceDao = FakeAppPreferenceDao(defaultProfile.id)
 
-        FeatureConfigRepositoryStore(
+        val store = FeatureConfigRepositoryStore(
             configProfileDao = configDao,
             appPreferenceDao = appPreferenceDao,
             preferences = InMemorySharedPreferences(),
         )
+        FeatureConfigRepository.installDelegate(store)
 
         waitUntil("initial config state should sync from fake persistence") {
             FeatureConfigRepository.selectedProfileId.value == defaultProfile.id

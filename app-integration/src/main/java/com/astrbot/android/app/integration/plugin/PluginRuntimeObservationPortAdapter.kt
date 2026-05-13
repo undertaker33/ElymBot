@@ -1,6 +1,6 @@
 package com.astrbot.android.app.integration.plugin
 
-import com.astrbot.android.core.logging.SharedRuntimeLogStore
+import com.astrbot.android.core.common.logging.RuntimeLogger
 import com.astrbot.android.di.hilt.ApplicationScope
 import com.astrbot.android.feature.plugin.domain.PluginRuntimeObservationPort
 import com.astrbot.android.feature.plugin.domain.PluginStateRepositoryPort
@@ -22,6 +22,7 @@ internal class PluginRuntimeObservationPortAdapter @Inject constructor(
     private val pluginLifecycleManager: PluginV2LifecycleManager,
     private val pluginStateRepository: PluginStateRepositoryPort,
     @ApplicationScope private val appScope: CoroutineScope,
+    private val runtimeLogger: RuntimeLogger,
 ) : PluginRuntimeObservationPort {
     private var pluginRuntimeLoaderSyncJob: Job? = null
 
@@ -33,7 +34,7 @@ internal class PluginRuntimeObservationPortAdapter @Inject constructor(
                     syncPluginRuntimeRecordsAndSignalReady(currentRecords)
                 } catch (error: Throwable) {
                     if (error is CancellationException) throw error
-                    SharedRuntimeLogStore.append(
+                    runtimeLogger.append(
                         "Plugin v2 runtime loader sync failed: ${error.message ?: error.javaClass.simpleName}",
                     )
                 }

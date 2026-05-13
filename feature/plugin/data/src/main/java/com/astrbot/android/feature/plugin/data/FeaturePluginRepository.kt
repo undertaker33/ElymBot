@@ -1,4 +1,4 @@
-
+﻿
 package com.astrbot.android.feature.plugin.data
 
 import android.content.Context
@@ -72,7 +72,12 @@ interface PluginInstallStore {
 
 typealias PluginRepositoryStatePort = PluginStateRepositoryPort
 
-object EmptyPluginRepositoryStatePort : PluginRepositoryStatePort {
+const val PLUGIN_SUPPORTED_PROTOCOL_VERSION = 2
+
+val EmptyPluginRepositoryStatePort: PluginRepositoryStatePort
+    get() = EmptyPluginRepositoryStatePortImpl()
+
+private class EmptyPluginRepositoryStatePortImpl : PluginRepositoryStatePort {
     override val records: StateFlow<List<PluginInstallRecord>> = MutableStateFlow(emptyList())
     override val repositorySources: StateFlow<List<PluginRepositorySource>> = MutableStateFlow(emptyList())
     override val catalogEntries: StateFlow<List<PluginCatalogEntryRecord>> = MutableStateFlow(emptyList())
@@ -220,11 +225,14 @@ class PluginPackageInstallBlockedException(
     message: String,
 ) : IllegalStateException(message)
 
-object PluginCatalogVersionGate {
+val PluginCatalogVersionGate: PluginCatalogVersionGateEvaluator
+    get() = PluginCatalogVersionGateEvaluator()
+
+class PluginCatalogVersionGateEvaluator {
     fun evaluate(
         version: PluginCatalogVersion,
         hostVersion: String,
-        supportedProtocolVersion: Int = FeaturePluginRepository.SUPPORTED_PROTOCOL_VERSION,
+        supportedProtocolVersion: Int = PLUGIN_SUPPORTED_PROTOCOL_VERSION,
     ): PluginCatalogVersionGateResult {
         val minHostVersionSatisfied = version.minHostVersion.isBlank() ||
             compareVersions(hostVersion, version.minHostVersion) >= 0
@@ -285,7 +293,6 @@ class FeaturePluginRepository @Inject constructor(
     override val catalogEntries: StateFlow<List<PluginCatalogEntryRecord>> = _catalogEntries.asStateFlow()
 
     init {
-        graphInstance = this
         _records.value = runBlocking(Dispatchers.IO) {
             pluginDao.listPluginInstallAggregates()
                 .map(PluginInstallAggregate::toInstallRecord)
@@ -637,7 +644,7 @@ class FeaturePluginRepository @Inject constructor(
         if (record.packageContractSnapshot != null) {
             return record
         }
-        if (record.manifestSnapshot.protocolVersion != SUPPORTED_PROTOCOL_VERSION) {
+        if (record.manifestSnapshot.protocolVersion != PLUGIN_SUPPORTED_PROTOCOL_VERSION) {
             return record
         }
         val recoveredSnapshot = loadPackageContractSnapshotFromExtractedDir(record)
@@ -716,7 +723,7 @@ class FeaturePluginRepository @Inject constructor(
             existingNotes = record.compatibilityState.notes,
         )
         return PluginCompatibilityState.fromChecks(
-            protocolSupported = manifest.protocolVersion == SUPPORTED_PROTOCOL_VERSION,
+            protocolSupported = manifest.protocolVersion == PLUGIN_SUPPORTED_PROTOCOL_VERSION,
             minHostVersionSatisfied = minHostVersionSatisfied,
             maxHostVersionSatisfied = maxHostVersionSatisfied,
             notes = notes,
@@ -733,7 +740,7 @@ class FeaturePluginRepository @Inject constructor(
         val notes = mutableListOf<String>()
         unsupportedProtocolCompatibilityNote(
             protocolVersion = manifest.protocolVersion,
-            supportedProtocolVersion = SUPPORTED_PROTOCOL_VERSION,
+            supportedProtocolVersion = PLUGIN_SUPPORTED_PROTOCOL_VERSION,
         )?.let(notes::add)
         if (hostVersion != null && minHostVersionSatisfied == false) {
             notes += "Host version $hostVersion is below required minimum ${manifest.minHostVersion}."
@@ -809,7 +816,7 @@ class FeaturePluginRepository @Inject constructor(
         return PluginCatalogVersionGate.evaluate(
             version = version,
             hostVersion = hostVersion,
-            supportedProtocolVersion = SUPPORTED_PROTOCOL_VERSION,
+            supportedProtocolVersion = PLUGIN_SUPPORTED_PROTOCOL_VERSION,
         )
     }
 
@@ -830,7 +837,7 @@ class FeaturePluginRepository @Inject constructor(
     ): PluginPackageValidationResult {
         return PluginPackageValidator(
             hostVersion = hostVersion,
-            supportedProtocolVersion = SUPPORTED_PROTOCOL_VERSION,
+            supportedProtocolVersion = PLUGIN_SUPPORTED_PROTOCOL_VERSION,
         ).validate(packageFile)
     }
 
@@ -945,228 +952,6 @@ class FeaturePluginRepository @Inject constructor(
 
     private fun requireCatalogDao(): PluginCatalogDao = pluginCatalogDao
 
-    companion object : PluginInstallStore, PluginCatalogSyncStore {
-        const val SUPPORTED_PROTOCOL_VERSION = 2
-
-        @Volatile
-        private var graphInstance: FeaturePluginRepository? = null
-
-        private fun requireInstance(): FeaturePluginRepository {
-            return graphInstance ?: error("FeaturePluginRepository graph instance is unavailable.")
-        }
-
-        val records: StateFlow<List<PluginInstallRecord>>
-            get() = requireInstance().records
-
-        val repositorySources: StateFlow<List<PluginRepositorySource>>
-            get() = requireInstance().repositorySources
-
-        val catalogEntries: StateFlow<List<PluginCatalogEntryRecord>>
-            get() = requireInstance().catalogEntries
-
-        override fun findByPluginId(pluginId: String): PluginInstallRecord? {
-            return requireInstance().findByPluginId(pluginId)
-        }
-
-        override fun upsert(record: PluginInstallRecord) {
-            requireInstance().upsert(record)
-        }
-
-        fun delete(pluginId: String) {
-            requireInstance().delete(pluginId)
-        }
-
-        override fun replaceRepositoryCatalog(source: PluginRepositorySource) {
-            requireInstance().replaceRepositoryCatalog(source)
-        }
-
-        override fun upsertRepositorySource(source: PluginRepositorySource) {
-            requireInstance().upsertRepositorySource(source)
-        }
-
-        override fun listRepositorySources(): List<PluginRepositorySource> {
-            return requireInstance().listRepositorySources()
-        }
-
-        override fun getRepositorySource(sourceId: String): PluginRepositorySource? {
-            return requireInstance().getRepositorySource(sourceId)
-        }
-
-        override fun getRepositorySourceSyncState(sourceId: String): PluginCatalogSyncState? {
-            return requireInstance().getRepositorySourceSyncState(sourceId)
-        }
-
-        override fun listAllCatalogEntries(): List<PluginCatalogEntryRecord> {
-            return requireInstance().listAllCatalogEntries()
-        }
-
-        fun listCatalogEntries(sourceId: String): List<PluginCatalogEntry> {
-            return requireInstance().listCatalogEntries(sourceId)
-        }
-
-        fun getCatalogEntry(sourceId: String, pluginId: String): PluginCatalogEntry? {
-            return requireInstance().getCatalogEntry(sourceId, pluginId)
-        }
-
-        override fun listCatalogVersions(sourceId: String, pluginId: String): List<PluginCatalogVersion> {
-            return requireInstance().listCatalogVersions(sourceId, pluginId)
-        }
-
-        fun getUpdateAvailability(
-            pluginId: String,
-            hostVersion: String,
-        ): PluginUpdateAvailability? {
-            return requireInstance().getUpdateAvailability(pluginId, hostVersion)
-        }
-
-        fun getUpdateAvailability(
-            pluginId: String,
-            hostVersion: String,
-            supportedProtocolVersion: Int,
-        ): PluginUpdateAvailability? {
-            return requireInstance().getUpdateAvailability(pluginId, hostVersion, supportedProtocolVersion)
-        }
-
-        fun setEnabled(pluginId: String, enabled: Boolean): PluginInstallRecord {
-            return requireInstance().setEnabled(pluginId, enabled)
-        }
-
-        fun updateFailureState(
-            pluginId: String,
-            failureState: PluginFailureState,
-        ): PluginInstallRecord {
-            return requireInstance().updateFailureState(pluginId, failureState)
-        }
-
-        fun clearFailureState(pluginId: String): PluginInstallRecord {
-            return requireInstance().clearFailureState(pluginId)
-        }
-
-        fun uninstall(
-            pluginId: String,
-            policy: PluginUninstallPolicy,
-        ): PluginUninstallResult {
-            return requireInstance().uninstall(pluginId, policy)
-        }
-
-        fun resolveConfigSnapshot(
-            pluginId: String,
-            boundary: PluginConfigStorageBoundary,
-        ): PluginConfigStoreSnapshot {
-            return requireInstance().resolveConfigSnapshot(pluginId, boundary)
-        }
-
-        fun getInstalledStaticConfigSchema(pluginId: String): PluginStaticConfigSchema? {
-            return requireInstance().getInstalledStaticConfigSchema(pluginId)
-        }
-
-        fun resolveInstalledStaticConfigSchemaPath(pluginId: String): String? {
-            return requireInstance().resolveInstalledStaticConfigSchemaPath(pluginId)
-        }
-
-        fun resolveInstalledSettingsSchemaPath(pluginId: String): String? {
-            return requireInstance().resolveInstalledSettingsSchemaPath(pluginId)
-        }
-
-        fun updateCoreConfig(
-            pluginId: String,
-            boundary: PluginConfigStorageBoundary,
-            coreValues: Map<String, PluginStaticConfigValue>,
-        ): PluginConfigStoreSnapshot {
-            return requireInstance().saveCoreConfig(pluginId, boundary, coreValues)
-        }
-
-        fun updateExtensionConfig(
-            pluginId: String,
-            boundary: PluginConfigStorageBoundary,
-            extensionValues: Map<String, PluginStaticConfigValue>,
-        ): PluginConfigStoreSnapshot {
-            return requireInstance().saveExtensionConfig(pluginId, boundary, extensionValues)
-        }
-
-        fun saveCoreConfig(
-            pluginId: String,
-            boundary: PluginConfigStorageBoundary,
-            coreValues: Map<String, PluginStaticConfigValue>,
-        ): PluginConfigStoreSnapshot {
-            return requireInstance().saveCoreConfig(pluginId, boundary, coreValues)
-        }
-
-        fun saveExtensionConfig(
-            pluginId: String,
-            boundary: PluginConfigStorageBoundary,
-            extensionValues: Map<String, PluginStaticConfigValue>,
-        ): PluginConfigStoreSnapshot {
-            return requireInstance().saveExtensionConfig(pluginId, boundary, extensionValues)
-        }
-
-        fun projectInstallRecordForHost(
-            record: PluginInstallRecord,
-            hostVersion: String? = null,
-        ): PluginInstallRecord {
-            return requireInstance().projectInstallRecordForHost(record, hostVersion)
-        }
-
-        fun requireAppContext(): Context {
-            return requireInstance().requireAppContext()
-        }
-
-        fun evaluateCatalogVersion(
-            version: PluginCatalogVersion,
-            hostVersion: String,
-        ): PluginCatalogVersionGateResult {
-            return PluginCatalogVersionGate.evaluate(
-                version = version,
-                hostVersion = hostVersion,
-                supportedProtocolVersion = SUPPORTED_PROTOCOL_VERSION,
-            )
-        }
-
-        fun evaluateCatalogVersion(
-            version: PluginCatalogVersion,
-            hostVersion: String,
-            supportedProtocolVersion: Int,
-        ): PluginCatalogVersionGateResult {
-            return PluginCatalogVersionGate.evaluate(
-                version = version,
-                hostVersion = hostVersion,
-                supportedProtocolVersion = supportedProtocolVersion,
-            )
-        }
-
-        fun validateLocalPackage(
-            packageFile: File,
-            hostVersion: String,
-        ): PluginPackageValidationResult {
-            return PluginPackageValidator(
-                hostVersion = hostVersion,
-                supportedProtocolVersion = SUPPORTED_PROTOCOL_VERSION,
-            ).validate(packageFile)
-        }
-
-        fun validateLocalPackage(
-            packageFile: File,
-            hostVersion: String,
-            supportedProtocolVersion: Int,
-        ): PluginPackageValidationResult {
-            return PluginPackageValidator(
-                hostVersion = hostVersion,
-                supportedProtocolVersion = supportedProtocolVersion,
-            ).validate(packageFile)
-        }
-
-        fun buildLocalPackageInstallBlockedException(
-            validation: PluginPackageValidationResult,
-        ): PluginPackageInstallBlockedException {
-            return createLocalPackageInstallBlockedException(validation)
-        }
-
-        fun buildLocalPackageInstallBlockedException(
-            error: Throwable,
-        ): PluginPackageInstallBlockedException {
-            return createLocalPackageInstallBlockedException(error)
-        }
-    }
 }
 
 fun createLocalPackageInstallBlockedException(
@@ -1262,4 +1047,5 @@ private fun normalizeInvalidPackageContractMessage(
         "Damaged v2 plugin package: $rawMessage"
     }
 }
+
 

@@ -263,12 +263,13 @@ class ModuleDependencyGraphContractTest {
     }
 
     @Test
-    fun phase23_app_shell_project_dependency_count_must_drop() {
-        val dependencies = projectDependencies(appBuildFile)
+    fun phase27_app_shell_project_dependencies_must_match_allowed_set() {
+        val dependencies = projectDependencies(appBuildFile).toSet()
 
-        assertTrue(
-            "Phase 23 app shell must reduce direct project dependencies to at most $PHASE23_APP_DEPENDENCY_LIMIT, found ${dependencies.size}: $dependencies",
-            dependencies.size <= PHASE23_APP_DEPENDENCY_LIMIT,
+        assertEquals(
+            "Phase 27 app shell project dependencies must stay limited to app-integration, core UI, and feature presentation modules.",
+            PHASE27_APP_ALLOWED_PROJECT_DEPENDENCIES,
+            dependencies,
         )
     }
 
@@ -489,11 +490,25 @@ class ModuleDependencyGraphContractTest {
     }
 
     private companion object {
-        private const val PHASE23_APP_DEPENDENCY_LIMIT = 45
-
         val forbiddenCoreModuleDependencyPatterns = listOf(
             Regex("""project\(":app"\)"""),
             Regex("""project\(":feature:"""),
+        )
+
+        val PHASE27_APP_ALLOWED_PROJECT_DEPENDENCIES = setOf(
+            ":app-integration",
+            ":core:ui",
+            ":feature:bot:presentation",
+            ":feature:chat:presentation",
+            ":feature:config:presentation",
+            ":feature:cron:presentation",
+            ":feature:persona:presentation",
+            ":feature:plugin:presentation",
+            ":feature:provider:presentation",
+            ":feature:qq:presentation",
+            ":feature:resource:presentation",
+            ":feature:settings:presentation",
+            ":feature:voiceasset:presentation",
         )
 
         val forbiddenFeatureApiDependencyPatterns = listOf(

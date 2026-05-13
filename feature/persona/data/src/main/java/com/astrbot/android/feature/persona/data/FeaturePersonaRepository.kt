@@ -27,53 +27,7 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 
-// Static compatibility facade. Production imports are governed by source contracts.
-object FeaturePersonaRepository {
-    private const val KEY_PERSONAS_JSON = "personas_json"
-
-    @Volatile
-    private var delegate: FeaturePersonaRepositoryStore? = null
-
-    internal fun installDelegate(store: FeaturePersonaRepositoryStore) {
-        delegate = store
-    }
-
-    private fun repository(): FeaturePersonaRepositoryStore {
-        return checkNotNull(delegate) {
-            "FeaturePersonaRepository was accessed before the Hilt graph created FeaturePersonaRepositoryStore."
-        }
-    }
-
-    val personas: StateFlow<List<PersonaProfile>>
-        get() = repository().personas
-
-    fun add(
-        name: String,
-        tag: String,
-        systemPrompt: String,
-        enabledTools: Set<String>,
-        defaultProviderId: String,
-        maxContextMessages: Int,
-    ) = repository().add(name, tag, systemPrompt, enabledTools, defaultProviderId, maxContextMessages)
-
-    fun update(profile: PersonaProfile) = repository().update(profile)
-
-    fun toggleEnabled(id: String) = repository().toggleEnabled(id)
-
-    fun delete(id: String) = repository().delete(id)
-
-    fun snapshotProfiles(): List<PersonaProfile> = repository().snapshotProfiles()
-
-    fun snapshotToolEnablement(personaId: String): PersonaToolEnablementSnapshot? =
-        repository().snapshotToolEnablement(personaId)
-
-    fun restoreProfiles(profiles: List<PersonaProfile>) = repository().restoreProfiles(profiles)
-
-    fun defaultEnabledTools(): Set<String> = defaultPersonaEnabledTools()
-
-    internal fun legacyPersonasJson(preferences: SharedPreferences): String? =
-        preferences.getString(KEY_PERSONAS_JSON, null)
-}
+private const val KEY_PERSONAS_JSON = "personas_json"
 
 @Singleton
 class FeaturePersonaRepositoryStore @Inject constructor(
@@ -88,7 +42,6 @@ class FeaturePersonaRepositoryStore @Inject constructor(
     val personas: StateFlow<List<PersonaProfile>> = _personas.asStateFlow()
 
     init {
-        FeaturePersonaRepository.installDelegate(this)
         runBlocking(Dispatchers.IO) {
             seedStorageIfNeeded()
         }
@@ -205,7 +158,7 @@ class FeaturePersonaRepositoryStore @Inject constructor(
     private suspend fun seedStorageIfNeeded() {
         if (personaDao.count() > 0) return
         val imported = runCatching {
-            parseLegacyPersonaProfiles(FeaturePersonaRepository.legacyPersonasJson(preferences))
+            parseLegacyPersonaProfiles(preferences.getString(KEY_PERSONAS_JSON, null))
         }.onFailure { error ->
             runtimeLogger.append("Persona catalog legacy import failed: ${error.message ?: error.javaClass.simpleName}")
         }.getOrDefault(emptyList())

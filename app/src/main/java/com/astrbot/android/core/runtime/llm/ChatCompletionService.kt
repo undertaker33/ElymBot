@@ -1,4 +1,4 @@
-package com.astrbot.android.core.runtime.llm
+﻿package com.astrbot.android.core.runtime.llm
 
 import com.astrbot.android.core.runtime.audio.TtsVoiceCatalog
 
@@ -6,6 +6,7 @@ import com.astrbot.android.core.runtime.audio.SherpaOnnxBridge
 
 import com.astrbot.android.core.runtime.audio.PreparedTtsRequest
 import com.astrbot.android.core.runtime.audio.TtsPromptFormatter
+import com.astrbot.android.core.common.logging.RuntimeLogger
 import com.astrbot.android.data.http.AstrBotHttpClient
 import com.astrbot.android.data.http.HttpMethod
 import com.astrbot.android.data.http.HttpRequestSpec
@@ -25,7 +26,6 @@ import com.astrbot.android.model.inferNativeStreamingRuleSupport
 import com.astrbot.android.model.inferMultimodalRuleSupport
 import com.astrbot.android.model.supportsChatCompletions
 import com.astrbot.android.model.usesOpenAiStyleChatApi
-import com.astrbot.android.core.logging.SharedRuntimeLogStore
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -42,8 +42,15 @@ import java.util.Base64
 import java.util.Locale
 import kotlinx.coroutines.runBlocking
 
-// Static compatibility facade. Production call sites are governed by source contracts.
-object ChatCompletionService {
+class ChatCompletionService(
+    context: Context? = null,
+    private val sherpaOnnxBridge: SherpaOnnxBridge? = null,
+    private val runtimeLogger: RuntimeLogger = RuntimeLogger.noop(),
+    private var httpClient: AstrBotHttpClient = OkHttpAstrBotHttpClient(
+        transport = OkHttpRuntimeNetworkTransport(),
+        logger = runtimeLogger::append,
+    ),
+) {
 
     /** Result of a chat completion that may include tool calls. */
     data class ChatCompletionResult(
@@ -92,20 +99,6 @@ object ChatCompletionService {
         val captionProvider: ProviderProfile? = null,
     )
 
-    private const val MULTIMODAL_PROMPT =
-        "Briefly describe this image in one or two sentences. Mention the main landmark or tower, the city skyline or waterfront, and whether it is day or night."
-    private const val PROBE_IMAGE_ASSET_NAME = "vl_probe_scene.jpg"
-    private const val PROBE_IMAGE_MIME_TYPE = "image/jpeg"
-    private const val PROBE_STT_AUDIO_ASSET_NAME = "TestVoice.wav"
-    private const val PROBE_STT_AUDIO_MIME_TYPE = "audio/wav"
-    private const val PROBE_STT_TEXT = "你好世界，hello world"
-    private const val PROBE_TTS_TEXT = "AstrBot text to speech probe."
-    private const val DEFAULT_TTS_MIME_TYPE = "audio/mpeg"
-    private const val LANDMARK_SCORE = 0.5
-    private const val SKYLINE_SCORE = 0.3
-    private const val NIGHT_SCORE = 0.2
-    private const val PROBE_PASS_SCORE = 0.5
-    private const val BAILIAN_STT_MAX_BYTES = 10 * 1024 * 1024
     private val bracketPatterns = listOf(
         Regex("（([^（）]+)）"),
         Regex("\\(([^()]+)\\)"),
@@ -114,7 +107,7 @@ object ChatCompletionService {
     )
 
     @Volatile
-    private var appContext: Context? = null
+    private var appContext: Context? = context?.applicationContext
 
     @Volatile
     private var probeImageBase64: String? = null
@@ -122,10 +115,22 @@ object ChatCompletionService {
     @Volatile
     private var probeSttAudioBase64: String? = null
 
-    @Volatile
-    private var httpClient: AstrBotHttpClient = OkHttpAstrBotHttpClient(
-        transport = OkHttpRuntimeNetworkTransport(),
-    )
+    private companion object {
+        const val MULTIMODAL_PROMPT =
+            "Briefly describe this image in one or two sentences. Mention the main landmark or tower, the city skyline or waterfront, and whether it is day or night."
+        const val PROBE_IMAGE_ASSET_NAME = "vl_probe_scene.jpg"
+        const val PROBE_IMAGE_MIME_TYPE = "image/jpeg"
+        const val PROBE_STT_AUDIO_ASSET_NAME = "TestVoice.wav"
+        const val PROBE_STT_AUDIO_MIME_TYPE = "audio/wav"
+        const val PROBE_STT_TEXT = "你好世界，hello world"
+        const val PROBE_TTS_TEXT = "AstrBot text to speech probe."
+        const val DEFAULT_TTS_MIME_TYPE = "audio/mpeg"
+        const val LANDMARK_SCORE = 0.5
+        const val SKYLINE_SCORE = 0.3
+        const val NIGHT_SCORE = 0.2
+        const val PROBE_PASS_SCORE = 0.5
+        const val BAILIAN_STT_MAX_BYTES = 10 * 1024 * 1024
+    }
 
     internal fun extractOpenAiStyleStreamingContentForTests(line: String): String =
         TtsPromptFormatter.extractOpenAiStyleStreamingContent(line)
@@ -159,6 +164,7 @@ object ChatCompletionService {
     internal fun setHttpClientOverrideForTests(client: AstrBotHttpClient?) {
         httpClient = client ?: OkHttpAstrBotHttpClient(
             transport = OkHttpRuntimeNetworkTransport(),
+            logger = runtimeLogger::append,
         )
     }
 
@@ -202,7 +208,7 @@ object ChatCompletionService {
             provider.providerType == ProviderType.GEMINI -> probeGeminiMultimodal(provider, context)
             else -> FeatureSupportState.UNKNOWN
         }
-        SharedRuntimeLogStore.append("Multimodal probe: provider=${provider.name} result=${result.name}")
+        runtimeLogger.append("Multimodal probe: provider=${provider.name} result=${result.name}")
         return result
     }
 
@@ -216,7 +222,7 @@ object ChatCompletionService {
             provider.providerType == ProviderType.GEMINI -> probeGeminiNativeStreaming(provider)
             else -> FeatureSupportState.UNKNOWN
         }
-        SharedRuntimeLogStore.append("Native streaming probe: provider=${provider.name} result=${result.name}")
+        runtimeLogger.append("Native streaming probe: provider=${provider.name} result=${result.name}")
         return result
     }
 
@@ -239,7 +245,7 @@ object ChatCompletionService {
         )
         val transcript = transcribeAudio(provider, attachment)
         val normalized = transcript.lowercase(Locale.US)
-        SharedRuntimeLogStore.append("STT probe transcript: expected=$PROBE_STT_TEXT actual=${transcript.take(160)}")
+        runtimeLogger.append("STT probe transcript: expected=$PROBE_STT_TEXT actual=${transcript.take(160)}")
         val chineseHits = listOf(
             normalized.contains("你好") || normalized.contains("你 好"),
             normalized.contains("世界"),
@@ -249,7 +255,7 @@ object ChatCompletionService {
             normalized.contains("world"),
         ).count { it }
         val totalHits = chineseHits + englishHits
-        SharedRuntimeLogStore.append(
+        runtimeLogger.append(
             "STT probe hits: chinese=$chineseHits english=$englishHits total=$totalHits transcript=${transcript.take(160)}",
         )
         val state = if (totalHits >= 3 || (totalHits >= 2 && chineseHits >= 1 && englishHits >= 1)) {
@@ -264,7 +270,7 @@ object ChatCompletionService {
         require(ProviderCapability.TTS in provider.capabilities) { "TTS checks are only available for TTS models." }
         val attachment = synthesizeSpeech(provider, PROBE_TTS_TEXT)
         val size = decodeAttachmentBytes(attachment).size
-        SharedRuntimeLogStore.append("TTS probe bytes: provider=${provider.name} size=$size")
+        runtimeLogger.append("TTS probe bytes: provider=${provider.name} size=$size")
         return if (size >= 1024) FeatureSupportState.SUPPORTED else FeatureSupportState.UNSUPPORTED
     }
 
@@ -371,7 +377,7 @@ object ChatCompletionService {
         attachment: ConversationAttachment,
     ): String {
         require(ProviderCapability.STT in provider.capabilities) { "This provider is not configured as an STT model." }
-        SharedRuntimeLogStore.append(
+        runtimeLogger.append(
             "STT route: provider=${provider.name} type=${provider.providerType.name} model=${provider.model} file=${attachment.fileName.ifBlank { "-" }} mime=${attachment.mimeType.ifBlank { "-" }}",
         )
         return when (provider.providerType) {
@@ -380,7 +386,7 @@ object ChatCompletionService {
             -> transcribeWithOpenAiStyle(provider, attachment)
 
             ProviderType.BAILIAN_STT -> transcribeWithBailianStt(provider, attachment)
-            ProviderType.SHERPA_ONNX_STT -> SherpaOnnxBridge.transcribeAudio(provider, attachment)
+            ProviderType.SHERPA_ONNX_STT -> requireSherpaOnnxBridge().transcribeAudio(provider, attachment)
 
             else -> throw IllegalStateException("STT routing is not implemented for ${provider.providerType.name}.")
         }
@@ -398,14 +404,14 @@ object ChatCompletionService {
             text = text,
             readBracketedContent = readBracketedContent,
         )
-        SharedRuntimeLogStore.append(
+        runtimeLogger.append(
             "TTS route: provider=${provider.name} type=${provider.providerType.name} model=${provider.model} voice=${voiceId.ifBlank { "-" }} chars=${preparedInput.spokenText.length} style=${preparedInput.stylePrompt.take(80).ifBlank { "-" }}",
         )
         return when (provider.providerType) {
             ProviderType.OPENAI_TTS -> synthesizeWithOpenAiTts(provider, preparedInput, voiceId)
             ProviderType.BAILIAN_TTS -> synthesizeWithBailianTts(provider, preparedInput, voiceId, voiceChoicesProvider)
             ProviderType.MINIMAX_TTS -> synthesizeWithMiniMaxTts(provider, preparedInput, voiceId, voiceChoicesProvider)
-            ProviderType.SHERPA_ONNX_TTS -> SherpaOnnxBridge.synthesizeSpeech(
+            ProviderType.SHERPA_ONNX_TTS -> requireSherpaOnnxBridge().synthesizeSpeech(
                 provider = provider,
                 text = text,
                 voiceId = voiceId,
@@ -505,7 +511,7 @@ object ChatCompletionService {
         return when (plan.mode) {
             ImageHandlingMode.UNCHANGED -> normalizedMessages
             ImageHandlingMode.DIRECT_MULTIMODAL -> {
-                SharedRuntimeLogStore.append(
+                runtimeLogger.append(
                     "Image route: direct multimodal chat provider=${provider.name} captionSwitch=${config?.imageCaptionTextEnabled == true}",
                 )
                 normalizedMessages
@@ -513,7 +519,7 @@ object ChatCompletionService {
 
             ImageHandlingMode.CAPTION_TEXT -> {
                 val captionProvider = requireNotNull(plan.captionProvider)
-                SharedRuntimeLogStore.append(
+                runtimeLogger.append(
                     "Image route: caption text mode using configured provider=${captionProvider.name} selected=${config?.defaultVisionProviderId.orEmpty().ifBlank { "-" }}",
                 )
                 buildCaptionedMessages(
@@ -526,25 +532,25 @@ object ChatCompletionService {
             ImageHandlingMode.STRIP_ATTACHMENTS -> {
                 when (plan.reason) {
                     ImageHandlingReason.CAPTION_MODE_DISABLED -> {
-                        SharedRuntimeLogStore.append(
+                        runtimeLogger.append(
                             "Image route: chat provider has no multimodal support and caption mode is off, attachments stripped",
                         )
                     }
 
                     ImageHandlingReason.CAPTION_PROVIDER_NOT_SELECTED -> {
-                        SharedRuntimeLogStore.append(
+                        runtimeLogger.append(
                             "Image route: caption mode enabled but no caption provider selected in config, attachments stripped",
                         )
                     }
 
                     ImageHandlingReason.CAPTION_PROVIDER_UNAVAILABLE -> {
-                        SharedRuntimeLogStore.append(
+                        runtimeLogger.append(
                             "Image route: caption mode enabled but selected caption provider is unavailable id=${config?.defaultVisionProviderId.orEmpty().ifBlank { "-" }}, attachments stripped",
                         )
                     }
 
                     else -> {
-                        SharedRuntimeLogStore.append(
+                        runtimeLogger.append(
                             "Image route: attachments stripped reason=${plan.reason.name}",
                         )
                     }
@@ -853,7 +859,7 @@ object ChatCompletionService {
         val supportsInstructions = supportsOpenAiSpeechInstructions(provider.model)
         val effectiveVoiceId = resolveEffectiveTtsVoiceId(provider, voiceId)
         if (request.stylePrompt.isNotBlank() && !supportsInstructions) {
-            SharedRuntimeLogStore.append("TTS style prompt skipped: OpenAI model ${provider.model} has no instruction channel")
+            runtimeLogger.append("TTS style prompt skipped: OpenAI model ${provider.model} has no instruction channel")
         }
         val payload = JSONObject().apply {
             put("model", provider.model)
@@ -896,7 +902,7 @@ object ChatCompletionService {
         }
         val supportsInstructions = supportsDashScopeSpeechInstructions(modelName)
         if (request.stylePrompt.isNotBlank() && !supportsInstructions) {
-            SharedRuntimeLogStore.append("TTS style prompt skipped: DashScope model $modelName needs qwen3-tts-instruct-flash")
+            runtimeLogger.append("TTS style prompt skipped: DashScope model $modelName needs qwen3-tts-instruct-flash")
         }
         val effectiveVoiceId = resolveEffectiveTtsVoiceId(provider, voiceId, voiceChoicesProvider)
         val requiresClonedVoice = modelName.lowercase(Locale.US).contains("-vc")
@@ -968,7 +974,7 @@ object ChatCompletionService {
             .orEmpty()
         val minimaxEmotion = request.styleHints.miniMaxEmotion
         if (request.stylePrompt.isNotBlank() && minimaxTags.isEmpty() && minimaxEmotion == null) {
-            SharedRuntimeLogStore.append("TTS style prompt degraded: MiniMax could not map style hint to emotion/tag")
+            runtimeLogger.append("TTS style prompt degraded: MiniMax could not map style hint to emotion/tag")
         }
         val spokenText = buildMiniMaxSpokenText(
             spokenText = request.spokenText,
@@ -1338,7 +1344,7 @@ object ChatCompletionService {
             apiKey = provider.apiKey,
         ) { requestSpec ->
             val payloadBytes = payload.toString().toByteArray(StandardCharsets.UTF_8)
-            SharedRuntimeLogStore.append("HTTP streaming request body sent (tools): bytes=${payloadBytes.size}")
+            runtimeLogger.append("HTTP streaming request body sent (tools): bytes=${payloadBytes.size}")
             httpClient.executeStream(
                 requestSpec.copy(
                     body = payload.toString(),
@@ -1798,7 +1804,7 @@ object ChatCompletionService {
             )
         }
             .getOrElse { error ->
-                SharedRuntimeLogStore.append("Multimodal probe error: ${error.message ?: error.javaClass.simpleName}")
+                runtimeLogger.append("Multimodal probe error: ${error.message ?: error.javaClass.simpleName}")
                 FeatureSupportState.UNKNOWN
             }
     }
@@ -1806,11 +1812,11 @@ object ChatCompletionService {
     private fun evaluateProbeDescription(content: String): FeatureSupportState {
         val normalized = content.trim().lowercase()
         if (normalized.isBlank()) {
-            SharedRuntimeLogStore.append("Multimodal probe judged unsupported: empty response")
+            runtimeLogger.append("Multimodal probe judged unsupported: empty response")
             return FeatureSupportState.UNSUPPORTED
         }
         if (NEGATIVE_PROBE_PATTERNS.any { normalized.contains(it) }) {
-            SharedRuntimeLogStore.append("Multimodal probe judged unsupported: model denied seeing image")
+            runtimeLogger.append("Multimodal probe judged unsupported: model denied seeing image")
             return FeatureSupportState.UNSUPPORTED
         }
 
@@ -1830,7 +1836,7 @@ object ChatCompletionService {
             hits += "night"
         }
 
-        SharedRuntimeLogStore.append(
+        runtimeLogger.append(
             "Multimodal probe scored: score=${String.format(Locale.US, "%.2f", score)} hits=${hits.joinToString(",")} response=${content.take(160)}",
         )
         return if (score >= PROBE_PASS_SCORE) {
@@ -1858,6 +1864,12 @@ object ChatCompletionService {
         }
         probeSttAudioBase64 = encoded
         return encoded
+    }
+
+    private fun requireSherpaOnnxBridge(): SherpaOnnxBridge {
+        return requireNotNull(sherpaOnnxBridge) {
+            "SherpaOnnxBridge is not configured for this ChatCompletionService instance."
+        }
     }
 
     private fun decodeAttachmentBytes(attachment: ConversationAttachment): ByteArray {
@@ -1893,7 +1905,7 @@ object ChatCompletionService {
 
     private fun <T> executeJsonRequest(requestSpec: HttpRequestSpec, payload: JSONObject, parser: (String) -> T): T {
         val payloadBytes = payload.toString().toByteArray(StandardCharsets.UTF_8)
-        SharedRuntimeLogStore.append("HTTP json request body sent: bytes=${payloadBytes.size}")
+        runtimeLogger.append("HTTP json request body sent: bytes=${payloadBytes.size}")
         val response = httpClient.execute(
             requestSpec.copy(
                 body = payload.toString(),
@@ -1936,7 +1948,7 @@ object ChatCompletionService {
             )
             try {
                 if (attempt > 0) {
-                    SharedRuntimeLogStore.append("HTTP chat retry: endpoint=${sanitizeUrlForLogs(endpoint)} attempt=${attempt + 1}")
+                    runtimeLogger.append("HTTP chat retry: endpoint=${sanitizeUrlForLogs(endpoint)} attempt=${attempt + 1}")
                 }
                 return request(requestSpec)
             } catch (error: Throwable) {
@@ -1944,7 +1956,7 @@ object ChatCompletionService {
                 if (!shouldRetryChatRequest(error) || attempt > 0) {
                     throw error
                 }
-                SharedRuntimeLogStore.append(
+                runtimeLogger.append(
                     "HTTP chat retry scheduled: reason=${error.message ?: error.javaClass.simpleName}",
                 )
             }
@@ -2140,7 +2152,7 @@ object ChatCompletionService {
             throw IllegalStateException("Bailian STT audio exceeds the 10MB input limit.")
         }
         val mimeType = inferAudioMimeType(attachment, bytes)
-        SharedRuntimeLogStore.append(
+        runtimeLogger.append(
             "Bailian STT input prepared: mime=$mimeType bytes=${bytes.size}",
         )
         return "data:$mimeType;base64,${Base64.getEncoder().encodeToString(bytes)}"
@@ -2255,14 +2267,14 @@ object ChatCompletionService {
                     finalAudioUrl = url
                 }
                 if (chunk.isBlank() && url.isBlank()) {
-                    SharedRuntimeLogStore.append("DashScope TTS SSE chunk without audio payload: ${payloadLine.take(240)}")
+                    runtimeLogger.append("DashScope TTS SSE chunk without audio payload: ${payloadLine.take(240)}")
                 }
             }
         }
 
         val resolvedBytes = when {
             audioBytes.size() > 0 -> {
-                SharedRuntimeLogStore.append(
+                runtimeLogger.append(
                     "DashScope TTS stream assembled from PCM chunks: bytes=${audioBytes.size()} sampleRate=24000 channels=1",
                 )
                 wrapPcm16MonoAsWav(
@@ -2291,7 +2303,7 @@ object ChatCompletionService {
             )
             audioUrl.isNotBlank() -> downloadBytes(audioUrl)
             else -> {
-                SharedRuntimeLogStore.append("DashScope TTS JSON body without audio payload: ${body.take(400)}")
+                runtimeLogger.append("DashScope TTS JSON body without audio payload: ${body.take(400)}")
                 throw IllegalStateException("DashScope TTS response did not return audio data.")
             }
         }
@@ -2427,14 +2439,14 @@ object ChatCompletionService {
                 }
             }
             val combined = chunks.joinToString("").trim()
-            SharedRuntimeLogStore.append("Native streaming probe chunks: ${combined.take(160)}")
+            runtimeLogger.append("Native streaming probe chunks: ${combined.take(160)}")
             when {
                 combined.contains("streaming-ok", ignoreCase = true) -> FeatureSupportState.SUPPORTED
                 combined.isNotBlank() -> FeatureSupportState.SUPPORTED
                 else -> FeatureSupportState.UNSUPPORTED
             }
         } catch (error: Exception) {
-            SharedRuntimeLogStore.append("Native streaming probe error: ${error.message ?: error.javaClass.simpleName}")
+            runtimeLogger.append("Native streaming probe error: ${error.message ?: error.javaClass.simpleName}")
             FeatureSupportState.UNKNOWN
         }
     }
@@ -2698,7 +2710,7 @@ object ChatCompletionService {
     ): String {
         return try {
             val payloadBytes = payload.toString().toByteArray(StandardCharsets.UTF_8)
-            SharedRuntimeLogStore.append("HTTP streaming request body sent: bytes=${payloadBytes.size}")
+            runtimeLogger.append("HTTP streaming request body sent: bytes=${payloadBytes.size}")
             val chunks = mutableListOf<String>()
             httpClient.executeStream(
                 requestSpec.copy(
@@ -2794,3 +2806,4 @@ object ChatCompletionService {
         "亮灯",
     )
 }
+

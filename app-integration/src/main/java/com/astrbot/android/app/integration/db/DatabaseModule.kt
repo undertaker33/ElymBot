@@ -15,6 +15,7 @@ import com.astrbot.android.data.db.PluginInstallAggregateDao
 import com.astrbot.android.data.db.PluginStateEntryDao
 import com.astrbot.android.data.db.ProviderAggregateDao
 import com.astrbot.android.data.db.TtsVoiceAssetAggregateDao
+import com.astrbot.android.data.db.astrBotDatabaseMigrations
 import com.astrbot.android.data.db.cron.CronJobDao
 import com.astrbot.android.data.db.cron.CronJobExecutionRecordDao
 import com.astrbot.android.data.db.resource.ResourceCenterDao
@@ -40,7 +41,7 @@ internal object DatabaseModule {
         AstrBotDatabase::class.java,
         "astrbot-native.db",
     )
-        .addMigrations(*AstrBotDatabase.allMigrations)
+        .addMigrations(*astrBotDatabaseMigrations)
         .build()
 
     @Provides

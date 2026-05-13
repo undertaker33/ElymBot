@@ -76,17 +76,18 @@ internal object CronRuntimeServicesModule {
     @Singleton
     fun provideScheduledTaskExecutor(
         dependencies: ScheduledTaskRuntimeDependencies,
+        executor: ScheduledTaskRuntimeExecutor,
     ): ScheduledTaskExecutor {
         return ScheduledTaskExecutor { context ->
-            ScheduledTaskRuntimeExecutor.execute(context, dependencies)
+            executor.execute(context, dependencies)
         }
     }
 
     @Provides
     @Singleton
     fun provideCronSchedulerPort(
-        @ApplicationContext appContext: Context,
-    ): CronSchedulerPort = FeatureCronSchedulerPortAdapter(appContext)
+        adapter: FeatureCronSchedulerPortAdapter,
+    ): CronSchedulerPort = adapter
 
     @Provides
     @Singleton
@@ -119,8 +120,8 @@ internal object CronRuntimeServicesModule {
 
     @Provides
     fun provideCronRescheduler(
-        @ApplicationContext appContext: Context,
-    ): CronRescheduler = WorkManagerCronRescheduler(appContext)
+        rescheduler: WorkManagerCronRescheduler,
+    ): CronRescheduler = rescheduler
 
     @Provides
     fun provideCronJobRunCoordinator(

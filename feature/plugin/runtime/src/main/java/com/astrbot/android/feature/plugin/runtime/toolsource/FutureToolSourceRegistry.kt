@@ -1,5 +1,6 @@
 package com.astrbot.android.feature.plugin.runtime.toolsource
 
+import com.astrbot.android.core.common.logging.RuntimeLogger
 import com.astrbot.android.core.runtime.tool.DefaultToolDescriptorCachePolicy
 import com.astrbot.android.core.runtime.tool.ToolDescriptor
 import com.astrbot.android.core.runtime.tool.ToolDescriptorCachePolicy
@@ -142,6 +143,7 @@ class FutureToolSourceRegistry @Inject constructor(
 
     companion object {
         fun empty(): FutureToolSourceRegistry {
+            val runtimeLogger = RuntimeLogger.noop()
             val resolver = object : FutureToolSourceContextResolver {
                 override fun resolveForConfig(configProfileId: String): ToolSourceContext {
                     return ToolSourceContext(
@@ -159,21 +161,27 @@ class FutureToolSourceRegistry @Inject constructor(
             }
             return FutureToolSourceRegistry(
                 contextResolver = resolver,
-                mcpToolSourceProvider = McpToolSourceProvider(contextResolver = resolver),
+                mcpToolSourceProvider = McpToolSourceProvider(
+                    contextResolver = resolver,
+                    runtimeLogger = runtimeLogger,
+                ),
                 skillToolSourceProvider = SkillToolSourceProvider(contextResolver = resolver),
                 activeCapabilityToolSourceProvider = ActiveCapabilityToolSourceProvider(
                     facade = ActiveCapabilityRuntimeFacade(
                         repository = EmptyCronJobRepositoryPort(),
                         scheduler = EmptyCronSchedulerPort,
                         promptStrings = EmptyActiveCapabilityPromptStrings(),
+                        runtimeLogger = runtimeLogger,
                     ),
                     promptStrings = EmptyActiveCapabilityPromptStrings(),
                     contextResolver = resolver,
+                    runtimeLogger = runtimeLogger,
                 ),
                 contextStrategyToolSourceProvider = ContextStrategyToolSourceProvider(contextResolver = resolver),
                 webSearchToolSourceProvider = WebSearchToolSourceProvider(
                     searchPort = EmptyUnifiedSearchPort,
                     contextResolver = resolver,
+                    runtimeLogger = runtimeLogger,
                 ),
             )
         }

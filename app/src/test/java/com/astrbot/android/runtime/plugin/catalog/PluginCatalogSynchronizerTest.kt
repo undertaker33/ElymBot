@@ -11,6 +11,7 @@ import com.astrbot.android.model.plugin.PluginPermissionDeclaration
 import com.astrbot.android.model.plugin.PluginRepositorySource
 import com.astrbot.android.model.plugin.PluginRiskLevel
 import com.astrbot.android.core.common.logging.RuntimeLogRepository
+import com.astrbot.android.core.common.logging.RuntimeLogger
 import com.astrbot.android.feature.plugin.runtime.InMemoryPluginRuntimeLogBus
 import com.astrbot.android.feature.plugin.runtime.PluginRuntimeLogBusProvider
 import kotlinx.coroutines.runBlocking
@@ -33,9 +34,11 @@ class PluginCatalogSynchronizerTest {
                 ),
             ),
             now = { 9_999L },
+            runtimeLogger = RuntimeLogger(RuntimeLogRepository::append),
         )
 
         val result = synchronizer.sync("official")
+        RuntimeLogRepository.flush()
 
         assertEquals(PluginCatalogSyncStatus.SUCCESS, result.lastSyncStatus)
         assertEquals(9_999L, result.lastSyncAtEpochMillis)

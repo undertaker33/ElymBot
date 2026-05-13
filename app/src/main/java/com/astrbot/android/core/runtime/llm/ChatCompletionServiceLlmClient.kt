@@ -11,15 +11,12 @@ import org.json.JSONObject
 
 internal open class ChatCompletionServiceLlmClient(
     context: Context? = null,
+    private val chatCompletionService: ChatCompletionService = ChatCompletionService(context = context),
 ) : LlmClientPort {
-
-    init {
-        context?.let(ChatCompletionService::initialize)
-    }
 
     override suspend fun sendWithTools(request: LlmInvocationRequest): LlmInvocationResult {
         val chatTools = request.tools.map { it.toChatToolDefinition() }
-        val result = ChatCompletionService.sendConfiguredChatWithTools(
+        val result = chatCompletionService.sendConfiguredChatWithTools(
             provider = request.provider.toProviderProfile(),
             messages = request.messages.toConversationMessages(),
             systemPrompt = request.systemPrompt,
@@ -33,7 +30,7 @@ internal open class ChatCompletionServiceLlmClient(
     override fun streamWithTools(request: LlmInvocationRequest): Flow<LlmStreamEvent> = flow {
         val chatTools = request.tools.map { it.toChatToolDefinition() }
         try {
-            val result = ChatCompletionService.sendConfiguredChatStreamWithTools(
+            val result = chatCompletionService.sendConfiguredChatStreamWithTools(
                 provider = request.provider.toProviderProfile(),
                 messages = request.messages.toConversationMessages(),
                 systemPrompt = request.systemPrompt,

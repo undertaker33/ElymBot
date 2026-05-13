@@ -1,4 +1,4 @@
-package com.astrbot.android.architecture
+﻿package com.astrbot.android.architecture
 
 import java.nio.file.Files
 import java.nio.file.Path
@@ -131,3 +131,5 @@ class AppShellThinBoundaryContractTest {
         }
     }
 }
+
+

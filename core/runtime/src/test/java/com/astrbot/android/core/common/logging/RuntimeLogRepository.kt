@@ -1,16 +1,21 @@
 package com.astrbot.android.core.common.logging
 
 import com.astrbot.android.core.logging.SharedRuntimeLogStore
+import kotlinx.coroutines.flow.StateFlow
 
-@Deprecated(
-    message = "Compat facade only. Inject RuntimeLogger in new production code.",
-)
-object AppLogger {
+internal object RuntimeLogRepository {
+    val logs: StateFlow<List<String>>
+        get() = SharedRuntimeLogStore.logs
+
     fun append(message: String) {
         SharedRuntimeLogStore.append(message)
     }
 
     fun flush() {
         SharedRuntimeLogStore.flush()
+    }
+
+    fun clear() {
+        SharedRuntimeLogStore.clear()
     }
 }

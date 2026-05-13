@@ -42,104 +42,8 @@ data class ConversationImportResult(
     val skippedCount: Int,
 )
 
-// Static compatibility facade. Production imports are governed by source contracts.
-object FeatureConversationRepository {
-    const val DEFAULT_SESSION_ID = "chat-main"
-    const val DEFAULT_SESSION_TITLE = "\u65B0\u5BF9\u8BDD"
-
-    @Volatile
-    private var delegate: FeatureConversationRepositoryStore? = null
-
-    internal fun installDelegate(store: FeatureConversationRepositoryStore) {
-        delegate = store
-    }
-
-    private fun repository(): FeatureConversationRepositoryStore {
-        return checkNotNull(delegate) {
-            "FeatureConversationRepository was accessed before the Hilt graph created FeatureConversationRepositoryStore."
-        }
-    }
-
-    val sessions: StateFlow<List<ConversationSession>>
-        get() = repository().sessions
-
-    val isReady: StateFlow<Boolean>
-        get() = repository().isReady
-
-    fun setSelectedBotIdProvider(provider: () -> String) = repository().setSelectedBotIdProvider(provider)
-
-    fun session(sessionId: String = DEFAULT_SESSION_ID): ConversationSession = repository().session(sessionId)
-
-    fun createSession(
-        title: String = DEFAULT_SESSION_TITLE,
-        botId: String = repository().currentSelectedBotId(),
-    ): ConversationSession = repository().createSession(title, botId)
-
-    fun deleteSession(sessionId: String) = repository().deleteSession(sessionId)
-
-    fun deleteSessionsForBot(botId: String) = repository().deleteSessionsForBot(botId)
-
-    fun renameSession(sessionId: String, title: String) = repository().renameSession(sessionId, title)
-
-    fun syncSystemSessionTitle(sessionId: String, title: String) = repository().syncSystemSessionTitle(sessionId, title)
-
-    fun toggleSessionPinned(sessionId: String) = repository().toggleSessionPinned(sessionId)
-
-    fun buildContextPreview(sessionId: String): String = repository().buildContextPreview(sessionId)
-
-    fun appendMessage(
-        sessionId: String,
-        role: String,
-        content: String,
-        attachments: List<ConversationAttachment> = emptyList(),
-    ): String = repository().appendMessage(sessionId, role, content, attachments)
-
-    fun updateMessage(
-        sessionId: String,
-        messageId: String,
-        content: String? = null,
-        attachments: List<ConversationAttachment>? = null,
-    ) = repository().updateMessage(sessionId, messageId, content, attachments)
-
-    fun replaceMessages(sessionId: String, messages: List<ConversationMessage>) =
-        repository().replaceMessages(sessionId, messages)
-
-    fun updateSessionBindings(
-        sessionId: String,
-        providerId: String,
-        personaId: String,
-        botId: String,
-    ) = repository().updateSessionBindings(sessionId, providerId, personaId, botId)
-
-    fun updateSessionServiceFlags(
-        sessionId: String,
-        sessionSttEnabled: Boolean? = null,
-        sessionTtsEnabled: Boolean? = null,
-    ) = repository().updateSessionServiceFlags(sessionId, sessionSttEnabled, sessionTtsEnabled)
-
-    fun syncPersistenceForBot(botId: String, persistConversationLocally: Boolean) =
-        repository().syncPersistenceForBot(botId, persistConversationLocally)
-
-    fun snapshotSessions(): List<ConversationSession> = repository().snapshotSessions()
-
-    fun restoreSessions(restoredSessions: List<ConversationSession>) = repository().restoreSessions(restoredSessions)
-
-    suspend fun restoreSessionsDurable(restoredSessions: List<ConversationSession>) =
-        repository().restoreSessionsDurable(restoredSessions)
-
-    fun previewImportedSessions(importedSessions: List<ConversationSession>): ConversationImportPreview =
-        repository().previewImportedSessions(importedSessions)
-
-    fun importSessions(
-        importedSessions: List<ConversationSession>,
-        overwriteDuplicates: Boolean,
-    ): ConversationImportResult = repository().importSessions(importedSessions, overwriteDuplicates)
-
-    suspend fun importSessionsDurable(
-        importedSessions: List<ConversationSession>,
-        overwriteDuplicates: Boolean,
-    ): ConversationImportResult = repository().importSessionsDurable(importedSessions, overwriteDuplicates)
-}
+private const val DEFAULT_SESSION_ID = "chat-main"
+private const val DEFAULT_SESSION_TITLE = "\u65B0\u5BF9\u8BDD"
 
 @Singleton
 class FeatureConversationRepositoryStore @Inject constructor(
@@ -165,7 +69,6 @@ class FeatureConversationRepositoryStore @Inject constructor(
     private val initializationLoaded = MutableStateFlow(false)
 
     init {
-        FeatureConversationRepository.installDelegate(this)
         repositoryScope.launch {
             runCatching {
                 val importedLegacy = importLegacySessionsIfNeeded()
@@ -200,12 +103,12 @@ class FeatureConversationRepositoryStore @Inject constructor(
         selectedBotIdProvider = provider
     }
 
-    fun session(sessionId: String = FeatureConversationRepository.DEFAULT_SESSION_ID): ConversationSession {
+    fun session(sessionId: String = DEFAULT_SESSION_ID): ConversationSession {
         return _sessions.value.firstOrNull { it.id == sessionId } ?: createMissingSession(sessionId)
     }
 
     fun createSession(
-        title: String = FeatureConversationRepository.DEFAULT_SESSION_TITLE,
+        title: String = DEFAULT_SESSION_TITLE,
         botId: String = currentSelectedBotId(),
     ): ConversationSession {
         val created = ConversationSession(
@@ -254,7 +157,7 @@ class FeatureConversationRepositoryStore @Inject constructor(
     }
 
     fun renameSession(sessionId: String, title: String) {
-        val cleaned = title.trim().ifBlank { FeatureConversationRepository.DEFAULT_SESSION_TITLE }
+        val cleaned = title.trim().ifBlank { DEFAULT_SESSION_TITLE }
         _sessions.update { current ->
             current.map { item ->
                 if (item.id == sessionId) item.copy(title = cleaned, titleCustomized = true) else item
@@ -272,7 +175,7 @@ class FeatureConversationRepositoryStore @Inject constructor(
                     applySystemSessionTitle(
                         session = item,
                         incomingTitle = title,
-                        defaultTitle = FeatureConversationRepository.DEFAULT_SESSION_TITLE,
+                        defaultTitle = DEFAULT_SESSION_TITLE,
                     )
                 } else {
                     null
@@ -288,7 +191,7 @@ class FeatureConversationRepositoryStore @Inject constructor(
         if (updated) {
             persistSessions()
             runtimeLogger.append(
-                "Conversation system title synced: session=$sessionId title=${title.trim().ifBlank { FeatureConversationRepository.DEFAULT_SESSION_TITLE }}",
+                "Conversation system title synced: session=$sessionId title=${title.trim().ifBlank { DEFAULT_SESSION_TITLE }}",
             )
         }
     }
@@ -567,7 +470,7 @@ class FeatureConversationRepositoryStore @Inject constructor(
     private fun createMissingSession(sessionId: String): ConversationSession {
         val created = ConversationSession(
             id = sessionId,
-            title = FeatureConversationRepository.DEFAULT_SESSION_TITLE,
+            title = DEFAULT_SESSION_TITLE,
             botId = currentSelectedBotId(),
             personaId = "",
             providerId = "",
@@ -615,7 +518,7 @@ class FeatureConversationRepositoryStore @Inject constructor(
         if (!legacyStorageFile.exists()) return false
         val legacySessions = loadLegacyConversationSessions(
             file = legacyStorageFile,
-            defaultTitle = FeatureConversationRepository.DEFAULT_SESSION_TITLE,
+            defaultTitle = DEFAULT_SESSION_TITLE,
             onFailure = { error ->
                 runtimeLogger.append(
                     "Conversation legacy migration failed: ${error.message ?: error.javaClass.simpleName}",
@@ -627,7 +530,7 @@ class FeatureConversationRepositoryStore @Inject constructor(
             runCatching { aggregate.toConversationSession() }.getOrNull()
         }
         val mergedSessions = mergeImportedConversationSessions(
-            defaultSessionId = FeatureConversationRepository.DEFAULT_SESSION_ID,
+            defaultSessionId = DEFAULT_SESSION_ID,
             existingSessions = existingSessions,
             legacySessions = legacySessions,
             defaultSessionsProvider = ::defaultSessions,
@@ -643,7 +546,7 @@ class FeatureConversationRepositoryStore @Inject constructor(
         return restoredSessions
             .map { session ->
                 session.copy(
-                    title = session.title.ifBlank { FeatureConversationRepository.DEFAULT_SESSION_TITLE },
+                    title = session.title.ifBlank { DEFAULT_SESSION_TITLE },
                     botId = session.botId.ifBlank { currentSelectedBotId() },
                     messages = session.messages.sortedBy { it.timestamp },
                 )
@@ -667,7 +570,7 @@ class FeatureConversationRepositoryStore @Inject constructor(
         val incoming = importedSessions
             .map { session ->
                 session.copy(
-                    title = session.title.ifBlank { FeatureConversationRepository.DEFAULT_SESSION_TITLE },
+                    title = session.title.ifBlank { DEFAULT_SESSION_TITLE },
                     botId = session.botId.ifBlank { currentSelectedBotId() },
                     messages = session.messages.sortedBy { it.timestamp },
                 )
@@ -706,8 +609,8 @@ class FeatureConversationRepositoryStore @Inject constructor(
     private fun defaultSessions(): List<ConversationSession> {
         return listOf(
             ConversationSession(
-                id = FeatureConversationRepository.DEFAULT_SESSION_ID,
-                title = FeatureConversationRepository.DEFAULT_SESSION_TITLE,
+                id = DEFAULT_SESSION_ID,
+                title = DEFAULT_SESSION_TITLE,
                 botId = currentSelectedBotId(),
                 personaId = "",
                 providerId = "",

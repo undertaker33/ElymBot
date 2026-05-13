@@ -1,7 +1,7 @@
 ﻿package com.astrbot.android.feature.chat.runtime
 
 import com.astrbot.android.feature.chat.domain.AppChatRuntimePort
-import com.astrbot.android.feature.plugin.data.PluginStoragePaths
+import com.astrbot.android.feature.plugin.domain.PluginWorkspacePathPort
 import com.astrbot.android.feature.plugin.domain.runtime.AppChatPluginRuntime
 import com.astrbot.android.feature.plugin.domain.runtime.PluginHostCapabilityGateway
 import com.astrbot.android.feature.plugin.domain.runtime.PluginHostCapabilityGatewayFactory
@@ -71,7 +71,7 @@ class AppChatPluginCommandServiceFactory @Inject constructor(
     private val hostCapabilityGateway: PluginHostCapabilityGateway,
     private val hostActionExecutor: ExternalPluginHostActionExecutor,
     private val messageDispatchPort: PluginV2MessageDispatchPort,
-    private val pluginStoragePaths: PluginStoragePaths,
+    private val pluginWorkspacePathPort: PluginWorkspacePathPort,
     private val strings: AndroidBotCommandStringResolver,
 ) {
     fun create(
@@ -86,7 +86,7 @@ class AppChatPluginCommandServiceFactory @Inject constructor(
             messageDispatchPort = messageDispatchPort,
             strings = strings,
             privateRootPathResolver = AppChatPluginPrivateRootPathResolver { pluginId ->
-                pluginStoragePaths.privateDir(pluginId).absolutePath
+                pluginWorkspacePathPort.privateRootPath(pluginId)
             },
         )
     }

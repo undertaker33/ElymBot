@@ -8,6 +8,7 @@ import com.astrbot.android.data.http.MultipartPartSpec
 import com.astrbot.android.data.http.HttpRequestSpec
 import com.astrbot.android.data.http.HttpResponsePayload
 import com.astrbot.android.core.common.logging.RuntimeLogRepository
+import com.astrbot.android.core.logging.SharedRuntimeLogStore
 import com.astrbot.android.feature.qq.domain.QqWebUiTokenProvider
 import java.net.SocketTimeoutException
 import java.nio.charset.StandardCharsets
@@ -19,7 +20,7 @@ import org.junit.After
 import org.junit.Test
 
 class NapCatLoginServiceTest {
-    private val loginService = NapCatLoginService()
+    private val loginService = NapCatLoginService(SharedRuntimeLogStore)
     private val runtimeWebUiTokenProvider = QqWebUiTokenProvider { "runtime-webui-token" }
 
     @After

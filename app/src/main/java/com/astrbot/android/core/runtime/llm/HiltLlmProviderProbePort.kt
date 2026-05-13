@@ -17,31 +17,32 @@ import com.astrbot.android.di.runtime.llm.toProviderType
  */
 internal class HiltLlmProviderProbePort(
     appContext: Context,
+    private val chatCompletionService: ChatCompletionService,
     private val audioRuntimePort: AudioRuntimePort,
 ) : LlmProviderProbePort {
     private val appContext = appContext.applicationContext
 
     override fun fetchModels(baseUrl: String, apiKey: String, providerType: LlmProviderType): List<String> {
-        return ChatCompletionService.fetchModels(baseUrl, apiKey, providerType.toProviderType())
+        return chatCompletionService.fetchModels(baseUrl, apiKey, providerType.toProviderType())
     }
 
     override fun detectMultimodalRule(provider: LlmProviderProfile): LlmFeatureSupportState {
-        return ChatCompletionService.detectMultimodalRule(provider.toProviderProfile()).toLlmFeatureSupportState()
+        return chatCompletionService.detectMultimodalRule(provider.toProviderProfile()).toLlmFeatureSupportState()
     }
 
     override fun probeMultimodalSupport(provider: LlmProviderProfile): LlmFeatureSupportState {
-        return ChatCompletionService.probeMultimodalSupport(
+        return chatCompletionService.probeMultimodalSupport(
             provider.toProviderProfile(),
             appContext,
         ).toLlmFeatureSupportState()
     }
 
     override fun detectNativeStreamingRule(provider: LlmProviderProfile): LlmFeatureSupportState {
-        return ChatCompletionService.detectNativeStreamingRule(provider.toProviderProfile()).toLlmFeatureSupportState()
+        return chatCompletionService.detectNativeStreamingRule(provider.toProviderProfile()).toLlmFeatureSupportState()
     }
 
     override fun probeNativeStreamingSupport(provider: LlmProviderProfile): LlmFeatureSupportState {
-        return ChatCompletionService.probeNativeStreamingSupport(provider.toProviderProfile()).toLlmFeatureSupportState()
+        return chatCompletionService.probeNativeStreamingSupport(provider.toProviderProfile()).toLlmFeatureSupportState()
     }
 
     override fun probeSttSupport(provider: LlmProviderProfile): SttProbeResult {

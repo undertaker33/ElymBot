@@ -1,39 +1,64 @@
 package com.astrbot.android.core.runtime.audio
 
 import android.content.Context
-import com.astrbot.android.core.logging.SharedRuntimeLogStore
+import com.astrbot.android.core.common.logging.RuntimeLogger
 import java.io.File
 import java.io.FileOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
+import javax.inject.Inject
 import org.apache.commons.compress.archivers.tar.TarArchiveEntry
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream
 import org.apache.commons.compress.compressors.bzip2.BZip2CompressorInputStream
 
-object SherpaOnnxAssetManager {
-    private const val FRAMEWORK_ROOT = "runtime/sherpa-onnx"
-    private const val FRAMEWORK_VERSION = "1.12.30"
-    private const val FRAMEWORK_MARKER = ".framework-ready"
-    private const val TEMP_DIR = "runtime/downloads"
-    private const val STT_URL =
-        "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-paraformer-zh-small-2024-03-09.tar.bz2"
-    private const val KOKORO_URL =
-        "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-int8-multi-lang-v1_1.tar.bz2"
-    private val deprecatedTtsDirNames = listOf("matcha", "melo", "fanchen-c", "zh-ll")
+interface SherpaOnnxAssetService {
+    fun frameworkState(context: Context): AudioAssetSubState
 
-    data class SubAssetState(
-        val installed: Boolean,
-        val details: String,
+    fun sttState(context: Context): AudioAssetSubState
+
+    fun ttsState(context: Context): AudioTtsAssetState
+
+    fun frameworkDir(context: Context): File
+
+    fun sttDir(context: Context): File
+
+    fun kokoroDir(context: Context): File
+
+    fun sttArchiveFile(context: Context): File
+
+    fun kokoroArchiveFile(context: Context): File
+
+    fun ensureFrameworkActivated(context: Context)
+
+    fun clearFramework(context: Context)
+
+    fun downloadSttAssets(context: Context)
+
+    fun clearSttAssets(context: Context)
+
+    fun downloadKokoroAssets(context: Context)
+
+    fun clearKokoroAssets(context: Context)
+
+    fun clearDeprecatedTtsAssets(context: Context)
+
+    fun installSttAssetsFromArchive(
+        context: Context,
+        archiveFile: File = sttArchiveFile(context),
     )
 
-    data class TtsAssetState(
-        val framework: SubAssetState,
-        val kokoro: SubAssetState,
+    fun installKokoroAssetsFromArchive(
+        context: Context,
+        archiveFile: File = kokoroArchiveFile(context),
     )
+}
 
-    fun frameworkState(context: Context): SubAssetState {
+class DefaultSherpaOnnxAssetService @Inject constructor(
+    private val runtimeLogger: RuntimeLogger,
+) : SherpaOnnxAssetService {
+    override fun frameworkState(context: Context): AudioAssetSubState {
         val installed = frameworkMarkerFile(context).exists()
-        return SubAssetState(
+        return AudioAssetSubState(
             installed = installed,
             details = if (installed) {
                 "Sherpa ONNX Android runtime is bundled in the app. The on-device framework has been activated and is ready for local STT/TTS assets."
@@ -43,9 +68,9 @@ object SherpaOnnxAssetManager {
         )
     }
 
-    fun sttState(context: Context): SubAssetState {
+    override fun sttState(context: Context): AudioAssetSubState {
         val installed = sttModelFile(context).exists() && sttTokensFile(context).exists()
-        return SubAssetState(
+        return AudioAssetSubState(
             installed = installed,
             details = if (installed) {
                 "Offline Paraformer STT assets are ready."
@@ -55,7 +80,7 @@ object SherpaOnnxAssetManager {
         )
     }
 
-    fun ttsState(context: Context): TtsAssetState {
+    override fun ttsState(context: Context): AudioTtsAssetState {
         val kokoroReady = listOf(
             kokoroModelFile(context),
             kokoroVoicesFile(context),
@@ -67,9 +92,9 @@ object SherpaOnnxAssetManager {
             File(kokoroDir(context), "date-zh.fst"),
             File(kokoroDir(context), "number-zh.fst"),
         ).all { it.exists() }
-        return TtsAssetState(
+        return AudioTtsAssetState(
             framework = frameworkState(context),
-            kokoro = SubAssetState(
+            kokoro = AudioAssetSubState(
                 installed = kokoroReady,
                 details = if (kokoroReady) {
                     "Kokoro local TTS assets are ready."
@@ -80,38 +105,38 @@ object SherpaOnnxAssetManager {
         )
     }
 
-    fun frameworkDir(context: Context): File = File(context.filesDir, FRAMEWORK_ROOT)
+    override fun frameworkDir(context: Context): File = File(context.filesDir, FRAMEWORK_ROOT)
 
-    fun sttDir(context: Context): File = File(frameworkDir(context), "stt")
+    override fun sttDir(context: Context): File = File(frameworkDir(context), "stt")
 
-    fun kokoroDir(context: Context): File = File(frameworkDir(context), "tts/kokoro")
+    override fun kokoroDir(context: Context): File = File(frameworkDir(context), "tts/kokoro")
 
-    fun sttArchiveFile(context: Context): File = File(
+    override fun sttArchiveFile(context: Context): File = File(
         File(context.filesDir, TEMP_DIR),
         "sherpa-onnx-paraformer-zh-small-2024-03-09.tar.bz2",
     )
 
-    fun kokoroArchiveFile(context: Context): File = File(
+    override fun kokoroArchiveFile(context: Context): File = File(
         File(context.filesDir, TEMP_DIR),
         "kokoro-int8-multi-lang-v1_1.tar.bz2",
     )
 
-    fun ensureFrameworkActivated(context: Context) {
+    override fun ensureFrameworkActivated(context: Context) {
         val frameworkDir = frameworkDir(context)
         if (!frameworkDir.exists()) {
             frameworkDir.mkdirs()
         }
         frameworkMarkerFile(context).writeText(FRAMEWORK_VERSION)
         clearDeprecatedTtsAssets(context)
-        SharedRuntimeLogStore.append("Sherpa ONNX framework activated: version=$FRAMEWORK_VERSION")
+        runtimeLogger.append("Sherpa ONNX framework activated: version=$FRAMEWORK_VERSION")
     }
 
-    fun clearFramework(context: Context) {
+    override fun clearFramework(context: Context) {
         frameworkDir(context).deleteRecursively()
-        SharedRuntimeLogStore.append("Sherpa ONNX framework cleared")
+        runtimeLogger.append("Sherpa ONNX framework cleared")
     }
 
-    fun downloadSttAssets(context: Context) {
+    override fun downloadSttAssets(context: Context) {
         require(frameworkState(context).installed) {
             "Download the Sherpa ONNX framework asset first."
         }
@@ -122,12 +147,12 @@ object SherpaOnnxAssetManager {
         )
     }
 
-    fun clearSttAssets(context: Context) {
+    override fun clearSttAssets(context: Context) {
         sttDir(context).deleteRecursively()
-        SharedRuntimeLogStore.append("Sherpa ONNX STT assets cleared")
+        runtimeLogger.append("Sherpa ONNX STT assets cleared")
     }
 
-    fun downloadKokoroAssets(context: Context) {
+    override fun downloadKokoroAssets(context: Context) {
         require(frameworkState(context).installed) {
             "Download the Sherpa ONNX framework asset first."
         }
@@ -138,21 +163,47 @@ object SherpaOnnxAssetManager {
         )
     }
 
-    fun clearKokoroAssets(context: Context) {
+    override fun clearKokoroAssets(context: Context) {
         kokoroDir(context).deleteRecursively()
-        SharedRuntimeLogStore.append("Sherpa ONNX kokoro assets cleared")
+        runtimeLogger.append("Sherpa ONNX kokoro assets cleared")
     }
 
-    fun clearDeprecatedTtsAssets(context: Context) {
+    override fun clearDeprecatedTtsAssets(context: Context) {
         val deprecatedDirs = deprecatedTtsDirNames.map { dirName ->
             File(frameworkDir(context), "tts/$dirName")
         }
         deprecatedDirs.forEach { dir ->
             if (dir.exists()) {
                 dir.deleteRecursively()
-                SharedRuntimeLogStore.append("Sherpa ONNX deprecated TTS assets cleared: ${dir.absolutePath}")
+                runtimeLogger.append("Sherpa ONNX deprecated TTS assets cleared: ${dir.absolutePath}")
             }
         }
+    }
+
+    override fun installSttAssetsFromArchive(
+        context: Context,
+        archiveFile: File,
+    ) {
+        require(frameworkState(context).installed) {
+            "Download the Sherpa ONNX framework asset first."
+        }
+        extractArchiveToTarget(
+            archiveFile = archiveFile,
+            targetDir = sttDir(context),
+        )
+    }
+
+    override fun installKokoroAssetsFromArchive(
+        context: Context,
+        archiveFile: File,
+    ) {
+        require(frameworkState(context).installed) {
+            "Download the Sherpa ONNX framework asset first."
+        }
+        extractArchiveToTarget(
+            archiveFile = archiveFile,
+            targetDir = kokoroDir(context),
+        )
     }
 
     private fun frameworkMarkerFile(context: Context): File = File(frameworkDir(context), FRAMEWORK_MARKER)
@@ -164,32 +215,6 @@ object SherpaOnnxAssetManager {
     private fun kokoroModelFile(context: Context): File = File(kokoroDir(context), "model.int8.onnx")
 
     private fun kokoroVoicesFile(context: Context): File = File(kokoroDir(context), "voices.bin")
-
-    fun installSttAssetsFromArchive(
-        context: Context,
-        archiveFile: File = sttArchiveFile(context),
-    ) {
-        require(frameworkState(context).installed) {
-            "Download the Sherpa ONNX framework asset first."
-        }
-        extractArchiveToTarget(
-            archiveFile = archiveFile,
-            targetDir = sttDir(context),
-        )
-    }
-
-    fun installKokoroAssetsFromArchive(
-        context: Context,
-        archiveFile: File = kokoroArchiveFile(context),
-    ) {
-        require(frameworkState(context).installed) {
-            "Download the Sherpa ONNX framework asset first."
-        }
-        extractArchiveToTarget(
-            archiveFile = archiveFile,
-            targetDir = kokoroDir(context),
-        )
-    }
 
     private fun downloadAndExtract(
         url: String,
@@ -214,14 +239,14 @@ object SherpaOnnxAssetManager {
         targetDir.deleteRecursively()
         stagingDir.copyRecursively(targetDir, overwrite = true)
         stagingDir.deleteRecursively()
-        SharedRuntimeLogStore.append("Sherpa ONNX asset extracted: target=${targetDir.absolutePath}")
+        runtimeLogger.append("Sherpa ONNX asset extracted: target=${targetDir.absolutePath}")
     }
 
     private fun downloadFile(
         url: String,
         outputFile: File,
     ) {
-        SharedRuntimeLogStore.append("Sherpa ONNX asset download started: $url")
+        runtimeLogger.append("Sherpa ONNX asset download started: $url")
         val connection = (URL(url).openConnection() as HttpURLConnection).apply {
             requestMethod = "GET"
             connectTimeout = 20_000
@@ -242,7 +267,7 @@ object SherpaOnnxAssetManager {
         } finally {
             connection.disconnect()
         }
-        SharedRuntimeLogStore.append("Sherpa ONNX asset download finished: ${outputFile.absolutePath}")
+        runtimeLogger.append("Sherpa ONNX asset download finished: ${outputFile.absolutePath}")
     }
 
     private fun extractTarBz2(
@@ -299,5 +324,17 @@ object SherpaOnnxAssetManager {
         if (mode and 0b001_001_001 != 0) {
             runCatching { file.setExecutable(true, false) }
         }
+    }
+
+    private companion object {
+        private const val FRAMEWORK_ROOT = "runtime/sherpa-onnx"
+        private const val FRAMEWORK_VERSION = "1.12.30"
+        private const val FRAMEWORK_MARKER = ".framework-ready"
+        private const val TEMP_DIR = "runtime/downloads"
+        private const val STT_URL =
+            "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-paraformer-zh-small-2024-03-09.tar.bz2"
+        private const val KOKORO_URL =
+            "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-int8-multi-lang-v1_1.tar.bz2"
+        private val deprecatedTtsDirNames = listOf("matcha", "melo", "fanchen-c", "zh-ll")
     }
 }

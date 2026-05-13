@@ -1,8 +1,6 @@
 
 package com.astrbot.android.feature.cron.data
 
-import kotlinx.coroutines.flow.collect
-
 import com.astrbot.android.data.db.CronJobEntity
 import com.astrbot.android.data.db.CronJobExecutionRecordEntity
 import com.astrbot.android.data.db.cron.CronJobDao
@@ -15,56 +13,12 @@ import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import org.json.JSONObject
-
-// Static compatibility facade. Production imports are governed by source contracts.
-object FeatureCronJobRepository {
-    @Volatile
-    private var delegate: FeatureCronJobRepositoryStore? = null
-
-    internal fun installDelegate(store: FeatureCronJobRepositoryStore) {
-        delegate = store
-    }
-
-    private fun repository(): FeatureCronJobRepositoryStore {
-        return checkNotNull(delegate) {
-            "FeatureCronJobRepository was accessed before the Hilt graph created FeatureCronJobRepositoryStore."
-        }
-    }
-
-    val jobs: StateFlow<List<CronJob>>
-        get() = repository().jobs
-
-    suspend fun create(job: CronJob): CronJob = repository().create(job)
-
-    suspend fun update(job: CronJob): CronJob = repository().update(job)
-
-    suspend fun delete(jobId: String) = repository().delete(jobId)
-
-    suspend fun getByJobId(jobId: String): CronJob? = repository().getByJobId(jobId)
-
-    suspend fun listAll(): List<CronJob> = repository().listAll()
-
-    suspend fun listEnabled(): List<CronJob> = repository().listEnabled()
-
-    suspend fun updateStatus(jobId: String, status: String, lastRunAt: Long? = null, lastError: String? = null) =
-        repository().updateStatus(jobId, status, lastRunAt, lastError)
-
-    suspend fun recordExecutionStarted(record: CronJobExecutionRecord): CronJobExecutionRecord =
-        repository().recordExecutionStarted(record)
-
-    suspend fun updateExecutionRecord(record: CronJobExecutionRecord): CronJobExecutionRecord =
-        repository().updateExecutionRecord(record)
-
-    suspend fun listRecentExecutionRecords(jobId: String, limit: Int = 5): List<CronJobExecutionRecord> =
-        repository().listRecentExecutionRecords(jobId, limit)
-
-    suspend fun latestExecutionRecord(jobId: String): CronJobExecutionRecord? = repository().latestExecutionRecord(jobId)
-}
 
 @Singleton
 class FeatureCronJobRepositoryStore @Inject constructor(
@@ -78,7 +32,6 @@ class FeatureCronJobRepositoryStore @Inject constructor(
     val jobs: StateFlow<List<CronJob>> = _jobs.asStateFlow()
 
     init {
-        FeatureCronJobRepository.installDelegate(this)
         repositoryScope.launch {
             dao.observeAll().collect { entities ->
                 _jobs.value = entities.map { it.toDomain() }

@@ -1,6 +1,5 @@
 package com.astrbot.android.core.runtime.container
 
-import com.astrbot.android.core.runtime.llm.ChatCompletionService
 import com.astrbot.android.core.runtime.context.RuntimeContextDataPort
 import com.astrbot.android.core.runtime.context.RuntimeContextResolver
 import com.astrbot.android.core.runtime.context.RuntimeContextResolverPort
@@ -37,6 +36,7 @@ import com.astrbot.android.model.chat.MessageType
 import com.astrbot.android.model.plugin.NoOp
 import com.astrbot.android.model.plugin.PluginExecutionContext
 import com.astrbot.android.model.plugin.PluginTriggerSource
+import com.astrbot.android.core.runtime.llm.ChatCompletionService
 import com.astrbot.android.core.runtime.llm.ChatCompletionServiceLlmClient
 import com.astrbot.android.core.runtime.llm.LlmConversationAttachment
 import com.astrbot.android.core.runtime.llm.LlmFeatureSupportState
@@ -120,6 +120,8 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
+private val chatCompletionService = ChatCompletionService()
+
 class QqOneBotBridgeServerTest {
     private var currentRepositories: InMemoryOneBotRepositories? = null
 
@@ -153,7 +155,7 @@ class QqOneBotBridgeServerTest {
                     },
                 )
             }
-            ChatCompletionService.setHttpClientOverrideForTests(
+            chatCompletionService.setHttpClientOverrideForTests(
                 FakeHttpClient(
                     onExecute = { request ->
                         signalLog += "http:chat:${request.method.value}"
@@ -235,7 +237,7 @@ class QqOneBotBridgeServerTest {
                         ),
                     )
                 }
-                ChatCompletionService.setHttpClientOverrideForTests(
+                chatCompletionService.setHttpClientOverrideForTests(
                     FakeHttpClient(
                         onExecute = { request ->
                             httpCalls.incrementAndGet()
@@ -292,7 +294,7 @@ class QqOneBotBridgeServerTest {
                     },
                 )
             }
-            ChatCompletionService.setHttpClientOverrideForTests(
+            chatCompletionService.setHttpClientOverrideForTests(
                 FakeHttpClient(
                     onExecute = { request ->
                         HttpResponsePayload(
@@ -334,7 +336,7 @@ class QqOneBotBridgeServerTest {
                 sentReplies += text
                 OneBotSendResult.success(listOf("failure-notice"))
             }
-            ChatCompletionService.setHttpClientOverrideForTests(
+            chatCompletionService.setHttpClientOverrideForTests(
                 FakeHttpClient(
                     onExecute = { request ->
                         HttpResponsePayload(
@@ -394,7 +396,7 @@ class QqOneBotBridgeServerTest {
                     },
                 )
             }
-            ChatCompletionService.setHttpClientOverrideForTests(
+            chatCompletionService.setHttpClientOverrideForTests(
                 FakeHttpClient(
                     onExecute = { request ->
                         httpCalls.incrementAndGet()
@@ -452,7 +454,7 @@ class QqOneBotBridgeServerTest {
                     },
                 )
             }
-            ChatCompletionService.setHttpClientOverrideForTests(
+            chatCompletionService.setHttpClientOverrideForTests(
                 FakeHttpClient(
                     onExecute = { request ->
                         signalLog += "http:chat"
@@ -530,7 +532,7 @@ class QqOneBotBridgeServerTest {
                     },
                 )
             }
-            ChatCompletionService.setHttpClientOverrideForTests(
+            chatCompletionService.setHttpClientOverrideForTests(
                 FakeHttpClient(
                     onExecute = { request ->
                         httpCalls.incrementAndGet()
@@ -593,7 +595,7 @@ class QqOneBotBridgeServerTest {
                     },
                 )
             }
-            ChatCompletionService.setHttpClientOverrideForTests(
+            chatCompletionService.setHttpClientOverrideForTests(
                 FakeHttpClient(
                     onExecute = { request ->
                         httpCalls.incrementAndGet()
@@ -659,7 +661,7 @@ class QqOneBotBridgeServerTest {
                         ),
                     )
                 }
-                ChatCompletionService.setHttpClientOverrideForTests(
+                chatCompletionService.setHttpClientOverrideForTests(
                     FakeHttpClient(
                         onExecute = { request ->
                             httpCalls.incrementAndGet()
@@ -708,7 +710,7 @@ class QqOneBotBridgeServerTest {
         ) {
             RuntimeLogRepository.clear()
             val httpCalls = AtomicInteger(0)
-            ChatCompletionService.setHttpClientOverrideForTests(
+            chatCompletionService.setHttpClientOverrideForTests(
                 FakeHttpClient(
                     onExecute = { request ->
                         httpCalls.incrementAndGet()
@@ -782,7 +784,7 @@ class QqOneBotBridgeServerTest {
                     sentAttachments += attachments
                     OneBotSendResult.success(listOf("meme-receipt"))
                 }
-                ChatCompletionService.setHttpClientOverrideForTests(
+                chatCompletionService.setHttpClientOverrideForTests(
                     FakeHttpClient(
                         onExecute = { request ->
                             HttpResponsePayload(
@@ -859,7 +861,7 @@ class QqOneBotBridgeServerTest {
                         ),
                     )
                 }
-                ChatCompletionService.setHttpClientOverrideForTests(
+                chatCompletionService.setHttpClientOverrideForTests(
                     FakeHttpClient(
                         onExecute = { request ->
                             httpCalls.incrementAndGet()
@@ -970,7 +972,9 @@ class QqOneBotBridgeServerTest {
                 pluginV2DispatchEngine = pluginV2DispatchEngine,
                 failureStateStore = failureStateStore,
                 scopedFailureStateStore = scopedFailureStateStore,
-                providerInvoker = DefaultQqProviderInvoker(ChatCompletionServiceLlmClient()),
+                providerInvoker = DefaultQqProviderInvoker(
+                    ChatCompletionServiceLlmClient(chatCompletionService = chatCompletionService),
+                ),
                 gatewayFactory = gatewayFactory,
                 hostCapabilityGateway = hostCapabilityGateway,
                 hostActionExecutor = ExternalPluginHostActionExecutor(),
@@ -1006,7 +1010,7 @@ class QqOneBotBridgeServerTest {
             block()
         } finally {
             currentRepositories = null
-            ChatCompletionService.setHttpClientOverrideForTests(null)
+            chatCompletionService.setHttpClientOverrideForTests(null)
             QqOneBotBridgeServer.setReplySenderOverrideForTests(null)
             QqOneBotBridgeServerTestAccess.clearRuntimeDependencies()
             PluginRuntimeCatalog.reset()
@@ -1129,27 +1133,27 @@ class QqOneBotBridgeServerTest {
     private fun chatCompletionServiceProbePort(): LlmProviderProbePort {
         return object : LlmProviderProbePort {
             override fun fetchModels(baseUrl: String, apiKey: String, providerType: LlmProviderType): List<String> {
-                return ChatCompletionService.fetchModels(baseUrl, apiKey, providerType.toProviderType())
+                return chatCompletionService.fetchModels(baseUrl, apiKey, providerType.toProviderType())
             }
 
             override fun detectMultimodalRule(provider: LlmProviderProfile): LlmFeatureSupportState {
-                return ChatCompletionService.detectMultimodalRule(provider.toProviderProfile()).toLlmFeatureSupportState()
+                return chatCompletionService.detectMultimodalRule(provider.toProviderProfile()).toLlmFeatureSupportState()
             }
 
             override fun probeMultimodalSupport(provider: LlmProviderProfile): LlmFeatureSupportState {
-                return ChatCompletionService.probeMultimodalSupport(provider.toProviderProfile()).toLlmFeatureSupportState()
+                return chatCompletionService.probeMultimodalSupport(provider.toProviderProfile()).toLlmFeatureSupportState()
             }
 
             override fun detectNativeStreamingRule(provider: LlmProviderProfile): LlmFeatureSupportState {
-                return ChatCompletionService.detectNativeStreamingRule(provider.toProviderProfile()).toLlmFeatureSupportState()
+                return chatCompletionService.detectNativeStreamingRule(provider.toProviderProfile()).toLlmFeatureSupportState()
             }
 
             override fun probeNativeStreamingSupport(provider: LlmProviderProfile): LlmFeatureSupportState {
-                return ChatCompletionService.probeNativeStreamingSupport(provider.toProviderProfile()).toLlmFeatureSupportState()
+                return chatCompletionService.probeNativeStreamingSupport(provider.toProviderProfile()).toLlmFeatureSupportState()
             }
 
             override fun probeSttSupport(provider: LlmProviderProfile): SttProbeResult {
-                val result = ChatCompletionService.probeSttSupport(provider.toProviderProfile())
+                val result = chatCompletionService.probeSttSupport(provider.toProviderProfile())
                 return SttProbeResult(
                     state = result.state.toLlmFeatureSupportState(),
                     transcript = result.transcript,
@@ -1157,14 +1161,14 @@ class QqOneBotBridgeServerTest {
             }
 
             override fun probeTtsSupport(provider: LlmProviderProfile): LlmFeatureSupportState {
-                return ChatCompletionService.probeTtsSupport(provider.toProviderProfile()).toLlmFeatureSupportState()
+                return chatCompletionService.probeTtsSupport(provider.toProviderProfile()).toLlmFeatureSupportState()
             }
 
             override fun transcribeAudio(
                 provider: LlmProviderProfile,
                 attachment: LlmConversationAttachment,
             ): String {
-                return ChatCompletionService.transcribeAudio(
+                return chatCompletionService.transcribeAudio(
                     provider = provider.toProviderProfile(),
                     attachment = attachment.toConversationAttachment(),
                 )
@@ -1176,7 +1180,7 @@ class QqOneBotBridgeServerTest {
                 voiceId: String,
                 readBracketedContent: Boolean,
             ): LlmConversationAttachment {
-                return ChatCompletionService.synthesizeSpeech(
+                return chatCompletionService.synthesizeSpeech(
                     provider = provider.toProviderProfile(),
                     text = text,
                     voiceId = voiceId,

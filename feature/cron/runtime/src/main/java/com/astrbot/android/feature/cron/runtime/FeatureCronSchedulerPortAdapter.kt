@@ -3,20 +3,23 @@ package com.astrbot.android.feature.cron.runtime
 import android.content.Context
 import com.astrbot.android.feature.cron.domain.CronSchedulerPort
 import com.astrbot.android.feature.cron.domain.model.CronJob
+import dagger.hilt.android.qualifiers.ApplicationContext
+import javax.inject.Inject
 
-class FeatureCronSchedulerPortAdapter(
-    private val appContext: Context,
+class FeatureCronSchedulerPortAdapter @Inject constructor(
+    @ApplicationContext private val appContext: Context,
+    private val scheduler: WorkManagerCronJobScheduler = WorkManagerCronJobScheduler(),
 ) : CronSchedulerPort {
 
     override fun schedule(job: CronJob) {
-        CronJobScheduler.scheduleJob(appContext, job)
+        scheduler.scheduleJob(appContext, job)
     }
 
     override fun cancel(jobId: String) {
-        CronJobScheduler.cancelJob(appContext, jobId)
+        scheduler.cancelJob(appContext, jobId)
     }
 
     override fun cancelAll() {
-        CronJobScheduler.cancelAll(appContext)
+        scheduler.cancelAll(appContext)
     }
 }

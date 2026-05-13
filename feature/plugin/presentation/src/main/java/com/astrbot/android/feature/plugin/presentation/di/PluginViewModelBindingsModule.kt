@@ -1,6 +1,6 @@
 package com.astrbot.android.di.hilt.presentation
 
-import com.astrbot.android.feature.plugin.data.FeaturePluginRepositoryStateOwner
+import com.astrbot.android.feature.plugin.domain.PluginStateRepositoryPort
 import com.astrbot.android.feature.plugin.presentation.PluginCatalogEntries
 import com.astrbot.android.feature.plugin.presentation.PluginRecords
 import com.astrbot.android.feature.plugin.presentation.PluginRepositorySources
@@ -39,20 +39,20 @@ internal abstract class PluginViewModelBindingsModule {
         @Provides
         @PluginRecords
         fun providePluginRecords(
-            pluginRepositoryStateOwner: FeaturePluginRepositoryStateOwner,
-        ): StateFlow<@JvmSuppressWildcards List<PluginInstallRecord>> = pluginRepositoryStateOwner.records
+            pluginStateRepositoryPort: PluginStateRepositoryPort,
+        ): StateFlow<@JvmSuppressWildcards List<PluginInstallRecord>> = pluginStateRepositoryPort.records
 
         @Provides
         @PluginRepositorySources
         fun providePluginRepositorySources(
-            pluginRepositoryStateOwner: FeaturePluginRepositoryStateOwner,
-        ): StateFlow<@JvmSuppressWildcards List<PluginRepositorySource>> = pluginRepositoryStateOwner.repositorySources
+            pluginStateRepositoryPort: PluginStateRepositoryPort,
+        ): StateFlow<@JvmSuppressWildcards List<PluginRepositorySource>> = pluginStateRepositoryPort.repositorySources
 
         @Provides
         @PluginCatalogEntries
         fun providePluginCatalogEntries(
-            pluginRepositoryStateOwner: FeaturePluginRepositoryStateOwner,
-        ): StateFlow<@JvmSuppressWildcards List<PluginCatalogEntryRecord>> = pluginRepositoryStateOwner.catalogEntries
+            pluginStateRepositoryPort: PluginStateRepositoryPort,
+        ): StateFlow<@JvmSuppressWildcards List<PluginCatalogEntryRecord>> = pluginStateRepositoryPort.catalogEntries
 
     }
 }

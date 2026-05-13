@@ -1,5 +1,6 @@
 package com.astrbot.android.feature.plugin.runtime.toolsource
 
+import com.astrbot.android.core.common.logging.RuntimeLogger
 import com.astrbot.android.core.runtime.context.IngressTrigger
 import com.astrbot.android.core.runtime.context.RuntimePlatform
 import com.astrbot.android.feature.cron.domain.CronJobRepositoryPort
@@ -29,6 +30,7 @@ class ActiveCapabilityToolSourceProviderTest {
             ),
             promptStrings = com.astrbot.android.feature.cron.runtime.TestActiveCapabilityPromptStrings,
             contextResolver = noopContextResolverForProvider,
+            runtimeLogger = RuntimeLogger.noop(),
         )
 
         val bindings = provider.listBindings(
@@ -61,6 +63,7 @@ class ActiveCapabilityToolSourceProviderTest {
             ),
             promptStrings = com.astrbot.android.feature.cron.runtime.TestActiveCapabilityPromptStrings,
             contextResolver = noopContextResolverForProvider,
+            runtimeLogger = RuntimeLogger.noop(),
         )
 
         val bindings = provider.listBindings(
@@ -109,6 +112,7 @@ class ActiveCapabilityToolSourceProviderTest {
             ),
             promptStrings = com.astrbot.android.feature.cron.runtime.TestActiveCapabilityPromptStrings,
             contextResolver = noopContextResolverForProvider,
+            runtimeLogger = RuntimeLogger.noop(),
         )
 
         val result = provider.invoke(
@@ -147,6 +151,7 @@ class ActiveCapabilityToolSourceProviderTest {
             ),
             promptStrings = com.astrbot.android.feature.cron.runtime.TestActiveCapabilityPromptStrings,
             contextResolver = noopContextResolverForProvider,
+            runtimeLogger = RuntimeLogger.noop(),
         )
 
         val result = provider.invoke(

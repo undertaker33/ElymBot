@@ -1,7 +1,5 @@
 package com.astrbot.android.feature.plugin.runtime
 
-import com.astrbot.android.model.plugin.PluginLifecycleDiagnostic
-import com.astrbot.android.model.plugin.PluginLifecycleDiagnosticsStore
 import com.astrbot.android.model.plugin.PluginRuntimeLogLevel
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
@@ -303,16 +301,6 @@ class PluginV2LifecycleManager(
             code = "plugin_error_hook_failed",
             message = failureMessage,
             metadata = metadata + mapOf("tracebackText" to tracebackText),
-        )
-        PluginLifecycleDiagnosticsStore.record(
-            PluginLifecycleDiagnostic(
-                pluginId = pluginId,
-                hook = PluginLifecycleHookSurface.OnPluginError.wireValue,
-                code = "plugin_error_hook_failed",
-                message = failureMessage,
-                tracebackText = tracebackText,
-                occurredAtEpochMillis = clock(),
-            ),
         )
     }
 

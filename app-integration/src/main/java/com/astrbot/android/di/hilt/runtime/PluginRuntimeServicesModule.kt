@@ -1,6 +1,6 @@
 package com.astrbot.android.di.hilt.runtime
 
-import com.astrbot.android.feature.plugin.data.PluginRepositoryStatePort
+import com.astrbot.android.feature.plugin.domain.PluginStateRepositoryPort
 import com.astrbot.android.feature.plugin.runtime.EngineBackedAppChatPluginRuntime
 import com.astrbot.android.feature.plugin.runtime.ExternalPluginRuntimeCatalog
 import com.astrbot.android.feature.plugin.runtime.DefaultRuntimeLlmOrchestrator
@@ -71,7 +71,7 @@ internal object PluginRuntimeServicesModule {
     @Provides
     @Singleton
     fun provideExternalPluginRuntimeCatalog(
-        repositoryStatePort: PluginRepositoryStatePort,
+        repositoryStatePort: PluginStateRepositoryPort,
     ): ExternalPluginRuntimeCatalog = ExternalPluginRuntimeCatalog(
         repositoryStatePort = repositoryStatePort,
     )

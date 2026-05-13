@@ -17,7 +17,7 @@ import com.astrbot.android.feature.cron.domain.model.CronJobExecutionRecord
 import com.astrbot.android.feature.cron.presentation.CronJobsPresentationController
 import com.astrbot.android.feature.provider.domain.ProviderRepositoryPort
 import com.astrbot.android.feature.provider.domain.model.ProviderCapability
-import com.astrbot.android.core.logging.SharedRuntimeLogStore
+import com.astrbot.android.core.common.logging.RuntimeLogger
 import com.astrbot.android.core.runtime.context.RuntimePlatform
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -37,6 +37,7 @@ internal class CronJobsViewModel @Inject constructor(
     private val conversationPort: ConversationRepositoryPort,
     private val configPort: ConfigRepositoryPort,
     private val providerPort: ProviderRepositoryPort,
+    private val runtimeLogger: RuntimeLogger,
 ) : ViewModel() {
     val jobs: StateFlow<List<CronJob>> = repository.jobs
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
@@ -83,7 +84,7 @@ internal class CronJobsViewModel @Inject constructor(
                     loading = false,
                 )
             }.onFailure { error ->
-                SharedRuntimeLogStore.append(
+                runtimeLogger.append(
                     "CronJobsViewModel listRuns failed: ${error.message ?: error.javaClass.simpleName}",
                 )
                 runHistoryState.value = CronJobRunHistoryUiState(
@@ -139,7 +140,7 @@ internal class CronJobsViewModel @Inject constructor(
                 )
                 controller.updateJob(updated)
             }.onFailure { error ->
-                SharedRuntimeLogStore.append(
+                runtimeLogger.append(
                     "CronJobsViewModel updateJob failed: ${error.message ?: error.javaClass.simpleName}",
                 )
             }
@@ -166,7 +167,7 @@ internal class CronJobsViewModel @Inject constructor(
             when (val result = controller.createFutureTask(request)) {
                 is CronTaskCreateResult.Created -> Unit
                 is CronTaskCreateResult.Failed -> {
-                    SharedRuntimeLogStore.append(
+                    runtimeLogger.append(
                         "CronJobsViewModel createJob failed: ${result.code} ${result.message}",
                     )
                 }
@@ -177,7 +178,7 @@ internal class CronJobsViewModel @Inject constructor(
     fun defaultTargetContext(): ActiveCapabilityTargetContext {
         return runCatching { resolveDefaultCronJobTargetContext(botPort, configPort, providerPort) }
             .getOrElse {
-                SharedRuntimeLogStore.append(
+                runtimeLogger.append(
                     "CronJobsViewModel defaultTargetContext fallback: ${it.message ?: it.javaClass.simpleName}",
                 )
                 ActiveCapabilityTargetContext(

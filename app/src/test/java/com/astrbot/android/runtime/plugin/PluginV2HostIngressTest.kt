@@ -1,7 +1,7 @@
 package com.astrbot.android.feature.plugin.runtime
 
 import com.astrbot.android.data.BotRepository
-import com.astrbot.android.core.runtime.llm.ChatCompletionService
+
 import com.astrbot.android.data.ConfigRepository
 import com.astrbot.android.data.ConversationRepository
 import com.astrbot.android.data.ProviderRepository
@@ -44,6 +44,7 @@ import com.astrbot.android.model.plugin.PluginRuntimeLogLevel
 import com.astrbot.android.model.plugin.PluginTriggerMetadata
 import com.astrbot.android.model.plugin.PluginTriggerSource
 import com.astrbot.android.model.plugin.PluginV2StreamingMode
+import com.astrbot.android.core.runtime.llm.ChatCompletionService
 import com.astrbot.android.core.runtime.llm.ChatCompletionServiceLlmClient
 import com.astrbot.android.core.runtime.llm.LlmConversationAttachment
 import com.astrbot.android.core.runtime.llm.LlmFeatureSupportState
@@ -90,6 +91,8 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+
+private val chatCompletionService = ChatCompletionService()
 
 class PluginV2HostIngressTest {
 
@@ -1081,7 +1084,7 @@ class PluginV2HostIngressTest {
                 throw UnsupportedOperationException("Multipart requests are not expected in this test")
             }
         }
-        ChatCompletionService.setHttpClientOverrideForTests(fakeHttpClient)
+        chatCompletionService.setHttpClientOverrideForTests(fakeHttpClient)
         try {
             withOneBotState(
                 bot = defaultBot(),
@@ -1114,7 +1117,7 @@ class PluginV2HostIngressTest {
                 assertEquals(1, runtime.afterSentCalls.get())
             }
         } finally {
-            ChatCompletionService.setHttpClientOverrideForTests(null)
+            chatCompletionService.setHttpClientOverrideForTests(null)
         }
     }
 
@@ -2006,27 +2009,27 @@ class PluginV2HostIngressTest {
     private fun chatCompletionServiceProbePort(): LlmProviderProbePort {
         return object : LlmProviderProbePort {
             override fun fetchModels(baseUrl: String, apiKey: String, providerType: LlmProviderType): List<String> {
-                return ChatCompletionService.fetchModels(baseUrl, apiKey, providerType.toProviderType())
+                return chatCompletionService.fetchModels(baseUrl, apiKey, providerType.toProviderType())
             }
 
             override fun detectMultimodalRule(provider: LlmProviderProfile): LlmFeatureSupportState {
-                return ChatCompletionService.detectMultimodalRule(provider.toProviderProfile()).toLlmFeatureSupportState()
+                return chatCompletionService.detectMultimodalRule(provider.toProviderProfile()).toLlmFeatureSupportState()
             }
 
             override fun probeMultimodalSupport(provider: LlmProviderProfile): LlmFeatureSupportState {
-                return ChatCompletionService.probeMultimodalSupport(provider.toProviderProfile()).toLlmFeatureSupportState()
+                return chatCompletionService.probeMultimodalSupport(provider.toProviderProfile()).toLlmFeatureSupportState()
             }
 
             override fun detectNativeStreamingRule(provider: LlmProviderProfile): LlmFeatureSupportState {
-                return ChatCompletionService.detectNativeStreamingRule(provider.toProviderProfile()).toLlmFeatureSupportState()
+                return chatCompletionService.detectNativeStreamingRule(provider.toProviderProfile()).toLlmFeatureSupportState()
             }
 
             override fun probeNativeStreamingSupport(provider: LlmProviderProfile): LlmFeatureSupportState {
-                return ChatCompletionService.probeNativeStreamingSupport(provider.toProviderProfile()).toLlmFeatureSupportState()
+                return chatCompletionService.probeNativeStreamingSupport(provider.toProviderProfile()).toLlmFeatureSupportState()
             }
 
             override fun probeSttSupport(provider: LlmProviderProfile): SttProbeResult {
-                val result = ChatCompletionService.probeSttSupport(provider.toProviderProfile())
+                val result = chatCompletionService.probeSttSupport(provider.toProviderProfile())
                 return SttProbeResult(
                     state = result.state.toLlmFeatureSupportState(),
                     transcript = result.transcript,
@@ -2034,14 +2037,14 @@ class PluginV2HostIngressTest {
             }
 
             override fun probeTtsSupport(provider: LlmProviderProfile): LlmFeatureSupportState {
-                return ChatCompletionService.probeTtsSupport(provider.toProviderProfile()).toLlmFeatureSupportState()
+                return chatCompletionService.probeTtsSupport(provider.toProviderProfile()).toLlmFeatureSupportState()
             }
 
             override fun transcribeAudio(
                 provider: LlmProviderProfile,
                 attachment: LlmConversationAttachment,
             ): String {
-                return ChatCompletionService.transcribeAudio(
+                return chatCompletionService.transcribeAudio(
                     provider = provider.toProviderProfile(),
                     attachment = attachment.toConversationAttachment(),
                 )
@@ -2053,7 +2056,7 @@ class PluginV2HostIngressTest {
                 voiceId: String,
                 readBracketedContent: Boolean,
             ): LlmConversationAttachment {
-                return ChatCompletionService.synthesizeSpeech(
+                return chatCompletionService.synthesizeSpeech(
                     provider = provider.toProviderProfile(),
                     text = text,
                     voiceId = voiceId,

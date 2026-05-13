@@ -1,13 +1,7 @@
 ﻿package com.astrbot.android.feature.conversation.data
 
-import com.astrbot.android.data.db.ConversationAggregate
-import com.astrbot.android.data.db.ConversationAggregateDao
-import com.astrbot.android.data.db.ConversationAttachmentEntity
-import com.astrbot.android.data.db.ConversationEntity
-import com.astrbot.android.data.db.ConversationMessageEntity
 import com.astrbot.android.model.chat.ConversationSession
 import java.io.File
-import kotlinx.coroutines.flow.flowOf
 import org.json.JSONArray
 
 internal fun sortConversationSessions(sessions: List<ConversationSession>): List<ConversationSession> {
@@ -71,27 +65,5 @@ internal fun mergeDefaultConversationSession(
 ): List<ConversationSession> {
     val withoutDefault = loadedSessions.filterNot { it.id == defaultSessionId }
     return defaultSessionsProvider() + withoutDefault
-}
-
-internal object ConversationAggregateDaoPlaceholder {
-    val instance = object : ConversationAggregateDao() {
-        override fun observeConversationAggregates() = flowOf(emptyList<ConversationAggregate>())
-
-        override suspend fun listConversationAggregates(): List<ConversationAggregate> = emptyList()
-
-        override suspend fun upsertSessions(entities: List<ConversationEntity>) = Unit
-
-        override suspend fun upsertMessages(entities: List<ConversationMessageEntity>) = Unit
-
-        override suspend fun upsertAttachments(entities: List<ConversationAttachmentEntity>) = Unit
-
-        override suspend fun deleteMissingSessions(ids: List<String>) = Unit
-
-        override suspend fun clearSessions() = Unit
-
-        override suspend fun deleteMessagesForSessions(sessionIds: List<String>) = Unit
-
-        override suspend fun count(): Int = 0
-    }
 }
 

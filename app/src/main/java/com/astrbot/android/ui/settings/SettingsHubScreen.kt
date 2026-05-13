@@ -51,6 +51,7 @@ import com.astrbot.android.data.AppPreferencesRepository
 import com.astrbot.android.data.ThemeMode
 import com.astrbot.android.ui.app.MonochromeUi
 import com.astrbot.android.ui.common.runWithAppUiTransition
+import com.astrbot.android.ui.navigation.LocalAppUiTransitionState
 import com.astrbot.android.ui.viewmodel.RuntimeCacheViewModel
 import kotlinx.coroutines.launch
 
@@ -73,6 +74,7 @@ fun SettingsHubScreen(
     val scope = rememberCoroutineScope()
     val currentLanguage = currentApplicationLanguage()
     val cacheCleanupState by runtimeCacheViewModel.state.collectAsState()
+    val appUiTransitionState = LocalAppUiTransitionState.current
     var showCacheCleanupConfirm by remember { mutableStateOf(false) }
 
     SubPageScaffold(
@@ -102,7 +104,7 @@ fun SettingsHubScreen(
                     ),
                     onSelect = { value ->
                         scope.launch {
-                            runWithAppUiTransition(MonochromeUi.pageBackground.toArgb()) {
+                            runWithAppUiTransition(appUiTransitionState, MonochromeUi.pageBackground.toArgb()) {
                                 val locales = LocaleListCompat.forLanguageTags(value)
                                 if (AppCompatDelegate.getApplicationLocales() != locales) {
                                     AppCompatDelegate.setApplicationLocales(locales)
@@ -129,7 +131,7 @@ fun SettingsHubScreen(
                     ),
                     onSelect = { value ->
                         scope.launch {
-                            runWithAppUiTransition(MonochromeUi.pageBackground.toArgb()) {
+                            runWithAppUiTransition(appUiTransitionState, MonochromeUi.pageBackground.toArgb()) {
                                 repository.setThemeMode(ThemeMode.fromValue(value))
                             }
                         }

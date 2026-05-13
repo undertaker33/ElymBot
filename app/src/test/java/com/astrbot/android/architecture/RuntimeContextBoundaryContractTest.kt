@@ -7,6 +7,7 @@ import kotlin.io.path.exists
 import kotlin.io.path.isRegularFile
 import kotlin.io.path.readText
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -16,6 +17,7 @@ class RuntimeContextBoundaryContractTest {
     private val settingsFile: Path = projectRoot.resolve("settings.gradle.kts")
     private val rootBuildFile: Path = projectRoot.resolve("build.gradle.kts")
     private val appBuildFile: Path = projectRoot.resolve("app/build.gradle.kts")
+    private val appIntegrationBuildFile: Path = projectRoot.resolve("app-integration/build.gradle.kts")
     private val runtimeContextBuildFile: Path = projectRoot.resolve("core/runtime-context/build.gradle.kts")
     private val runtimeContextRoot: Path =
         projectRoot.resolve("core/runtime-context/src/main/java")
@@ -27,6 +29,7 @@ class RuntimeContextBoundaryContractTest {
         val settingsText = settingsFile.readText(UTF_8)
         val rootBuildText = rootBuildFile.readText(UTF_8)
         val appBuildText = appBuildFile.readText(UTF_8)
+        val appIntegrationBuildText = appIntegrationBuildFile.readText(UTF_8)
 
         assertTrue(
             "8-G must register :core:runtime-context in settings.gradle.kts.",
@@ -40,9 +43,14 @@ class RuntimeContextBoundaryContractTest {
             ":core:runtime-context build file must exist.",
             runtimeContextBuildFile.exists(),
         )
+        assertFalse(
+            "Phase 27 app shell must not directly depend on :core:runtime-context; app-integration owns runtime composition.",
+            appBuildText.contains(""":core:runtime-context"""),
+        )
         assertTrue(
-            "App must depend on :core:runtime-context during the DTO transition.",
-            appBuildText.contains("""implementation(project(":core:runtime-context"))"""),
+            "app-integration must consume :core:runtime-context during the DTO transition.",
+            appIntegrationBuildText.contains("""implementation(project(":core:runtime-context"))""") ||
+                appIntegrationBuildText.contains("""api(project(":core:runtime-context"))"""),
         )
     }
 

@@ -28,46 +28,6 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 
-// Static compatibility facade. Production imports are governed by source contracts.
-object FeatureResourceCenterRepository {
-    @Volatile
-    private var delegate: FeatureResourceCenterRepositoryStore? = null
-
-    internal fun installDelegate(store: FeatureResourceCenterRepositoryStore) {
-        delegate = store
-    }
-
-    private fun repository(): FeatureResourceCenterRepositoryStore {
-        return checkNotNull(delegate) {
-            "FeatureResourceCenterRepository was accessed before the Hilt graph created FeatureResourceCenterRepositoryStore."
-        }
-    }
-
-    val resources: StateFlow<List<ResourceCenterItem>>
-        get() = repository().resources
-
-    val projections: StateFlow<List<ConfigResourceProjection>>
-        get() = repository().projections
-
-    fun listResources(kind: ResourceCenterKind? = null): List<ResourceCenterItem> = repository().listResources(kind)
-
-    fun saveResource(resource: ResourceCenterItem): ResourceCenterItem = repository().saveResource(resource)
-
-    fun deleteResource(resourceId: String) = repository().deleteResource(resourceId)
-
-    fun setProjection(projection: ConfigResourceProjection): ConfigResourceProjection =
-        repository().setProjection(projection)
-
-    fun projectionsForConfig(configId: String): List<ConfigResourceProjection> =
-        repository().projectionsForConfig(configId)
-
-    fun projectionsForConfig(profile: ConfigProfile): List<ConfigResourceProjection> =
-        repository().projectionsForConfig(profile)
-
-    fun compatibilitySnapshotForConfig(profile: ConfigProfile): ResourceCenterCompatibilitySnapshot =
-        repository().compatibilitySnapshotForConfig(profile)
-}
-
 @Singleton
 class FeatureResourceCenterRepositoryStore @Inject constructor(
     private val resourceCenterDao: ResourceCenterDao,
@@ -82,7 +42,6 @@ class FeatureResourceCenterRepositoryStore @Inject constructor(
     val projections: StateFlow<List<ConfigResourceProjection>> = _projections.asStateFlow()
 
     init {
-        FeatureResourceCenterRepository.installDelegate(this)
         runBlocking(Dispatchers.IO) {
             seedFromLegacyConfigTablesIfNeeded()
             refreshFromStorage()

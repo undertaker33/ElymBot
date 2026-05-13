@@ -1,16 +1,18 @@
 package com.astrbot.android.data
 
+import com.astrbot.android.core.runtime.llm.ChatCompletionService
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SecurityLoggingTest {
+    private val chatCompletionService = ChatCompletionService()
     private val napCatLoginService = NapCatLoginService()
 
     @Test
     fun sanitize_url_masks_query_api_key() {
-        val sanitized = ChatCompletionService.sanitizeUrlForLogsForTests(
+        val sanitized = chatCompletionService.sanitizeUrlForLogsForTests(
             "https://example.com/v1/models/gemini:streamGenerateContent?key=super-secret&alt=sse",
         )
 

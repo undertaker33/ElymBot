@@ -1,5 +1,6 @@
 package com.astrbot.android.feature.plugin.runtime.toolsource
 
+import com.astrbot.android.core.common.logging.RuntimeLogger
 import com.astrbot.android.core.runtime.context.RuntimePlatform
 import com.astrbot.android.core.runtime.search.SearchAttemptDiagnostic
 import com.astrbot.android.core.runtime.search.SearchAttemptStatus
@@ -41,6 +42,7 @@ class WebSearchToolSourceProviderTest {
                 )
             },
             contextResolver = resolver(webSearchEnabled = true),
+            runtimeLogger = RuntimeLogger.noop(),
         )
 
         val result = provider.invoke(invokeRequest(query = "latest android hilt")).result
@@ -83,6 +85,7 @@ class WebSearchToolSourceProviderTest {
                 )
             },
             contextResolver = resolver(webSearchEnabled = true),
+            runtimeLogger = RuntimeLogger.noop(),
         )
 
         val result = provider.invoke(invokeRequest(query = "needs fallback")).result
@@ -106,6 +109,7 @@ class WebSearchToolSourceProviderTest {
                 )
             },
             contextResolver = resolver(webSearchEnabled = true),
+            runtimeLogger = RuntimeLogger.noop(),
         )
 
         val result = provider.invoke(invokeRequest(query = "no network")).result
@@ -126,6 +130,7 @@ class WebSearchToolSourceProviderTest {
                 error("unused")
             },
             contextResolver = resolver(webSearchEnabled = false),
+            runtimeLogger = RuntimeLogger.noop(),
         )
 
         val bindings = provider.listBindings(
@@ -144,6 +149,7 @@ class WebSearchToolSourceProviderTest {
                 error("unused")
             },
             contextResolver = resolver(webSearchEnabled = false),
+            runtimeLogger = RuntimeLogger.noop(),
         )
 
         val result = provider.invoke(

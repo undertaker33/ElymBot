@@ -1,29 +1,16 @@
 package com.astrbot.android.feature.plugin.runtime
 
-import com.astrbot.android.model.plugin.PluginLifecycleDiagnosticsStore
 import com.astrbot.android.model.plugin.PluginRuntimeLogRecord
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.test.runTest
-import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
-import org.junit.Before
 import org.junit.Test
 
 class PluginV2LifecycleManagerTest {
-    @Before
-    fun setUp() {
-        PluginLifecycleDiagnosticsStore.clear()
-    }
-
-    @After
-    fun tearDown() {
-        PluginLifecycleDiagnosticsStore.clear()
-    }
-
     @Test
     fun astrbot_loaded_is_one_shot_for_active_plugins() = runTest {
         val calls = mutableListOf<String>()
@@ -299,7 +286,7 @@ class PluginV2LifecycleManagerTest {
         assertTrue(codes.contains("plugin_error_hook_failed"))
         assertEquals(1, codes.count { it == "plugin_error_hook_failed" })
         assertTrue(
-            PluginLifecycleDiagnosticsStore.snapshot().any { record ->
+            logBus.snapshot().any { record ->
                 record.pluginId == "com.example.lifecycle.beta" && record.code == "plugin_error_hook_failed"
             },
         )
