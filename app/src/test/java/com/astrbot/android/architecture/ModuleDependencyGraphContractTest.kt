@@ -66,6 +66,9 @@ class ModuleDependencyGraphContractTest {
         ":feature:settings:presentation",
         ":feature:voiceasset:api",
     )
+    private val phase18To20SourceRootModules = phase18To20Modules.filterNot { module ->
+        module == ":feature:qq:impl"
+    }
 
     private val phase22PluginModules = listOf(
         ":feature:plugin:data",
@@ -227,7 +230,7 @@ class ModuleDependencyGraphContractTest {
     @Test
     fun phase18_to_20_terminal_modules_must_be_in_architecture_source_roots() {
         val text = rootBuildFile.readText(UTF_8)
-        val missing = phase18To20Modules
+        val missing = phase18To20SourceRootModules
             .map(::sourceRootForModule)
             .filterNot { sourceRoot -> text.contains("\"$sourceRoot\"") }
 

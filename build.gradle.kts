@@ -66,7 +66,6 @@ val architectureMainSourceRoots = listOf(
     "feature/provider/runtime/src/main/java",
     "feature/qq/api/src/main/java",
     "feature/qq/data/src/main/java",
-    "feature/qq/impl/src/main/java",
     "feature/qq/presentation/src/main/java",
     "feature/qq/runtime/src/main/java",
     "feature/resource/api/src/main/java",
