@@ -1,5 +1,6 @@
 ﻿package com.astrbot.android.feature.qq.runtime
 
+import com.astrbot.android.feature.chat.runtime.botcommand.AndroidBotCommandStringResolver
 import com.astrbot.android.feature.config.domain.ConfigRepositoryPort
 import com.astrbot.android.feature.cron.runtime.ScheduledTaskIntentFallbackResponder
 import com.astrbot.android.feature.plugin.domain.runtime.AppChatLlmPipelineRuntime
@@ -19,7 +20,9 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
-internal class QqBotCommandRuntimeServiceFactory @Inject constructor() {
+internal class QqBotCommandRuntimeServiceFactory @Inject constructor(
+    private val strings: AndroidBotCommandStringResolver,
+) {
     fun create(
         dependencies: QqOneBotRuntimeDependencies,
         replySender: QqReplySender,
@@ -35,6 +38,7 @@ internal class QqBotCommandRuntimeServiceFactory @Inject constructor() {
             replySender = replySender,
             profileResolver = profileResolver,
             currentLanguageTag = currentLanguageTag,
+            strings = strings,
             log = log,
         )
     }
@@ -92,6 +96,7 @@ internal class QqMessageRuntimeServiceFactory @Inject constructor(
     private val gatewayFactory: PluginHostCapabilityGatewayFactory,
     private val scheduledTaskFallbackResponder: ScheduledTaskIntentFallbackResponder,
     private val sessionLockCoordinator: SessionLockCoordinator,
+    private val strings: AndroidBotCommandStringResolver,
 ) {
     fun create(
         replySender: QqReplySender,
@@ -121,6 +126,7 @@ internal class QqMessageRuntimeServiceFactory @Inject constructor(
             markMessageId = markMessageId,
             scheduleStashReplay = scheduleStashReplay,
             currentLanguageTag = currentLanguageTag,
+            strings = strings,
             transcribeAudio = transcribeAudio,
             profileResolver = profileResolver,
             botCommandRuntimeService = botCommandRuntimeService,

@@ -31,7 +31,10 @@ class AstrBotHttpClientTest {
                 durationMs = 5,
             ),
         )
-        val client = OkHttpAstrBotHttpClient(transport = transport)
+        val client = OkHttpAstrBotHttpClient(
+            transport = transport,
+            logger = RuntimeLogRepository::append,
+        )
 
         val response = client.execute(
             HttpRequestSpec(

@@ -32,6 +32,7 @@ class ScheduledTaskIntentGuardTest {
                 configProfileId = "config-1",
                 personaId = "persona-1",
                 providerId = "deepseek-chat",
+                timezone = TEST_TIMEZONE,
             ),
         )
 
@@ -71,6 +72,7 @@ class ScheduledTaskIntentGuardTest {
                 configProfileId = "config-1",
                 personaId = "persona-1",
                 providerId = "deepseek-chat",
+                timezone = TEST_TIMEZONE,
             ),
         )
 
@@ -98,6 +100,7 @@ class ScheduledTaskIntentGuardTest {
                 configProfileId = "config-1",
                 personaId = "persona-1",
                 providerId = "deepseek-chat",
+                timezone = TEST_TIMEZONE,
             ),
         )
 
@@ -128,6 +131,7 @@ class ScheduledTaskIntentGuardTest {
             configProfileId = "config-1",
             personaId = "persona-1",
             providerId = "deepseek-chat",
+            timezone = TEST_TIMEZONE,
         )
 
         guard.tryCreateFallback("\u6bcf\u5468\u4e00\u4e0b\u5348\u0033\u70b9\u63d0\u9192\u6211\u5f00\u4f1a", context)
@@ -159,6 +163,7 @@ class ScheduledTaskIntentGuardTest {
                 configProfileId = "config-1",
                 personaId = "persona-1",
                 providerId = "deepseek-chat",
+                timezone = TEST_TIMEZONE,
             ),
         )
 
@@ -187,6 +192,7 @@ class ScheduledTaskIntentGuardTest {
                 configProfileId = "config-1",
                 personaId = "persona-1",
                 providerId = "deepseek-chat",
+                timezone = TEST_TIMEZONE,
             ),
         )
 
@@ -212,6 +218,7 @@ class ScheduledTaskIntentGuardTest {
             configProfileId = "config-1",
             personaId = "",
             providerId = "deepseek-chat",
+            timezone = TEST_TIMEZONE,
         )
 
         assertNull(guard.tryCreateFallback("\u559d\u6c34\u5bf9\u8eab\u4f53\u597d\u5417", context))
@@ -219,6 +226,8 @@ class ScheduledTaskIntentGuardTest {
         assertEquals(0, port.requests.size)
     }
 }
+
+private const val TEST_TIMEZONE = "Asia/Shanghai"
 
 private class RecordingTaskPort : ActiveCapabilityTaskPort {
     val requests = mutableListOf<CronTaskCreateRequest>()

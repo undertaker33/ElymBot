@@ -58,7 +58,6 @@ class GlobalSingletonDebtReportTest {
         "feature/persona/impl/src/main/java/com/astrbot/android",
         "feature/persona/presentation/src/main/java/com/astrbot/android",
         "feature/plugin/api/src/main/java/com/astrbot/android",
-        "feature/plugin/impl/src/main/java/com/astrbot/android",
         "feature/plugin/data/src/main/java/com/astrbot/android",
         "feature/plugin/presentation/src/main/java/com/astrbot/android",
         "feature/plugin/runtime/src/main/java/com/astrbot/android",
