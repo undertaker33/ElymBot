@@ -192,7 +192,6 @@ class BuildBaselineContractTest {
             "feature/persona/data/src/main/java",
             "feature/persona/impl/src/main/java",
             "feature/plugin/api/src/main/java",
-            "feature/plugin/impl/src/main/java",
             "feature/plugin/data/src/main/java",
             "feature/plugin/presentation/src/main/java",
             "feature/plugin/runtime/src/main/java",

@@ -1,6 +1,7 @@
 import com.android.build.api.dsl.ApplicationExtension
 import com.android.build.api.dsl.LibraryExtension
 import com.google.devtools.ksp.gradle.KspExtension
+import java.io.ByteArrayOutputStream
 import org.gradle.api.tasks.Sync
 import org.gradle.api.tasks.bundling.Zip
 import org.gradle.api.tasks.testing.Test
@@ -55,7 +56,6 @@ val architectureMainSourceRoots = listOf(
     "feature/persona/impl/src/main/java",
     "feature/persona/presentation/src/main/java",
         "feature/plugin/api/src/main/java",
-        "feature/plugin/impl/src/main/java",
         "feature/plugin/data/src/main/java",
         "feature/plugin/presentation/src/main/java",
         "feature/plugin/runtime/src/main/java",
@@ -83,6 +83,30 @@ val architectureSourceRootsReportPath = "build/reports/architecture/source-roots
 val architectureDebtReportPath = "build/reports/architecture/debt.txt"
 val globalSingletonAllowlistPath = "app/src/test/resources/architecture/global-singleton-allowlist.txt"
 val staticRepositoryUsageAllowlistPath = "app/src/test/resources/architecture/static-repository-usage-allowlist.txt"
+
+fun trackedMainSourceRoots(project: Project): List<String> {
+    val output = ByteArrayOutputStream()
+    project.exec {
+        commandLine("git", "ls-files")
+        standardOutput = output
+    }
+    return output.toString(Charsets.UTF_8.name())
+        .lineSequence()
+        .map(String::trim)
+        .filter { path -> path.endsWith(".kt") || path.endsWith(".java") }
+        .mapNotNull { path ->
+            val marker = "/src/main/java/"
+            val markerIndex = path.indexOf(marker)
+            if (markerIndex == -1) {
+                null
+            } else {
+                path.substring(0, markerIndex + marker.length - 1)
+            }
+        }
+        .distinct()
+        .sorted()
+        .toList()
+}
 
 plugins {
     id("com.android.application") version "8.13.2" apply false
@@ -245,11 +269,7 @@ tasks.register("architectureSourceRootsReport") {
     outputs.upToDateWhen { false }
 
     doLast {
-        val moduleMainSourceRoots = subprojects
-            .map { project -> project.projectDir.resolve("src/main/java") }
-            .filter { sourceRoot -> sourceRoot.isDirectory }
-            .map { sourceRoot -> sourceRoot.relativeTo(rootDir).path.replace(java.io.File.separatorChar, '/') }
-            .sorted()
+        val moduleMainSourceRoots = trackedMainSourceRoots(project)
         val missingModuleRoots = moduleMainSourceRoots.filterNot { sourceRoot ->
             sourceRoot in architectureMainSourceRoots
         }

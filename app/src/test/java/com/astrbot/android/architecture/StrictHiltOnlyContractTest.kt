@@ -32,7 +32,8 @@ class StrictHiltOnlyContractTest {
         projectRoot.resolve("feature/voiceasset/data/src/main/java/com/astrbot/android"),
         projectRoot.resolve("feature/voiceasset/presentation/src/main/java/com/astrbot/android"),
     ).filter { root -> root.exists() }
-    private val contractDoc: Path = projectRoot.resolve("docs/architecture/post-hilt-a-round1-contract.md")
+    private val contractDoc: Path =
+        projectRoot.resolve("app/src/test/resources/architecture/post-hilt-a-round1-contract.md")
 
     @Test
     fun strict_contract_doc_must_exist_and_capture_frozen_round1_rules() {

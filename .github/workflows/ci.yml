@@ -120,6 +120,7 @@ jobs:
             gradle_tasks: >-
               :feature:chat:api:testDebugUnitTest
               :feature:chat:impl:testDebugUnitTest
+              :feature:chat:runtime:testDebugUnitTest
               :feature:cron:api:testDebugUnitTest
               :feature:cron:impl:testDebugUnitTest
               :feature:cron:data:testDebugUnitTest
