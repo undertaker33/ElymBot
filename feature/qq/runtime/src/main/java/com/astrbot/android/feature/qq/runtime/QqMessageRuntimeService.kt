@@ -58,6 +58,8 @@ internal class QqMessageRuntimeService(
     private val markMessageId: (String) -> Boolean,
     private val scheduleStashReplay: (BotProfile, ConfigProfile, String) -> Unit,
     private val currentLanguageTag: () -> String,
+    private val strings: com.astrbot.android.feature.chat.runtime.botcommand.BotCommandStringResolver =
+        com.astrbot.android.feature.chat.runtime.botcommand.BotCommandStringResolver.fallback,
     private val transcribeAudio: (ProviderProfile, ConversationAttachment) -> String,
     private val profileResolver: QqRuntimeProfileResolver,
     private val botCommandRuntimeService: QqBotCommandRuntimeService,
@@ -196,9 +198,10 @@ internal class QqMessageRuntimeService(
                             conversationId = message.conversationId,
                             messageType = message.messageType,
                             text = com.astrbot.android.feature.chat.runtime.botcommand.BotCommandResources.unsupportedCommand(
-                                parsedBotCommand.name,
-                                currentLanguageTag(),
-                            ),
+                  parsedBotCommand.name,
+                  currentLanguageTag(),
+                  strings,
+              ),
                         ),
                         message,
                     )

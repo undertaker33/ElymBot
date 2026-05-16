@@ -5,6 +5,7 @@ import com.astrbot.android.feature.config.domain.ConfigRepositoryPort
 import com.astrbot.android.feature.chat.runtime.botcommand.BotCommandContext
 import com.astrbot.android.feature.chat.runtime.botcommand.BotCommandRouter
 import com.astrbot.android.feature.chat.runtime.botcommand.BotCommandSource
+import com.astrbot.android.feature.chat.runtime.botcommand.BotCommandStringResolver
 import com.astrbot.android.feature.provider.domain.ProviderRepositoryPort
 import com.astrbot.android.feature.qq.domain.IncomingQqMessage
 import com.astrbot.android.feature.qq.domain.QqConversationPort
@@ -23,6 +24,7 @@ internal class QqBotCommandRuntimeService(
     private val replySender: QqReplySender,
     private val profileResolver: QqRuntimeProfileResolver,
     private val currentLanguageTag: () -> String,
+    private val strings: BotCommandStringResolver = BotCommandStringResolver.fallback,
     private val log: (String) -> Unit = {},
 ) {
     fun handle(
@@ -39,6 +41,7 @@ internal class QqBotCommandRuntimeService(
             context = BotCommandContext(
                 source = BotCommandSource.QQ,
                 languageTag = currentLanguageTag(),
+                strings = strings,
                 sessionId = sessionId,
                 session = session,
                 sessions = conversationPort.sessions(),

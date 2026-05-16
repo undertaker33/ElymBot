@@ -5,12 +5,6 @@ plugins {
 
 android {
     namespace = "com.astrbot.android.feature.chat.runtime"
-
-    sourceSets {
-        getByName("main") {
-            res.srcDir("../../../app/src/main/res")
-        }
-    }
 }
 
 dependencies {
