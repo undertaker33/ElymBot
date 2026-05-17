@@ -11,8 +11,6 @@ captures/
 artifacts/*
 !artifacts/plugins/
 !artifacts/plugins/**
-docs/
-docs/plugins/
 .superpowers/
 .worktrees/
 hs_err_pid15876.log
@@ -22,7 +20,6 @@ replay_pid15876.log
 .codex-home/
 .gradle-user-home/
 文档/*
-docs/superpowers/*
 AGENTS.md
 .codex/*
 __pycache__/

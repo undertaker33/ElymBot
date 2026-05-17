@@ -1,0 +1,20 @@
+{
+  "schema": "uth-governance-project/v1",
+  "enabled": true,
+  "onboarded_at": "2026-05-17T03:31:33+08:00",
+  "onboarding_mode": "existing-project",
+  "docs_root": "docs",
+  "document_language": {
+    "code": "zh-CN",
+    "label": "Simplified Chinese",
+    "source": "user-selected",
+    "selected_at": "2026-05-17T03:31:33+08:00",
+    "applies_to": "governance-docs-and-closeout-reports"
+  },
+  "entrypoints": {
+    "agent": "AGENTS.md",
+    "docs": "docs/README.md",
+    "current_state": "docs/current-state.md",
+    "context": "docs/context/README.md"
+  }
+}

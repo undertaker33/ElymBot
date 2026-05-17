@@ -1,0 +1,315 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://undertaker33.github.io/uth-governance/schemas/uth-closeout-evidence.schema.json",
+  "title": "UTH closeout evidence",
+  "type": "object",
+  "required": ["active_scene"],
+  "properties": {
+    "active_scene": {
+      "enum": [
+        "uth-onboarding",
+        "uth-dev",
+        "uth-debug",
+        "uth-design",
+        "uth-review",
+        "uth-docs",
+        "uth-git",
+        "uth-context-trace"
+      ]
+    },
+    "mode": {
+      "type": "string"
+    },
+    "takeover_scope": {
+      "enum": [
+        "enable-only",
+        "full-takeover"
+      ]
+    },
+    "next_scene": {
+      "type": "string"
+    },
+    "next_mode": {
+      "type": "string"
+    },
+    "changed_files": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "claims": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "lw_final_record_written": {
+      "type": "boolean"
+    },
+    "lw_git_baseline_appended": {
+      "type": "boolean"
+    },
+    "feedback_git_baseline_appended": {
+      "type": "boolean"
+    },
+    "feedback_git_baseline_omitted_reason": {
+      "type": "string"
+    },
+    "context_source_evidence": {
+      "oneOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "context_source_omitted_reason": {
+      "type": "string"
+    },
+    "document_language_selected": {
+      "type": "boolean"
+    },
+    "document_language_persisted": {
+      "type": "boolean"
+    },
+    "document_language_available": {
+      "type": "boolean"
+    },
+    "project_marker_document_language": {
+      "type": "boolean"
+    },
+    "closeout_report_language_applied": {
+      "type": "boolean"
+    },
+    "docs_completion_level": {
+      "enum": [
+        "full-project-docs-complete",
+        "scoped-docs-complete",
+        "blocked",
+        "partial/paused"
+      ]
+    },
+    "full_project_baseline_completed": {
+      "type": "boolean"
+    },
+    "baseline_source_scope": {
+      "oneOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "baseline_excluded_paths": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "baseline_excluded_reason": {
+      "type": "string"
+    },
+    "baseline_still_trusted": {
+      "type": "boolean"
+    },
+    "trusted_full_project_baseline": {
+      "type": "boolean"
+    },
+    "scoped_source_scope": {
+      "type": ["string", "null"]
+    },
+    "scoped_impact_traced": {
+      "type": "boolean"
+    },
+    "takeover_final_closeout": {
+      "type": "boolean"
+    },
+    "docs_followup_completed": {
+      "type": "boolean"
+    },
+    "return_to_onboarding": {
+      "type": "boolean"
+    },
+    "backup_zip_reported_to_user": {
+      "type": "boolean"
+    },
+    "old_docs_unclassified_count": {
+      "type": ["integer", "string", "null"]
+    },
+    "old_docs_unclassified": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "old_docs_unclassified_list": {
+      "oneOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "active_takeover_blockers": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "current_state_cleaned": {
+      "type": "boolean"
+    },
+    "context_rebuilt_or_confirmed": {
+      "type": "boolean"
+    },
+    "cleanup_paths_modified": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "cleanup_paths_verified_in_backup_zip": {
+      "type": "boolean"
+    },
+    "module_split_required": {
+      "type": "boolean"
+    },
+    "module_split_confirmed_by_user": {
+      "type": "boolean"
+    },
+    "module_split_report_written": {
+      "type": "boolean"
+    },
+    "module_context_index_written": {
+      "type": "boolean"
+    },
+    "module_queue": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "module_current": {
+      "type": "string"
+    },
+    "module_completed": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "module_context_report_written": {
+      "type": "boolean"
+    },
+    "module_source_evidence": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "module_pause_after_each_completed": {
+      "type": "boolean"
+    },
+    "paused_for_user_confirmation": {
+      "type": "boolean"
+    },
+    "context_too_long": {
+      "type": "boolean"
+    },
+    "handoff_prompt_for_new_window": {
+      "type": "string"
+    },
+    "resumed_from_new_window": {
+      "type": "boolean"
+    },
+    "read_lw_final_record": {
+      "type": "boolean"
+    },
+    "module_scope": {
+      "type": ["string", "null"]
+    },
+    "git_range": {
+      "type": ["string", "null"]
+    },
+    "commit": {
+      "type": ["string", "null"]
+    },
+    "tag": {
+      "type": ["string", "null"]
+    },
+    "unread_critical_modules": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "unconfirmed_entrypoint_count": {
+      "type": ["integer", "string", "null"]
+    },
+    "unconfirmed_entrypoints": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "unconfirmed_verification_paths": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "unresolved_doc_conflicts": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "verification": {
+      "type": "object",
+      "properties": {
+        "compile_build_pass": {
+          "type": "boolean"
+        },
+        "warnings": {
+          "type": ["integer", "string", "null"]
+        },
+        "exceptions": {
+          "type": ["integer", "string", "null"]
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "waiver_granted": {
+          "type": "boolean"
+        },
+        "waiver_reason": {
+          "type": ["string", "null"]
+        },
+        "user_risk_confirmed": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

@@ -1,0 +1,65 @@
+{
+  "version": "0.1",
+  "default_allowed_writes": [],
+  "scene_write_rules": {
+    "uth-onboarding": [
+      ".uth-governance/project.json",
+      "AGENTS.md",
+      "README.md",
+      "docs/**",
+      "tools/uth-hooks/**"
+    ],
+    "uth-design": [
+      "docs/work/**",
+      "docs/decisions/ADR-*.md",
+      "docs/current-state.md"
+    ],
+    "uth-dev": [
+      "src/**",
+      "app/**",
+      "lib/**",
+      "tests/**",
+      "test/**",
+      "docs/work/**",
+      "docs/LW-Work/**"
+    ],
+    "uth-debug": [
+      "src/**",
+      "app/**",
+      "lib/**",
+      "tests/**",
+      "test/**",
+      "docs/work/**",
+      "docs/LW-Work/**",
+      "docs/current-state.md"
+    ],
+    "uth-review": [
+      "docs/work/**",
+      "docs/current-state.md"
+    ],
+    "uth-docs": [
+      "AGENTS.md",
+      "README.md",
+      "docs/**"
+    ],
+    "uth-git": [
+      "docs/changelogs/**",
+      "docs/LW-Work/**",
+      "docs/work/**"
+    ]
+  },
+  "extra_hard_forbidden": [],
+  "script_guard": {
+    "warn_when_syntax_tool_missing": true,
+    "block_when_script_is_deliverable": true
+  },
+  "utf8_doc_guard": {
+    "mojibake_markers": [
+      "\ufffd",
+      "Ã",
+      "Â",
+      "锟斤拷",
+      "ï»¿"
+    ]
+  }
+}

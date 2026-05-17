@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://undertaker33.github.io/uth-governance/schemas/uth-project-marker.schema.json",
+  "title": "UTH project marker",
+  "type": "object",
+  "required": [
+    "schema",
+    "enabled",
+    "onboarded_at",
+    "onboarding_mode",
+    "docs_root",
+    "entrypoints"
+  ],
+  "properties": {
+    "schema": {
+      "const": "uth-governance-project/v1"
+    },
+    "enabled": {
+      "const": true
+    },
+    "onboarded_at": {
+      "type": "string"
+    },
+    "onboarding_mode": {
+      "enum": ["new-project", "existing-project"]
+    },
+    "docs_root": {
+      "type": "string",
+      "minLength": 1
+    },
+    "document_language": {
+      "type": "object",
+      "required": ["code", "label", "source", "selected_at", "applies_to"],
+      "properties": {
+        "code": {
+          "type": "string",
+          "minLength": 1
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source": {
+          "const": "user-selected"
+        },
+        "selected_at": {
+          "type": "string",
+          "minLength": 1
+        },
+        "applies_to": {
+          "enum": ["governance-docs-and-closeout-reports", "governance-docs"]
+        }
+      },
+      "additionalProperties": true
+    },
+    "entrypoints": {
+      "type": "object",
+      "required": ["agent", "docs", "current_state", "context"],
+      "properties": {
+        "agent": {
+          "type": "string",
+          "minLength": 1
+        },
+        "docs": {
+          "type": "string",
+          "minLength": 1
+        },
+        "current_state": {
+          "type": "string",
+          "minLength": 1
+        },
+        "context": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

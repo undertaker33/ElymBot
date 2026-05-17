@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://undertaker33.github.io/uth-governance/schemas/uth-hook-event.schema.json",
+  "title": "UTH hook event",
+  "type": "object",
+  "required": ["type"],
+  "properties": {
+    "type": {
+      "type": "string",
+      "description": "Hook event type, such as l0-router, l1-process, file-write, git-write, utf8-doc, script-guard, or l3-closeout."
+    },
+    "event_type": {
+      "type": "string"
+    },
+    "active_scene": {
+      "type": "string"
+    },
+    "route_action": {
+      "type": "string"
+    },
+    "engineering_action": {
+      "type": "boolean"
+    },
+    "paths": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "commands": {
+      "oneOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "verification": {
+      "type": "object"
+    },
+    "claims": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "additionalProperties": true
+}

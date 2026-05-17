@@ -1,7 +1,7 @@
 import com.android.build.api.dsl.ApplicationExtension
 import com.android.build.api.dsl.LibraryExtension
 import com.google.devtools.ksp.gradle.KspExtension
-import java.io.ByteArrayOutputStream
+import java.io.File
 import org.gradle.api.tasks.Sync
 import org.gradle.api.tasks.bundling.Zip
 import org.gradle.api.tasks.testing.Test
@@ -83,13 +83,183 @@ val architectureDebtReportPath = "build/reports/architecture/debt.txt"
 val globalSingletonAllowlistPath = "app/src/test/resources/architecture/global-singleton-allowlist.txt"
 val staticRepositoryUsageAllowlistPath = "app/src/test/resources/architecture/static-repository-usage-allowlist.txt"
 
+data class ModuleBuildGroup(
+    val taskPrefix: String,
+    val displayName: String,
+    val modules: List<String>,
+)
+
+val moduleBuildGroups = listOf(
+    ModuleBuildGroup(
+        taskPrefix = "moduleCoreFoundation",
+        displayName = "core foundation",
+        modules = listOf(
+            ":core:common",
+            ":core:backup",
+            ":core:db",
+            ":core:logging",
+            ":core:network",
+            ":core:ui",
+        ),
+    ),
+    ModuleBuildGroup(
+        taskPrefix = "moduleCoreRuntime",
+        displayName = "core runtime",
+        modules = listOf(
+            ":core:runtime",
+            ":core:runtime-audio",
+            ":core:runtime-cache",
+            ":core:runtime-container",
+            ":core:runtime-context",
+            ":core:runtime-llm",
+            ":core:runtime-search",
+            ":core:runtime-secret",
+            ":core:runtime-session",
+            ":core:runtime-tool",
+        ),
+    ),
+    ModuleBuildGroup(
+        taskPrefix = "moduleDownload",
+        displayName = "download",
+        modules = listOf(
+            ":download:api",
+            ":download:impl",
+        ),
+    ),
+    ModuleBuildGroup(
+        taskPrefix = "moduleBot",
+        displayName = "bot",
+        modules = listOf(
+            ":feature:bot:api",
+            ":feature:bot:data",
+            ":feature:bot:impl",
+            ":feature:bot:presentation",
+        ),
+    ),
+    ModuleBuildGroup(
+        taskPrefix = "moduleChat",
+        displayName = "chat",
+        modules = listOf(
+            ":feature:chat:api",
+            ":feature:chat:impl",
+            ":feature:chat:runtime",
+            ":feature:chat:presentation",
+        ),
+    ),
+    ModuleBuildGroup(
+        taskPrefix = "moduleConfig",
+        displayName = "config",
+        modules = listOf(
+            ":feature:config:api",
+            ":feature:config:data",
+            ":feature:config:impl",
+            ":feature:config:presentation",
+        ),
+    ),
+    ModuleBuildGroup(
+        taskPrefix = "moduleConversation",
+        displayName = "conversation",
+        modules = listOf(
+            ":feature:conversation:api",
+            ":feature:conversation:data",
+        ),
+    ),
+    ModuleBuildGroup(
+        taskPrefix = "moduleCron",
+        displayName = "cron",
+        modules = listOf(
+            ":feature:cron:api",
+            ":feature:cron:data",
+            ":feature:cron:impl",
+            ":feature:cron:runtime",
+            ":feature:cron:presentation",
+        ),
+    ),
+    ModuleBuildGroup(
+        taskPrefix = "modulePersona",
+        displayName = "persona",
+        modules = listOf(
+            ":feature:persona:api",
+            ":feature:persona:data",
+            ":feature:persona:impl",
+            ":feature:persona:presentation",
+        ),
+    ),
+    ModuleBuildGroup(
+        taskPrefix = "modulePlugin",
+        displayName = "plugin",
+        modules = listOf(
+            ":feature:plugin:api",
+            ":feature:plugin:data",
+            ":feature:plugin:impl",
+            ":feature:plugin:runtime",
+            ":feature:plugin:presentation",
+        ),
+    ),
+    ModuleBuildGroup(
+        taskPrefix = "moduleProvider",
+        displayName = "provider",
+        modules = listOf(
+            ":feature:provider:api",
+            ":feature:provider:data",
+            ":feature:provider:impl",
+            ":feature:provider:runtime",
+            ":feature:provider:presentation",
+        ),
+    ),
+    ModuleBuildGroup(
+        taskPrefix = "moduleQq",
+        displayName = "qq",
+        modules = listOf(
+            ":feature:qq:api",
+            ":feature:qq:data",
+            ":feature:qq:impl",
+            ":feature:qq:runtime",
+            ":feature:qq:presentation",
+        ),
+    ),
+    ModuleBuildGroup(
+        taskPrefix = "moduleResource",
+        displayName = "resource",
+        modules = listOf(
+            ":feature:resource:api",
+            ":feature:resource:data",
+            ":feature:resource:impl",
+            ":feature:resource:presentation",
+        ),
+    ),
+    ModuleBuildGroup(
+        taskPrefix = "moduleSettings",
+        displayName = "settings",
+        modules = listOf(
+            ":feature:settings:api",
+            ":feature:settings:presentation",
+        ),
+    ),
+    ModuleBuildGroup(
+        taskPrefix = "moduleVoiceAsset",
+        displayName = "voice asset",
+        modules = listOf(
+            ":feature:voiceasset:api",
+            ":feature:voiceasset:data",
+            ":feature:voiceasset:presentation",
+        ),
+    ),
+    ModuleBuildGroup(
+        taskPrefix = "moduleAppShell",
+        displayName = "app shell and integration",
+        modules = listOf(
+            ":app-integration",
+            ":app",
+        ),
+    ),
+)
+
 fun trackedMainSourceRoots(project: Project): List<String> {
-    val output = ByteArrayOutputStream()
-    project.exec {
+    val output = project.providers.exec {
         commandLine("git", "ls-files")
-        standardOutput = output
-    }
-    return output.toString(Charsets.UTF_8.name())
+    }.standardOutput.asText.get()
+    return output
         .lineSequence()
         .map(String::trim)
         .filter { path -> path.endsWith(".kt") || path.endsWith(".java") }
@@ -105,6 +275,36 @@ fun trackedMainSourceRoots(project: Project): List<String> {
         .distinct()
         .sorted()
         .toList()
+}
+
+fun File.hasNestedGitDirectory(): Boolean =
+    walkTopDown().any { file -> file.isDirectory && file.name == ".git" }
+
+fun File.deleteGeneratedDirectorySafely(rootDirectory: File, logger: org.gradle.api.logging.Logger) {
+    if (!exists()) {
+        return
+    }
+    val rootPath = rootDirectory.canonicalFile.toPath()
+    val targetPath = canonicalFile.toPath()
+    check(targetPath.startsWith(rootPath)) {
+        "Refusing to delete a path outside the project root: $this"
+    }
+    if (hasNestedGitDirectory()) {
+        logger.lifecycle("Skipping generated cleanup target with nested Git metadata: $this")
+        return
+    }
+    logger.lifecycle("Deleting generated cleanup target: $this")
+    deleteRecursively()
+}
+
+fun Project.existingTaskPath(vararg candidateTaskNames: String): String {
+    val taskName = candidateTaskNames.firstOrNull { candidateTaskName ->
+        tasks.findByName(candidateTaskName) != null
+    }
+    check(taskName != null) {
+        "None of the expected tasks ${candidateTaskNames.toList()} exist in project $path"
+    }
+    return "$path:$taskName"
 }
 
 plugins {
@@ -247,6 +447,83 @@ tasks.register("preparePluginSampleArtifacts") {
         prepareMemeManagerSamplePluginPackage110,
         prepareMemeManagerSampleCatalog,
     )
+}
+
+tasks.register("cleanGeneratedProjectArtifacts") {
+    group = "cleanup"
+    description = "Deletes generated Gradle/module outputs while preserving local SDKs, docs, worktrees, credentials, and runtime assets."
+
+    doLast {
+        val rootDirectory = layout.projectDirectory.asFile
+
+        subprojects
+            .map { subproject -> subproject.layout.buildDirectory.asFile.get() }
+            .forEach { buildDirectory -> buildDirectory.deleteGeneratedDirectorySafely(rootDirectory, logger) }
+
+        val rootBuildDirectory = layout.buildDirectory.asFile.get()
+        rootBuildDirectory.listFiles()?.forEach { generatedChild ->
+            if (generatedChild.name == "tmp") {
+                generatedChild.listFiles()
+                    ?.forEach { tmpChild -> tmpChild.deleteGeneratedDirectorySafely(rootDirectory, logger) }
+            } else {
+                generatedChild.deleteGeneratedDirectorySafely(rootDirectory, logger)
+            }
+        }
+
+        listOf(
+            layout.projectDirectory.dir("artifacts/apk").asFile,
+            layout.projectDirectory.dir("artifacts/qwen-search-probe").asFile,
+        ).forEach { artifactDirectory ->
+            artifactDirectory.deleteGeneratedDirectorySafely(rootDirectory, logger)
+        }
+    }
+}
+
+moduleBuildGroups.forEach { moduleBuildGroup ->
+    val buildTaskName = "${moduleBuildGroup.taskPrefix}Build"
+    val checkTaskName = "${moduleBuildGroup.taskPrefix}Check"
+
+    tasks.register(buildTaskName) {
+        group = "module build"
+        description = "Builds the ${moduleBuildGroup.displayName} module group artifacts."
+    }
+
+    tasks.register(checkTaskName) {
+        group = "module build"
+        description = "Runs build and verification tasks for the ${moduleBuildGroup.displayName} module group."
+
+        dependsOn(buildTaskName)
+    }
+}
+
+tasks.register("allModuleGroupsBuild") {
+    group = "module build"
+    description = "Builds every ElymBot module group artifact."
+
+    dependsOn(moduleBuildGroups.map { moduleBuildGroup -> "${moduleBuildGroup.taskPrefix}Build" })
+}
+
+tasks.register("allModuleGroupsCheck") {
+    group = "module build"
+    description = "Runs build and verification tasks for every ElymBot module group."
+
+    dependsOn(moduleBuildGroups.map { moduleBuildGroup -> "${moduleBuildGroup.taskPrefix}Check" })
+}
+
+gradle.projectsEvaluated {
+    moduleBuildGroups.forEach { moduleBuildGroup ->
+        tasks.named("${moduleBuildGroup.taskPrefix}Build").configure {
+            moduleBuildGroup.modules.forEach { modulePath ->
+                dependsOn(project(modulePath).existingTaskPath("assembleDebug", "assemble"))
+            }
+        }
+
+        tasks.named("${moduleBuildGroup.taskPrefix}Check").configure {
+            moduleBuildGroup.modules.forEach { modulePath ->
+                dependsOn(project(modulePath).existingTaskPath("check"))
+            }
+        }
+    }
 }
 
 tasks.register("architectureCheck") {

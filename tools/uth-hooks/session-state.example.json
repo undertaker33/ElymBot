@@ -1,0 +1,48 @@
+{
+  "active_scene": "uth-dev",
+  "mode": "light-dev",
+  "scene_declared": true,
+  "ambiguous_state_resolved": true,
+  "brainstorming_invoked": false,
+  "explicit_no_brainstorm_reason": "scope and acceptance are clear",
+  "allowed_writes": [
+    "src/**",
+    "tests/**",
+    "docs/LW-Work/**"
+  ],
+  "forbidden_writes": [
+    "docs/context/**",
+    "docs/archive/**",
+    "skills/**"
+  ],
+  "scope_expansions": [],
+  "user_git_confirmed": false,
+  "verification": {
+    "compile_build_pass": false,
+    "warnings": null,
+    "exceptions": null,
+    "evidence": [],
+    "waiver_granted": false,
+    "waiver_reason": null,
+    "user_risk_confirmed": false
+  },
+  "worker_prompts": [],
+  "uth_sp": {
+    "decision_recorded": false,
+    "selected_methods": [],
+    "hard_triggers": [],
+    "exemptions": [],
+    "no_trigger_reason": null
+  },
+  "needs_context_sync": false,
+  "utf8_guard": {
+    "required": false,
+    "checked_files": []
+  },
+  "script_guard": {
+    "required": false,
+    "checked_files": [],
+    "syntax_checked": [],
+    "syntax_skipped": []
+  }
+}

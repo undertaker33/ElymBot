@@ -158,108 +158,65 @@ ps:有空我会一直更新的
 ## 当前工程结构概览
 
 ```text
-app/
-  schemas/                         Room schema 导出文件
+app/                                Android 应用壳层
+  schemas/                          Room schema 导出
+  src/main/                         Manifest、Application、Activity、主题、assets、jniLibs、Android 资源
+  src/test/                         app 壳层、兼容入口、架构边界与 ViewModel 单元测试
+  src/androidTest/                  Room migration 与页面 smoke test
 
-  src/main/java/com/astrbot/android/
-    core/                          跨模块核心能力
-      common/                      通用工具、日志、Profile 守卫
-      db/                          备份、事务等核心数据库能力
-        backup/                    应用 / 会话备份导入导出
-        transaction/               数据事务边界
-      di/                          核心初始化与依赖入口
-      network/                     通用网络能力
-      runtime/                     核心运行时能力
-        audio/                     TTS / 语音资产 / 编码桥接
-        container/                 容器运行时、NapCat、rootfs、安装控制
-        context/                   RuntimeContext、Prompt 组装、资源投影
-        llm/                       LLM 调用端口、媒体服务、Provider 探测
-        network/                   Runtime 网络传输
-        search/                    Unified Search、搜索 Provider、本地搜索兜底
-        secret/                    运行时 secret 存储
-        session/                   会话锁
-        tool/                      工具合约、工具值归一化
+app-integration/                    生产装配层：Hilt module、feature/core/download 端口绑定、启动链 glue
+architecture-tests/                 跨模块结构合同与 source/dependency guardrail
+build-logic/                        Gradle convention plugin 与共享构建逻辑
 
-    data/                          Room 与兼容数据层
-      db/                          Room Database、DAO、实体、迁移
-        bot/                       Bot 聚合数据
-        config/                    配置聚合数据
-        conversation/              会话聚合数据
-        core/                      DB migration / schema reset
-        cron/                      定时任务数据
-        download/                  下载任务数据
-        persona/                   Persona 聚合数据
-        plugin/                    插件安装、配置、状态数据
-        provider/                  Provider 聚合数据
-        resource/                  Resource Center 数据
-        tts/                       TTS 音色资产数据
-      http/                        HTTP 客户端与请求封装
+core/                               跨 feature 共享基础与运行时能力
+  common/                           通用类型、日志基础、Profile 引用守卫
+  backup/                           备份参与者与备份扩展点
+  db/                               Room database、DAO、实体、迁移、schema 合同
+  logging/                          运行时日志存储、sink、清理设置与维护服务
+  network/                          Runtime network transport
+  ui/                               通用 Compose UI、动作按钮、导航/布局基础
+  runtime/                          旧运行时兼容聚合入口，逐步收口到专用 runtime 模块
+  runtime-audio/                    TTS、STT、Silk、Sherpa ONNX、语音资产运行时桥接
+  runtime-cache/                    运行时缓存清理
+  runtime-container/                容器安装、rootfs、NapCat 容器运行时、桥接健康检查
+  runtime-context/                  RuntimeContext、Prompt 组装、资源投影、Web Search prompt
+  runtime-llm/                      LLM 调用、Provider 探测、媒体请求适配
+  runtime-search/                   Unified Search、搜索 Provider、本地 Meta Search 兜底
+  runtime-secret/                   API Key / secret 持久化与兼容迁移
+  runtime-session/                  会话锁与运行时 session 边界
+  runtime-tool/                     工具合约、ToolSource、JSON 值归一化
 
-    di/                            Hilt 与启动链
-      hilt/                        Hilt Module、端口绑定
-      startup/                     AppStartupChain、启动阶段编排
+download/                           下载能力模块
+  api/                              DownloadManagerPort 与下载模型
+  impl/                             断点续传、前台服务、通知、下载仓库
 
-    download/                      下载任务、断点续传、前台服务、通知
+feature/                            Feature-first 业务模块
+  bot/                              Bot api / data / presentation / impl
+  chat/                             App Chat api / presentation / runtime / impl
+  config/                           配置 api / data / presentation / impl
+  conversation/                     会话 api / data
+  cron/                             定时任务 api / data / presentation / runtime / impl
+  persona/                          Persona api / data / presentation / impl
+  plugin/                           插件 api / data / presentation / runtime / impl
+  provider/                         Provider api / data / presentation / runtime / impl
+  qq/                               QQ / OneBot api / data / presentation / runtime / impl
+  resource/                         Resource Center api / data / presentation / impl
+  settings/                         设置 api / presentation
+  voiceasset/                       声音资产 api / data / presentation
 
-    feature/                       Feature-first 业务模块
-      bot/                         Bot 数据、领域、展示、运行时
-      chat/                        App Chat 数据、领域、模型、展示、运行时
-      config/                      配置数据、领域、展示、运行时
-      cron/                        定时任务数据、领域、展示、运行时
-      persona/                     Persona 数据、领域、展示、运行时
-      plugin/                      插件数据、领域、模型、展示、运行时
-      provider/                    Provider 数据、领域、模型、展示、运行时
-      qq/                          QQ / OneBot 数据、领域、展示、运行时
-      resource/                    Resource Center 数据、领域、模型、展示、运行时
-      settings/                    设置展示层
-      voiceasset/                  声音资产展示层
+docs/                               UTH 背景文档、模块上下文、治理索引与归档
+changelogs/                         面向用户的 What's Changed
+tools/                              本地工具与 UTH hook runner
+gradle/                             Gradle wrapper 配置
+artifacts/                          本地构建 / 测试产物
+logs/                               本地日志
 
-    model/                         跨模块通用模型
-
-    ui/                            应用壳层与通用 Compose UI
-      app/                         应用壳、顶栏、全局视觉辅助
-      common/                      通用 Compose 组件
-      navigation/                  全局 route、导航、转场
-      settings/                    设置入口兼容 UI
-      theme/                       Material typography / theme 定义
-      viewmodel/                   兼容 ViewModel 入口
-
-  src/main/assets/                 运行时脚本、rootfs、模型等资产
-  src/main/jniLibs/                native 运行时资产
-  src/main/res/                    字符串、主题、图标、xml 等 Android 资源
-
-  src/test/java/com/astrbot/android/
-    architecture/                  架构边界与迁移护栏测试
-    core/                          core runtime / db 单元测试
-    data/                          数据层、Room schema、Repository 测试
-    di/                            DI / Hilt / 启动链测试
-    download/                      下载与断点续传测试
-    feature/                       各 feature 模块测试
-    model/                         模型与协议解析测试
-    runtime/                       运行时、插件、OneBot、搜索测试
-    testsupport/                   测试辅助
-    ui/                            UI presentation / ViewModel 测试
-
-  src/androidTest/java/com/astrbot/android/
-    data/db/                       Room migration instrumentation test
-    ui/                            页面 smoke test
-
-docs/                              背景文档仓库
-changelogs/                        按 v0.x.x 聚合的 What's Changed
-
-gradle/                            Gradle wrapper 配置
-tools/                             本地工具脚本
-artifacts/                         构建 / 测试产物
-logs/                              本地日志
-
-README.md                          项目说明
-build.gradle.kts                   根 Gradle 配置
-settings.gradle.kts                Gradle module 配置
-gradle.properties                  Gradle 属性
-gradlew / gradlew.bat              Gradle wrapper
-LICENSE                            开源协议
-
-
+settings.gradle.kts                 Gradle multi-project module 真源
+build.gradle.kts                    根 Gradle 配置、聚合任务、模块组任务
+gradle.properties                   Gradle 属性
+gradlew / gradlew.bat               Gradle wrapper
+README.md                           项目说明
+LICENSE                             开源协议
 ```
 
 ## 构建要求
@@ -270,8 +227,7 @@ LICENSE                            开源协议
 - Android Build Tools 与 AGP 8.5+ 兼容
 
 ## 已知问题
-1. napcat runtime 进度卡 96%。多次点击启动安卓进程冲突导致，临时解决：开始下了就别点启动了，我发现下载不是最大的问题，安装才是；安装取决于手机性能，以8Elite Gen5为基准(约三分钟)，cpu性能每弱20%约慢5分钟(瞎说的，我就两台手机没法测)。
-2. QQ登录态不稳，没招了，安卓底层省电这块
+1. QQ登录态不稳，没招了，安卓底层省电这块
 
 ## 差异说明
 
