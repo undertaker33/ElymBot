@@ -188,7 +188,7 @@ jobs:
             gradle_tasks: >-
               :app:testDebugUnitTest
               --tests
-              'com.astrbot.android.core.common.logging.*'
+              'com.elymbot.android.core.common.logging.*'
           - name: Phase 04 - Container extractor logging
             gradle_tasks: >-
               :app:compileDebugKotlin

@@ -1,0 +1,140 @@
+package com.elymbot.android.feature.qq.runtime
+
+import com.elymbot.android.core.common.logging.RuntimeLogger
+import com.elymbot.android.core.logging.SharedRuntimeLogStore
+import com.elymbot.android.di.runtime.llm.toConversationAttachment
+import com.elymbot.android.di.runtime.llm.toLlmProviderProfile
+import com.elymbot.android.core.runtime.session.ConversationSessionLockManager
+
+internal object QqOneBotBridgeServerTestAccess {
+    private val runtimeDependenciesField = QqOneBotBridgeServer::class.java
+        .getDeclaredField("runtimeDependencies")
+        .apply { isAccessible = true }
+    private val runtimeGraphFactoryField = QqOneBotBridgeServer::class.java
+        .getDeclaredField("runtimeGraphFactoryOverrideForTests")
+        .apply { isAccessible = true }
+
+    fun primeRuntimeDependencies(dependencies: QqOneBotRuntimeDependencies) {
+        runtimeDependenciesField.set(
+            QqOneBotBridgeServer,
+            dependencies.copy(
+                runtimeLogger = RuntimeLogger(SharedRuntimeLogStore::append),
+            ),
+        )
+        runtimeGraphFactoryField.set(QqOneBotBridgeServer, TestQqRuntimeGraphFactory)
+    }
+
+    fun updateRuntimeDependencies(
+        transform: (QqOneBotRuntimeDependencies) -> QqOneBotRuntimeDependencies,
+    ) {
+        val current = runtimeDependenciesField.get(QqOneBotBridgeServer) as? QqOneBotRuntimeDependencies
+            ?: error("QqOneBotBridgeServer requires runtime dependencies before test updates.")
+        runtimeDependenciesField.set(QqOneBotBridgeServer, transform(current))
+    }
+
+    fun clearRuntimeDependencies() {
+        runtimeDependenciesField.set(QqOneBotBridgeServer, null)
+        runtimeGraphFactoryField.set(QqOneBotBridgeServer, null)
+    }
+}
+
+private object TestQqRuntimeGraphFactory : QqRuntimeGraphFactory {
+    override fun create(
+        dependencies: QqOneBotRuntimeDependencies,
+        transport: OneBotReverseWebSocketTransport,
+        appChatPluginRuntime: com.elymbot.android.feature.plugin.runtime.AppChatLlmPipelineRuntime,
+        replyOverrideProvider: () -> ((IncomingMessageEvent, String, List<com.elymbot.android.model.chat.ConversationAttachment>) -> OneBotSendResult)?,
+        filesDirProvider: () -> java.io.File?,
+        rateLimiter: QqRateLimiter,
+        markMessageId: (String) -> Boolean,
+        scheduleStashReplay: (com.elymbot.android.model.BotProfile, com.elymbot.android.model.ConfigProfile, String) -> Unit,
+        currentLanguageTag: () -> String,
+        transcribeAudio: (com.elymbot.android.model.ProviderProfile, com.elymbot.android.model.chat.ConversationAttachment) -> String,
+        resolvePluginPrivateRootPath: (String) -> String,
+        log: (String) -> Unit,
+    ): QqOneBotRuntimeGraph {
+        val outboundGateway = QqOneBotOutboundGateway(
+            transport = transport,
+            botPort = dependencies.botPort,
+            configPort = dependencies.configPort,
+            platformConfigPort = dependencies.platformConfigPort,
+            audioMaterializer = QqAudioAttachmentMaterializer(
+                filesDirProvider = filesDirProvider,
+                encodeSilkAudio = dependencies.silkAudioEncoder,
+                log = log,
+            ),
+            replyOverrideProvider = replyOverrideProvider,
+            log = log,
+        )
+        val replySender = outboundGateway.buildReplySender()
+        val profileResolver = QqRuntimeProfileResolver(
+            botPort = dependencies.botPort,
+            configPort = dependencies.configPort,
+            personaPort = dependencies.personaPort,
+            providerPort = dependencies.providerPort,
+        )
+        val botCommandRuntimeService = QqBotCommandRuntimeService(
+            botPort = dependencies.botPort,
+            configPort = dependencies.configPort,
+            providerPort = dependencies.providerPort,
+            conversationPort = dependencies.conversationPort,
+            replySender = replySender,
+            profileResolver = profileResolver,
+            currentLanguageTag = currentLanguageTag,
+            log = log,
+        )
+        val pluginDispatchService = QqPluginDispatchService(
+            replySender = replySender,
+            profileResolver = profileResolver,
+            resolvePluginPrivateRootPath = resolvePluginPrivateRootPath,
+            hostCapabilityGateway = dependencies.hostCapabilityGateway,
+            hostActionExecutor = dependencies.hostActionExecutor,
+            dispatchEngine = dependencies.pluginV2DispatchEngine,
+            messageDispatchPort = dependencies.pluginMessageDispatchPort,
+            executionService = dependencies.pluginExecutionService,
+            log = log,
+        )
+        val streamingReplyService = QqStreamingReplyService(
+            replySender = replySender,
+            synthesizeSpeech = { provider, text, voiceId, readBracketedContent ->
+                dependencies.llmProviderProbePort.synthesizeSpeech(
+                    provider = provider.toLlmProviderProfile(),
+                    text = text,
+                    voiceId = voiceId,
+                    readBracketedContent = readBracketedContent,
+                ).toConversationAttachment()
+            },
+            log = log,
+        )
+        val runtimeService = QqMessageRuntimeService(
+            configPort = dependencies.configPort,
+            conversationPort = dependencies.conversationPort,
+            platformConfigPort = dependencies.platformConfigPort,
+            orchestrator = dependencies.orchestrator,
+            runtimeContextResolverPort = dependencies.runtimeContextResolverPort,
+            replySender = replySender,
+            llmRuntime = appChatPluginRuntime,
+            providerInvoker = dependencies.providerInvoker,
+            rateLimiter = rateLimiter,
+            markMessageId = markMessageId,
+            scheduleStashReplay = scheduleStashReplay,
+            currentLanguageTag = currentLanguageTag,
+            transcribeAudio = transcribeAudio,
+            profileResolver = profileResolver,
+            botCommandRuntimeService = botCommandRuntimeService,
+            pluginDispatchService = pluginDispatchService,
+            streamingReplyService = streamingReplyService,
+            gatewayFactory = dependencies.gatewayFactory,
+            sessionLockCoordinator = ConversationSessionLockManager,
+            executeLegacyPluginsDuringLlmDispatch = dependencies.executeLegacyPluginsDuringLlmDispatch,
+            log = log,
+        )
+        return QqOneBotRuntimeGraph(
+            outboundGateway = outboundGateway,
+            pluginDispatchService = pluginDispatchService,
+            runtimeService = runtimeService,
+            replySender = replySender,
+            log = log,
+        )
+    }
+}

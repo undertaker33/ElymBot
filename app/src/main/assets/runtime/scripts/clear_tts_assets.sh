@@ -39,7 +39,7 @@ export PROOT_TMP_DIR="$WRITABLE_TMP"
     DEBIAN_FRONTEND=noninteractive \
     /bin/bash -lc '
       set -eu
-      rm -rf /root/.astrbot-tts-sitepackages
-      rm -f /root/.astrbot-tts-assets-ready
+      rm -rf /root/.elymbot-tts-sitepackages
+      rm -f /root/.elymbot-tts-assets-ready
       printf "cleared\n"
     '

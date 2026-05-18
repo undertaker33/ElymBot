@@ -18,8 +18,8 @@ if [ ! -d "$ROOTFS_DIR" ] || [ ! -f "$ROOTFS_DIR/usr/bin/env" ]; then
 fi
 
 LEGACY_ROOT_HOME_DIR="$VAR_DIR/container/root-home"
-LEGACY_TMP_ROOT_HOME_DIR="$VAR_DIR/container/tmp/astrbot-root"
-LEGACY_OPT_ROOT_HOME_DIR="$ROOTFS_DIR/opt/astrbot-root"
+LEGACY_TMP_ROOT_HOME_DIR="$VAR_DIR/container/tmp/elymbot-root"
+LEGACY_OPT_ROOT_HOME_DIR="$ROOTFS_DIR/opt/elymbot-root"
 
 mkdir -p "$ROOTFS_DIR/root" "$ROOT_HOME_DIR"
 
@@ -29,7 +29,7 @@ migrate_tree_if_missing() {
     return 0
   fi
 
-  for name in .bashrc .profile .config .cache .local napcat launcher.sh napcat.sh astrbot_napcat_entry.sh; do
+  for name in .bashrc .profile .config .cache .local napcat launcher.sh napcat.sh elymbot_napcat_entry.sh; do
     if [ -e "$source_dir/$name" ] && [ ! -e "$ROOT_HOME_DIR/$name" ]; then
       cp -R "$source_dir/$name" "$ROOT_HOME_DIR/$name"
     fi
@@ -60,7 +60,7 @@ for name in launcher.sh napcat.sh; do
   fi
 done
 
-cp "$(dirname "$0")/root_launcher.sh" "$ROOT_HOME_DIR/astrbot_napcat_entry.sh"
-chmod +x "$ROOT_HOME_DIR/astrbot_napcat_entry.sh"
+cp "$(dirname "$0")/root_launcher.sh" "$ROOT_HOME_DIR/elymbot_napcat_entry.sh"
+chmod +x "$ROOT_HOME_DIR/elymbot_napcat_entry.sh"
 
 echo "Container bootstrap check passed"

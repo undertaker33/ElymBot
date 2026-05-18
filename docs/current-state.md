@@ -1,6 +1,6 @@
 # 当前项目状态
 
-更新时间：2026-05-17 21:05 +08:00
+更新时间：2026-05-18 18:03 +08:00
 
 ## 接管收尾状态
 
@@ -58,7 +58,7 @@
 ## 当前阻塞
 
 - 文档接管收尾：无活跃阻塞。
-- 代码验证：本轮 `uth-docs` 未运行 Gradle、单元测试或构建命令，不能把本轮文档收尾写成代码验证通过。
+- 当前正式任务 `D26051801`：实现与验证已完成，等待用户验收或进入 `uth-git`。
 - Git：本轮不执行 Git 写入；如需提交文档清理结果，应由用户显式进入 `uth-git`。
 
 ## 最新验证证据
@@ -72,6 +72,12 @@
 | 2026-05-17 21:05 +08:00 | `uth-utf8-guard` post-write | pass | 写入后 58 个 Markdown 文件通过 UTF-8 guard |
 | 2026-05-17 21:05 +08:00 | `tools/uth-hooks/uth-hook.py` L3 closeout | pass | `uth-docs` 收尾与旧文档清理 closeout gate 通过 |
 | 2026-05-17 21:30 +08:00 | changelog anchor scan | pass | 以 `git tag --list 'v*'`、`git log --grep='^Release v[0-9]'` 和 `app/build.gradle.kts` 版本号建立 `docs/changelogs/version-git-anchors.md` 索引；未写发布正文 |
+| 2026-05-18 18:03 +08:00 | `clean architectureCheck` | pass | 首次窄构建命中 stale generated output；清理后架构入口通过 |
+| 2026-05-18 18:03 +08:00 | `:build-logic:check` | pass | Gradle convention / build logic 回归通过 |
+| 2026-05-18 18:03 +08:00 | `:app:testDebugUnitTest` | pass | App debug unit test 回归通过 |
+| 2026-05-18 18:03 +08:00 | `clean assembleDebug` | pass | 日志保存到 `build/reports/D26051801-clean-assembleDebug.log`；warning / deprecated / exception 扫描计数为 0 |
+| 2026-05-18 18:03 +08:00 | legacy exact-name scan | pass | 排除 `.git`、`.worktrees`、`build`、`.gradle`、`bin`、`logs`、APK artifacts 和 zip 后，项目自有旧名精确集合无命中 |
+| 2026-05-18 18:03 +08:00 | `tools/uth-hooks/uth-hook.py` L3 closeout | pass | `uth-dev` / `formal-dev` closeout 通过；positive claim evidence 与 code verification clean |
 
 ## 当前事实来源
 
@@ -88,10 +94,10 @@
 - `build.gradle.kts`
 - `app/build.gradle.kts`
 - `app/src/main/AndroidManifest.xml`
-- `app/src/main/java/com/astrbot/android/AstrBotApplication.kt`
-- `app/src/main/java/com/astrbot/android/MainActivity.kt`
-- `app/src/main/java/com/astrbot/android/di/**`
-- `app/src/main/java/com/astrbot/android/ui/**`
+- `app/src/main/java/com/elymbot/android/ElymBotApplication.kt`
+- `app/src/main/java/com/elymbot/android/MainActivity.kt`
+- `app/src/main/java/com/elymbot/android/di/**`
+- `app/src/main/java/com/elymbot/android/ui/**`
 - `app-integration/src/main/java/**`
 - `architecture-tests/src/test/java/**`
 - `core/**/src/main/java/**`
@@ -108,3 +114,14 @@
 - 验收 / 代码审查：`uth-governance` -> `uth-review`
 - 文档同步：`uth-governance` -> `uth-docs`
 - Git / PR / 发布：`uth-governance` -> `uth-git`
+
+## Active formal task
+
+- Scene: `uth-dev`
+- Mode: `formal-dev`
+- Task package: `docs/work/D26051801-包名统一ElymBot/`
+- Active Todo: `docs/work/D26051801-包名统一ElymBot/10-D26051801-T01-todo-包名统一.md`
+- Feedback: `docs/work/D26051801-包名统一ElymBot/11-D26051801-T01-feedback-包名统一.md`
+- Goal: migrate project-owned historical Android naming and package identity to `ElymBot` / `com.elymbot.android`.
+- Status: implemented and verified; pending human acceptance or `uth-git`.
+- Git status: pending `uth-git`; no Git writes in `uth-dev`.

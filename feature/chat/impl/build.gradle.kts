@@ -3,7 +3,7 @@ plugins {
 }
 
 android {
-    namespace = "com.astrbot.android.feature.chat.impl"
+    namespace = "com.elymbot.android.feature.chat.impl"
 }
 
 dependencies {

@@ -1,0 +1,41 @@
+package com.elymbot.android.feature.qq.runtime
+
+import com.elymbot.android.model.chat.MessageType
+import org.junit.Assert.assertEquals
+import org.junit.Test
+
+class QqSessionKeyFactoryTest {
+    @Test
+    fun group_session_key_changes_when_isolation_enabled() {
+        val normal = QqSessionKeyFactory.build(
+            botId = "qq-main",
+            messageType = MessageType.GroupMessage,
+            groupId = "20001",
+            userId = "10001",
+            isolated = false,
+        )
+        val isolated = QqSessionKeyFactory.build(
+            botId = "qq-main",
+            messageType = MessageType.GroupMessage,
+            groupId = "20001",
+            userId = "10001",
+            isolated = true,
+        )
+
+        assertEquals("qq-qq-main-group-20001", normal)
+        assertEquals("qq-qq-main-group-20001-user-10001", isolated)
+    }
+
+    @Test
+    fun private_session_key_ignores_group_and_isolation_flag() {
+        val sessionId = QqSessionKeyFactory.build(
+            botId = "qq-main",
+            messageType = MessageType.FriendMessage,
+            groupId = "20001",
+            userId = "10001",
+            isolated = true,
+        )
+
+        assertEquals("qq-qq-main-private-10001", sessionId)
+    }
+}

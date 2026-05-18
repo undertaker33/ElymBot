@@ -34,34 +34,34 @@
 - `feature/qq/presentation/src/main/java/**`
 - `feature/qq/runtime/src/main/java/**`
 - `feature/qq/impl/src/test/java/**`
-- `app/src/main/java/com/astrbot/android/di/startup/BootstrapPrerequisitesStartupChain.kt`
-- `app/src/main/java/com/astrbot/android/di/startup/RuntimeLaunchStartupChain.kt`
-- `app/src/main/java/com/astrbot/android/di/hilt/QqRepositoryPortModule.kt`
-- `app/src/main/java/com/astrbot/android/di/hilt/presentation/QqViewModelBindingsModule.kt`
-- `app-integration/src/main/java/com/astrbot/android/di/hilt/QqPhase24PortModule.kt`
-- `app-integration/src/main/java/com/astrbot/android/app/integration/qq/QqContainerBridgeStatePortAdapter.kt`
-- `app-integration/src/main/java/com/astrbot/android/app/integration/qq/QqContainerBridgeStatePortModule.kt`
+- `app/src/main/java/com/elymbot/android/di/startup/BootstrapPrerequisitesStartupChain.kt`
+- `app/src/main/java/com/elymbot/android/di/startup/RuntimeLaunchStartupChain.kt`
+- `app/src/main/java/com/elymbot/android/di/hilt/QqRepositoryPortModule.kt`
+- `app/src/main/java/com/elymbot/android/di/hilt/presentation/QqViewModelBindingsModule.kt`
+- `app-integration/src/main/java/com/elymbot/android/di/hilt/QqPhase24PortModule.kt`
+- `app-integration/src/main/java/com/elymbot/android/app/integration/qq/QqContainerBridgeStatePortAdapter.kt`
+- `app-integration/src/main/java/com/elymbot/android/app/integration/qq/QqContainerBridgeStatePortModule.kt`
 - `app/src/main/AndroidManifest.xml`
 - `app/src/main/res/xml/network_security_config.xml`
 - `app/src/main/assets/runtime/scripts/root_launcher.sh`
 - `app/src/main/assets/runtime/scripts/start_napcat.sh`
 - `app/src/main/assets/runtime/scripts/status_napcat.sh`
 - `app/src/main/assets/runtime/scripts/logout_qq.sh`
-- `core/runtime-container/src/main/java/com/astrbot/android/core/runtime/container/ContainerRuntimeInstaller.kt`
-- `core/runtime-container/src/main/java/com/astrbot/android/core/runtime/container/ContainerBridgeRuntimeSupport.kt`
-- `app/src/test/java/com/astrbot/android/architecture/QqPhase24BoundaryContractTest.kt`
-- `app/src/test/java/com/astrbot/android/architecture/QqOneBotRuntimeGuardrailTest.kt`
-- `app/src/test/java/com/astrbot/android/architecture/NapCatRuntimeScriptContractTest.kt`
-- `app/src/test/java/com/astrbot/android/architecture/AndroidManifestRuntimeContractTest.kt`
+- `core/runtime-container/src/main/java/com/elymbot/android/core/runtime/container/ContainerRuntimeInstaller.kt`
+- `core/runtime-container/src/main/java/com/elymbot/android/core/runtime/container/ContainerBridgeRuntimeSupport.kt`
+- `app/src/test/java/com/elymbot/android/architecture/QqPhase24BoundaryContractTest.kt`
+- `app/src/test/java/com/elymbot/android/architecture/QqOneBotRuntimeGuardrailTest.kt`
+- `app/src/test/java/com/elymbot/android/architecture/NapCatRuntimeScriptContractTest.kt`
+- `app/src/test/java/com/elymbot/android/architecture/AndroidManifestRuntimeContractTest.kt`
 - `app/src/test/resources/architecture/app-integration-allowlist.txt`
 - `app/src/test/resources/architecture/dao-owner-allowlist.txt`
 - `app/src/test/resources/architecture/global-singleton-allowlist.txt`
 - `app/src/test/resources/architecture/runtime-persistence-allowlist.txt`
-- `app/src/test/java/com/astrbot/android/feature/qq/runtime/**`
-- `app/src/test/java/com/astrbot/android/runtime/qq/**`
-- `app/src/test/java/com/astrbot/android/data/NapCat*Test.kt`
-- `app/src/test/java/com/astrbot/android/ui/viewmodel/QQLogin*Test.kt`
-- `app/src/test/java/com/astrbot/android/runtime/OneBot*Test.kt`
+- `app/src/test/java/com/elymbot/android/feature/qq/runtime/**`
+- `app/src/test/java/com/elymbot/android/runtime/qq/**`
+- `app/src/test/java/com/elymbot/android/data/NapCat*Test.kt`
+- `app/src/test/java/com/elymbot/android/ui/viewmodel/QQLogin*Test.kt`
+- `app/src/test/java/com/elymbot/android/runtime/OneBot*Test.kt`
 
 排除路径：
 
@@ -162,7 +162,7 @@
 当前登录链事实：
 
 - `NapCatLoginRepository` 是 Hilt `@Singleton` 实例，不是 static object。
-- `NapCatLoginService` 通过 `AstrBotHttpClient` 访问 NapCat WebUI，登录错误会区分 auth、business reject、malformed response 和 network failure 等类别。
+- `NapCatLoginService` 通过 `ElymBotHttpClient` 访问 NapCat WebUI，登录错误会区分 auth、business reject、malformed response 和 network failure 等类别。
 - `NapCatLoginLocalStore` 使用 `AppPreferenceDao` 与 `SavedQqAccountDao`，迁移旧 `SharedPreferences` quick-login / saved accounts。
 - `QqLoginRepositoryAdapter` 通过 `QqLoginRepositoryPort` 暴露 refresh、QR refresh、quick login、password/captcha/new-device login、logout、backup restore。
 - `NapCatBridgeRepository.kt` 当前主类名是 `NapCatBridgeStateOwner`，实现 `QqBridgeStatePort`，负责 bridge config、runtime state、progress、error 和 legacy bridge config 迁移。
@@ -180,10 +180,10 @@ QQ 登录 UI 当前物理位于 `feature/qq/presentation/src/main/java/**`。
 
 需要注意路径与 package 不完全一致：
 
-- `QQLoginViewModel.kt` 物理在 `feature/qq/presentation`，package 是 `com.astrbot.android.ui.viewmodel`。
-- `QQLoginScreens.kt` / `QqLoginComponents.kt` 物理在 `feature/qq/presentation`，package 仍使用 `com.astrbot.android.ui.qqlogin` 相关入口。
+- `QQLoginViewModel.kt` 物理在 `feature/qq/presentation`，package 是 `com.elymbot.android.ui.viewmodel`。
+- `QQLoginScreens.kt` / `QqLoginComponents.kt` 物理在 `feature/qq/presentation`，package 仍使用 `com.elymbot.android.ui.qqlogin` 相关入口。
 - `QqPresentationBindingsModule` 把 `DefaultQQLoginViewModelBindings` 绑定为 `QQLoginViewModelBindings`。
-- `app/src/main/java/com/astrbot/android/ui/navigation/AstrBotAppScaffoldParts.kt` 通过 `AppDestination.QQAccount` 与 `AppDestination.QQLogin` 接入 QQ account / login 页面。
+- `app/src/main/java/com/elymbot/android/ui/navigation/ElymBotAppScaffoldParts.kt` 通过 `AppDestination.QQAccount` 与 `AppDestination.QQLogin` 接入 QQ account / login 页面。
 
 `QQLoginViewModel` 当前使用 `QQLoginPollingTracker` 管理多个可见登录 screen 的共享 polling job；当 bridge ready、未登录且 QR 为空时会自动触发一次 QR refresh。
 
@@ -225,7 +225,7 @@ QQ runtime 当前通过 API/capability port 消费 plugin 能力：
 `QqPhase24BoundaryContractTest` 明确约束：
 
 - QQ runtime 不依赖 `:feature:plugin:data` 或 `:feature:plugin:runtime`。
-- QQ runtime 生产源码不得 import `com.astrbot.android.feature.plugin.runtime.*`。
+- QQ runtime 生产源码不得 import `com.elymbot.android.feature.plugin.runtime.*`。
 - QQ runtime 不通过 chat runtime 的 `api` 暴露拿到 plugin runtime。
 - QQ runtime 不直接 import `PluginStoragePaths`，而是通过 `PluginWorkspacePathPort` 获取 plugin private root。
 
@@ -245,7 +245,7 @@ LLM 边界：
 - `ContainerRuntimeInstaller` 复制 runtime scripts、native runtime links、runtime assets，并把 bridge defaults 写成 `ws://127.0.0.1:6199/ws` 与 `http://127.0.0.1:6099`。
 - `root_launcher.sh` 优先使用 bundled NapCat/QQ/launcher/offline assets；bundled assets 不完整时 fallback 到 upstream installer 下载。
 - `root_launcher.sh` 对已有安装的 launcher shim 缺失是容忍的，不直接 hard fail。
-- `start_napcat.sh` 通过 proot 启动 Ubuntu rootfs，准备 fake proc binds、apt mirror、runtime env、progress 文件和 `/root/astrbot_napcat_entry.sh`。
+- `start_napcat.sh` 通过 proot 启动 Ubuntu rootfs，准备 fake proc binds、apt mirror、runtime env、progress 文件和 `/root/elymbot_napcat_entry.sh`。
 - `logout_qq.sh` 停止 runtime，但明确不清空 quick-login history。
 - `ContainerBridgeRuntimeSupport` 读取 `runtime/run/napcat_progress*`，并保留 network-install progress label，例如 `download-installer`、`installer-downloaded`、`run-installer`。
 

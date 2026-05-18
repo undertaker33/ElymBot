@@ -15,7 +15,7 @@ if [ ! -f "$INPUT_FILE" ]; then
   exit 4
 fi
 
-MARKER_FILE="$ROOT_HOME_DIR/.astrbot-tts-assets-ready"
+MARKER_FILE="$ROOT_HOME_DIR/.elymbot-tts-assets-ready"
 if [ ! -f "$MARKER_FILE" ]; then
   echo "tts assets are not prepared yet" >&2
   exit 5
@@ -55,12 +55,12 @@ fi
     LANG=en_US.UTF-8 \
     TZ="$ANDROID_TZ" \
     PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
-    ASTRBOT_APP_HOME="$APP_HOME" \
-    ASTRBOT_INPUT_FILE="$INPUT_FILE" \
-    ASTRBOT_OUTPUT_FILE="$OUTPUT_FILE" \
+    ELYMBOT_APP_HOME="$APP_HOME" \
+    ELYMBOT_INPUT_FILE="$INPUT_FILE" \
+    ELYMBOT_OUTPUT_FILE="$OUTPUT_FILE" \
     DEBIAN_FRONTEND=noninteractive \
     /bin/bash -lc '
       set -eu
-      export PYTHONPATH=/root/.astrbot-tts-sitepackages
-      python3 "$ASTRBOT_APP_HOME/runtime/scripts/encode_tencent_silk.py" "$ASTRBOT_INPUT_FILE" "$ASTRBOT_OUTPUT_FILE"
+      export PYTHONPATH=/root/.elymbot-tts-sitepackages
+      python3 "$ELYMBOT_APP_HOME/runtime/scripts/encode_tencent_silk.py" "$ELYMBOT_INPUT_FILE" "$ELYMBOT_OUTPUT_FILE"
     '

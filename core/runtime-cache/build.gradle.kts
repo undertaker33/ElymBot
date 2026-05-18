@@ -3,7 +3,7 @@ plugins {
 }
 
 android {
-    namespace = "com.astrbot.android.core.runtime.cache"
+    namespace = "com.elymbot.android.core.runtime.cache"
 }
 
 dependencies {

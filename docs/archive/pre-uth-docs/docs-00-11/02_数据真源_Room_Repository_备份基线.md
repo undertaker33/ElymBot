@@ -9,9 +9,9 @@
 ## 1. 当前代码基线
 
 - 基线提交：`e495263`（`Release v0.8.5`；本轮覆盖 `d060c5e..e495263`，含 `113dc12 / v0.8.2`、`a6ffa95 / v0.8.3`、`b790abce / v0.8.4`）
-- Room 数据库版本：`AstrBotDatabase.version = 22`
-- 数据库入口：`app/src/main/java/com/astrbot/android/data/db/AstrBotDatabase.kt`
-- schema：`app/schemas/com.astrbot.android.data.db.AstrBotDatabase/22.json`
+- Room 数据库版本：`ElymBotDatabase.version = 22`
+- 数据库入口：`app/src/main/java/com/elymbot/android/data/db/ElymBotDatabase.kt`
+- schema：`app/schemas/com.elymbot.android.data.db.ElymBotDatabase/22.json`
 
 ## 2. 数据层总体结构
 
@@ -35,7 +35,7 @@
 
 ## 3. Room v22 新增/关键实体
 
-`AstrBotDatabase` 当前新增/关键项：
+`ElymBotDatabase` 当前新增/关键项：
 
 - `ConfigProfileEntity.includeScheduledTaskConversationContext`
   - table：`config_profiles`
@@ -196,10 +196,10 @@ App 备份已迁到：
 - `core/db/backup/ConversationBackupRepository.kt`
   - `ConversationBackupService` 是 Hilt 注入入口，私有持有实例级 `ConversationBackupRepository`
   - `ConversationBackupRepository` 不再是生产 `object`
-- `app-integration/src/main/java/com/astrbot/android/di/BackupDataPortAdapter.kt`
+- `app-integration/src/main/java/com/elymbot/android/di/BackupDataPortAdapter.kt`
   - `HiltAppBackupDataPort`
   - `HiltConversationBackupDataPort`
-- `app-integration/src/main/java/com/astrbot/android/di/hilt/BackupModule.kt`
+- `app-integration/src/main/java/com/elymbot/android/di/hilt/BackupModule.kt`
   - 绑定 backup data ports 与 `BackupParticipantRegistry`
 
 当前 core backup contract 仍在：
@@ -272,34 +272,34 @@ Hilt 负责提供 repository port、runtime dependencies、database、transactio
 
 ## 9. 当前测试入口
 
-- `app/src/test/java/com/astrbot/android/data/db/AstrBotDatabaseSchemaContractTest.kt`
-- `app/src/androidTest/java/com/astrbot/android/data/db/AstrBotDatabaseMigrationTest.kt`
-- `app/src/test/java/com/astrbot/android/architecture/PluginConfigStateBoundaryContractTest.kt`
-- `app/src/test/java/com/astrbot/android/feature/plugin/data/config/PluginHostConfigResolverTest.kt`
-- `app/src/test/java/com/astrbot/android/feature/plugin/data/state/PluginStateStoreTest.kt`
-- `app/src/test/java/com/astrbot/android/feature/plugin/domain/cleanup/PluginDataCleanupServiceTest.kt`
-- `app/src/test/java/com/astrbot/android/data/AppBackupRepositoryCompatibilityTest.kt`
-- `app/src/test/java/com/astrbot/android/data/ConversationRepositoryTest.kt`
-- `app/src/test/java/com/astrbot/android/data/HiltViewModelDependenciesTransactionTest.kt`
-- `app/src/test/java/com/astrbot/android/data/FeatureRepositoryPhase3DataTransactionService.kt`
-- `app/src/test/java/com/astrbot/android/data/resource/ResourceCenterCompatibilityTest.kt`
-- `app/src/test/java/com/astrbot/android/data/ResourceCenterRepositoryTest.kt`
-- `app/src/test/java/com/astrbot/android/runtime/cron/CronJobRunCoordinatorTest.kt`
-- `app/src/test/java/com/astrbot/android/feature/cron/domain/CronJobUseCasesTest.kt`
-- `app/src/test/java/com/astrbot/android/feature/bot/data/FeatureBotRepositorySelectedStateTest.kt`
-- `app/src/test/java/com/astrbot/android/feature/config/data/FeatureConfigRepositorySelectedStateTest.kt`
-- `app/src/test/java/com/astrbot/android/data/backup/AppBackupJsonTest.kt`
-- `app/src/test/java/com/astrbot/android/data/backup/AppBackupManifestAdaptersTest.kt`
-- `app/src/test/java/com/astrbot/android/data/backup/ModuleBackupSupportTest.kt`
-- `app/src/test/java/com/astrbot/android/architecture/RepositoryPortSourceContractTest.kt`
-- `app/src/test/java/com/astrbot/android/architecture/HiltFoundationContractTest.kt`
-- `app/src/test/java/com/astrbot/android/architecture/HiltExitContractTest.kt`
+- `app/src/test/java/com/elymbot/android/data/db/ElymBotDatabaseSchemaContractTest.kt`
+- `app/src/androidTest/java/com/elymbot/android/data/db/ElymBotDatabaseMigrationTest.kt`
+- `app/src/test/java/com/elymbot/android/architecture/PluginConfigStateBoundaryContractTest.kt`
+- `app/src/test/java/com/elymbot/android/feature/plugin/data/config/PluginHostConfigResolverTest.kt`
+- `app/src/test/java/com/elymbot/android/feature/plugin/data/state/PluginStateStoreTest.kt`
+- `app/src/test/java/com/elymbot/android/feature/plugin/domain/cleanup/PluginDataCleanupServiceTest.kt`
+- `app/src/test/java/com/elymbot/android/data/AppBackupRepositoryCompatibilityTest.kt`
+- `app/src/test/java/com/elymbot/android/data/ConversationRepositoryTest.kt`
+- `app/src/test/java/com/elymbot/android/data/HiltViewModelDependenciesTransactionTest.kt`
+- `app/src/test/java/com/elymbot/android/data/FeatureRepositoryPhase3DataTransactionService.kt`
+- `app/src/test/java/com/elymbot/android/data/resource/ResourceCenterCompatibilityTest.kt`
+- `app/src/test/java/com/elymbot/android/data/ResourceCenterRepositoryTest.kt`
+- `app/src/test/java/com/elymbot/android/runtime/cron/CronJobRunCoordinatorTest.kt`
+- `app/src/test/java/com/elymbot/android/feature/cron/domain/CronJobUseCasesTest.kt`
+- `app/src/test/java/com/elymbot/android/feature/bot/data/FeatureBotRepositorySelectedStateTest.kt`
+- `app/src/test/java/com/elymbot/android/feature/config/data/FeatureConfigRepositorySelectedStateTest.kt`
+- `app/src/test/java/com/elymbot/android/data/backup/AppBackupJsonTest.kt`
+- `app/src/test/java/com/elymbot/android/data/backup/AppBackupManifestAdaptersTest.kt`
+- `app/src/test/java/com/elymbot/android/data/backup/ModuleBackupSupportTest.kt`
+- `app/src/test/java/com/elymbot/android/architecture/RepositoryPortSourceContractTest.kt`
+- `app/src/test/java/com/elymbot/android/architecture/HiltFoundationContractTest.kt`
+- `app/src/test/java/com/elymbot/android/architecture/HiltExitContractTest.kt`
 
 ## 10. 易错点
 
 - 不要把 `Feature*Repository` 的 `@Deprecated` 误解成不可用；它表示未来应通过 port/use case 访问，但当前仍是真实 singleton 实现。
 - 不要把测试里的 `RepositoryCompatibilityAliases.kt` 当生产兼容层；它在 `src/test`。
-- 不要把旧 `AstrBotAppContainer` / `ElymBotAppContainer` 写成当前 port 装配入口；生产入口是 `AppBootstrapper`，repository port module 是 `di/hilt/RepositoryPortModule.kt`。
+- 不要把旧 `ElymBotAppContainer` / `ElymBotAppContainer` 写成当前 port 装配入口；生产入口是 `AppBootstrapper`，repository port module 是 `di/hilt/RepositoryPortModule.kt`。
 - 不要把 `AppBackupDataRegistry` / `ConversationBackupDataRegistry` 写成现状；当前 production backup ports 在 `app-integration` 的 `BackupDataPortAdapter.kt` + `BackupModule.kt`，由 Hilt 注入到 backup services。
 - 不要把 Bot / Config 当前 selected state 写成“立即改内存字段”；当前真源是 `AppPreferenceDao` + DAO flow。
 - 不要把 `plugin_config_snapshots` 的历史 FK 级联口径写成当前事实；`d060c5e` 后插件配置/状态清理由 `PluginDataCleanupService` 按卸载策略处理。

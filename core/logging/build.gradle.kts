@@ -3,7 +3,7 @@ plugins {
 }
 
 android {
-    namespace = "com.astrbot.android.core.logging"
+    namespace = "com.elymbot.android.core.logging"
 }
 
 dependencies {

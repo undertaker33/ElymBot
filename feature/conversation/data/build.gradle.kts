@@ -3,7 +3,7 @@ plugins {
 }
 
 android {
-    namespace = "com.astrbot.android.feature.conversation.data"
+    namespace = "com.elymbot.android.feature.conversation.data"
 }
 
 dependencies {

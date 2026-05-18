@@ -6,7 +6,7 @@ plugins {
 }
 
 android {
-    namespace = "com.astrbot.android.feature.persona.presentation"
+    namespace = "com.elymbot.android.feature.persona.presentation"
 
     buildFeatures {
         compose = true

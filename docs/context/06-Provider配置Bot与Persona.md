@@ -51,31 +51,31 @@
 - `feature/persona/api/src/main/java/**`
 - `feature/persona/data/src/main/java/**`
 - `feature/persona/presentation/src/main/java/**`
-- `app-integration/src/main/java/com/astrbot/android/app/integration/provider/ProviderRepositoryBindings.kt`
-- `app-integration/src/main/java/com/astrbot/android/app/integration/config/ConfigRepositoryBindings.kt`
-- `app-integration/src/main/java/com/astrbot/android/app/integration/config/ConfigTransactionBindings.kt`
-- `app-integration/src/main/java/com/astrbot/android/app/integration/bot/BotRepositoryBindings.kt`
-- `app-integration/src/main/java/com/astrbot/android/app/integration/persona/PersonaRepositoryBindings.kt`
-- `app-integration/src/main/java/com/astrbot/android/app/integration/profile/ProfileReferenceCheckerBindings.kt`
-- `app-integration/src/main/java/com/astrbot/android/di/BackupDataPortAdapter.kt`
-- `app-integration/src/main/java/com/astrbot/android/di/hilt/SearchRuntimeModule.kt`
-- `app/src/main/java/com/astrbot/android/di/RuntimeContextDataPorts.kt`
-- `core/runtime-context/src/main/java/com/astrbot/android/core/runtime/context/RuntimeContextResolver.kt`
-- `core/runtime-context/src/main/java/com/astrbot/android/core/runtime/context/PromptAssembler.kt`
-- `app/src/test/java/com/astrbot/android/architecture/RepositoryPortSourceContractTest.kt`
-- `app/src/test/java/com/astrbot/android/architecture/FeatureFirstBoundaryContractTest.kt`
-- `app/src/test/java/com/astrbot/android/architecture/FeatureImportBoundaryContractTest.kt`
-- `app/src/test/java/com/astrbot/android/architecture/StaticRepositoryUsageContractTest.kt`
-- `app/src/test/java/com/astrbot/android/architecture/StrictHiltOnlyContractTest.kt`
-- `app/src/test/java/com/astrbot/android/architecture/PostHiltRound1ContractTest.kt`
-- `app/src/test/java/com/astrbot/android/ui/viewmodel/ProviderViewModelTest.kt`
-- `app/src/test/java/com/astrbot/android/ui/viewmodel/ConfigViewModelTest.kt`
-- `app/src/test/java/com/astrbot/android/ui/viewmodel/BotViewModelTest.kt`
-- `app/src/test/java/com/astrbot/android/data/HiltViewModelDependenciesTransactionTest.kt`
-- `app/src/test/java/com/astrbot/android/feature/provider/ProviderCatalogSearchCapabilityTest.kt`
-- `app/src/test/java/com/astrbot/android/feature/config/data/FeatureConfigRepositorySelectedStateTest.kt`
-- `app/src/test/java/com/astrbot/android/feature/bot/data/FeatureBotRepositorySelectedStateTest.kt`
-- `app/src/test/java/com/astrbot/android/data/PersonaRepositoryTest.kt`
+- `app-integration/src/main/java/com/elymbot/android/app/integration/provider/ProviderRepositoryBindings.kt`
+- `app-integration/src/main/java/com/elymbot/android/app/integration/config/ConfigRepositoryBindings.kt`
+- `app-integration/src/main/java/com/elymbot/android/app/integration/config/ConfigTransactionBindings.kt`
+- `app-integration/src/main/java/com/elymbot/android/app/integration/bot/BotRepositoryBindings.kt`
+- `app-integration/src/main/java/com/elymbot/android/app/integration/persona/PersonaRepositoryBindings.kt`
+- `app-integration/src/main/java/com/elymbot/android/app/integration/profile/ProfileReferenceCheckerBindings.kt`
+- `app-integration/src/main/java/com/elymbot/android/di/BackupDataPortAdapter.kt`
+- `app-integration/src/main/java/com/elymbot/android/di/hilt/SearchRuntimeModule.kt`
+- `app/src/main/java/com/elymbot/android/di/RuntimeContextDataPorts.kt`
+- `core/runtime-context/src/main/java/com/elymbot/android/core/runtime/context/RuntimeContextResolver.kt`
+- `core/runtime-context/src/main/java/com/elymbot/android/core/runtime/context/PromptAssembler.kt`
+- `app/src/test/java/com/elymbot/android/architecture/RepositoryPortSourceContractTest.kt`
+- `app/src/test/java/com/elymbot/android/architecture/FeatureFirstBoundaryContractTest.kt`
+- `app/src/test/java/com/elymbot/android/architecture/FeatureImportBoundaryContractTest.kt`
+- `app/src/test/java/com/elymbot/android/architecture/StaticRepositoryUsageContractTest.kt`
+- `app/src/test/java/com/elymbot/android/architecture/StrictHiltOnlyContractTest.kt`
+- `app/src/test/java/com/elymbot/android/architecture/PostHiltRound1ContractTest.kt`
+- `app/src/test/java/com/elymbot/android/ui/viewmodel/ProviderViewModelTest.kt`
+- `app/src/test/java/com/elymbot/android/ui/viewmodel/ConfigViewModelTest.kt`
+- `app/src/test/java/com/elymbot/android/ui/viewmodel/BotViewModelTest.kt`
+- `app/src/test/java/com/elymbot/android/data/HiltViewModelDependenciesTransactionTest.kt`
+- `app/src/test/java/com/elymbot/android/feature/provider/ProviderCatalogSearchCapabilityTest.kt`
+- `app/src/test/java/com/elymbot/android/feature/config/data/FeatureConfigRepositorySelectedStateTest.kt`
+- `app/src/test/java/com/elymbot/android/feature/bot/data/FeatureBotRepositorySelectedStateTest.kt`
+- `app/src/test/java/com/elymbot/android/data/PersonaRepositoryTest.kt`
 
 排除路径：
 
@@ -155,17 +155,17 @@
 - `:feature:config:data` 依赖 `:core:db`、`:feature:config:api` 与 `:feature:resource:api`。
 - `:feature:bot:data` 依赖 `:feature:bot:api` 与 `:feature:config:api`。
 - `:feature:persona:data` 依赖 persona API 与基础 core 依赖。
-- 四个 presentation 模块均启用 Compose + Hilt；`ProviderViewModel`、`ConfigViewModel`、`BotViewModel`、`PersonaViewModel` 仍声明在 `com.astrbot.android.ui.viewmodel` package，不能只按物理路径推断 package。
+- 四个 presentation 模块均启用 Compose + Hilt；`ProviderViewModel`、`ConfigViewModel`、`BotViewModel`、`PersonaViewModel` 仍声明在 `com.elymbot.android.ui.viewmodel` package，不能只按物理路径推断 package。
 
 ## Provider
 
 Provider 当前主真源：
 
-- domain model：`feature/provider/api/src/main/java/com/astrbot/android/feature/provider/domain/model/ProviderProfile.kt`
-- repository port：`feature/provider/api/src/main/java/com/astrbot/android/feature/provider/domain/ProviderRepositoryPort.kt`
-- data store：`feature/provider/data/src/main/java/com/astrbot/android/feature/provider/data/FeatureProviderRepository.kt`
-- port adapter：`feature/provider/data/src/main/java/com/astrbot/android/feature/provider/data/FeatureProviderRepositoryPortAdapter.kt`
-- Hilt binding：`app-integration/src/main/java/com/astrbot/android/app/integration/provider/ProviderRepositoryBindings.kt`
+- domain model：`feature/provider/api/src/main/java/com/elymbot/android/feature/provider/domain/model/ProviderProfile.kt`
+- repository port：`feature/provider/api/src/main/java/com/elymbot/android/feature/provider/domain/ProviderRepositoryPort.kt`
+- data store：`feature/provider/data/src/main/java/com/elymbot/android/feature/provider/data/FeatureProviderRepository.kt`
+- port adapter：`feature/provider/data/src/main/java/com/elymbot/android/feature/provider/data/FeatureProviderRepositoryPortAdapter.kt`
+- Hilt binding：`app-integration/src/main/java/com/elymbot/android/app/integration/provider/ProviderRepositoryBindings.kt`
 
 当前 Provider 事实：
 
@@ -186,9 +186,9 @@ Provider 当前主真源：
 
 当前 Provider runtime 主真源：
 
-- contract：`feature/provider/api/src/main/java/com/astrbot/android/feature/provider/api/runtime/ProviderRuntimePort.kt`
-- implementation：`feature/provider/runtime/src/main/java/com/astrbot/android/feature/provider/runtime/DefaultProviderRuntimePort.kt`
-- Hilt binding：`feature/provider/runtime/src/main/java/com/astrbot/android/feature/provider/runtime/ProviderRuntimeModule.kt`
+- contract：`feature/provider/api/src/main/java/com/elymbot/android/feature/provider/api/runtime/ProviderRuntimePort.kt`
+- implementation：`feature/provider/runtime/src/main/java/com/elymbot/android/feature/provider/runtime/DefaultProviderRuntimePort.kt`
+- Hilt binding：`feature/provider/runtime/src/main/java/com/elymbot/android/feature/provider/runtime/ProviderRuntimeModule.kt`
 
 `ProviderRuntimePort` 当前暴露：
 
@@ -218,11 +218,11 @@ Provider 当前主真源：
 
 Config 当前主真源：
 
-- domain model：`feature/config/api/src/main/java/com/astrbot/android/feature/config/domain/model/ConfigProfile.kt`
-- repository port：`feature/config/api/src/main/java/com/astrbot/android/feature/config/domain/ConfigRepositoryPort.kt`
-- data store：`feature/config/data/src/main/java/com/astrbot/android/feature/config/data/FeatureConfigRepository.kt`
-- port adapter：`feature/config/data/src/main/java/com/astrbot/android/feature/config/data/FeatureConfigRepositoryPortAdapter.kt`
-- Hilt binding：`app-integration/src/main/java/com/astrbot/android/app/integration/config/ConfigRepositoryBindings.kt`
+- domain model：`feature/config/api/src/main/java/com/elymbot/android/feature/config/domain/model/ConfigProfile.kt`
+- repository port：`feature/config/api/src/main/java/com/elymbot/android/feature/config/domain/ConfigRepositoryPort.kt`
+- data store：`feature/config/data/src/main/java/com/elymbot/android/feature/config/data/FeatureConfigRepository.kt`
+- port adapter：`feature/config/data/src/main/java/com/elymbot/android/feature/config/data/FeatureConfigRepositoryPortAdapter.kt`
+- Hilt binding：`app-integration/src/main/java/com/elymbot/android/app/integration/config/ConfigRepositoryBindings.kt`
 
 当前 Config 事实：
 
@@ -245,11 +245,11 @@ Runtime context 关系：
 
 Bot 当前主真源：
 
-- domain model：`feature/bot/api/src/main/java/com/astrbot/android/feature/bot/domain/model/BotProfile.kt`
-- repository port：`feature/bot/api/src/main/java/com/astrbot/android/feature/bot/domain/BotRepositoryPort.kt`
-- data store：`feature/bot/data/src/main/java/com/astrbot/android/feature/bot/data/FeatureBotRepository.kt`
-- port adapter：`feature/bot/data/src/main/java/com/astrbot/android/feature/bot/data/FeatureBotRepositoryPortAdapter.kt`
-- Hilt binding：`app-integration/src/main/java/com/astrbot/android/app/integration/bot/BotRepositoryBindings.kt`
+- domain model：`feature/bot/api/src/main/java/com/elymbot/android/feature/bot/domain/model/BotProfile.kt`
+- repository port：`feature/bot/api/src/main/java/com/elymbot/android/feature/bot/domain/BotRepositoryPort.kt`
+- data store：`feature/bot/data/src/main/java/com/elymbot/android/feature/bot/data/FeatureBotRepository.kt`
+- port adapter：`feature/bot/data/src/main/java/com/elymbot/android/feature/bot/data/FeatureBotRepositoryPortAdapter.kt`
+- Hilt binding：`app-integration/src/main/java/com/elymbot/android/app/integration/bot/BotRepositoryBindings.kt`
 
 当前 Bot 事实：
 
@@ -263,12 +263,12 @@ Bot 当前主真源：
 
 Persona 当前主真源：
 
-- domain model：`feature/persona/api/src/main/java/com/astrbot/android/feature/persona/domain/model/PersonaProfile.kt`
-- tool snapshot：`feature/persona/api/src/main/java/com/astrbot/android/feature/persona/domain/model/PersonaToolEnablementSnapshot.kt`
-- repository port：`feature/persona/api/src/main/java/com/astrbot/android/feature/persona/domain/PersonaRepositoryPort.kt`
-- data store：`feature/persona/data/src/main/java/com/astrbot/android/feature/persona/data/FeaturePersonaRepository.kt`
-- port adapter：`feature/persona/data/src/main/java/com/astrbot/android/feature/persona/data/FeaturePersonaRepositoryPortAdapter.kt`
-- Hilt binding：`app-integration/src/main/java/com/astrbot/android/app/integration/persona/PersonaRepositoryBindings.kt`
+- domain model：`feature/persona/api/src/main/java/com/elymbot/android/feature/persona/domain/model/PersonaProfile.kt`
+- tool snapshot：`feature/persona/api/src/main/java/com/elymbot/android/feature/persona/domain/model/PersonaToolEnablementSnapshot.kt`
+- repository port：`feature/persona/api/src/main/java/com/elymbot/android/feature/persona/domain/PersonaRepositoryPort.kt`
+- data store：`feature/persona/data/src/main/java/com/elymbot/android/feature/persona/data/FeaturePersonaRepository.kt`
+- port adapter：`feature/persona/data/src/main/java/com/elymbot/android/feature/persona/data/FeaturePersonaRepositoryPortAdapter.kt`
+- Hilt binding：`app-integration/src/main/java/com/elymbot/android/app/integration/persona/PersonaRepositoryBindings.kt`
 
 当前 Persona 事实：
 
@@ -281,9 +281,9 @@ Persona 当前主真源：
 
 当前事务入口：
 
-- `feature/config/api/src/main/java/com/astrbot/android/feature/config/domain/Phase3DataTransactionService.kt`
-- `feature/config/data/src/main/java/com/astrbot/android/feature/config/data/RoomPhase3DataTransactionService.kt`
-- `app-integration/src/main/java/com/astrbot/android/app/integration/config/ConfigTransactionBindings.kt`
+- `feature/config/api/src/main/java/com/elymbot/android/feature/config/domain/Phase3DataTransactionService.kt`
+- `feature/config/data/src/main/java/com/elymbot/android/feature/config/data/RoomPhase3DataTransactionService.kt`
+- `app-integration/src/main/java/com/elymbot/android/app/integration/config/ConfigTransactionBindings.kt`
 
 当前事务事实：
 
@@ -341,7 +341,7 @@ Persona 当前主真源：
 - `RoomPhase3DataTransactionService.kt` 中默认 app chat session title 的中文字符串在源码显示上需要后续代码场景核对；本场景不修改代码，不把它当作已修复问题。
 - Provider / Persona 删除保护依赖当前 Hilt 注入的 reference checker；绕过 checker 或恢复静态 registry 都是回归。
 - Bot / Config selected state 的真源是 AppPreference flow；把 `select(...)` 写成同步改内存状态会与当前 selected-state tests 冲突。
-- 四个 presentation ViewModel 的物理路径已经在 feature 下，但 package 仍是 `com.astrbot.android.ui.viewmodel`；不要只按路径推断 import/package。
+- 四个 presentation ViewModel 的物理路径已经在 feature 下，但 package 仍是 `com.elymbot.android.ui.viewmodel`；不要只按路径推断 import/package。
 - 本轮未运行 Gradle 或测试，因此不能把本模块状态扩展为构建通过或测试通过。
 
 ## 旧文档判断

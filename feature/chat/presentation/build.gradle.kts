@@ -6,7 +6,7 @@ plugins {
 }
 
 android {
-    namespace = "com.astrbot.android.feature.chat.presentation"
+    namespace = "com.elymbot.android.feature.chat.presentation"
 
     sourceSets {
         getByName("main").res.directories.add("../../../app/src/main/res")

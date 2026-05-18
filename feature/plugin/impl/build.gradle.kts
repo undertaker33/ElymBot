@@ -3,7 +3,7 @@ plugins {
 }
 
 android {
-    namespace = "com.astrbot.android.feature.plugin.impl"
+    namespace = "com.elymbot.android.feature.plugin.impl"
 
     sourceSets {
         getByName("main") {

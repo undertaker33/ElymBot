@@ -86,17 +86,17 @@ fi
     LANG=en_US.UTF-8 \
     TZ="$ANDROID_TZ" \
     PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
-    ASTRBOT_HTTP_PROXY="$HTTP_PROXY_VALUE" \
+    ELYMBOT_HTTP_PROXY="$HTTP_PROXY_VALUE" \
     DEBIAN_FRONTEND=noninteractive \
     /bin/bash -lc '
       set -eu
-      if [ -n "${ASTRBOT_HTTP_PROXY:-}" ]; then
-        export http_proxy="$ASTRBOT_HTTP_PROXY"
-        export https_proxy="$ASTRBOT_HTTP_PROXY"
-        export HTTP_PROXY="$ASTRBOT_HTTP_PROXY"
-        export HTTPS_PROXY="$ASTRBOT_HTTP_PROXY"
-        export all_proxy="$ASTRBOT_HTTP_PROXY"
-        export ALL_PROXY="$ASTRBOT_HTTP_PROXY"
+      if [ -n "${ELYMBOT_HTTP_PROXY:-}" ]; then
+        export http_proxy="$ELYMBOT_HTTP_PROXY"
+        export https_proxy="$ELYMBOT_HTTP_PROXY"
+        export HTTP_PROXY="$ELYMBOT_HTTP_PROXY"
+        export HTTPS_PROXY="$ELYMBOT_HTTP_PROXY"
+        export all_proxy="$ELYMBOT_HTTP_PROXY"
+        export ALL_PROXY="$ELYMBOT_HTTP_PROXY"
       fi
 
       if ! command -v python3 >/dev/null 2>&1; then
@@ -112,10 +112,10 @@ fi
         apt-get -o APT::Sandbox::User=root install -y ffmpeg
       fi
 
-      SITE_PACKAGES_DIR=/root/.astrbot-tts-sitepackages
-      MARKER_FILE=/root/.astrbot-tts-assets-ready
+      SITE_PACKAGES_DIR=/root/.elymbot-tts-sitepackages
+      MARKER_FILE=/root/.elymbot-tts-assets-ready
       PROXY_STATUS="none"
-      if [ -n "${ASTRBOT_HTTP_PROXY:-}" ]; then
+      if [ -n "${ELYMBOT_HTTP_PROXY:-}" ]; then
         PROXY_STATUS="detected"
       fi
 
@@ -139,7 +139,7 @@ fi
       }
 
       SELECTED_MIRROR=""
-      if [ -n "${ASTRBOT_HTTP_PROXY:-}" ]; then
+      if [ -n "${ELYMBOT_HTTP_PROXY:-}" ]; then
         install_pilk "PyPI" "" ||
           install_pilk "Tsinghua" "https://pypi.tuna.tsinghua.edu.cn/simple" ||
           install_pilk "Aliyun" "https://mirrors.aliyun.com/pypi/simple"
@@ -155,5 +155,5 @@ fi
       fi
 
       printf "ready\n" > "$MARKER_FILE"
-      printf "ASTRBOT_TTS_ASSET_SUMMARY: Proxy %s; mirror %s.\n" "$PROXY_STATUS" "$SELECTED_MIRROR"
+      printf "ELYMBOT_TTS_ASSET_SUMMARY: Proxy %s; mirror %s.\n" "$PROXY_STATUS" "$SELECTED_MIRROR"
     '

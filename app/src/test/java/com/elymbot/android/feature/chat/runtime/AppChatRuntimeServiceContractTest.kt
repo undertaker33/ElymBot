@@ -1,0 +1,117 @@
+package com.elymbot.android.feature.chat.runtime
+
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import java.io.File
+
+/**
+ * Source-scanning contract test for [AppChatRuntimeService].
+ *
+ * Verifies that runtime orchestration logic lives in the service
+ * and NOT in the ViewModel after migration (Task 6).
+ */
+class AppChatRuntimeServiceContractTest {
+
+    private val projectRoot = detectProjectRoot()
+    private val sourceRoots = listOf(
+        File(projectRoot, "feature/chat/runtime/src/main/java/com/elymbot/android"),
+        File(projectRoot, "feature/chat/presentation/src/main/java/com/elymbot/android"),
+        File(projectRoot, "app/src/main/java/com/elymbot/android"),
+        File(projectRoot, "src/main/java/com/elymbot/android"),
+    )
+
+    /**
+     * AppChatRuntimeService must depend on the injected runtime context resolver seam
+     * and RuntimeLlmOrchestratorPort, not the old static resolver.
+     */
+    @Test
+    fun `service imports runtime context resolver and orchestrator port`() {
+        val serviceFile = productionFile("feature/chat/runtime/AppChatRuntimeService.kt")
+        assertTrue("AppChatRuntimeService.kt must exist", serviceFile.exists())
+        val text = serviceFile.readText()
+        assertTrue(
+            "AppChatRuntimeService must use the injected runtime context resolver port",
+            text.contains("chatDependencies.runtimeContextResolverPort.resolve("),
+        )
+        assertTrue(
+            "Must import RuntimeLlmOrchestratorPort",
+            text.contains("import com.elymbot.android.feature.plugin.domain.runtime.RuntimeLlmOrchestratorPort"),
+        )
+        assertTrue(
+            "AppChatRuntimeService must not import the static RuntimeContextResolver or RuntimeOrchestrator compatibility shell",
+            !text.contains("import com.elymbot.android.core.runtime.context.RuntimeContextResolver") &&
+                !text.contains("import com.elymbot.android.feature.plugin.runtime.RuntimeOrchestrator"),
+        )
+    }
+
+    /**
+     * ChatViewModel must NOT import RuntimeContextResolver or RuntimeOrchestrator
+     * after migration. This test is expected to FAIL until Task 6 removes the
+     * imports from ChatViewModel.
+     */
+    @Test
+    fun `chatViewModel does not import runtime resolver or orchestrator`() {
+        val viewModelFile = productionFile("feature/chat/presentation/ChatViewModel.kt")
+        assertTrue("ChatViewModel.kt must exist", viewModelFile.exists())
+        val text = viewModelFile.readText()
+        assertTrue(
+            "ChatViewModel must NOT import RuntimeContextResolver",
+            !text.contains("import com.elymbot.android.core.runtime.context.RuntimeContextResolver"),
+        )
+        assertTrue(
+            "ChatViewModel must NOT import RuntimeOrchestrator",
+            !text.contains("import com.elymbot.android.feature.plugin.runtime.RuntimeOrchestrator"),
+        )
+    }
+
+    @Test
+    fun `app chat runtime helper services exist after phase 3 extraction`() {
+        val required = listOf(
+            "feature/chat/runtime/AppChatProviderInvocationService.kt",
+            "feature/chat/runtime/AppChatPreparedReplyService.kt",
+        )
+        val missing = required.filterNot { relativePath ->
+            productionFileOrNull(relativePath)?.exists() == true
+        }
+        assertTrue("Missing App Chat runtime helper services: $missing", missing.isEmpty())
+    }
+
+    @Test
+    fun `service does not directly invoke provider tool APIs after extraction`() {
+        val serviceFile = productionFile("feature/chat/runtime/AppChatRuntimeService.kt")
+        assertTrue("AppChatRuntimeService.kt must exist", serviceFile.exists())
+        val text = serviceFile.readText()
+        assertTrue(
+            "AppChatRuntimeService must not call sendConfiguredChatWithTools directly after phase 3 extraction",
+            !text.contains("sendConfiguredChatWithTools"),
+        )
+        assertTrue(
+            "AppChatRuntimeService must not call sendConfiguredChatStreamWithTools directly after phase 3 extraction",
+            !text.contains("sendConfiguredChatStreamWithTools"),
+        )
+    }
+
+    private fun productionFile(relativePath: String): File {
+        return productionFileOrNull(relativePath)
+            ?: error("Missing production file: $relativePath")
+    }
+
+    private fun productionFileOrNull(relativePath: String): File? {
+        return sourceRoots
+            .map { sourceRoot -> sourceRoot.resolve(relativePath) }
+            .firstOrNull { file -> file.exists() }
+    }
+
+    private fun detectProjectRoot(): File {
+        var current = File("").absoluteFile
+        while (current.parentFile != null) {
+            if (current.resolve("settings.gradle.kts").exists() ||
+                current.resolve("settings.gradle").exists()
+            ) {
+                return current
+            }
+            current = requireNotNull(current.parentFile)
+        }
+        error("Unable to locate project root from ${File("").absolutePath}")
+    }
+}

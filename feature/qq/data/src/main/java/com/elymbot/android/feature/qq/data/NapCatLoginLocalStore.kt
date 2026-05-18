@@ -1,0 +1,215 @@
+package com.elymbot.android.feature.qq.data
+
+import android.content.Context
+import android.content.SharedPreferences
+import com.elymbot.android.data.db.AppPreferenceDao
+import com.elymbot.android.data.db.AppPreferenceEntity
+import com.elymbot.android.data.db.ElymBotDatabase
+import com.elymbot.android.data.db.SavedQqAccountDao
+import com.elymbot.android.data.db.SavedQqAccountEntity
+import com.elymbot.android.feature.qq.domain.QqLoginStateBootstrapper
+import com.elymbot.android.feature.qq.domain.model.SavedQqAccount
+import dagger.hilt.android.qualifiers.ApplicationContext
+import javax.inject.Inject
+import javax.inject.Singleton
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runBlocking
+import org.json.JSONArray
+import org.json.JSONObject
+
+@Singleton
+internal class NapCatLoginLocalStoreOwner @Inject constructor(
+    localStore: NapCatLoginLocalStore,
+    qqLoginRepository: QqLoginRepositoryAdapter,
+) : QqLoginStateBootstrapper {
+    init {
+        qqLoginRepository.bootstrapFromLocalStore(
+            quickLoginUin = localStore.loadSavedQuickLoginUin(),
+            savedAccounts = localStore.loadSavedAccounts(),
+        )
+    }
+
+    override fun ensureReady() = Unit
+}
+
+@Singleton
+class NapCatLoginLocalStore private constructor(
+    private val appContext: Context,
+    private val appPreferenceDao: AppPreferenceDao,
+    private val savedQqAccountDao: SavedQqAccountDao,
+    @Suppress("UNUSED_PARAMETER") constructorMarker: Unit,
+) {
+    private val legacyPreferences: SharedPreferences =
+        appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+
+    private var cachedQuickLoginUin: String = ""
+    private var cachedAccounts: List<SavedQqAccount> = emptyList()
+
+    init {
+        runBlocking(Dispatchers.IO) {
+            migrateLegacyStateIfNeeded()
+            cachedQuickLoginUin = appPreferenceDao.getValue(PREF_QUICK_LOGIN_UIN).orEmpty().trim()
+            cachedAccounts = savedQqAccountDao.listAccounts().map(SavedQqAccountEntity::toModel)
+        }
+    }
+
+    @Inject
+    constructor(
+        @ApplicationContext appContext: Context,
+        database: ElymBotDatabase,
+    ) : this(
+        appContext = appContext.applicationContext,
+        appPreferenceDao = database.appPreferenceDao(),
+        savedQqAccountDao = database.savedQqAccountDao(),
+        constructorMarker = Unit,
+    )
+
+    constructor(
+        appContext: Context,
+        appPreferenceDao: AppPreferenceDao,
+        savedQqAccountDao: SavedQqAccountDao,
+    ) : this(
+        appContext = appContext.applicationContext,
+        appPreferenceDao = appPreferenceDao,
+        savedQqAccountDao = savedQqAccountDao,
+        constructorMarker = Unit,
+    )
+
+    fun saveQuickLoginUin(uin: String) {
+        val cleanedUin = uin.trim()
+        if (cleanedUin.isBlank()) return
+        cachedQuickLoginUin = cleanedUin
+        runBlocking(Dispatchers.IO) {
+            appPreferenceDao.upsert(
+                AppPreferenceEntity(
+                    key = PREF_QUICK_LOGIN_UIN,
+                    value = cleanedUin,
+                    updatedAt = System.currentTimeMillis(),
+                ),
+            )
+        }
+    }
+
+    fun loadSavedQuickLoginUin(): String {
+        return cachedQuickLoginUin
+    }
+
+    fun loadSavedAccounts(): List<SavedQqAccount> {
+        return cachedAccounts
+    }
+
+    fun requireAppContext(): Context {
+        return appContext
+    }
+
+    fun persistSavedAccounts(accounts: List<SavedQqAccount>) {
+        val normalized = normalizeAccounts(accounts)
+        cachedAccounts = normalized
+        runBlocking(Dispatchers.IO) {
+            if (normalized.isEmpty()) {
+                savedQqAccountDao.clearAll()
+            } else {
+                val entities = normalized.mapIndexed { index, account -> account.toEntity(sortIndex = index) }
+                savedQqAccountDao.upsertAll(entities)
+                savedQqAccountDao.deleteMissing(entities.map { it.uin })
+            }
+        }
+    }
+
+    fun mergeSavedAccounts(
+        localAccounts: List<SavedQqAccount>,
+        remoteAccounts: List<SavedQqAccount>,
+    ): List<SavedQqAccount> {
+        val merged = localAccounts.toMutableList()
+        remoteAccounts.forEach { mergedAccount ->
+            val existingIndex = merged.indexOfFirst { it.uin == mergedAccount.uin }
+            if (existingIndex >= 0) {
+                val existing = merged[existingIndex]
+                merged[existingIndex] = existing.copy(
+                    nickName = mergedAccount.nickName.ifBlank { existing.nickName },
+                    avatarUrl = mergedAccount.avatarUrl.ifBlank { existing.avatarUrl },
+                )
+            } else {
+                merged += mergedAccount
+            }
+        }
+        return normalizeAccounts(merged)
+    }
+
+    fun upsertSavedAccount(
+        accounts: List<SavedQqAccount>,
+        account: SavedQqAccount,
+    ): List<SavedQqAccount> {
+        val cleanedUin = account.uin.trim()
+        if (cleanedUin.isBlank()) return accounts
+        val updated = mutableListOf(
+            SavedQqAccount(
+                uin = cleanedUin,
+                nickName = account.nickName.trim(),
+                avatarUrl = account.avatarUrl.trim(),
+            ),
+        )
+        accounts.forEach { existing ->
+            if (existing.uin != cleanedUin) {
+                updated += existing
+            }
+        }
+        val normalized = normalizeAccounts(updated)
+        persistSavedAccounts(normalized)
+        return normalized
+    }
+
+    private suspend fun migrateLegacyStateIfNeeded() {
+        if (appPreferenceDao.getValue(PREF_LEGACY_QQ_LOGIN_MIGRATED) == "true") return
+        val quickLoginUin = legacyPreferences.getString(KEY_LAST_QUICK_LOGIN_UIN, null).orEmpty().trim()
+        val savedAccounts = parseLegacySavedQqAccounts(
+            legacyPreferences.getString(KEY_SAVED_ACCOUNTS, null),
+        )
+        if (quickLoginUin.isNotBlank()) {
+            appPreferenceDao.upsert(
+                AppPreferenceEntity(
+                    key = PREF_QUICK_LOGIN_UIN,
+                    value = quickLoginUin,
+                    updatedAt = System.currentTimeMillis(),
+                ),
+            )
+        }
+        if (savedAccounts.isNotEmpty()) {
+            val entities = savedAccounts.mapIndexed { index, account -> account.toEntity(sortIndex = index) }
+            savedQqAccountDao.upsertAll(entities)
+            savedQqAccountDao.deleteMissing(entities.map { it.uin })
+        }
+        appPreferenceDao.upsert(
+            AppPreferenceEntity(
+                key = PREF_LEGACY_QQ_LOGIN_MIGRATED,
+                value = "true",
+                updatedAt = System.currentTimeMillis(),
+            ),
+        )
+    }
+
+    private fun normalizeAccounts(accounts: List<SavedQqAccount>): List<SavedQqAccount> {
+        return accounts
+            .mapNotNull { account ->
+                val uin = account.uin.trim()
+                if (uin.isBlank()) {
+                    null
+                } else {
+                    SavedQqAccount(
+                        uin = uin,
+                        nickName = account.nickName.trim(),
+                        avatarUrl = account.avatarUrl.trim(),
+                    )
+                }
+            }
+            .distinctBy { it.uin }
+    }
+
+    private companion object {
+        const val PREFS_NAME = "napcat_login_state"
+        const val KEY_LAST_QUICK_LOGIN_UIN = "last_quick_login_uin"
+        const val KEY_SAVED_ACCOUNTS = "saved_accounts"
+        const val PREF_QUICK_LOGIN_UIN = "qq_login_quick_uin"
+        const val PREF_LEGACY_QQ_LOGIN_MIGRATED = "legacy_qq_login_migrated"
+    }
+}

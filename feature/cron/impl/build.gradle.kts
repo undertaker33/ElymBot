@@ -3,7 +3,7 @@ plugins {
 }
 
 android {
-    namespace = "com.astrbot.android.feature.cron.impl"
+    namespace = "com.elymbot.android.feature.cron.impl"
 
     sourceSets {
         getByName("main") {

@@ -1,0 +1,472 @@
+package com.elymbot.android.feature.cron.runtime
+
+import com.elymbot.android.core.common.logging.RuntimeLogger
+import com.elymbot.android.core.runtime.context.ResolvedRuntimeContext
+import com.elymbot.android.core.runtime.context.RuntimeContextDataPort
+import com.elymbot.android.core.runtime.context.RuntimeContextResolver
+import com.elymbot.android.core.runtime.context.RuntimeContextResolverPort
+import com.elymbot.android.core.runtime.context.RuntimeIngressEvent
+import com.elymbot.android.core.runtime.context.RuntimeBotSnapshot
+import com.elymbot.android.core.runtime.context.RuntimeConfigSnapshot
+import com.elymbot.android.core.runtime.context.RuntimeConversationSessionSnapshot
+import com.elymbot.android.core.runtime.context.RuntimeProviderSnapshot
+import com.elymbot.android.core.runtime.context.RuntimeResourceCenterCompatibilitySnapshot
+import com.elymbot.android.core.runtime.llm.LlmClientPort
+import com.elymbot.android.core.runtime.llm.LlmInvocationRequest
+import com.elymbot.android.core.runtime.llm.LlmInvocationResult
+import com.elymbot.android.core.runtime.llm.LlmStreamEvent
+import com.elymbot.android.feature.bot.domain.BotRepositoryPort
+import com.elymbot.android.feature.conversation.domain.ConversationRepositoryPort
+import com.elymbot.android.feature.plugin.runtime.AppChatLlmPipelineRuntime
+import com.elymbot.android.feature.plugin.runtime.LlmPipelineAdmission
+import com.elymbot.android.feature.plugin.runtime.PlatformLlmCallbacks
+import com.elymbot.android.feature.plugin.runtime.PluginHostCapabilityGateway
+import com.elymbot.android.feature.plugin.runtime.PluginLlmResponse
+import com.elymbot.android.feature.plugin.runtime.PluginMessageEvent
+import com.elymbot.android.feature.plugin.runtime.PluginMessageEventResult
+import com.elymbot.android.feature.plugin.runtime.PluginProviderRequest
+import com.elymbot.android.feature.plugin.runtime.PluginV2AfterSentView
+import com.elymbot.android.feature.plugin.runtime.PluginV2EventResultCoordinator
+import com.elymbot.android.feature.plugin.runtime.PluginV2HostLlmDeliveryResult
+import com.elymbot.android.feature.plugin.runtime.PluginV2HostLlmDeliveryRequest
+import com.elymbot.android.feature.plugin.runtime.PluginV2HostPreparedReply
+import com.elymbot.android.feature.plugin.runtime.PluginV2HostSendResult
+import com.elymbot.android.feature.plugin.runtime.PluginV2LlmPipelineInput
+import com.elymbot.android.feature.plugin.runtime.PluginV2LlmPipelineResult
+import com.elymbot.android.feature.plugin.runtime.PluginV2LlmStageDispatchResult
+import com.elymbot.android.feature.plugin.runtime.RuntimeLlmOrchestratorPort
+import com.elymbot.android.feature.plugin.runtime.createCompatPluginHostCapabilityGateway
+import com.elymbot.android.di.runtime.context.toRuntimeBotSnapshot
+import com.elymbot.android.di.runtime.context.toRuntimeConfigSnapshot
+import com.elymbot.android.di.runtime.context.toRuntimeConversationSessionSnapshot
+import com.elymbot.android.di.runtime.context.toRuntimeProviderSnapshot
+import com.elymbot.android.di.runtime.context.toRuntimeResourceCenterCompatibilitySnapshot
+import com.elymbot.android.model.BotProfile
+import com.elymbot.android.model.ConfigProfile
+import com.elymbot.android.model.ProviderCapability
+import com.elymbot.android.model.ProviderProfile
+import com.elymbot.android.model.ProviderType
+import com.elymbot.android.model.ResourceCenterCompatibilitySnapshot
+import com.elymbot.android.model.chat.ConversationAttachment
+import com.elymbot.android.model.chat.ConversationMessage
+import com.elymbot.android.model.chat.ConversationSession
+import com.elymbot.android.model.plugin.AppChatLlm
+import com.elymbot.android.model.plugin.PluginV2StreamingMode
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class ScheduledTaskRuntimeExecutorTest {
+    @Test
+    fun execute_uses_scheduled_task_message_without_persisting_note_as_user_message_or_context_when_disabled() = runBlocking {
+        val bot = BotProfile(
+            id = "bot-1",
+            displayName = "Bot",
+            defaultProviderId = "provider-1",
+            configProfileId = "config-1",
+        )
+        val conversationPort = RecordingConversationPort(
+            session = ConversationSession(
+                id = "chat-1",
+                title = "Chat",
+                botId = bot.id,
+                personaId = "",
+                providerId = "provider-1",
+                maxContextMessages = 10,
+                messages = listOf(
+                    ConversationMessage(
+                        id = "old-user",
+                        role = "user",
+                        content = "\u534a\u5c0f\u65f6\u540e\u63d0\u9192\u6211\u559d\u6c34",
+                        timestamp = 1L,
+                    ),
+                ),
+            ),
+        )
+        val orchestrator = RecordingOrchestrator()
+
+        val summary = ScheduledTaskRuntimeExecutor(NoOpRuntimeLogger).execute(
+            context = CronJobExecutionContext(
+                jobId = "job-1",
+                name = "鍠濇按鎻愰啋",
+                description = "鎻愰啋鐢ㄦ埛鍠濇按",
+                jobType = "active_agent",
+                note = "鎻愰啋鐢ㄦ埛璇ュ枬姘翠簡",
+                sessionId = "chat-1",
+                platform = "app",
+                conversationId = "chat-1",
+                botId = bot.id,
+                configProfileId = "config-1",
+                personaId = "",
+                providerId = "provider-1",
+                origin = "active_capability",
+                runOnce = true,
+                runAt = "2026-04-24T11:30:00+08:00",
+            ),
+            runtimeDependencies = ScheduledTaskRuntimeDependencies(
+                llmClient = FakeLlmClient(),
+                botPort = FakeBotPort(bot),
+                orchestrator = orchestrator,
+                runtimeContextResolverPort = FakeRuntimeContextResolverPort(conversationPort),
+                deliveryPort = FakeScheduledMessageDeliveryPort(),
+                appChatPluginRuntime = ThrowingAppChatLlmPipelineRuntime,
+                hostCapabilityGateway = createCompatPluginHostCapabilityGateway(),
+            ),
+        )
+
+        assertEquals("app", summary.platform)
+        assertEquals("chat-1", summary.conversationId)
+        assertEquals("scheduled_task", orchestrator.userMessageRole)
+        assertEquals("cron:job-1", orchestrator.userMessageId)
+        assertTrue(orchestrator.messageWindowContents.isEmpty())
+        assertTrue(
+            orchestrator.systemPrompt.orEmpty()
+                .contains("\u534a\u5c0f\u65f6\u540e\u63d0\u9192\u6211\u559d\u6c34")
+                .not(),
+        )
+        assertFalse(conversationPort.appendedRoles.contains("user"))
+    }
+
+    @Test
+    fun execute_includes_read_only_conversation_context_when_config_enabled() = runBlocking {
+        val bot = BotProfile(
+            id = "bot-1",
+            displayName = "Bot",
+            defaultProviderId = "provider-1",
+            configProfileId = "config-1",
+        )
+        val conversationPort = RecordingConversationPort(
+            session = ConversationSession(
+                id = "chat-1",
+                title = "Chat",
+                botId = bot.id,
+                personaId = "",
+                providerId = "provider-1",
+                maxContextMessages = 10,
+                messages = listOf(
+                    ConversationMessage(
+                        id = "old-user",
+                        role = "user",
+                        content = "\u6211\u521a\u521a\u8fd0\u52a8\u5b8c\uff0c\u5bb9\u6613\u5fd8\u8bb0\u559d\u6c34",
+                        timestamp = 1L,
+                    ),
+                    ConversationMessage(
+                        id = "old-assistant",
+                        role = "assistant",
+                        content = "\u90a3\u6211\u5f85\u4f1a\u63d0\u9192\u4f60\u8865\u6c34\u3002",
+                        timestamp = 2L,
+                    ),
+                ),
+            ),
+        )
+        val orchestrator = RecordingOrchestrator()
+
+        ScheduledTaskRuntimeExecutor(NoOpRuntimeLogger).execute(
+            context = CronJobExecutionContext(
+                jobId = "job-1",
+                name = "鍠濇按鎻愰啋",
+                description = "鎻愰啋鐢ㄦ埛鍠濇按",
+                jobType = "active_agent",
+                note = "鎻愰啋鐢ㄦ埛璇ュ枬姘翠簡",
+                sessionId = "chat-1",
+                platform = "app",
+                conversationId = "chat-1",
+                botId = bot.id,
+                configProfileId = "config-1",
+                personaId = "",
+                providerId = "provider-1",
+                origin = "active_capability",
+                runOnce = true,
+                runAt = "2026-04-24T11:30:00+08:00",
+            ),
+            runtimeDependencies = ScheduledTaskRuntimeDependencies(
+                llmClient = FakeLlmClient(),
+                botPort = FakeBotPort(bot),
+                orchestrator = orchestrator,
+                runtimeContextResolverPort = FakeRuntimeContextResolverPort(
+                    conversationPort,
+                    includeScheduledTaskConversationContext = true,
+                ),
+                deliveryPort = FakeScheduledMessageDeliveryPort(),
+                appChatPluginRuntime = ThrowingAppChatLlmPipelineRuntime,
+                hostCapabilityGateway = createCompatPluginHostCapabilityGateway(),
+            ),
+        )
+
+        assertTrue(orchestrator.messageWindowContents.isEmpty())
+        assertTrue(orchestrator.systemPrompt.orEmpty().contains("Recent conversation context"))
+        assertTrue(orchestrator.systemPrompt.orEmpty().contains("\u6211\u521a\u521a\u8fd0\u52a8\u5b8c"))
+        assertTrue(orchestrator.systemPrompt.orEmpty().contains("read-only"))
+    }
+
+}
+
+private class RecordingOrchestrator : RuntimeLlmOrchestratorPort {
+    var userMessageRole: String = ""
+    var userMessageId: String = ""
+    var messageWindowContents: List<String> = emptyList()
+    var systemPrompt: String? = null
+
+    override suspend fun dispatchLlm(
+        ctx: ResolvedRuntimeContext,
+        llmRuntime: AppChatLlmPipelineRuntime,
+        callbacks: PlatformLlmCallbacks,
+        userMessage: ConversationMessage,
+        preBuiltPluginEvent: PluginMessageEvent?,
+    ): PluginV2HostLlmDeliveryResult {
+        userMessageRole = userMessage.role
+        userMessageId = userMessage.id
+        messageWindowContents = ctx.messageWindow.map { it.content }
+        systemPrompt = com.elymbot.android.core.runtime.context.SystemPromptBuilder.build(ctx)
+        return sentResult(
+            conversationId = ctx.conversationId,
+            messageId = userMessage.id,
+            text = "璇ュ枬姘翠簡",
+        )
+    }
+
+    private fun sentResult(
+        conversationId: String,
+        messageId: String,
+        text: String,
+    ): com.elymbot.android.feature.plugin.domain.runtime.PluginV2HostLlmDeliveryResult.Sent {
+        val admission = LlmPipelineAdmission(
+            requestId = "req-1",
+            conversationId = conversationId,
+            messageIds = listOf(messageId),
+            llmInputSnapshot = text,
+            routingTarget = AppChatLlm.AppChat,
+            streamingMode = PluginV2StreamingMode.NON_STREAM,
+        )
+        val sendable = PluginMessageEventResult(
+            requestId = "req-1",
+            conversationId = conversationId,
+            text = text,
+        )
+        val request = PluginProviderRequest(
+            requestId = "req-1",
+            availableProviderIds = listOf("provider-1"),
+            availableModelIdsByProvider = mapOf("provider-1" to listOf("model-1")),
+            conversationId = conversationId,
+            messageIds = listOf(messageId),
+            llmInputSnapshot = text,
+            selectedProviderId = "provider-1",
+            selectedModelId = "model-1",
+            systemPrompt = "scheduled",
+        )
+        val result = PluginV2LlmPipelineResult(
+            admission = admission,
+            finalRequest = request,
+            finalResponse = PluginLlmResponse(
+                requestId = "req-1",
+                providerId = "provider-1",
+                modelId = "model-1",
+                text = text,
+            ),
+            sendableResult = sendable,
+            hookInvocationTrace = emptyList(),
+            decoratingRunResult = PluginV2EventResultCoordinator.DecoratingRunResult(
+                finalResult = sendable,
+                appliedHandlerIds = emptyList(),
+            ),
+        )
+        val deliveredEntry = com.elymbot.android.feature.plugin.domain.runtime.PluginV2AfterSentView.DeliveredEntry(
+            entryId = messageId,
+            entryType = "assistant",
+            textPreview = text,
+            attachmentCount = 0,
+        )
+        return com.elymbot.android.feature.plugin.domain.runtime.PluginV2HostLlmDeliveryResult.Sent(
+            pipelineResult = result,
+            preparedReply = PluginV2HostPreparedReply(
+                text = text,
+                deliveredEntries = listOf(deliveredEntry),
+            ),
+            sendResult = PluginV2HostSendResult(success = true, receiptIds = listOf("receipt-1")),
+            afterSentView = PluginV2AfterSentView(
+                requestId = "req-1",
+                conversationId = conversationId,
+                sendAttemptId = "send-1",
+                platformAdapterType = "app_chat",
+                platformInstanceKey = "cron:job-1",
+                sentAtEpochMs = 1L,
+                deliveryStatus = com.elymbot.android.feature.plugin.domain.runtime.PluginV2AfterSentView.DeliveryStatus.SUCCESS,
+                receiptIds = listOf("receipt-1"),
+                deliveredEntries = listOf(deliveredEntry),
+            ),
+        )
+    }
+}
+
+private class RecordingConversationPort(
+    session: ConversationSession,
+) : ConversationRepositoryPort {
+    private var currentSession = session
+    override val defaultSessionId: String = session.id
+    override val sessions = MutableStateFlow(listOf(session))
+    val appendedRoles = mutableListOf<String>()
+
+    override fun contextPreview(sessionId: String): String = currentSession.messages.joinToString("\n") { it.content }
+
+    override fun session(sessionId: String): ConversationSession = currentSession
+
+    override fun syncSystemSessionTitle(sessionId: String, title: String) = Unit
+
+    override fun appendMessage(
+        sessionId: String,
+        role: String,
+        content: String,
+        attachments: List<ConversationAttachment>,
+    ): String {
+        appendedRoles += role
+        val id = "$role-${appendedRoles.size}"
+        currentSession = currentSession.copy(
+            messages = currentSession.messages + ConversationMessage(
+                id = id,
+                role = role,
+                content = content,
+                timestamp = appendedRoles.size.toLong(),
+                attachments = attachments,
+            ),
+        )
+        sessions.value = listOf(currentSession)
+        return id
+    }
+
+    override fun updateSessionBindings(sessionId: String, providerId: String, personaId: String, botId: String) = Unit
+
+    override fun updateSessionServiceFlags(
+        sessionId: String,
+        sessionSttEnabled: Boolean?,
+        sessionTtsEnabled: Boolean?,
+    ) = Unit
+
+    override fun updateMessage(
+        sessionId: String,
+        messageId: String,
+        content: String?,
+        attachments: List<ConversationAttachment>?,
+    ) = Unit
+
+    override fun replaceMessages(sessionId: String, messages: List<ConversationMessage>) {
+        currentSession = currentSession.copy(messages = messages)
+        sessions.value = listOf(currentSession)
+    }
+
+    override fun renameSession(sessionId: String, title: String) = Unit
+
+    override fun deleteSession(sessionId: String) = Unit
+}
+
+private class FakeRuntimeContextResolverPort(
+    private val conversationPort: ConversationRepositoryPort,
+    private val includeScheduledTaskConversationContext: Boolean = false,
+) : RuntimeContextResolverPort {
+    private val provider = ProviderProfile(
+        id = "provider-1",
+        name = "Provider",
+        baseUrl = "https://example.invalid/v1",
+        model = "model-1",
+        providerType = ProviderType.OPENAI_COMPATIBLE,
+        apiKey = "",
+        capabilities = setOf(ProviderCapability.CHAT),
+    )
+    private val config = ConfigProfile(
+        id = "config-1",
+        name = "Config",
+        defaultChatProviderId = provider.id,
+        proactiveEnabled = true,
+        includeScheduledTaskConversationContext = includeScheduledTaskConversationContext,
+    )
+
+    override fun resolve(
+        event: RuntimeIngressEvent,
+        bot: RuntimeBotSnapshot,
+        overrideProviderId: String?,
+        overridePersonaId: String?,
+    ): ResolvedRuntimeContext {
+        val dataPort = object : RuntimeContextDataPort {
+            override fun resolveConfig(configProfileId: String): RuntimeConfigSnapshot =
+                config.toRuntimeConfigSnapshot()
+
+            override fun listProviders(): List<RuntimeProviderSnapshot> =
+                listOf(provider.toRuntimeProviderSnapshot())
+
+            override fun findEnabledPersona(personaId: String) = null
+
+            override fun session(sessionId: String): RuntimeConversationSessionSnapshot =
+                conversationPort.session(sessionId).toRuntimeConversationSessionSnapshot()
+
+            override fun compatibilitySnapshotForConfig(
+                config: RuntimeConfigSnapshot,
+            ): RuntimeResourceCenterCompatibilitySnapshot =
+                ResourceCenterCompatibilitySnapshot(resources = emptyList(), projections = emptyList())
+                    .toRuntimeResourceCenterCompatibilitySnapshot()
+        }
+        return RuntimeContextResolver.resolve(
+            event = event,
+            bot = bot,
+            dataPort = dataPort,
+            overrideProviderId = overrideProviderId,
+            overridePersonaId = overridePersonaId,
+        )
+    }
+}
+
+private class FakeBotPort(private val bot: BotProfile) : BotRepositoryPort {
+    override val bots = MutableStateFlow(listOf(bot))
+    override val selectedBotId = MutableStateFlow(bot.id)
+    override fun currentBot(): BotProfile = bot
+    override fun snapshotProfiles(): List<BotProfile> = listOf(bot)
+    override fun create(name: String): BotProfile = bot.copy(displayName = name)
+    override suspend fun save(profile: BotProfile) = Unit
+    override suspend fun create(profile: BotProfile) = Unit
+    override suspend fun delete(id: String) = Unit
+    override suspend fun select(id: String) = Unit
+}
+
+private class FakeLlmClient : LlmClientPort {
+    override suspend fun sendWithTools(request: LlmInvocationRequest): LlmInvocationResult =
+        LlmInvocationResult(text = "璇ュ枬姘翠簡")
+
+    override fun streamWithTools(request: LlmInvocationRequest): Flow<LlmStreamEvent> = emptyFlow()
+}
+
+private object NoOpRuntimeLogger : RuntimeLogger {
+    override fun append(message: String) = Unit
+}
+
+private class FakeScheduledMessageDeliveryPort : ScheduledMessageDeliveryPort {
+    override suspend fun deliver(request: ScheduledMessageDeliveryRequest): ScheduledMessageDeliveryResult {
+        return ScheduledMessageDeliveryResult(
+            success = true,
+            deliveredMessageCount = 1,
+            receiptIds = listOf("receipt-1"),
+        )
+    }
+}
+
+private object ThrowingAppChatLlmPipelineRuntime : AppChatLlmPipelineRuntime {
+    override suspend fun runLlmPipeline(input: PluginV2LlmPipelineInput): PluginV2LlmPipelineResult {
+        error("The fake orchestrator should not call runLlmPipeline.")
+    }
+
+    override suspend fun deliverLlmPipeline(
+        request: PluginV2HostLlmDeliveryRequest,
+    ): PluginV2HostLlmDeliveryResult {
+        error("The fake orchestrator should not call deliverLlmPipeline.")
+    }
+
+    override suspend fun dispatchAfterMessageSent(
+        event: PluginMessageEvent,
+        afterSentView: PluginV2AfterSentView,
+    ): PluginV2LlmStageDispatchResult {
+        error("The fake orchestrator should not call dispatchAfterMessageSent.")
+    }
+}
+

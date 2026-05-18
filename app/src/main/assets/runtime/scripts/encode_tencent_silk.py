@@ -12,7 +12,7 @@ TRAILING_SILENCE_MS = 240
 
 
 def convert_to_raw_pcm(input_path: str, sample_rate: int = TARGET_PCM_RATE) -> str:
-    fd, pcm_path = tempfile.mkstemp(prefix="astrbot_tts_", suffix=".pcm")
+    fd, pcm_path = tempfile.mkstemp(prefix="elymbot_tts_", suffix=".pcm")
     os.close(fd)
     command = [
         "ffmpeg",
@@ -49,7 +49,7 @@ def ensure_raw_pcm(input_path: str) -> tuple[str, int, bool]:
                 sample_width = wav_file.getsampwidth()
                 frames = wav_file.readframes(wav_file.getnframes())
             if rate in SUPPORTED_PCM_RATES and channels == 1 and sample_width == 2:
-                fd, pcm_path = tempfile.mkstemp(prefix="astrbot_tts_", suffix=".pcm")
+                fd, pcm_path = tempfile.mkstemp(prefix="elymbot_tts_", suffix=".pcm")
                 os.close(fd)
                 with open(pcm_path, "wb") as pcm_file:
                     pcm_file.write(frames)

@@ -5,7 +5,7 @@ plugins {
 }
 
 android {
-    namespace = "com.astrbot.android.download.impl"
+    namespace = "com.elymbot.android.download.impl"
 }
 
 dependencies {

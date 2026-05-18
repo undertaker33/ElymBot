@@ -1,0 +1,348 @@
+package com.elymbot.android.download
+
+import kotlinx.coroutines.flow.collect
+
+import android.content.Context
+import com.elymbot.android.data.db.ElymBotDatabase
+import dagger.Module
+import dagger.Provides
+import dagger.hilt.InstallIn
+import dagger.hilt.android.qualifiers.ApplicationContext
+import dagger.hilt.components.SingletonComponent
+import java.io.File
+import java.util.concurrent.atomic.AtomicReference
+import javax.inject.Inject
+import javax.inject.Singleton
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+
+class DefaultDownloadManager(
+    private val store: DownloadTaskStore,
+    private val downloader: ResumableHttpDownloader,
+    private val serviceStarter: () -> Unit,
+    private val clock: () -> Long = System::currentTimeMillis,
+) : DownloadManagerPort {
+    private val processMutex = Mutex()
+    private val activeTaskKey = AtomicReference<String?>(null)
+    private val pausedTaskKeys = mutableSetOf<String>()
+
+    override suspend fun enqueue(request: DownloadRequest): String {
+        val next = mergeWithExisting(request, store.get(request.taskKey))
+        store.upsert(next)
+        serviceStarter()
+        return request.taskKey
+    }
+
+    override fun observe(taskKey: String): Flow<DownloadTaskRecord?> = store.observe(taskKey)
+
+    override suspend fun awaitCompletion(
+        taskKey: String,
+        onUpdate: (DownloadTaskRecord) -> Unit,
+    ): DownloadTaskRecord {
+        serviceStarter()
+        val terminal = CompletableDeferred<DownloadTaskRecord>()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        val job = scope.launch {
+            observe(taskKey)
+                .filterNotNull()
+                .collect { task ->
+                    onUpdate(task)
+                    if (task.status.isTerminal && !terminal.isCompleted) {
+                        terminal.complete(task)
+                    }
+                }
+        }
+        val result = terminal.await()
+        job.cancel()
+        if (result.status == DownloadTaskStatus.COMPLETED) {
+            return result
+        }
+        throw IllegalStateException(result.errorMessage.ifBlank { "Download ${result.displayName} failed." })
+    }
+
+    override suspend fun resume(taskKey: String) {
+        val existing = store.get(taskKey) ?: return
+        synchronized(pausedTaskKeys) {
+            pausedTaskKeys.remove(taskKey)
+        }
+        store.upsert(
+            existing.copy(
+                status = DownloadTaskStatus.QUEUED,
+                errorMessage = "",
+                bytesPerSecond = 0L,
+                updatedAt = clock(),
+            ),
+        )
+        serviceStarter()
+    }
+
+    override suspend fun cancel(taskKey: String) {
+        synchronized(pausedTaskKeys) {
+            pausedTaskKeys += taskKey
+        }
+        val existing = store.get(taskKey) ?: return
+        if (activeTaskKey.get() != taskKey) {
+            store.upsert(
+                existing.copy(
+                    status = DownloadTaskStatus.PAUSED,
+                    bytesPerSecond = 0L,
+                    errorMessage = "",
+                    updatedAt = clock(),
+                ),
+            )
+        }
+    }
+
+    suspend fun processQueue(onTaskUpdated: (DownloadTaskRecord?) -> Unit = {}) {
+        processMutex.withLock {
+            while (true) {
+                val next = store.listRecoverable()
+                    .asSequence()
+                    .map(::normalizeForRecovery)
+                    .firstOrNull { task ->
+                        task.status == DownloadTaskStatus.QUEUED || task.status == DownloadTaskStatus.RUNNING
+                    }
+                    ?: break
+                processTask(next, onTaskUpdated)
+            }
+            onTaskUpdated(null)
+        }
+    }
+
+    suspend fun hasRecoverableTasks(): Boolean {
+        return store.listRecoverable().isNotEmpty()
+    }
+
+    private suspend fun processTask(
+        task: DownloadTaskRecord,
+        onTaskUpdated: (DownloadTaskRecord?) -> Unit,
+    ) {
+        var current = normalizeForRecovery(task)
+        if (current.status == DownloadTaskStatus.COMPLETED) {
+            store.upsert(current)
+            onTaskUpdated(current)
+            return
+        }
+        current = current.copy(
+            status = DownloadTaskStatus.RUNNING,
+            errorMessage = "",
+            bytesPerSecond = 0L,
+            updatedAt = clock(),
+        )
+        store.upsert(current)
+        onTaskUpdated(current)
+        activeTaskKey.set(current.taskKey)
+        try {
+            val completion = downloader.download(
+                request = current.toRequest(),
+                existing = current,
+                shouldCancel = {
+                    synchronized(pausedTaskKeys) {
+                        pausedTaskKeys.contains(current.taskKey)
+                    }
+                },
+                onProgress = { snapshot ->
+                    current = current.copy(
+                        status = DownloadTaskStatus.RUNNING,
+                        downloadedBytes = snapshot.downloadedBytes,
+                        totalBytes = snapshot.totalBytes,
+                        bytesPerSecond = snapshot.bytesPerSecond,
+                        etag = snapshot.etag ?: current.etag,
+                        lastModified = snapshot.lastModified ?: current.lastModified,
+                        errorMessage = "",
+                        updatedAt = clock(),
+                    )
+                    store.upsert(current)
+                    onTaskUpdated(current)
+                },
+            )
+            current = current.copy(
+                status = DownloadTaskStatus.COMPLETED,
+                downloadedBytes = completion.totalBytes,
+                totalBytes = completion.totalBytes,
+                bytesPerSecond = 0L,
+                etag = completion.etag ?: current.etag,
+                lastModified = completion.lastModified ?: current.lastModified,
+                errorMessage = "",
+                updatedAt = clock(),
+                completedAt = clock(),
+            )
+            store.upsert(current)
+            onTaskUpdated(current)
+        } catch (_: DownloadInterruptedException) {
+            synchronized(pausedTaskKeys) {
+                pausedTaskKeys.remove(current.taskKey)
+            }
+            current = current.copy(
+                status = DownloadTaskStatus.PAUSED,
+                bytesPerSecond = 0L,
+                errorMessage = "",
+                updatedAt = clock(),
+            )
+            store.upsert(current)
+            onTaskUpdated(current)
+        } catch (error: Throwable) {
+            current = current.copy(
+                status = DownloadTaskStatus.FAILED,
+                bytesPerSecond = 0L,
+                errorMessage = error.message ?: error.javaClass.simpleName,
+                updatedAt = clock(),
+            )
+            store.upsert(current)
+            onTaskUpdated(current)
+        } finally {
+            activeTaskKey.set(null)
+        }
+    }
+
+    private fun mergeWithExisting(
+        request: DownloadRequest,
+        existing: DownloadTaskRecord?,
+    ): DownloadTaskRecord {
+        val now = clock()
+        val targetFile = File(request.targetFilePath)
+        val partialFile = File(request.partialFilePath)
+        val downloadedBytes = when {
+            targetFile.exists() -> targetFile.length()
+            partialFile.exists() -> partialFile.length()
+            else -> 0L
+        }
+        val status = if (targetFile.exists()) {
+            DownloadTaskStatus.COMPLETED
+        } else {
+            DownloadTaskStatus.QUEUED
+        }
+        val preservedValidators = partialFile.exists()
+        return (existing ?: DownloadTaskRecord(
+            taskKey = request.taskKey,
+            url = request.url,
+            targetFilePath = request.targetFilePath,
+            partialFilePath = request.partialFilePath,
+            displayName = request.displayName,
+            ownerType = request.ownerType,
+            ownerId = request.ownerId,
+            status = status,
+            downloadedBytes = downloadedBytes,
+            totalBytes = if (status == DownloadTaskStatus.COMPLETED) downloadedBytes else null,
+            bytesPerSecond = 0L,
+            etag = null,
+            lastModified = null,
+            errorMessage = "",
+            createdAt = now,
+            updatedAt = now,
+            completedAt = if (status == DownloadTaskStatus.COMPLETED) now else null,
+        )).copy(
+            url = request.url,
+            targetFilePath = request.targetFilePath,
+            partialFilePath = request.partialFilePath,
+            displayName = request.displayName,
+            ownerType = request.ownerType,
+            ownerId = request.ownerId,
+            status = status,
+            downloadedBytes = downloadedBytes,
+            totalBytes = when {
+                status == DownloadTaskStatus.COMPLETED -> downloadedBytes
+                preservedValidators -> existing?.totalBytes
+                else -> null
+            },
+            bytesPerSecond = 0L,
+            etag = if (preservedValidators) existing?.etag else null,
+            lastModified = if (preservedValidators) existing?.lastModified else null,
+            errorMessage = "",
+            updatedAt = now,
+            completedAt = if (status == DownloadTaskStatus.COMPLETED) now else null,
+        )
+    }
+
+    private fun normalizeForRecovery(task: DownloadTaskRecord): DownloadTaskRecord {
+        val targetFile = task.targetFile()
+        val partialFile = task.partialFile()
+        return when {
+            targetFile.exists() -> task.copy(
+                status = DownloadTaskStatus.COMPLETED,
+                downloadedBytes = targetFile.length(),
+                totalBytes = targetFile.length(),
+                bytesPerSecond = 0L,
+                errorMessage = "",
+                completedAt = task.completedAt ?: clock(),
+                updatedAt = clock(),
+            )
+            !partialFile.exists() && task.downloadedBytes > 0L -> task.copy(
+                status = DownloadTaskStatus.QUEUED,
+                downloadedBytes = 0L,
+                totalBytes = null,
+                bytesPerSecond = 0L,
+                etag = null,
+                lastModified = null,
+                errorMessage = "",
+                updatedAt = clock(),
+            )
+            task.status == DownloadTaskStatus.RUNNING -> task.copy(
+                status = DownloadTaskStatus.QUEUED,
+                bytesPerSecond = 0L,
+                errorMessage = "",
+                updatedAt = clock(),
+            )
+            else -> task
+        }
+    }
+}
+
+@Singleton
+class DownloadManagerBootstrap @Inject constructor(
+    @ApplicationContext private val appContext: Context,
+    private val manager: DefaultDownloadManager,
+) {
+    private val bootstrapScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    init {
+        bootstrapScope.launch {
+            if (manager.hasRecoverableTasks()) {
+                DownloadForegroundService.start(appContext)
+            }
+        }
+    }
+}
+
+@Module
+@InstallIn(SingletonComponent::class)
+object DownloadManagerModule {
+    @Provides
+    @Singleton
+    fun provideDownloadTaskStore(
+        database: ElymBotDatabase,
+    ): DownloadTaskStore = RoomDownloadTaskStore(database.downloadTaskDao())
+
+    @Provides
+    @Singleton
+    fun provideResumableHttpDownloader(): ResumableHttpDownloader = UrlConnectionResumableHttpDownloader()
+
+    @Provides
+    @Singleton
+    fun provideDefaultDownloadManager(
+        @ApplicationContext appContext: Context,
+        store: DownloadTaskStore,
+        downloader: ResumableHttpDownloader,
+    ): DefaultDownloadManager {
+        return DefaultDownloadManager(
+            store = store,
+            downloader = downloader,
+            serviceStarter = {
+                DownloadForegroundService.start(appContext)
+            },
+        )
+    }
+
+    @Provides
+    @Singleton
+    fun provideDownloadManagerPort(
+        manager: DefaultDownloadManager,
+    ): DownloadManagerPort = manager
+}

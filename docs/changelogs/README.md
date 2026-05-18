@@ -21,6 +21,9 @@
 - `changelogs/v0.8.0.md` 到 `changelogs/v0.8.14.md`
 - `changelogs/v0.9.0.md`
 - `changelogs/v0.9.1.md`
+- `changelogs/v0.9.2.md`
+- `changelogs/v0.9.3.md`
+- `changelogs/v1.0.0.md`
 
 当前规则：`v0.1.x` 到 `v0.7.x` 使用小版本聚合文件；`v0.7.5` 之后每个 patch 版本使用独立文件。
 

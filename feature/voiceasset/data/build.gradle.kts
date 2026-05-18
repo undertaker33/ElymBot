@@ -5,7 +5,7 @@ plugins {
 }
 
 android {
-    namespace = "com.astrbot.android.feature.voiceasset.data"
+    namespace = "com.elymbot.android.feature.voiceasset.data"
 }
 
 dependencies {

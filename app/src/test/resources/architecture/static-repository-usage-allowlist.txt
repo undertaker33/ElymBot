@@ -1,7 +1,7 @@
 # path | symbol | owner | target | reason | expires | issue
 #
 # Rules:
-# 1. Entries must be exact production Kotlin file paths relative to app/src/main/java/com/astrbot/android.
+# 1. Entries must be exact production Kotlin file paths relative to app/src/main/java/com/elymbot/android.
 # 2. Do not add directory-level allowlist entries.
 # 3. Do not use wildcards.
 # 4. owner, target, reason, expires, and issue must be non-empty.

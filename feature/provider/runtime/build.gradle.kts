@@ -5,7 +5,7 @@ plugins {
 }
 
 android {
-    namespace = "com.astrbot.android.feature.provider.runtime"
+    namespace = "com.elymbot.android.feature.provider.runtime"
 }
 
 dependencies {

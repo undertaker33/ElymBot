@@ -5,7 +5,7 @@ plugins {
 }
 
 android {
-    namespace = "com.astrbot.android.feature.qq.data"
+    namespace = "com.elymbot.android.feature.qq.data"
 }
 
 dependencies {
