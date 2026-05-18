@@ -40,16 +40,18 @@ internal fun newPluginV2RuntimeSession(
 internal fun enumConstantNames(simpleName: String): List<String> {
     return pluginV2Class(simpleName)
         .enumConstants
+        .orEmpty()
         .map { constant -> (constant as Enum<*>).name }
 }
 
 internal fun firstEnumConstant(simpleName: String): Any {
-    return pluginV2Class(simpleName).enumConstants.first()
+    return pluginV2Class(simpleName).enumConstants.orEmpty().first()
 }
 
 internal fun enumConstant(simpleName: String, constantName: String): Any {
     return pluginV2Class(simpleName)
         .enumConstants
+        .orEmpty()
         .first { constant -> (constant as Enum<*>).name == constantName }
 }
 

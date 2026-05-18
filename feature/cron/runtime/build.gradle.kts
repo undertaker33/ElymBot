@@ -1,6 +1,5 @@
 plugins {
     id("com.android.library")
-    id("org.jetbrains.kotlin.android")
     id("com.google.devtools.ksp")
     id("com.google.dagger.hilt.android")
 }
@@ -10,7 +9,7 @@ android {
 
     sourceSets {
         getByName("main") {
-            res.srcDir("../../../app/src/main/res")
+            res.directories.add("../../../app/src/main/res")
         }
     }
 }
@@ -28,10 +27,10 @@ dependencies {
     implementation(project(":feature:plugin:impl"))
     implementation("androidx.work:work-runtime-ktx:2.9.1")
     implementation("androidx.hilt:hilt-work:1.2.0")
-    implementation("com.google.dagger:hilt-android:2.52")
+    implementation("com.google.dagger:hilt-android:2.59.2")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.1")
     implementation("javax.inject:javax.inject:1")
-    ksp("com.google.dagger:hilt-compiler:2.52")
+    ksp("com.google.dagger:hilt-compiler:2.59.2")
     ksp("androidx.hilt:hilt-compiler:1.2.0")
 
     testImplementation(project(":feature:persona:api"))

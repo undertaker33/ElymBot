@@ -90,7 +90,7 @@ private class InMemorySharedPreferences : SharedPreferences {
     override fun getAll(): MutableMap<String, *> = values.toMutableMap()
     override fun getString(key: String?, defValue: String?): String? = values[key] as? String ?: defValue
     override fun getStringSet(key: String?, defValues: MutableSet<String>?): MutableSet<String>? =
-        (values[key] as? Set<String>)?.toMutableSet() ?: defValues
+        (values[key] as? Set<*>)?.filterIsInstance<String>()?.toMutableSet() ?: defValues
     override fun getInt(key: String?, defValue: Int): Int = values[key] as? Int ?: defValue
     override fun getLong(key: String?, defValue: Long): Long = values[key] as? Long ?: defValue
     override fun getFloat(key: String?, defValue: Float): Float = values[key] as? Float ?: defValue

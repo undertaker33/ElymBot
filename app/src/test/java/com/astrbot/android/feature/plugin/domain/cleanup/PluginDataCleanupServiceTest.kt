@@ -258,14 +258,14 @@ private class InMemoryPluginStateEntryDao : PluginStateEntryDao {
         pluginId: String,
         scopeKind: String,
         scopeId: String,
-        prefix: String,
+        escapedPrefix: String,
     ): List<String> {
         return entries.values
             .filter { entry ->
                 entry.pluginId == pluginId &&
                     entry.scopeKind == scopeKind &&
                     entry.scopeId == scopeId &&
-                    (prefix.isBlank() || entry.key.startsWith(prefix))
+                    (escapedPrefix.isBlank() || entry.key.startsWith(escapedPrefix))
             }
             .map(PluginStateEntryEntity::key)
             .sorted()
@@ -284,7 +284,7 @@ private class InMemoryPluginStateEntryDao : PluginStateEntryDao {
         pluginId: String,
         scopeKind: String,
         scopeId: String,
-        prefix: String,
+        escapedPrefix: String,
     ) {
         entries.keys
             .filter { composite ->
@@ -292,7 +292,7 @@ private class InMemoryPluginStateEntryDao : PluginStateEntryDao {
                 entry.pluginId == pluginId &&
                     entry.scopeKind == scopeKind &&
                     entry.scopeId == scopeId &&
-                    (prefix.isBlank() || entry.key.startsWith(prefix))
+                    (escapedPrefix.isBlank() || entry.key.startsWith(escapedPrefix))
             }
             .toList()
             .forEach(entries::remove)

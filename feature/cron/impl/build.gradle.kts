@@ -1,6 +1,5 @@
 plugins {
     id("com.android.library")
-    id("org.jetbrains.kotlin.android")
 }
 
 android {
@@ -8,7 +7,7 @@ android {
 
     sourceSets {
         getByName("main") {
-            res.srcDir("../../../app/src/main/res")
+            res.directories.add("../../../app/src/main/res")
         }
     }
 }
