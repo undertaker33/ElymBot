@@ -82,6 +82,14 @@ jobs:
       - name: Make Gradle wrapper executable
         run: chmod +x ./gradlew
 
+      - name: Verify generated artifacts are not tracked
+        run: |
+          if git ls-files 'artifacts/**' | grep -q .; then
+            echo "::error::Generated artifacts must not be tracked under artifacts/"
+            git ls-files 'artifacts/**'
+            exit 1
+          fi
+
       - name: Run build logic and architecture tests
         run: ./gradlew :build-logic:check :architecture-tests:test --console=plain --no-daemon --stacktrace
 
