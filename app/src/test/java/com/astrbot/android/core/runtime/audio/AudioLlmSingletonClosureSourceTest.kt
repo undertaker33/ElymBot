@@ -47,6 +47,28 @@ class AudioLlmSingletonClosureSourceTest {
     }
 
     @Test
+    fun sherpa_tts_generation_uses_generated_audio_without_callback_path() {
+        val source = projectRoot.resolve(
+            "app/src/main/java/com/astrbot/android/core/runtime/audio/SherpaOnnxBridge.kt",
+        ).readText()
+
+        assertFalse(
+            "QQ TTS replies produce a complete attachment, so Sherpa TTS should avoid the callback path that crosses native code before any audio is needed.",
+            source.contains("generateWithCallback("),
+        )
+        assertFalse(
+            "Sherpa TTS should use GeneratedAudio.sampleRate instead of querying OfflineTts.sampleRate() before generation.",
+            source.contains("tts.sampleRate()"),
+        )
+        assertTrue(
+            "Sherpa TTS should build the attachment from the GeneratedAudio returned by OfflineTts.generate().",
+            source.contains("tts.generate(") &&
+                source.contains("generated.sampleRate") &&
+                source.contains("generated.samples"),
+        )
+    }
+
+    @Test
     fun llm_media_service_is_injected_audio_runtime_adapter_not_global_object() {
         val source = projectRoot.resolve(
             "app/src/main/java/com/astrbot/android/core/runtime/llm/LlmMediaService.kt",

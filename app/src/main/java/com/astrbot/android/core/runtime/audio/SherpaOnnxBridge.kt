@@ -10,7 +10,6 @@ import com.astrbot.android.core.common.logging.RuntimeLogger
 import com.astrbot.android.model.ProviderProfile
 import com.astrbot.android.model.chat.ConversationAttachment
 import com.k2fsa.sherpa.onnx.FeatureConfig
-import com.k2fsa.sherpa.onnx.GeneratedAudio
 import com.k2fsa.sherpa.onnx.OfflineModelConfig
 import com.k2fsa.sherpa.onnx.OfflineParaformerModelConfig
 import com.k2fsa.sherpa.onnx.OfflineRecognizer
@@ -88,7 +87,7 @@ class SherpaOnnxBridge @Inject constructor(
 
         val tts = getOrCreateTts(normalizedModel, runtimeConfig)
         return try {
-            synthesizeWithCallback(
+            synthesizeGeneratedAudio(
                 model = normalizedModel,
                 tts = tts,
                 text = preparedText,
@@ -214,53 +213,33 @@ class SherpaOnnxBridge @Inject constructor(
         runCatching { tts.release() }
     }
 
-    private fun buildAudioAttachment(generated: GeneratedAudio): ConversationAttachment {
-        val wavBytes = generated.toWavBytes()
-        return ConversationAttachment(
-            id = UUID.randomUUID().toString(),
-            type = "audio",
-            mimeType = "audio/wav",
-            fileName = "tts-${System.currentTimeMillis()}.wav",
-            base64Data = java.util.Base64.getEncoder().encodeToString(wavBytes),
-        )
-    }
-
-    private fun synthesizeWithCallback(
+    private fun synthesizeGeneratedAudio(
         model: String,
         tts: OfflineTts,
         text: String,
         speakerId: Int,
         voiceId: String,
     ): ConversationAttachment {
-        val sampleRate = tts.sampleRate()
-        val pcmBytes = ByteArrayOutputStream()
-        var callbackChunks = 0
         runtimeLogger.append(
-            "Sherpa ONNX TTS callback start: sampleRate=$sampleRate speakerId=$speakerId chars=${text.length}",
+            "Sherpa ONNX TTS generate start: model=$model speakerId=$speakerId chars=${text.length}",
         )
-        tts.generateWithCallback(
+        val generated = tts.generate(
             text = text,
             sid = speakerId,
             speed = 1.0f,
-        ) { samples ->
-            callbackChunks += 1
-            if (callbackChunks == 1) {
-                runtimeLogger.append(
-                    "Sherpa ONNX TTS callback chunk: samples=${samples.size}",
-                )
-            }
-            pcmBytes.write(floatArrayToPcmBytes(samples))
-            1
-        }
-        runtimeLogger.append(
-            "Sherpa ONNX TTS callback done: chunks=$callbackChunks bytes=${pcmBytes.size()}",
         )
-        check(pcmBytes.size() > 0) { "Sherpa ONNX TTS generated empty audio." }
+        val samples = generated.samples
+        val sampleRate = generated.sampleRate
+        runtimeLogger.append(
+            "Sherpa ONNX TTS generate done: model=$model sampleRate=$sampleRate samples=${samples.size}",
+        )
+        check(samples.isNotEmpty()) { "Sherpa ONNX TTS generated empty audio." }
+        val pcmBytes = floatArrayToPcmBytes(samples)
         val processedPcm = applyVoiceProfile(
             model = model,
             voiceId = voiceId,
             sampleRate = sampleRate,
-            pcmBytes = pcmBytes.toByteArray(),
+            pcmBytes = pcmBytes,
         )
         return buildAudioAttachment(sampleRate, processedPcm)
     }
@@ -581,21 +560,6 @@ class SherpaOnnxBridge @Inject constructor(
             val fraction = (sourceIndex - left).toFloat()
             samples[left] * (1.0f - fraction) + samples[right] * fraction
         }
-    }
-
-    private fun GeneratedAudio.toWavBytes(): ByteArray {
-        return pcmToWavBytes(
-            sampleRate = sampleRate,
-            pcmBytes = ByteBuffer.allocate(samples.size * 2)
-                .order(ByteOrder.LITTLE_ENDIAN)
-                .apply {
-                    samples.forEach { sample ->
-                        val clamped = sample.coerceIn(-1.0f, 1.0f)
-                        putShort((clamped * Short.MAX_VALUE).toInt().toShort())
-                    }
-                }
-                .array(),
-        )
     }
 
     private fun pcmToWavBytes(
