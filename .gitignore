@@ -21,11 +21,7 @@ logs/
 *.apk
 *.ap_
 *.aab
-artifacts/*
-!artifacts/plugins/
-!artifacts/plugins/**
-artifacts/plugins/**/packages/
-artifacts/plugins/**/*.zip
+artifacts/
 .superpowers/
 .worktrees/
 hs_err_pid15876.log
