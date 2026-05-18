@@ -15,8 +15,9 @@ ElymBot
 ## 技术栈线索
 
 - Android / Kotlin / Gradle 多模块工程。
-- 根 `build.gradle.kts` 显示 AGP `8.13.2`、Kotlin `1.9.24`、KSP `1.9.24-1.0.20`、Hilt `2.52`。
-- 根构建配置显示 `compileSdk=36`、`minSdk=29`、JVM target `17`。
+- 根 `build.gradle.kts` 显示 AGP `9.2.0`、Kotlin `2.2.10`、KSP `2.3.8`、Hilt `2.59.2`。
+- 根构建配置显示 `compileSdk=36`、`compileSdkMinor=1`、`minSdk=29`、JVM target `17`。
+- Gradle Wrapper 当前为 Gradle `9.4.1`。
 - `README.md` 描述使用 Kotlin + Jetpack Compose + Android 前台服务。
 
 ## 模块线索
