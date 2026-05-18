@@ -20,7 +20,7 @@ class BuildBaselineContractTest {
     private val moduleBuildRoots = listOf("app-integration", "core", "download", "feature")
 
     @Test
-    fun gradle_wrapper_must_use_stable_8_13_distribution() {
+    fun gradle_wrapper_must_use_stable_9_4_1_distribution() {
         assertTrue(
             "Gradle wrapper properties must exist: $wrapperProperties",
             wrapperProperties.exists(),
@@ -31,8 +31,8 @@ class BuildBaselineContractTest {
             .orEmpty()
 
         assertTrue(
-            "Gradle wrapper must use stable Gradle 8.13 bin distribution. Found: $distributionUrl",
-            distributionUrl.contains("gradle-8.13-bin.zip"),
+            "Gradle wrapper must use stable Gradle 9.4.1 bin distribution. Found: $distributionUrl",
+            distributionUrl.contains("gradle-9.4.1-bin.zip"),
         )
 
         val forbiddenQualifiers = listOf("milestone", "rc", "alpha", "beta")
@@ -60,28 +60,39 @@ class BuildBaselineContractTest {
     }
 
     @Test
-    fun android_gradle_plugin_must_not_be_upgraded_in_this_round() {
+    fun android_gradle_plugin_must_use_9_2_with_agp9_kotlin_tooling() {
         val text = rootBuildFile.readText(UTF_8)
 
         assertTrue(
-            "AGP must stay at 8.13.2 in this build-chain stabilization round.",
-            text.contains("""id("com.android.application") version "8.13.2" apply false"""),
+            "AGP must use 9.2.0 for the accepted build-chain upgrade.",
+            text.contains("""id("com.android.application") version "9.2.0" apply false"""),
         )
-
+        assertTrue(
+            "KSP must use a stable line with AGP 9 built-in Kotlin support.",
+            text.contains("""id("com.google.devtools.ksp") version "2.3.8" apply false"""),
+        )
+        assertTrue(
+            "Compose modules must use the Kotlin Compose compiler plugin on Kotlin 2.x.",
+            text.contains("""id("org.jetbrains.kotlin.plugin.compose") version "2.2.10" apply false"""),
+        )
         assertFalse(
-            "Do not upgrade AGP to 9.x in this round; split that into a dedicated compatibility task.",
-            Regex("""id\("com\.android\.application"\)\s+version\s+"9\.""").containsMatchIn(text),
+            "AGP 9 built-in Kotlin replaces the kotlin-android plugin.",
+            text.contains("org.jetbrains.kotlin.android"),
         )
     }
 
     @Test
-    fun android_compile_and_target_sdk_must_be_36() {
+    fun android_compile_sdk_must_be_36_1_and_target_sdk_must_be_36() {
         val rootText = rootBuildFile.readText(UTF_8)
         val text = appBuildFile.readText(UTF_8)
 
         assertTrue(
-            "compileSdk must be 36 once SDK 36 baseline is accepted.",
+            "compileSdk major level must stay on API 36.",
             rootText.contains("val ELYMBOT_COMPILE_SDK = 36"),
+        )
+        assertTrue(
+            "compileSdk minor level must target API 36.1 on AGP 9.2.",
+            rootText.contains("val ELYMBOT_COMPILE_SDK_MINOR = 1"),
         )
         assertTrue(
             "targetSdk must be 36 once SDK 36 baseline is accepted.",
@@ -95,13 +106,12 @@ class BuildBaselineContractTest {
 
         listOf(
             "compileSdk = ELYMBOT_COMPILE_SDK",
+            "compileSdkMinor = ELYMBOT_COMPILE_SDK_MINOR",
             "minSdk = ELYMBOT_MIN_SDK",
             "JavaVersion.VERSION_17",
-            """val ELYMBOT_JVM_TARGET = "17"""",
-            "jvmTarget = ELYMBOT_JVM_TARGET",
         ).forEach { requiredToken ->
             assertTrue(
-                "Root build file must own shared Android/Kotlin baseline token: $requiredToken",
+                "Root build file must own shared Android baseline token: $requiredToken",
                 rootBuildText.contains(requiredToken),
             )
         }
@@ -112,6 +122,7 @@ class BuildBaselineContractTest {
                 val text = path.readText(UTF_8)
                 listOf(
                     Regex("""compileSdk\s*="""),
+                    Regex("""compileSdkMinor\s*="""),
                     Regex("""minSdk\s*="""),
                     Regex("""sourceCompatibility\s*="""),
                     Regex("""targetCompatibility\s*="""),
@@ -123,6 +134,15 @@ class BuildBaselineContractTest {
         assertTrue(
             "Android library modules must not duplicate shared SDK/JVM baseline. Found: $duplicatedModuleConfig",
             duplicatedModuleConfig.isEmpty(),
+        )
+
+        val kotlinAndroidPluginModules = moduleBuildFiles()
+            .filter { path -> path.readText(UTF_8).contains("org.jetbrains.kotlin.android") }
+            .map { path -> projectRoot.relativize(path).toString().replace('\\', '/') }
+
+        assertTrue(
+            "Android modules must use AGP 9 built-in Kotlin instead of kotlin-android. Found: $kotlinAndroidPluginModules",
+            kotlinAndroidPluginModules.isEmpty(),
         )
     }
 

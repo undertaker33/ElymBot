@@ -1,6 +1,6 @@
 plugins {
     id("com.android.library")
-    id("org.jetbrains.kotlin.android")
+    id("org.jetbrains.kotlin.plugin.compose")
     id("com.google.devtools.ksp")
     id("com.google.dagger.hilt.android")
 }
@@ -9,21 +9,17 @@ android {
     namespace = "com.astrbot.android.feature.chat.presentation"
 
     sourceSets {
-        getByName("main").res.srcDir("../../../app/src/main/res")
+        getByName("main").res.directories.add("../../../app/src/main/res")
     }
 
     buildFeatures {
         compose = true
     }
-
-    composeOptions {
-        kotlinCompilerExtensionVersion = "1.5.14"
-    }
 }
 
 dependencies {
     val composeBom = platform("androidx.compose:compose-bom:2024.09.00")
-    val hiltVersion = "2.52"
+    val hiltVersion = "2.59.2"
     val androidxHiltVersion = "1.2.0"
 
     implementation(project(":core:runtime-context"))

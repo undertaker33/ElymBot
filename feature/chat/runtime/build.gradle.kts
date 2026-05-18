@@ -1,6 +1,5 @@
 plugins {
     id("com.android.library")
-    id("org.jetbrains.kotlin.android")
 }
 
 android {
@@ -22,7 +21,7 @@ dependencies {
     implementation(project(":feature:plugin:runtime"))
     implementation(project(":feature:plugin:impl"))
     implementation(project(":feature:provider:api"))
-    implementation("com.google.dagger:hilt-android:2.52")
+    implementation("com.google.dagger:hilt-android:2.59.2")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
     implementation("javax.inject:javax.inject:1")
 

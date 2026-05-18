@@ -110,7 +110,7 @@ class AppChatRuntimeServiceContractTest {
             ) {
                 return current
             }
-            current = current.parentFile
+            current = requireNotNull(current.parentFile)
         }
         error("Unable to locate project root from ${File("").absolutePath}")
     }

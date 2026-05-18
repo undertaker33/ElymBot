@@ -8,8 +8,8 @@ import org.gradle.api.tasks.testing.Test
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 val ELYMBOT_COMPILE_SDK = 36
+val ELYMBOT_COMPILE_SDK_MINOR = 1
 val ELYMBOT_MIN_SDK = 29
-val ELYMBOT_JVM_TARGET = "17"
 
 val architectureMainSourceRoots = listOf(
     "app/src/main/java",
@@ -308,17 +308,26 @@ fun Project.existingTaskPath(vararg candidateTaskNames: String): String {
 }
 
 plugins {
-    id("com.android.application") version "8.13.2" apply false
-    id("com.android.library") version "8.13.2" apply false
-    id("org.jetbrains.kotlin.android") version "1.9.24" apply false
-    id("com.google.devtools.ksp") version "1.9.24-1.0.20" apply false
-    id("com.google.dagger.hilt.android") version "2.52" apply false
+    id("com.android.application") version "9.2.0" apply false
+    id("com.android.library") version "9.2.0" apply false
+    id("org.jetbrains.kotlin.jvm") version "2.2.10" apply false
+    id("org.jetbrains.kotlin.plugin.compose") version "2.2.10" apply false
+    id("com.google.devtools.ksp") version "2.3.8" apply false
+    id("com.google.dagger.hilt.android") version "2.59.2" apply false
 }
 
 subprojects {
+    tasks.withType<KotlinCompile>().configureEach {
+        compilerOptions.freeCompilerArgs.addAll(
+            "-Xannotation-default-target=first-only",
+            "-Xconsistent-data-class-copy-visibility",
+        )
+    }
+
     plugins.withId("com.android.application") {
         extensions.configure<ApplicationExtension>("android") {
             compileSdk = ELYMBOT_COMPILE_SDK
+            compileSdkMinor = ELYMBOT_COMPILE_SDK_MINOR
             defaultConfig {
                 minSdk = ELYMBOT_MIN_SDK
             }
@@ -332,20 +341,13 @@ subprojects {
     plugins.withId("com.android.library") {
         extensions.configure<LibraryExtension>("android") {
             compileSdk = ELYMBOT_COMPILE_SDK
+            compileSdkMinor = ELYMBOT_COMPILE_SDK_MINOR
             defaultConfig {
                 minSdk = ELYMBOT_MIN_SDK
             }
             compileOptions {
                 sourceCompatibility = JavaVersion.VERSION_17
                 targetCompatibility = JavaVersion.VERSION_17
-            }
-        }
-    }
-
-    plugins.withId("org.jetbrains.kotlin.android") {
-        tasks.withType<KotlinCompile>().configureEach {
-            kotlinOptions {
-                jvmTarget = ELYMBOT_JVM_TARGET
             }
         }
     }
@@ -541,11 +543,12 @@ tasks.register("architectureSourceRootsReport") {
     description = "Writes the repo-wide source roots scanned by architecture checks."
 
     val reportFile = layout.projectDirectory.file(architectureSourceRootsReportPath)
+    val rootProjectForSourceRoots = rootProject
     outputs.file(reportFile)
     outputs.upToDateWhen { false }
 
     doLast {
-        val moduleMainSourceRoots = trackedMainSourceRoots(project)
+        val moduleMainSourceRoots = trackedMainSourceRoots(rootProjectForSourceRoots)
         val missingModuleRoots = moduleMainSourceRoots.filterNot { sourceRoot ->
             sourceRoot in architectureMainSourceRoots
         }

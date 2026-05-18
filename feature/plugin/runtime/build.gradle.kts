@@ -1,6 +1,5 @@
 plugins {
     id("com.android.library")
-    id("org.jetbrains.kotlin.android")
 }
 
 android {
@@ -26,7 +25,7 @@ dependencies {
     implementation(project(":feature:plugin:data"))
     implementation(project(":feature:resource:api"))
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.1")
-    implementation("com.google.dagger:hilt-android:2.52")
+    implementation("com.google.dagger:hilt-android:2.59.2")
     implementation("com.squareup.okhttp3:okhttp:$okHttpVersion")
     implementation("wang.harlon.quickjs:wrapper-android:$quickJsVersion")
     implementation("javax.inject:javax.inject:1")

@@ -37,7 +37,7 @@ class DefaultRuntimeCacheMaintenanceServiceTest {
     fun cleanup_rebuilds_targets_and_apt_partial_without_expanding_target_set() = runTest {
         val filesDir = temporaryFolder.newFolder("files")
         val untouched = filesDir.resolve("runtime/keep/me.txt").also { file ->
-            file.parentFile.mkdirs()
+            file.parentFile?.mkdirs()
             file.writeText("outside target")
         }
         filesDir.resolve("runtime/downloads/download.bin").writeBytesWithParents(ByteArray(1024))
@@ -68,7 +68,7 @@ class DefaultRuntimeCacheMaintenanceServiceTest {
     fun delete_failure_reports_error_and_resets_running_state() = runTest {
         val filesDir = temporaryFolder.newFolder("files")
         val protectedFile = filesDir.resolve("runtime/downloads/protected.bin").also { file ->
-            file.parentFile.mkdirs()
+            file.parentFile?.mkdirs()
             file.writeBytes(ByteArray(32))
         }
         val logger = RecordingRuntimeLogger()
@@ -141,7 +141,7 @@ class DefaultRuntimeCacheMaintenanceServiceTest {
     }
 
     private fun File.writeBytesWithParents(bytes: ByteArray) {
-        parentFile.mkdirs()
+        parentFile?.mkdirs()
         writeBytes(bytes)
     }
 }

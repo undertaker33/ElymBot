@@ -1,13 +1,13 @@
 plugins {
     id("com.android.application")
-    id("org.jetbrains.kotlin.android")
+    id("org.jetbrains.kotlin.plugin.compose")
     id("com.google.devtools.ksp")
     id("com.google.dagger.hilt.android")
 }
 
 import java.util.Properties
-import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 import org.gradle.api.tasks.testing.Test
+import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 fun sanitizeBranchName(name: String): String {
     return name
@@ -107,8 +107,8 @@ android {
     defaultConfig {
         applicationId = "com.astrbot.android"
         targetSdk = 36
-        versionCode = 74
-        versionName = "0.9.2"
+        versionCode = 75
+        versionName = "0.9.3"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -131,10 +131,6 @@ android {
 
     buildFeatures {
         compose = true
-    }
-
-    composeOptions {
-        kotlinCompilerExtensionVersion = "1.5.14"
     }
 
     packaging {
@@ -160,11 +156,12 @@ android {
 
     sourceSets {
         getByName("main") {
-            jniLibs.srcDirs("src/main/jniLibs")
-            assets.setSrcDirs(listOf(filteredAssetsDir))
+            jniLibs.directories.add("src/main/jniLibs")
+            assets.directories.clear()
+            assets.directories.add(filteredAssetsDir.get().asFile.absolutePath)
         }
         getByName("androidTest") {
-            assets.srcDir("$projectDir/schemas")
+            assets.directories.add("schemas")
         }
     }
 
@@ -258,7 +255,7 @@ tasks.withType<KotlinCompile>().configureEach {
             coreUiBuildDir.file("intermediates/compile_library_classes_jar/debug/bundleLibCompileToJarDebug/classes.jar").get().asFile.absolutePath,
             coreUiBuildDir.file("intermediates/runtime_library_classes_jar/debug/bundleLibRuntimeToJarDebug/classes.jar").get().asFile.absolutePath,
         ).joinToString(",")
-        kotlinOptions.freeCompilerArgs += listOf("-Xfriend-paths=$pluginImplFriendPaths")
+        compilerOptions.freeCompilerArgs.add("-Xfriend-paths=$pluginImplFriendPaths")
     }
 }
 
@@ -357,7 +354,7 @@ dependencies {
     val composeBom = platform("androidx.compose:compose-bom:2024.09.00")
     val okHttpVersion = "4.12.0"
     val quickJsVersion = "3.2.3"
-    val roomVersion = "2.6.1"
+    val roomVersion = "2.8.4"
     val androidxHiltVersion = "1.2.0"
 
     implementation(project(":core:ui"))
@@ -398,7 +395,7 @@ dependencies {
     implementation("androidx.hilt:hilt-work:$androidxHiltVersion")
     implementation("androidx.hilt:hilt-navigation-compose:$androidxHiltVersion")
     implementation("org.jsoup:jsoup:1.18.1")
-    implementation("com.google.dagger:hilt-android:2.52")
+    implementation("com.google.dagger:hilt-android:2.59.2")
 
     implementation(composeBom)
     androidTestImplementation(composeBom)
@@ -432,7 +429,7 @@ dependencies {
     testImplementation("com.squareup.okhttp3:mockwebserver:$okHttpVersion")
     testImplementation("org.json:json:20240303")
     testImplementation("wang.harlon.quickjs:wrapper-java:$quickJsVersion")
-    ksp("com.google.dagger:hilt-compiler:2.52")
+    ksp("com.google.dagger:hilt-compiler:2.59.2")
     ksp("androidx.hilt:hilt-compiler:$androidxHiltVersion")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")

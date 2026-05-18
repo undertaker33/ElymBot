@@ -23,7 +23,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -91,11 +91,11 @@ class ProviderViewModelTest {
 
     @Test
     fun fetch_models_dispatches_off_calling_thread() = runTest {
-        val callingThreadId = Thread.currentThread().id
+        val callingThread = Thread.currentThread()
         val runtimePort = FakeProviderRuntimePort(
             fetchModelsResult = listOf("deepseek-chat"),
             onFetchModels = {
-                assertNotEquals(callingThreadId, Thread.currentThread().id)
+                assertNotSame(callingThread, Thread.currentThread())
             },
         )
         val viewModel = ProviderViewModel(
@@ -173,14 +173,14 @@ class ProviderViewModelTest {
 
     @Test
     fun probe_stt_support_dispatches_off_calling_thread() = runTest {
-        val callingThreadId = Thread.currentThread().id
+        val callingThread = Thread.currentThread()
         val runtimePort = FakeProviderRuntimePort(
             sttProbeResult = ProviderRuntimeSttProbeResult(
                 state = FeatureSupportState.SUPPORTED,
                 transcript = "hello",
             ),
             onProbeStt = {
-                assertNotEquals(callingThreadId, Thread.currentThread().id)
+                assertNotSame(callingThread, Thread.currentThread())
             },
         )
         val viewModel = ProviderViewModel(
@@ -197,7 +197,7 @@ class ProviderViewModelTest {
 
     @Test
     fun synthesize_speech_dispatches_off_calling_thread() = runTest {
-        val callingThreadId = Thread.currentThread().id
+        val callingThread = Thread.currentThread()
         val attachment = ConversationAttachment(
             id = "audio-1",
             type = "audio",
@@ -208,7 +208,7 @@ class ProviderViewModelTest {
         val runtimePort = FakeProviderRuntimePort(
             synthesizedAttachment = attachment,
             onSynthesizeSpeech = {
-                assertNotEquals(callingThreadId, Thread.currentThread().id)
+                assertNotSame(callingThread, Thread.currentThread())
             },
         )
         val viewModel = ProviderViewModel(
