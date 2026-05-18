@@ -3,7 +3,7 @@ plugins {
 }
 
 android {
-    namespace = "com.astrbot.android.feature.cron.api"
+    namespace = "com.elymbot.android.feature.cron.api"
 }
 
 dependencies {

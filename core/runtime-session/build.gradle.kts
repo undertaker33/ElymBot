@@ -3,7 +3,7 @@ plugins {
 }
 
 android {
-    namespace = "com.astrbot.android.core.runtime.session"
+    namespace = "com.elymbot.android.core.runtime.session"
 }
 
 dependencies {

@@ -10,7 +10,7 @@
 
 - 基线提交：`e495263`（`Release v0.8.5`；本轮覆盖 `d060c5e..e495263`，含 `113dc12 / v0.8.2`、`a6ffa95 / v0.8.3`、`b790abce / v0.8.4`）
 - App Chat 已迁到 feature-first 结构
-- 关键目录：`app/src/main/java/com/astrbot/android/feature/chat/`
+- 关键目录：`app/src/main/java/com/elymbot/android/feature/chat/`
 
 ## 2. 当前主链文件
 
@@ -199,29 +199,29 @@ Cron 差异：
 
 ## 8. 当前测试入口
 
-- `app/src/test/java/com/astrbot/android/feature/chat/domain/SendAppMessageUseCaseTest.kt`
-- `app/src/test/java/com/astrbot/android/feature/chat/domain/ChatMessageUpdatePolicyTest.kt`
-- `app/src/test/java/com/astrbot/android/feature/chat/runtime/AppChatRuntimeServiceContractTest.kt`
-- `app/src/test/java/com/astrbot/android/feature/chat/runtime/AppChatPluginCommandServiceTest.kt`
-- `app/src/test/java/com/astrbot/android/ui/viewmodel/ChatViewModelTest.kt`
-- `app/src/test/java/com/astrbot/android/ui/viewmodel/ConversationViewModelTest.kt`
-- `app/src/test/java/com/astrbot/android/ui/chat/ChatInputStateContractTest.kt`
-- `app/src/test/java/com/astrbot/android/ui/chat/ChatAutoScrollContractTest.kt`
-- `app/src/test/java/com/astrbot/android/runtime/context/PromptAssemblerTest.kt`
-- `app/src/test/java/com/astrbot/android/core/runtime/context/RuntimeContextResolverProviderTest.kt`
-- `app/src/test/java/com/astrbot/android/runtime/search/WebSearchPromptGuidanceTest.kt`
-- `app/src/test/java/com/astrbot/android/runtime/context/RuntimeResourceProjectionResolverTest.kt`
-- `app/src/test/java/com/astrbot/android/runtime/context/Task8Phase3VerificationTest.kt`
-- `app/src/test/java/com/astrbot/android/architecture/PostHiltRound2PluginRuntimeContractTest.kt`
-- `app/src/test/java/com/astrbot/android/architecture/PostHiltRound3HostCapabilityContractTest.kt`
-- `app/src/test/java/com/astrbot/android/architecture/LlmSourceContractTest.kt`
-- `app/src/test/java/com/astrbot/android/architecture/HiltExitContractTest.kt`
+- `app/src/test/java/com/elymbot/android/feature/chat/domain/SendAppMessageUseCaseTest.kt`
+- `app/src/test/java/com/elymbot/android/feature/chat/domain/ChatMessageUpdatePolicyTest.kt`
+- `app/src/test/java/com/elymbot/android/feature/chat/runtime/AppChatRuntimeServiceContractTest.kt`
+- `app/src/test/java/com/elymbot/android/feature/chat/runtime/AppChatPluginCommandServiceTest.kt`
+- `app/src/test/java/com/elymbot/android/ui/viewmodel/ChatViewModelTest.kt`
+- `app/src/test/java/com/elymbot/android/ui/viewmodel/ConversationViewModelTest.kt`
+- `app/src/test/java/com/elymbot/android/ui/chat/ChatInputStateContractTest.kt`
+- `app/src/test/java/com/elymbot/android/ui/chat/ChatAutoScrollContractTest.kt`
+- `app/src/test/java/com/elymbot/android/runtime/context/PromptAssemblerTest.kt`
+- `app/src/test/java/com/elymbot/android/core/runtime/context/RuntimeContextResolverProviderTest.kt`
+- `app/src/test/java/com/elymbot/android/runtime/search/WebSearchPromptGuidanceTest.kt`
+- `app/src/test/java/com/elymbot/android/runtime/context/RuntimeResourceProjectionResolverTest.kt`
+- `app/src/test/java/com/elymbot/android/runtime/context/Task8Phase3VerificationTest.kt`
+- `app/src/test/java/com/elymbot/android/architecture/PostHiltRound2PluginRuntimeContractTest.kt`
+- `app/src/test/java/com/elymbot/android/architecture/PostHiltRound3HostCapabilityContractTest.kt`
+- `app/src/test/java/com/elymbot/android/architecture/LlmSourceContractTest.kt`
+- `app/src/test/java/com/elymbot/android/architecture/HiltExitContractTest.kt`
 
 ## 9. 易错点
 
-- `feature/chat/presentation/ChatViewModel.kt` 的 package 仍是 `com.astrbot.android.ui.viewmodel`。
-- `feature/chat/presentation/ChatViewModelRuntimeBindings.kt` 的 package 也仍是 `com.astrbot.android.ui.viewmodel`。
-- `feature/chat/presentation/ChatSessionController.kt` 的 package 也仍是 `com.astrbot.android.ui.viewmodel`，不要只靠 import 猜物理位置。
+- `feature/chat/presentation/ChatViewModel.kt` 的 package 仍是 `com.elymbot.android.ui.viewmodel`。
+- `feature/chat/presentation/ChatViewModelRuntimeBindings.kt` 的 package 也仍是 `com.elymbot.android.ui.viewmodel`。
+- `feature/chat/presentation/ChatSessionController.kt` 的 package 也仍是 `com.elymbot.android.ui.viewmodel`，不要只靠 import 猜物理位置。
 - `SendAppMessageUseCase` 不应 import plugin/runtime/UI 实现。
 - `AppChatRuntimeService` 是 runtime port 实现，不是 ViewModel helper。
 - `DefaultChatViewModelRuntimeBindings` 当前通过 factories 组装 runtime/use case/handler；不要把 direct new runtime helper 或 compat gateway factory 写回 bindings。

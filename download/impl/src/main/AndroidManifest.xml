@@ -3,7 +3,7 @@
 
     <application>
         <service
-            android:name="com.astrbot.android.download.DownloadForegroundService"
+            android:name="com.elymbot.android.download.DownloadForegroundService"
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="dataSync" />

@@ -378,8 +378,8 @@ project(":app") {
                 shouldRunAfter(debugUnitTest)
 
                 filter {
-                    includeTestsMatching("com.astrbot.android.architecture.*")
-                    includeTestsMatching("com.astrbot.android.di.startup.StrictHiltOnlyStartupHotspotSourceTest")
+                    includeTestsMatching("com.elymbot.android.architecture.*")
+                    includeTestsMatching("com.elymbot.android.di.startup.StrictHiltOnlyStartupHotspotSourceTest")
                 }
             }
         }
@@ -391,7 +391,7 @@ val prepareTemplateSamplePluginPackage by tasks.registering(Zip::class) {
     description = "Builds the template sample plugin package used by app unit tests."
 
     from(layout.projectDirectory.dir("app/src/test/resources/plugin-samples/template-sample/package"))
-    archiveFileName.set("astrbot_plugin_template.zip")
+    archiveFileName.set("elymbot_plugin_template.zip")
     destinationDirectory.set(layout.projectDirectory.dir("artifacts/plugins/template-sample/packages"))
     isPreserveFileTimestamps = false
     isReproducibleFileOrder = true

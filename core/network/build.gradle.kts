@@ -3,7 +3,7 @@ plugins {
 }
 
 android {
-    namespace = "com.astrbot.android.core.network"
+    namespace = "com.elymbot.android.core.network"
 }
 
 dependencies {

@@ -5,7 +5,7 @@ plugins {
 }
 
 android {
-    namespace = "com.astrbot.android.core.runtime.audio"
+    namespace = "com.elymbot.android.core.runtime.audio"
 }
 
 dependencies {

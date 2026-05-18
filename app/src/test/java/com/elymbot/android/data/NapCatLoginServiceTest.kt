@@ -1,0 +1,311 @@
+package com.elymbot.android.data
+
+import com.elymbot.android.feature.qq.data.NapCatLoginService
+import com.elymbot.android.data.http.ElymBotHttpClient
+import com.elymbot.android.data.http.ElymBotHttpException
+import com.elymbot.android.data.http.HttpFailureCategory
+import com.elymbot.android.data.http.MultipartPartSpec
+import com.elymbot.android.data.http.HttpRequestSpec
+import com.elymbot.android.data.http.HttpResponsePayload
+import com.elymbot.android.core.common.logging.RuntimeLogRepository
+import com.elymbot.android.core.logging.SharedRuntimeLogStore
+import com.elymbot.android.feature.qq.domain.QqWebUiTokenProvider
+import java.net.SocketTimeoutException
+import java.nio.charset.StandardCharsets
+import java.security.MessageDigest
+import org.json.JSONObject
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.After
+import org.junit.Test
+
+class NapCatLoginServiceTest {
+    private val loginService = NapCatLoginService(SharedRuntimeLogStore)
+    private val runtimeWebUiTokenProvider = QqWebUiTokenProvider { "runtime-webui-token" }
+
+    @After
+    fun tearDown() {
+        loginService.resetForTests()
+    }
+
+    @Test
+    fun classifies_unauthorized_message_as_expired_token() {
+        assertEquals(
+            NapCatLoginService.LoginFailureCategory.AUTH_TOKEN_EXPIRED,
+            loginService.classifyFailureForTests(
+                message = "Unauthorized",
+                cause = null,
+            ),
+        )
+    }
+
+    @Test
+    fun classifies_token_is_invalid_message_as_expired_token() {
+        assertEquals(
+            NapCatLoginService.LoginFailureCategory.AUTH_TOKEN_EXPIRED,
+            loginService.classifyFailureForTests(
+                message = "token is invalid",
+                cause = null,
+            ),
+        )
+    }
+
+    @Test
+    fun classifies_socket_timeout_as_network_failure() {
+        assertEquals(
+            NapCatLoginService.LoginFailureCategory.NETWORK_FAILURE,
+            loginService.classifyFailureForTests(
+                message = null,
+                cause = SocketTimeoutException("timeout"),
+            ),
+        )
+    }
+
+    @Test
+    fun refresh_qr_code_maps_shared_http_client_timeout_to_network_failure() {
+        loginService.resetForTests()
+        RuntimeLogRepository.clear()
+        loginService.setHttpClientOverrideForTests(
+            object : ElymBotHttpClient {
+                override fun execute(requestSpec: HttpRequestSpec): HttpResponsePayload {
+                    throw ElymBotHttpException(
+                        category = HttpFailureCategory.TIMEOUT,
+                        message = "timeout",
+                    )
+                }
+
+                override fun executeBytes(requestSpec: HttpRequestSpec): ByteArray {
+                    throw UnsupportedOperationException("Not used in this test")
+                }
+
+                override suspend fun executeStream(
+                    requestSpec: HttpRequestSpec,
+                    onLine: suspend (String) -> Unit,
+                ) {
+                    throw UnsupportedOperationException("Not used in this test")
+                }
+
+                override fun executeMultipart(
+                    requestSpec: HttpRequestSpec,
+                    parts: List<MultipartPartSpec>,
+                ): HttpResponsePayload {
+                    throw UnsupportedOperationException("Not used in this test")
+                }
+            },
+        )
+
+        val error = runCatching {
+            loginService.refreshQrCode(
+                baseUrl = "http://127.0.0.1:6099",
+                webUiTokenProvider = runtimeWebUiTokenProvider,
+            )
+        }.exceptionOrNull()
+
+        requireNotNull(error)
+        assertTrue(error.message.orEmpty().contains("timeout"))
+        assertTrue(RuntimeLogRepository.logs.value.any { it.contains("category=NETWORK_FAILURE") })
+    }
+
+    @Test
+    fun refresh_qr_code_uses_explicit_token_provider_without_secret_repository_override() {
+        loginService.resetForTests()
+        RuntimeLogRepository.clear()
+
+        val webUiTokenProvider = QqWebUiTokenProvider { "production-like-token" }
+        var authHash = ""
+        loginService.setPostJsonOverrideForTests { endpoint, payload, authorization ->
+            when {
+                endpoint.endsWith("/auth/login") -> {
+                    authHash = payload.getString("hash")
+                    assertEquals(null, authorization)
+                    JSONObject().apply {
+                        put("code", 0)
+                        put("data", JSONObject().put("Credential", "credential-from-provider"))
+                    }
+                }
+
+                endpoint.endsWith("/QQLogin/RefreshQRcode") -> {
+                    assertEquals("credential-from-provider", authorization)
+                    JSONObject().apply {
+                        put("code", 0)
+                        put("message", "success")
+                        put("data", JSONObject())
+                    }
+                }
+
+                else -> error("Unexpected endpoint: $endpoint")
+            }
+        }
+
+        loginService.refreshQrCode(
+            baseUrl = "http://127.0.0.1:6099",
+            webUiTokenProvider = webUiTokenProvider,
+        )
+
+        assertEquals(sha256Hex("production-like-token.napcat"), authHash)
+        assertEquals("credential-from-provider", loginService.debugCredentialForTests())
+        assertTrue(
+            RuntimeLogRepository.logs.value.any {
+                it.contains("QQ login auth request:") &&
+                    it.contains("configuredToken=<redacted:21>")
+            },
+        )
+    }
+
+    @Test
+    fun refresh_qr_code_clears_cached_credential_and_retries_when_token_expires() {
+        loginService.resetForTests()
+        RuntimeLogRepository.clear()
+
+        var authLoginCalls = 0
+        var refreshCalls = 0
+        loginService.setPostJsonOverrideForTests { endpoint, _, authorization ->
+            when {
+                endpoint.endsWith("/auth/login") -> {
+                    authLoginCalls += 1
+                    assertEquals(null, authorization)
+                    JSONObject().apply {
+                        put("code", 0)
+                        put("data", JSONObject().put("Credential", if (authLoginCalls == 1) "stale-token" else "fresh-token"))
+                    }
+                }
+
+                endpoint.endsWith("/QQLogin/RefreshQRcode") -> {
+                    refreshCalls += 1
+                    JSONObject().apply {
+                        if (refreshCalls == 1) {
+                            put("code", 1)
+                            put("message", "token is invalid")
+                        } else {
+                            put("code", 0)
+                            put("message", "success")
+                            put("data", JSONObject())
+                        }
+                    }
+                }
+
+                else -> error("Unexpected endpoint: $endpoint")
+            }
+        }
+
+        loginService.refreshQrCode(
+            baseUrl = "http://127.0.0.1:6099",
+            webUiTokenProvider = runtimeWebUiTokenProvider,
+        )
+
+        assertEquals(2, authLoginCalls)
+        assertEquals(2, refreshCalls)
+        assertEquals("fresh-token", loginService.debugCredentialForTests())
+        assertTrue(RuntimeLogRepository.logs.value.any { it.contains("phase=request") && it.contains("category=AUTH_TOKEN_EXPIRED") })
+        assertTrue(RuntimeLogRepository.logs.value.any { it.contains("phase=auth-relogin") && it.contains("/auth/login") })
+        assertTrue(RuntimeLogRepository.logs.value.any { it.contains("phase=retry") && it.contains("/QQLogin/RefreshQRcode") })
+        assertTrue(
+            RuntimeLogRepository.logs.value.any {
+                it.contains("QQ login auth request:") &&
+                    it.contains("configuredToken=<redacted:19>")
+            },
+        )
+    }
+
+    @Test
+    fun refresh_qr_code_surfaces_auth_login_failed_when_relogin_fails() {
+        loginService.resetForTests()
+        RuntimeLogRepository.clear()
+
+        var authLoginCalls = 0
+        loginService.setPostJsonOverrideForTests { endpoint, _, _ ->
+            when {
+                endpoint.endsWith("/auth/login") -> {
+                    authLoginCalls += 1
+                    if (authLoginCalls == 1) {
+                        JSONObject().apply {
+                            put("code", 0)
+                            put("data", JSONObject().put("Credential", "stale-token"))
+                        }
+                    } else {
+                        JSONObject().apply {
+                            put("code", 1)
+                            put("message", "login down")
+                        }
+                    }
+                }
+
+                endpoint.endsWith("/QQLogin/RefreshQRcode") -> JSONObject().apply {
+                    put("code", 1)
+                    put("message", "token is invalid")
+                }
+
+                else -> error("Unexpected endpoint: $endpoint")
+            }
+        }
+
+        val error = runCatching {
+            loginService.refreshQrCode(
+                baseUrl = "http://127.0.0.1:6099",
+                webUiTokenProvider = runtimeWebUiTokenProvider,
+            )
+        }.exceptionOrNull()
+
+        requireNotNull(error)
+        assertTrue(error.message.orEmpty().contains("login down"))
+        assertEquals("", loginService.debugCredentialForTests())
+        assertTrue(
+            RuntimeLogRepository.logs.value.any {
+                it.contains("QQ login auth request:") &&
+                    it.contains("strategy=sha256(token.napcat)") &&
+                    it.contains("path=/auth/login") &&
+                    it.contains("configuredToken=<redacted:19>")
+            },
+        )
+        assertTrue(RuntimeLogRepository.logs.value.any { it.contains("phase=auth-relogin") && it.contains("category=AUTH_LOGIN_FAILED") })
+    }
+
+    @Test
+    fun refresh_qr_code_does_not_retry_for_non_auth_api_failure() {
+        loginService.resetForTests()
+        RuntimeLogRepository.clear()
+
+        var authLoginCalls = 0
+        var refreshCalls = 0
+        loginService.setPostJsonOverrideForTests { endpoint, _, _ ->
+            when {
+                endpoint.endsWith("/auth/login") -> {
+                    authLoginCalls += 1
+                    JSONObject().apply {
+                        put("code", 0)
+                        put("data", JSONObject().put("Credential", "stable-token"))
+                    }
+                }
+
+                endpoint.endsWith("/QQLogin/RefreshQRcode") -> {
+                    refreshCalls += 1
+                    JSONObject().apply {
+                        put("code", 1)
+                        put("message", "qq offline")
+                    }
+                }
+
+                else -> error("Unexpected endpoint: $endpoint")
+            }
+        }
+
+        val error = runCatching {
+            loginService.refreshQrCode(
+                baseUrl = "http://127.0.0.1:6099",
+                webUiTokenProvider = runtimeWebUiTokenProvider,
+            )
+        }.exceptionOrNull()
+
+        requireNotNull(error)
+        assertTrue(error.message.orEmpty().contains("qq offline"))
+        assertEquals(1, authLoginCalls)
+        assertEquals(1, refreshCalls)
+        assertEquals("stable-token", loginService.debugCredentialForTests())
+        assertTrue(RuntimeLogRepository.logs.value.any { it.contains("phase=request") && it.contains("category=API_BUSINESS_REJECTED") })
+    }
+
+    private fun sha256Hex(value: String): String {
+        val digest = MessageDigest.getInstance("SHA-256").digest(value.toByteArray(StandardCharsets.UTF_8))
+        return digest.joinToString(separator = "") { byte -> "%02x".format(byte) }
+    }
+}

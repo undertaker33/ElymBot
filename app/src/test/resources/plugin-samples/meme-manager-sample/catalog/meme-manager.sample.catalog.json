@@ -1,14 +1,14 @@
 {
   "sourceId": "sample",
   "title": "Meme Manager Sample Repository",
-  "catalogUrl": "https://samples.astrbot.local/catalog/meme-manager.json",
+  "catalogUrl": "https://samples.elymbot.local/catalog/meme-manager.json",
   "updatedAt": 1800,
   "plugins": [
     {
-      "pluginId": "com.astrbot.samples.meme_manager",
+      "pluginId": "com.elymbot.samples.meme_manager",
       "title": "Meme Manager",
-      "author": "AstrBot Samples",
-      "repositoryUrl": "https://samples.astrbot.local/repositories/meme-manager",
+      "author": "ElymBot Samples",
+      "repositoryUrl": "https://samples.elymbot.local/repositories/meme-manager",
       "description": "Sample repository plugin with packaged meme assets and admin seed data.",
       "entrySummary": "Installs a QuickJS meme command sample.",
       "scenarios": [

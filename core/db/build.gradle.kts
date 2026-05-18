@@ -4,7 +4,7 @@ plugins {
 }
 
 android {
-    namespace = "com.astrbot.android.core.db"
+    namespace = "com.elymbot.android.core.db"
 }
 
 dependencies {

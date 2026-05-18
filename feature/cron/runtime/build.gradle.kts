@@ -5,7 +5,7 @@ plugins {
 }
 
 android {
-    namespace = "com.astrbot.android.feature.cron.runtime"
+    namespace = "com.elymbot.android.feature.cron.runtime"
 
     sourceSets {
         getByName("main") {

@@ -8,7 +8,7 @@ dependencies {
 
 sourceSets {
     test {
-        kotlin.srcDir(rootProject.file("app/src/test/java/com/astrbot/android/architecture"))
+        kotlin.srcDir(rootProject.file("app/src/test/java/com/elymbot/android/architecture"))
         resources.srcDir(rootProject.file("app/src/test/resources"))
     }
 }

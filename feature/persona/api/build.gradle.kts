@@ -3,7 +3,7 @@ plugins {
 }
 
 android {
-    namespace = "com.astrbot.android.feature.persona.api"
+    namespace = "com.elymbot.android.feature.persona.api"
 }
 
 dependencies {

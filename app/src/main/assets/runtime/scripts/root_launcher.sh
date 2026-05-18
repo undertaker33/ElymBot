@@ -1,7 +1,7 @@
 #!/bin/bash
 
 set -eu
-trap 'code=$?; echo "astrbot_napcat_entry exit code: ${code}"' EXIT
+trap 'code=$?; echo "elymbot_napcat_entry exit code: ${code}"' EXIT
 
 export DEBIAN_FRONTEND=noninteractive
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
@@ -17,12 +17,12 @@ NAPCAT_LAUNCHER_SO="/root/libnapcat_launcher.so"
 NAPCAT_INSTALLER_CACHE="/root/napcat-install.sh"
 NAPCAT_INSTALLER_URL="https://raw.githubusercontent.com/NapNeko/napcat-linux-installer/refs/heads/main/install.sh"
 NAPCAT_CONFIG_BACKUP="/root/napcat_config_backup"
-ASTRBOT_DPKG_DIR="/var/lib"
-ASTRBOT_APT_STATE_DIR="/var/lib/apt"
-ASTRBOT_APT_CACHE_DIR="/var/cache/apt"
+ELYMBOT_DPKG_DIR="/var/lib"
+ELYMBOT_APT_STATE_DIR="/var/lib/apt"
+ELYMBOT_APT_CACHE_DIR="/var/cache/apt"
 DPKG_ADMINDIR="/var/lib/dpkg"
-RUNTIME_SECRET_FILE="${ASTRBOT_APP_HOME:-}/runtime/config/runtime-secrets.env"
-RUNTIME_ASSET_DIR="${ASTRBOT_APP_HOME:-}/runtime/assets"
+RUNTIME_SECRET_FILE="${ELYMBOT_APP_HOME:-}/runtime/config/runtime-secrets.env"
+RUNTIME_ASSET_DIR="${ELYMBOT_APP_HOME:-}/runtime/assets"
 BUNDLED_NAPCAT_INSTALLER_SOURCE="$RUNTIME_ASSET_DIR/napcat-installer.sh"
 BUNDLED_NAPCAT_ZIP_SOURCE="$RUNTIME_ASSET_DIR/NapCat.Shell.zip"
 BUNDLED_QQ_DEB_SOURCE="$RUNTIME_ASSET_DIR/QQ.deb"
@@ -66,8 +66,8 @@ log_config_snapshot() {
 }
 
 load_runtime_secrets() {
-  if [ -z "${ASTRBOT_APP_HOME:-}" ]; then
-    echo "runtime secret source missing: ASTRBOT_APP_HOME is empty" >&2
+  if [ -z "${ELYMBOT_APP_HOME:-}" ]; then
+    echo "runtime secret source missing: ELYMBOT_APP_HOME is empty" >&2
     exit 6
   fi
   if [ ! -f "$RUNTIME_SECRET_FILE" ]; then
@@ -169,7 +169,7 @@ has_bundled_napcat_installer_assets() {
 }
 
 prepare_bundled_napcat_installer() {
-  if [ -z "${ASTRBOT_APP_HOME:-}" ] || [ ! -d "$RUNTIME_ASSET_DIR" ]; then
+  if [ -z "${ELYMBOT_APP_HOME:-}" ] || [ ! -d "$RUNTIME_ASSET_DIR" ]; then
     echo "bundled runtime asset dir missing: $RUNTIME_ASSET_DIR" >&2
     return 1
   fi
@@ -197,7 +197,7 @@ prepare_bundled_napcat_installer() {
 }
 
 prepare_bundled_launcher_shim() {
-  if [ -z "${ASTRBOT_APP_HOME:-}" ] || [ ! -d "$RUNTIME_ASSET_DIR" ]; then
+  if [ -z "${ELYMBOT_APP_HOME:-}" ] || [ ! -d "$RUNTIME_ASSET_DIR" ]; then
     echo "bundled runtime asset dir missing: $RUNTIME_ASSET_DIR" >&2
     return 1
   fi
@@ -220,15 +220,15 @@ dpkg_cmd() {
 
 apt_cmd() {
   if [ "$DPKG_ADMINDIR" = "/var/lib/dpkg" ] \
-    && [ "$ASTRBOT_APT_STATE_DIR" = "/var/lib/apt" ] \
-    && [ "$ASTRBOT_APT_CACHE_DIR" = "/var/cache/apt" ]; then
+    && [ "$ELYMBOT_APT_STATE_DIR" = "/var/lib/apt" ] \
+    && [ "$ELYMBOT_APT_CACHE_DIR" = "/var/cache/apt" ]; then
     apt-get -o APT::Sandbox::User=root "$@"
   else
     apt-get \
       -o APT::Sandbox::User=root \
-      -o "Dir::State=$ASTRBOT_APT_STATE_DIR" \
+      -o "Dir::State=$ELYMBOT_APT_STATE_DIR" \
       -o "Dir::State::status=$DPKG_ADMINDIR/status" \
-      -o "Dir::Cache=$ASTRBOT_APT_CACHE_DIR" \
+      -o "Dir::Cache=$ELYMBOT_APT_CACHE_DIR" \
       -o "DPkg::Options::=--admindir=$DPKG_ADMINDIR" \
       "$@"
   fi
@@ -271,7 +271,7 @@ repair_dpkg_state() {
   fi
 
   echo "dpkg recovery: first configure pass failed"
-  rm -f "$DPKG_ADMINDIR/lock" "$DPKG_ADMINDIR/lock-frontend" "$ASTRBOT_APT_CACHE_DIR/archives/lock" || true
+  rm -f "$DPKG_ADMINDIR/lock" "$DPKG_ADMINDIR/lock-frontend" "$ELYMBOT_APT_CACHE_DIR/archives/lock" || true
   apt_cmd update || true
   apt_cmd install -f -y || true
   dpkg_cmd --configure -a >/dev/null 2>&1 || true
@@ -487,7 +487,7 @@ EOF
         "messagePostFormat": "array",
         "reportSelfMessage": false,
         "reconnectInterval": 5000,
-        "token": "astrbot_android_bridge",
+        "token": "elymbot_android_bridge",
         "debug": false,
         "heartInterval": 30000
       }

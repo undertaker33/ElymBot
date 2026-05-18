@@ -9,7 +9,7 @@
 ## 1. 当前代码基线
 
 - 基线提交：`e495263`（`Release v0.8.5`；本轮覆盖 `d060c5e..e495263`，含 `113dc12 / v0.8.2`、`a6ffa95 / v0.8.3`、`b790abce / v0.8.4`）
-- 共享模型文件：`app/src/main/java/com/astrbot/android/model/AppModels.kt`
+- 共享模型文件：`app/src/main/java/com/elymbot/android/model/AppModels.kt`
 - 当前主真源已迁到 feature：
   - `feature/provider/data/FeatureProviderRepository.kt`
   - `feature/config/data/FeatureConfigRepository.kt`
@@ -28,7 +28,7 @@
 示例：
 
 - Config UI：`feature/config/presentation/ConfigDetailScreen.kt`
-- Config ViewModel：`feature/config/presentation/ConfigViewModel.kt`，package 仍是 `com.astrbot.android.ui.viewmodel`
+- Config ViewModel：`feature/config/presentation/ConfigViewModel.kt`，package 仍是 `com.elymbot.android.ui.viewmodel`
 - Config port：`feature/config/domain/ConfigRepositoryPort.kt`
 - Config repository：`feature/config/data/FeatureConfigRepository.kt`
 
@@ -57,8 +57,8 @@
 
 Provider 的运行时能力也单独抽到了：
 
-- contract：`feature/provider/api/src/main/java/com/astrbot/android/feature/provider/api/runtime/ProviderRuntimePort.kt`
-- implementation：`feature/provider/runtime/src/main/java/com/astrbot/android/feature/provider/runtime/DefaultProviderRuntimePort.kt`
+- contract：`feature/provider/api/src/main/java/com/elymbot/android/feature/provider/api/runtime/ProviderRuntimePort.kt`
+- implementation：`feature/provider/runtime/src/main/java/com/elymbot/android/feature/provider/runtime/DefaultProviderRuntimePort.kt`
 
 `ProviderViewModel` 通过这个 port 做模型拉取、multimodal/native streaming 探测、STT/TTS 探测、Sherpa/TTS 资产状态与语音合成，不应再直接散落调用 `ChatCompletionService`、`SherpaOnnxBridge`、`RuntimeAssetRepository`。
 
@@ -221,25 +221,25 @@ Provider 的运行时能力也单独抽到了：
 
 ## 8. 当前测试入口
 
-- `app/src/test/java/com/astrbot/android/architecture/RepositoryPortSourceContractTest.kt`
-- `app/src/test/java/com/astrbot/android/architecture/FeatureFirstBoundaryContractTest.kt`
-- `app/src/test/java/com/astrbot/android/architecture/Phase7RootBoundaryContractTest.kt`
-- `app/src/test/java/com/astrbot/android/architecture/HiltFoundationContractTest.kt`
-- `app/src/test/java/com/astrbot/android/architecture/HiltExitContractTest.kt`
-- `app/src/test/java/com/astrbot/android/architecture/PostHiltRound1ContractTest.kt`
-- `app/src/test/java/com/astrbot/android/architecture/LlmSourceContractTest.kt`
-- `app/src/test/java/com/astrbot/android/data/HiltViewModelDependenciesTransactionTest.kt`
-- `app/src/test/java/com/astrbot/android/data/db/config/ConfigMappersTest.kt`
-- `app/src/test/java/com/astrbot/android/feature/provider/ProviderCatalogSearchCapabilityTest.kt`
-- `app/src/test/java/com/astrbot/android/runtime/search/profile/ProviderRepositorySearchProviderTest.kt`
-- `app/src/test/java/com/astrbot/android/core/runtime/context/RuntimeContextResolverProviderTest.kt`
-- `app/src/test/java/com/astrbot/android/feature/bot/data/FeatureBotRepositorySelectedStateTest.kt`
-- `app/src/test/java/com/astrbot/android/feature/config/data/FeatureConfigRepositorySelectedStateTest.kt`
-- `app/src/test/java/com/astrbot/android/data/PersonaRepositoryTest.kt`
-- `app/src/test/java/com/astrbot/android/ui/viewmodel/ProviderViewModelTest.kt`
-- `app/src/test/java/com/astrbot/android/ui/viewmodel/BotViewModelTest.kt`
-- `app/src/test/java/com/astrbot/android/ui/viewmodel/ConfigViewModelTest.kt`
-- `app/src/androidTest/java/com/astrbot/android/ui/ConfigScreenSmokeTest.kt`
+- `app/src/test/java/com/elymbot/android/architecture/RepositoryPortSourceContractTest.kt`
+- `app/src/test/java/com/elymbot/android/architecture/FeatureFirstBoundaryContractTest.kt`
+- `app/src/test/java/com/elymbot/android/architecture/Phase7RootBoundaryContractTest.kt`
+- `app/src/test/java/com/elymbot/android/architecture/HiltFoundationContractTest.kt`
+- `app/src/test/java/com/elymbot/android/architecture/HiltExitContractTest.kt`
+- `app/src/test/java/com/elymbot/android/architecture/PostHiltRound1ContractTest.kt`
+- `app/src/test/java/com/elymbot/android/architecture/LlmSourceContractTest.kt`
+- `app/src/test/java/com/elymbot/android/data/HiltViewModelDependenciesTransactionTest.kt`
+- `app/src/test/java/com/elymbot/android/data/db/config/ConfigMappersTest.kt`
+- `app/src/test/java/com/elymbot/android/feature/provider/ProviderCatalogSearchCapabilityTest.kt`
+- `app/src/test/java/com/elymbot/android/runtime/search/profile/ProviderRepositorySearchProviderTest.kt`
+- `app/src/test/java/com/elymbot/android/core/runtime/context/RuntimeContextResolverProviderTest.kt`
+- `app/src/test/java/com/elymbot/android/feature/bot/data/FeatureBotRepositorySelectedStateTest.kt`
+- `app/src/test/java/com/elymbot/android/feature/config/data/FeatureConfigRepositorySelectedStateTest.kt`
+- `app/src/test/java/com/elymbot/android/data/PersonaRepositoryTest.kt`
+- `app/src/test/java/com/elymbot/android/ui/viewmodel/ProviderViewModelTest.kt`
+- `app/src/test/java/com/elymbot/android/ui/viewmodel/BotViewModelTest.kt`
+- `app/src/test/java/com/elymbot/android/ui/viewmodel/ConfigViewModelTest.kt`
+- `app/src/androidTest/java/com/elymbot/android/ui/ConfigScreenSmokeTest.kt`
 
 ## 9. 易错点
 

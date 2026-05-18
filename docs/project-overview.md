@@ -6,7 +6,7 @@ ElymBot
 
 ## 项目目的
 
-根据根 `README.md`，ElymBot 是面向 Android 的 AstrBot 原生项目，用于在移动端承载 QQ Bot 管理、模型配置、Persona 管理、对话上下文、运行时控制和 NapCat 本地桥接能力。
+根据根 `README.md`，ElymBot 是面向 Android 的 ElymBot 原生项目，用于在移动端承载 QQ Bot 管理、模型配置、Persona 管理、对话上下文、运行时控制和 NapCat 本地桥接能力。
 
 ## 用户
 

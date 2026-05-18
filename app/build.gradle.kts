@@ -91,7 +91,7 @@ val prepareFilteredAssets by tasks.registering(Sync::class) {
 }
 
 android {
-    namespace = "com.astrbot.android"
+    namespace = "com.elymbot.android"
 
     signingConfigs {
         if (hasReleaseSigning) {
@@ -105,10 +105,10 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.astrbot.android"
+        applicationId = "com.elymbot.android"
         targetSdk = 36
-        versionCode = 75
-        versionName = "0.9.3"
+        versionCode = 76
+        versionName = "1.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

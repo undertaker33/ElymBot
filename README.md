@@ -1,5 +1,5 @@
 # ElymBot
-一个面向 Android 的 AstrBot 原生项目，用于在移动端承载 QQ Bot 管理、模型配置、Persona 管理、对话上下文、运行时控制和 NapCat 本地桥接能力。
+一个面向 Android 的 ElymBot 原生项目，用于在移动端承载 QQ Bot 管理、模型配置、Persona 管理、对话上下文、运行时控制和 NapCat 本地桥接能力。
 
 这个项目不是从零独立设计出来的移动端新产品，而是基于两个桌面端项目做“移动端减法”后的原生化整合：
 - `https://github.com/AstrBotDevs/AstrBot`
@@ -9,15 +9,15 @@
 
 ## 改名说明
 
-本项目已由 **AstrBot-Android** 更名为 **ElymBot**。
+本项目此前使用容易与上游 AstrBot 混淆的 Android 端名称，现已统一为 **ElymBot**。
 
 由于插件能力上线后，原名称较容易与 AstrBot 官方项目、第三方安卓端实现及插件生态产生混淆，因此改用更独立的名称 **ElymBot**。新名称将作为项目后续统一标识使用，项目定位与核心方向不变，仍然专注于 Android 端的 Bot 管理、本地运行时整合与移动端体验优化。
 
-历史版本中出现的 **AstrBot-Android** 均为旧名称。
+历史版本中的旧项目名均指向当前 **ElymBot** 项目。
 
 ## 为什么要做 ElymBot
 刷到AstrBot的宣传视频，我寻思闲置设备可以拿来部署一个玩玩，但看了一圈下来发现我只有闲置的安卓手机。
-通过AstrBot官方文档我找到了[AstrBot-Android-App](https://github.com/zz6zz666/AstrBot-Android-App),但奈何我的老手机比较掘，死活部署不上，所以打算写一个能兼容我老手机的安卓工程
+通过 AstrBot 官方文档我找到过一个第三方 Android App，但奈何我的老手机比较掘，死活部署不上，所以打算写一个能兼容我老手机的安卓工程
 ### 通过ElymBot,你可以：
 - [✔] 完全免费开源
 - [✔] 实现单台安卓设备一键部署AstrBot
@@ -148,7 +148,7 @@ ps:有空我会一直更新的
 | 启用、升级、卸载 runtime lifecycle管理 | 插件安全，启停状态管理 | 开发完成 |
 | 消息入口 | `adapter_message_handler`、`command`、 `command_group`、`regex`| 开发完成 |
 | 过滤器 | `event_message_type`、`permission_type`、`platform_adapter_type`、`custom_filter`| 开发完成 |
-| 生命周期 | `on_astrbot_loaded`、`on_platform_loaded`、`on_plugin_loaded`、`on_plugin_unloaded`、`on_plugin_error`| 开发完成 |
+| 生命周期 | `on_elymbot_loaded`、`on_platform_loaded`、`on_plugin_loaded`、`on_plugin_unloaded`、`on_plugin_error`| 开发完成 |
 | LLM 流水线 | `on_waiting_llm_request`、`on_llm_request`、`on_llm_response`、`on_decorating_result`、`after_message_sent`| 开发完成 |
 | 工具体系 | `llm_tool`、`on_using_llm_tool`、`on_llm_tool_respond`| 开发完成 |
 | 市场接入 | 采用中央仓库 + 分仓库管理安卓端可拿到的插件 | 开发完成 |
@@ -242,7 +242,7 @@ LICENSE                             开源协议
 
 感谢以下开源项目为本 App 提供基础支持：
 - [NapCatQQ](https://github.com/NapNeko/NapCatQQ)：高效稳定的 QQ 协议适配器
-- [Astrbot](https://github.com/AstrBotDevs/AstrBot)：强大的一站式 Agentic 个人和群聊助手
+- [AstrBot](https://github.com/AstrBotDevs/AstrBot)：强大的一站式 Agentic 个人和群聊助手
 - [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx)：轻量化的安卓端侧TTS框架
 - [searxng](https://github.com/searxng/searxng): 强大的自托管、开源、注重隐私的元搜索引擎。
 - **[crawl4ai](https://github.com/unclecode/crawl4ai)**：高效的面向 AI 工作流的网页爬取与内容抽取框架。

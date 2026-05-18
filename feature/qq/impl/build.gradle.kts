@@ -3,7 +3,7 @@ plugins {
 }
 
 android {
-    namespace = "com.astrbot.android.feature.qq.impl"
+    namespace = "com.elymbot.android.feature.qq.impl"
 }
 
 dependencies {

@@ -23,9 +23,9 @@ else
 fi
 
 WRITABLE_TMP="$TMP_COMPAT_DIR"
-CONTAINER_HOME="${ASTRBOT_CONTAINER_HOME:-/root}"
+CONTAINER_HOME="${ELYMBOT_CONTAINER_HOME:-/root}"
 CONTAINER_WORKDIR="/"
-APT_MIRROR="${ASTRBOT_APT_MIRROR:-http://mirrors.tuna.tsinghua.edu.cn/ubuntu-ports}"
+APT_MIRROR="${ELYMBOT_APT_MIRROR:-http://mirrors.tuna.tsinghua.edu.cn/ubuntu-ports}"
 PROOT_BIND_ARGS=""
 
 add_bind_arg() {
@@ -320,7 +320,7 @@ deb [trusted=yes] ${APT_MIRROR} noble-security main restricted universe multiver
 deb [trusted=yes] ${APT_MIRROR} noble-backports main restricted universe multiverse
 EOF
 
-  cat > "$ROOTFS_DIR/etc/apt/apt.conf.d/99astrbot" <<'EOF'
+  cat > "$ROOTFS_DIR/etc/apt/apt.conf.d/99elymbot" <<'EOF'
 Acquire::Retries "2";
 Acquire::http::Timeout "20";
 Acquire::https::Timeout "20";
@@ -353,8 +353,8 @@ if [ -f "$PID_FILE" ]; then
   fi
 fi
 
-if [ ! -f "$ROOT_HOME_DIR/astrbot_napcat_entry.sh" ] && [ ! -f "$ROOTFS_DIR/root/astrbot_napcat_entry.sh" ]; then
-  echo "Missing astrbot_napcat_entry.sh in writable root home" >&2
+if [ ! -f "$ROOT_HOME_DIR/elymbot_napcat_entry.sh" ] && [ ! -f "$ROOTFS_DIR/root/elymbot_napcat_entry.sh" ]; then
+  echo "Missing elymbot_napcat_entry.sh in writable root home" >&2
   exit 4
 fi
 
@@ -389,7 +389,7 @@ if ! "$PROOT_BIN" \
     LANG=en_US.UTF-8 \
     TZ="$ANDROID_TZ" \
     PATH=/system/bin:/system/xbin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
-    /bin/sh -c 'cd / >/dev/null 2>&1 || true; [ -d /root ] || mkdir -p /root; mkdir -p /root/.astrbot-probe && cd /root && echo root-probe-ok' \
+    /bin/sh -c 'cd / >/dev/null 2>&1 || true; [ -d /root ] || mkdir -p /root; mkdir -p /root/.elymbot-probe && cd /root && echo root-probe-ok' \
   >> "$LOG_FILE" 2>&1; then
   echo "proot smoke test failed" >&2
   exit 5
@@ -425,13 +425,13 @@ nohup "$PROOT_BIN" \
     LANG=en_US.UTF-8 \
     TZ="$ANDROID_TZ" \
     PATH=/system/bin:/system/xbin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
-    ASTRBOT_APP_HOME="$APP_HOME" \
+    ELYMBOT_APP_HOME="$APP_HOME" \
     PROGRESS_FILE="$PROGRESS_FILE" \
     PROGRESS_LABEL_FILE="$PROGRESS_LABEL_FILE" \
     PROGRESS_MODE_FILE="$PROGRESS_MODE_FILE" \
     INSTALLER_CACHE_FILE="$INSTALLER_CACHE_FILE" \
-    ASTRBOT_APT_MIRROR="$APT_MIRROR" \
-    /bin/sh -c 'cd /root 2>/dev/null || cd / 2>/dev/null || true; chmod +x /root/astrbot_napcat_entry.sh && exec /bin/bash /root/astrbot_napcat_entry.sh' \
+    ELYMBOT_APT_MIRROR="$APT_MIRROR" \
+    /bin/sh -c 'cd /root 2>/dev/null || cd / 2>/dev/null || true; chmod +x /root/elymbot_napcat_entry.sh && exec /bin/bash /root/elymbot_napcat_entry.sh' \
   >> "$LOG_FILE" 2>&1 &
 
 echo $! > "$PID_FILE"

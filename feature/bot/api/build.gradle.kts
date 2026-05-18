@@ -3,7 +3,7 @@ plugins {
 }
 
 android {
-    namespace = "com.astrbot.android.feature.bot.api"
+    namespace = "com.elymbot.android.feature.bot.api"
 }
 
 dependencies {

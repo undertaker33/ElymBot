@@ -5,7 +5,7 @@ plugins {
 }
 
 android {
-    namespace = "com.astrbot.android.feature.qq.runtime"
+    namespace = "com.elymbot.android.feature.qq.runtime"
 }
 
 dependencies {

@@ -1,8 +1,8 @@
 {
-  "pluginId": "com.astrbot.samples.greeting_toolkit",
+  "pluginId": "com.elymbot.samples.greeting_toolkit",
   "version": "1.0.0",
   "protocolVersion": 2,
-  "author": "AstrBot Samples",
+  "author": "ElymBot Samples",
   "title": "Greeting Toolkit",
   "description": "Sample greeting plugin with a static config schema and prompt asset.",
   "permissions": [

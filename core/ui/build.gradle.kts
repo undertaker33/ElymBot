@@ -4,7 +4,7 @@ plugins {
 }
 
 android {
-    namespace = "com.astrbot.android.core.ui"
+    namespace = "com.elymbot.android.core.ui"
 
     buildFeatures {
         compose = true

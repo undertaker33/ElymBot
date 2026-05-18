@@ -16,7 +16,7 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "AstrBotAndroidNative"
+rootProject.name = "ElymBotAndroidNative"
 include(":app")
 include(":app-integration")
 include(":architecture-tests")

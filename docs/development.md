@@ -7,7 +7,7 @@
 - Android Gradle Plugin：根 `build.gradle.kts` 使用 `8.13.2`。
 - Kotlin：根 `build.gradle.kts` 使用 `1.9.24`。
 - Hilt：根 `build.gradle.kts` 使用 `2.52`，`app/build.gradle.kts` 应用 Hilt plugin。
-- Room：`app/build.gradle.kts` 使用 `2.6.1`，`core/db/.../AstrBotDatabase.kt` 当前 DB version 为 `22`。
+- Room：`app/build.gradle.kts` 使用 `2.6.1`，`core/db/.../ElymBotDatabase.kt` 当前 DB version 为 `22`。
 
 ## Run
 

@@ -3,7 +3,7 @@ plugins {
 }
 
 android {
-    namespace = "com.astrbot.android.core.runtime.secret"
+    namespace = "com.elymbot.android.core.runtime.secret"
 }
 
 dependencies {

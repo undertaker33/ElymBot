@@ -1,8 +1,8 @@
 {
-  "pluginId": "com.example.astrbot.plugin.template",
+  "pluginId": "com.example.elymbot.plugin.template",
   "version": "1.0.0",
   "protocolVersion": 2,
-  "author": "AstrBot Samples",
+  "author": "ElymBot Samples",
   "title": "Template Plugin Sample",
   "description": "Minimal plugin package used by installer contract tests.",
   "permissions": [],

@@ -6,7 +6,7 @@
 
 ## 仓库快照
 
-- 工作目录：`C:\Users\93445\Desktop\Astrbot\ElymBot-Android-Native`
+- 工作目录：`C:\Users\93445\Desktop\ElymBot\ElymBot-Android-Native`
 - 分支：`codex/ColorOS16(RealmeUI7)`，跟踪 `origin/codex/ColorOS16(RealmeUI7)`
 - 最近提交：`6b97b4a Merge pull request #13 from undertaker33/codex/ColorOS16(RealmeUI7)`
 - 预检时已有非本轮改动：`LICENSE`、`build.gradle.kts`

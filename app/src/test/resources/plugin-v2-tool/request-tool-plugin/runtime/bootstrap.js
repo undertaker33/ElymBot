@@ -7,10 +7,10 @@ export default async function bootstrap(hostApi) {
 
   const metadata = typeof hostApi.getPluginMetadata === "function"
     ? hostApi.getPluginMetadata()
-    : { pluginId: "com.astrbot.samples.request-tool-plugin" };
+    : { pluginId: "com.elymbot.samples.request-tool-plugin" };
   const pluginId = metadata && metadata.pluginId
     ? metadata.pluginId
-    : "com.astrbot.samples.request-tool-plugin";
+    : "com.elymbot.samples.request-tool-plugin";
 
   hostApi.registerTool({
     pluginId,

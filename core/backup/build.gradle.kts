@@ -3,7 +3,7 @@ plugins {
 }
 
 android {
-    namespace = "com.astrbot.android.core.backup"
+    namespace = "com.elymbot.android.core.backup"
 }
 
 dependencies {

@@ -1,0 +1,88 @@
+package com.elymbot.android.feature.voiceasset.data
+
+import com.elymbot.android.data.db.TtsVoiceAssetAggregate
+import com.elymbot.android.data.db.TtsVoiceAssetEntity
+import com.elymbot.android.data.db.TtsVoiceAssetWriteModel
+import com.elymbot.android.data.db.TtsVoiceClipEntity
+import com.elymbot.android.data.db.TtsVoiceProviderBindingEntity
+import com.elymbot.android.feature.voiceasset.api.model.ClonedVoiceBinding
+import com.elymbot.android.feature.voiceasset.api.model.TtsVoiceReferenceAsset
+import com.elymbot.android.feature.voiceasset.api.model.TtsVoiceReferenceClip
+import com.elymbot.android.feature.voiceasset.api.model.VoiceAssetProviderType
+
+fun TtsVoiceAssetAggregate.toModel(): TtsVoiceReferenceAsset {
+    return TtsVoiceReferenceAsset(
+        id = asset.id,
+        name = asset.name,
+        source = asset.source,
+        localPath = asset.localPath,
+        remoteUrl = asset.remoteUrl,
+        durationMs = asset.durationMs,
+        sampleRateHz = asset.sampleRateHz,
+        clips = clips.sortedBy { it.sortIndex }.map { clip ->
+            TtsVoiceReferenceClip(
+                id = clip.id,
+                localPath = clip.localPath,
+                durationMs = clip.durationMs,
+                sampleRateHz = clip.sampleRateHz,
+                createdAt = clip.createdAt,
+            )
+        },
+        providerBindings = providerBindings.sortedBy { it.sortIndex }.map { binding ->
+            ClonedVoiceBinding(
+                id = binding.id,
+                providerId = binding.providerId,
+                providerType = VoiceAssetProviderType.fromName(binding.providerType),
+                model = binding.model,
+                voiceId = binding.voiceId,
+                displayName = binding.displayName,
+                createdAt = binding.createdAt,
+                lastVerifiedAt = binding.lastVerifiedAt,
+                status = binding.status,
+            )
+        },
+        createdAt = asset.createdAt,
+    )
+}
+
+fun TtsVoiceReferenceAsset.toWriteModel(): TtsVoiceAssetWriteModel {
+    return TtsVoiceAssetWriteModel(
+        asset = TtsVoiceAssetEntity(
+            id = id,
+            name = name,
+            source = source,
+            localPath = localPath,
+            remoteUrl = remoteUrl,
+            durationMs = durationMs,
+            sampleRateHz = sampleRateHz,
+            createdAt = createdAt,
+            updatedAt = System.currentTimeMillis(),
+        ),
+        clips = clips.mapIndexed { index, clip ->
+            TtsVoiceClipEntity(
+                id = clip.id,
+                assetId = id,
+                localPath = clip.localPath,
+                durationMs = clip.durationMs,
+                sampleRateHz = clip.sampleRateHz,
+                createdAt = clip.createdAt,
+                sortIndex = index,
+            )
+        },
+        providerBindings = providerBindings.mapIndexed { index, binding ->
+            TtsVoiceProviderBindingEntity(
+                id = binding.id,
+                assetId = id,
+                providerId = binding.providerId,
+                providerType = binding.providerType.name,
+                model = binding.model,
+                voiceId = binding.voiceId,
+                displayName = binding.displayName,
+                createdAt = binding.createdAt,
+                lastVerifiedAt = binding.lastVerifiedAt,
+                status = binding.status,
+                sortIndex = index,
+            )
+        },
+    )
+}

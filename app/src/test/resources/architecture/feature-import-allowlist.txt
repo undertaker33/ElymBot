@@ -1,7 +1,7 @@
 # path | forbiddenImport | owner | target | reason | expires | issue
 #
 # Rules:
-# 1. Entries must be exact production Kotlin file paths relative to app/src/main/java/com/astrbot/android.
+# 1. Entries must be exact production Kotlin file paths relative to app/src/main/java/com/elymbot/android.
 # 2. forbiddenImport must be the exact import line.
 # 3. Do not add directory-level allowlist entries.
 # 4. Do not use wildcards.

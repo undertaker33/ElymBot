@@ -68,17 +68,17 @@ Build convention checks now live under `build-logic`; run `:build-logic:check` w
 
 Current app-level contracts:
 
-- `app/src/test/java/com/astrbot/android/architecture/GlobalSingletonAllowlistContractTest.kt`
-- `app/src/test/java/com/astrbot/android/architecture/AppModelsOwnershipContractTest.kt`
-- `app/src/test/java/com/astrbot/android/architecture/FeatureFirstBoundaryContractTest.kt`
-- `app/src/test/java/com/astrbot/android/architecture/Phase7RootBoundaryContractTest.kt`
-- `app/src/test/java/com/astrbot/android/architecture/RepositoryPortSourceContractTest.kt`
-- `app/src/test/java/com/astrbot/android/architecture/StrictHiltOnlyContractTest.kt`
-- `app/src/test/java/com/astrbot/android/architecture/StrictHiltOnlyFinalContractTest.kt`
-- `app/src/test/java/com/astrbot/android/architecture/NoLegacyAdapterContractTest.kt`
-- `app/src/test/java/com/astrbot/android/architecture/NoManualRuntimeSubgraphContractTest.kt`
-- `app/src/test/java/com/astrbot/android/architecture/NoProductionFileDeprecationSuppressContractTest.kt`
-- `app/src/test/java/com/astrbot/android/architecture/BuildBaselineContractTest.kt`
-- `app/src/test/java/com/astrbot/android/di/startup/StrictHiltOnlyStartupHotspotSourceTest.kt`
+- `app/src/test/java/com/elymbot/android/architecture/GlobalSingletonAllowlistContractTest.kt`
+- `app/src/test/java/com/elymbot/android/architecture/AppModelsOwnershipContractTest.kt`
+- `app/src/test/java/com/elymbot/android/architecture/FeatureFirstBoundaryContractTest.kt`
+- `app/src/test/java/com/elymbot/android/architecture/Phase7RootBoundaryContractTest.kt`
+- `app/src/test/java/com/elymbot/android/architecture/RepositoryPortSourceContractTest.kt`
+- `app/src/test/java/com/elymbot/android/architecture/StrictHiltOnlyContractTest.kt`
+- `app/src/test/java/com/elymbot/android/architecture/StrictHiltOnlyFinalContractTest.kt`
+- `app/src/test/java/com/elymbot/android/architecture/NoLegacyAdapterContractTest.kt`
+- `app/src/test/java/com/elymbot/android/architecture/NoManualRuntimeSubgraphContractTest.kt`
+- `app/src/test/java/com/elymbot/android/architecture/NoProductionFileDeprecationSuppressContractTest.kt`
+- `app/src/test/java/com/elymbot/android/architecture/BuildBaselineContractTest.kt`
+- `app/src/test/java/com/elymbot/android/di/startup/StrictHiltOnlyStartupHotspotSourceTest.kt`
 
 Regenerate or refresh report-backed debt numbers from the root reports `build/reports/architecture/source-roots.txt` and `build/reports/architecture/debt.txt` when the main agent runs the full architecture verification pass.

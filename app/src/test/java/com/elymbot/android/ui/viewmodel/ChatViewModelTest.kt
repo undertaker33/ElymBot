@@ -1,0 +1,2250 @@
+package com.elymbot.android.ui.viewmodel
+
+import com.elymbot.android.MainDispatcherRule
+import com.elymbot.android.core.runtime.context.RuntimeContextDataPort
+import com.elymbot.android.core.runtime.context.RuntimeContextResolver
+import com.elymbot.android.core.runtime.context.RuntimeContextResolverPort
+import com.elymbot.android.core.runtime.context.RuntimeBotSnapshot
+import com.elymbot.android.core.runtime.context.RuntimeConfigSnapshot
+import com.elymbot.android.core.runtime.context.RuntimeConversationSessionSnapshot
+import com.elymbot.android.core.runtime.context.RuntimePersonaSnapshot
+import com.elymbot.android.core.runtime.context.RuntimeProviderSnapshot
+import com.elymbot.android.core.runtime.context.RuntimeResourceCenterCompatibilitySnapshot
+import com.elymbot.android.core.runtime.llm.LlmInvocationResult
+import com.elymbot.android.core.runtime.llm.LlmToolDefinition
+import com.elymbot.android.di.runtime.context.toRuntimeConfigSnapshot
+import com.elymbot.android.di.runtime.context.toRuntimeConversationSessionSnapshot
+import com.elymbot.android.di.runtime.context.toRuntimePersonaSnapshot
+import com.elymbot.android.di.runtime.context.toRuntimeProviderSnapshot
+import com.elymbot.android.di.runtime.context.toRuntimeResourceCenterCompatibilitySnapshot
+import com.elymbot.android.ui.viewmodel.ChatViewModelRuntimeBindings
+import com.elymbot.android.feature.chat.domain.AppChatRuntimePort
+import com.elymbot.android.feature.conversation.domain.ConversationRepositoryPort
+import com.elymbot.android.feature.chat.domain.SendAppMessageUseCase
+import com.elymbot.android.feature.resource.data.ResourceCenterCompatibility
+import com.elymbot.android.model.BotProfile
+import com.elymbot.android.model.ConfigProfile
+import com.elymbot.android.model.FeatureSupportState
+import com.elymbot.android.model.PersonaProfile
+import com.elymbot.android.model.ProviderCapability
+import com.elymbot.android.model.ProviderProfile
+import com.elymbot.android.model.ProviderType
+import com.elymbot.android.model.chat.ConversationAttachment
+import com.elymbot.android.model.chat.ConversationMessage
+import com.elymbot.android.model.chat.ConversationSession
+import com.elymbot.android.model.plugin.ErrorResult
+import com.elymbot.android.model.plugin.HostActionRequest
+import com.elymbot.android.model.plugin.MediaResult
+import com.elymbot.android.model.plugin.NoOp
+import com.elymbot.android.model.plugin.PluginCompatibilityState
+import com.elymbot.android.model.plugin.PluginExecutionContext
+import com.elymbot.android.model.plugin.PluginExecutionResult
+import com.elymbot.android.model.plugin.PluginHostAction
+import com.elymbot.android.model.plugin.PluginInstallState
+import com.elymbot.android.model.plugin.PluginInstallStatus
+import com.elymbot.android.model.plugin.PluginMediaItem
+import com.elymbot.android.model.plugin.PluginManifest
+import com.elymbot.android.model.plugin.PluginPermissionDeclaration
+import com.elymbot.android.model.plugin.PluginRiskLevel
+import com.elymbot.android.model.plugin.PluginSource
+import com.elymbot.android.model.plugin.PluginSourceType
+import com.elymbot.android.model.plugin.PluginTriggerSource
+import com.elymbot.android.model.plugin.TextResult
+import com.elymbot.android.feature.plugin.runtime.AppChatLlmPipelineRuntime
+import com.elymbot.android.feature.plugin.runtime.AppChatPluginRuntime
+import com.elymbot.android.feature.plugin.runtime.DefaultAppChatPluginRuntime
+import com.elymbot.android.feature.plugin.runtime.DefaultPluginExecutionHostOperations
+import com.elymbot.android.feature.plugin.runtime.DefaultPluginExecutionHostResolver
+import com.elymbot.android.feature.plugin.runtime.EngineBackedAppChatPluginRuntime
+import com.elymbot.android.feature.plugin.runtime.ExternalPluginHostActionExecutor
+import com.elymbot.android.feature.plugin.runtime.ExternalPluginBridgeRuntime
+import com.elymbot.android.feature.plugin.runtime.ExternalPluginRuntimeCatalog
+import com.elymbot.android.feature.plugin.runtime.PluginHostCapabilityGateway
+import com.elymbot.android.feature.plugin.runtime.PluginHostCapabilityGatewayFactory
+import com.elymbot.android.feature.plugin.runtime.RecordingExternalPluginScriptExecutor
+import com.elymbot.android.feature.plugin.runtime.createQuickJsExternalPluginInstallRecord
+import com.elymbot.android.feature.plugin.runtime.InMemoryPluginFailureStateStore
+import com.elymbot.android.feature.plugin.runtime.InMemoryPluginScheduleStateStore
+import com.elymbot.android.feature.plugin.runtime.InMemoryPluginScopedFailureStateStore
+import com.elymbot.android.feature.plugin.runtime.InMemoryPluginRuntimeLogBus
+import com.elymbot.android.feature.plugin.runtime.BaseHandlerRegistrationInput
+import com.elymbot.android.feature.plugin.runtime.BootstrapFilterDescriptor
+import com.elymbot.android.feature.plugin.runtime.CommandHandlerRegistrationInput
+import com.elymbot.android.feature.plugin.runtime.DiagnosticSeverity
+import com.elymbot.android.feature.plugin.runtime.PluginExecutionBatchResult
+import com.elymbot.android.feature.plugin.runtime.PluginExecutionEngine
+import com.elymbot.android.feature.plugin.runtime.PluginDispatchSkip
+import com.elymbot.android.feature.plugin.runtime.PluginDispatchSkipReason
+import com.elymbot.android.feature.plugin.runtime.PluginFailureGuard
+import com.elymbot.android.feature.plugin.runtime.PluginMessageEvent
+import com.elymbot.android.feature.plugin.runtime.PluginCommandEvent
+import com.elymbot.android.feature.plugin.runtime.PluginLlmResponse
+import com.elymbot.android.feature.plugin.runtime.PluginMessageEventResult
+import com.elymbot.android.feature.plugin.runtime.PluginProviderRequest
+import com.elymbot.android.feature.plugin.runtime.PluginRuntimeScheduler
+import com.elymbot.android.feature.plugin.runtime.PluginRuntimeDispatcher
+import com.elymbot.android.feature.plugin.runtime.PluginRuntimeHandler
+import com.elymbot.android.feature.plugin.runtime.PluginRuntimePlugin
+import com.elymbot.android.feature.plugin.runtime.PluginV2ActiveRuntimeEntry
+import com.elymbot.android.feature.plugin.runtime.PluginV2ActiveRuntimeStore
+import com.elymbot.android.feature.plugin.runtime.PluginV2AfterSentView
+import com.elymbot.android.feature.plugin.runtime.PluginV2BootstrapHostApi
+import com.elymbot.android.feature.plugin.runtime.PluginV2BootstrapSummary
+import com.elymbot.android.feature.plugin.runtime.PluginV2CallbackHandle
+import com.elymbot.android.feature.plugin.runtime.PluginV2CompiledRegistrySnapshot
+import com.elymbot.android.feature.plugin.runtime.PluginV2CustomFilterAwareCallbackHandle
+import com.elymbot.android.feature.plugin.runtime.PluginV2CustomFilterRequest
+import com.elymbot.android.feature.plugin.runtime.PluginV2DispatchEngine
+import com.elymbot.android.feature.plugin.runtime.PluginV2EventAwareCallbackHandle
+import com.elymbot.android.feature.plugin.runtime.PluginV2EventResultCoordinator
+import com.elymbot.android.feature.plugin.runtime.PluginV2HostLlmDeliveryRequest
+import com.elymbot.android.feature.plugin.runtime.PluginV2HostLlmDeliveryResult
+import com.elymbot.android.feature.plugin.runtime.PluginV2RegistryCompiler
+import com.elymbot.android.feature.plugin.runtime.PluginV2RuntimeSession
+import com.elymbot.android.feature.plugin.runtime.PluginV2RuntimeSessionState
+import com.elymbot.android.feature.plugin.runtime.PluginV2InternalStage
+import com.elymbot.android.feature.plugin.runtime.PluginV2LlmPipelineInput
+import com.elymbot.android.feature.plugin.runtime.PluginV2LlmPipelineResult
+import com.elymbot.android.feature.plugin.runtime.PluginV2LlmStageDispatchResult
+import com.elymbot.android.feature.plugin.runtime.PluginV2ProviderInvocationResult
+import com.elymbot.android.feature.plugin.runtime.PluginErrorEventPayload
+import com.elymbot.android.feature.plugin.runtime.LlmPipelineAdmission
+import com.elymbot.android.feature.plugin.runtime.MessageHandlerRegistrationInput
+import com.elymbot.android.feature.plugin.runtime.samplePluginV2InstallRecord
+import java.nio.file.Files
+import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.runBlocking
+import org.json.JSONObject
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runTest
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Rule
+import org.junit.Test
+import kotlin.coroutines.CoroutineContext
+
+@OptIn(ExperimentalCoroutinesApi::class)
+class ChatViewModelTest {
+    private val dispatcher = StandardTestDispatcher()
+
+    @get:Rule
+    val mainDispatcherRule = MainDispatcherRule(dispatcher)
+
+    @Test
+    fun init_prefers_non_default_restored_session() = runTest(dispatcher) {
+        val deps = FakeChatDependencies(
+            sessions = listOf(
+                defaultSession(),
+                ConversationSession(
+                    id = "session-restored",
+                    title = "Restored",
+                    botId = "bot-2",
+                    providerId = "provider-2",
+                    personaId = "",
+                    maxContextMessages = 12,
+                    messages = emptyList(),
+                ),
+            ),
+            bots = listOf(defaultBot(), defaultBot(id = "bot-2", defaultProviderId = "provider-2")),
+            providers = listOf(defaultChatProvider("provider-2")),
+        )
+
+        val viewModel = ChatViewModel(deps)
+        advanceUntilIdle()
+
+        assertEquals("session-restored", viewModel.uiState.value.selectedSessionId)
+        assertTrue(deps.bindingUpdates.any { it.sessionId == "session-restored" && it.providerId == "provider-2" })
+    }
+
+    @Test
+    fun init_uses_config_provider_over_stale_restored_session_provider() = runTest(dispatcher) {
+        val deps = FakeChatDependencies(
+            sessions = listOf(
+                ConversationSession(
+                    id = "session-restored",
+                    title = "Restored",
+                    botId = "bot-1",
+                    providerId = "deepseek-chat",
+                    personaId = "",
+                    maxContextMessages = 12,
+                    messages = emptyList(),
+                ),
+            ),
+            bots = listOf(defaultBot(id = "bot-1", defaultProviderId = "deepseek-chat")),
+            providers = listOf(
+                defaultChatProvider("deepseek-chat"),
+                defaultChatProvider("qwen-chat"),
+            ),
+            config = ConfigProfile(
+                id = "config-default",
+                defaultChatProviderId = "qwen-chat",
+            ),
+        )
+
+        val viewModel = ChatViewModel(deps)
+        advanceUntilIdle()
+
+        assertEquals("qwen-chat", viewModel.uiState.value.selectedProviderId)
+        assertTrue(deps.bindingUpdates.any { it.sessionId == "session-restored" && it.providerId == "qwen-chat" })
+    }
+
+    @Test
+    fun select_provider_updates_config_authority_and_projection_bindings() = runTest(dispatcher) {
+        val deps = FakeChatDependencies(
+            sessions = listOf(defaultSession(botId = "bot-1", providerId = "deepseek-chat")),
+            bots = listOf(defaultBot(id = "bot-1", defaultProviderId = "deepseek-chat")),
+            providers = listOf(
+                defaultChatProvider("deepseek-chat"),
+                defaultChatProvider("qwen-chat"),
+            ),
+            config = ConfigProfile(
+                id = "config-default",
+                defaultChatProviderId = "deepseek-chat",
+            ),
+        )
+        val viewModel = ChatViewModel(deps)
+        advanceUntilIdle()
+        deps.clearRecordedSignals()
+
+        viewModel.selectProvider("qwen-chat")
+        advanceUntilIdle()
+
+        assertEquals("qwen-chat", viewModel.uiState.value.selectedProviderId)
+        assertEquals("qwen-chat", deps.savedConfigs.single().defaultChatProviderId)
+        assertEquals("qwen-chat", deps.savedBots.single().defaultProviderId)
+        assertTrue(deps.bindingUpdates.any { it.sessionId == "chat-main" && it.providerId == "qwen-chat" })
+    }
+
+    @Test
+    fun send_message_without_available_provider_does_not_append_messages() = runTest(dispatcher) {
+        val deps = FakeChatDependencies(
+            sessions = listOf(defaultSession()),
+            bots = listOf(defaultBot()),
+            providers = emptyList(),
+        )
+        val viewModel = ChatViewModel(deps)
+        advanceUntilIdle()
+        deps.clearRecordedSignals()
+
+        viewModel.sendMessage("hello")
+        advanceUntilIdle()
+
+        assertEquals(0, deps.appendedMessages.size)
+        assertTrue(deps.loggedMessages.any { it.contains("Chat send blocked") })
+        assertEquals(false, viewModel.uiState.value.isSending)
+    }
+
+    @Test
+    fun send_message_triggers_before_send_plugin_after_user_message_persist_and_before_model_dispatch() = runTest(dispatcher) {
+        val deps = FakeChatDependencies(
+            sessions = listOf(defaultSession()),
+            bots = listOf(defaultBot(defaultProviderId = "provider-1")),
+            providers = listOf(defaultChatProvider("provider-1")),
+        )
+        val depsSignals = deps.signalLog
+        val runtime = RecordingAppChatPluginRuntime(
+            plugins = listOf(
+                runtimePlugin(
+                    pluginId = "before-plugin",
+                    supportedTriggers = setOf(PluginTriggerSource.BeforeSendMessage),
+                ) {
+                    depsSignals += "plugin:before"
+                    TextResult("seen")
+                },
+                runtimePlugin(
+                    pluginId = "after-plugin",
+                    supportedTriggers = setOf(PluginTriggerSource.AfterModelResponse),
+                ) {
+                    depsSignals += "plugin:after"
+                    NoOp("done")
+                },
+            ),
+        )
+        val viewModel = ChatViewModel(
+            dependencies = deps,
+            appChatPluginRuntime = runtime,
+            ioDispatcher = dispatcher,
+        )
+        advanceUntilIdle()
+        deps.clearRecordedSignals()
+
+        viewModel.sendMessage("hello plugin")
+        advanceUntilIdle()
+
+        val beforeBatch = runtime.batches.first { it.trigger == PluginTriggerSource.BeforeSendMessage }
+        assertEquals("hello plugin", beforeBatch.outcomes.single().context.message.contentPreview)
+        assertEquals(0, beforeBatch.outcomes.single().context.message.attachmentCount)
+
+        assertOrder(
+            signals = deps.signalLog,
+            before = "append:user:hello plugin",
+            after = "plugin:before",
+        )
+        assertOrder(
+            signals = deps.signalLog,
+            before = "plugin:before",
+            after = "model:sync:tools",
+        )
+        assertOrder(
+            signals = deps.signalLog,
+            before = "model:sync:tools",
+            after = "plugin:after",
+        )
+        assertEquals(1, deps.sentChatRequests)
+    }
+
+    @Test
+    fun send_message_v2_before_send_stop_uses_real_message_event_without_legacy_context_factory() = runTest(dispatcher) {
+        val v2Events = CopyOnWriteArrayList<PluginMessageEvent>()
+        val dispatchEngine = appChatV2Engine(
+            onMessage = { event ->
+                v2Events += event
+                event.stopPropagation()
+            },
+        )
+        val legacyExecuteCalls = AtomicInteger(0)
+        val runtime = object : AppChatPluginRuntime {
+            override fun execute(
+                trigger: PluginTriggerSource,
+                contextFactory: (PluginRuntimePlugin) -> PluginExecutionContext,
+            ): PluginExecutionBatchResult {
+                legacyExecuteCalls.incrementAndGet()
+                error("legacy runtime must not run after v2 stop")
+            }
+        }
+        val deps = FakeChatDependencies(
+            sessions = listOf(defaultSession()),
+            bots = listOf(defaultBot(defaultProviderId = "provider-1")),
+            providers = listOf(defaultChatProvider("provider-1")),
+            dispatchEngine = dispatchEngine,
+        )
+        val viewModel = ChatViewModel(
+            dependencies = deps,
+            appChatPluginRuntime = runtime,
+            ioDispatcher = dispatcher,
+        )
+        advanceUntilIdle()
+        deps.clearRecordedSignals()
+
+        viewModel.sendMessage("hello v2 stop")
+        advanceUntilIdle()
+
+        assertEquals(1, v2Events.size)
+        assertEquals("hello v2 stop", v2Events.single().rawText)
+        assertEquals("hello v2 stop", v2Events.single().workingText)
+        assertEquals("app_chat", v2Events.single().platformAdapterType)
+        assertEquals("chat-main", v2Events.single().conversationId)
+        assertEquals("app-user", v2Events.single().senderId)
+        assertEquals("app_chat", v2Events.single().extras["source"])
+        assertEquals(0, legacyExecuteCalls.get())
+        assertEquals(0, deps.sentChatRequests)
+    }
+
+    @Test
+    fun send_message_v2_before_send_allows_legacy_fallback_when_not_terminated() = runTest(dispatcher) {
+        val v2Events = CopyOnWriteArrayList<PluginMessageEvent>()
+        val dispatchEngine = appChatV2Engine(
+            onMessage = { event ->
+                v2Events += event
+            },
+        )
+        val legacyContextFactories = AtomicInteger(0)
+        val legacyTriggers = CopyOnWriteArrayList<PluginTriggerSource>()
+        val runtime = object : AppChatPluginRuntime, AppChatLlmPipelineRuntime {
+            override fun execute(
+                trigger: PluginTriggerSource,
+                contextFactory: (PluginRuntimePlugin) -> PluginExecutionContext,
+            ): PluginExecutionBatchResult {
+                legacyTriggers += trigger
+                val plugin = runtimePlugin(
+                    pluginId = "legacy-before",
+                    supportedTriggers = setOf(trigger),
+                ) {
+                    NoOp("legacy")
+                }
+                val context = contextFactory(plugin)
+                legacyContextFactories.incrementAndGet()
+                if (trigger == PluginTriggerSource.BeforeSendMessage) {
+                    assertEquals("hello fallback", context.message.contentPreview)
+                }
+                return PluginExecutionBatchResult(
+                    trigger = trigger,
+                    outcomes = emptyList(),
+                    skipped = emptyList(),
+                )
+            }
+
+            override suspend fun runLlmPipeline(
+                input: PluginV2LlmPipelineInput,
+            ): PluginV2LlmPipelineResult {
+                error("not called directly")
+            }
+
+            override suspend fun deliverLlmPipeline(
+                request: PluginV2HostLlmDeliveryRequest,
+            ): PluginV2HostLlmDeliveryResult {
+                val input = request.pipelineInput
+                val pipelineResult = fakePipelineResult(input = input, text = "")
+                val providerResult = input.invokeProvider(pipelineResult.finalRequest, input.streamingMode)
+                val text = when (providerResult) {
+                    is com.elymbot.android.feature.plugin.domain.runtime.PluginV2ProviderInvocationResult.NonStreaming -> providerResult.response.text
+                    is com.elymbot.android.feature.plugin.domain.runtime.PluginV2ProviderInvocationResult.Streaming ->
+                        providerResult.events.joinToString("") { it.deltaText }
+                }
+                val result = fakePipelineResult(input = input, text = text)
+                val preparedReply = request.prepareReply(result)
+                val sendResult = request.sendReply(preparedReply)
+                request.persistDeliveredReply(preparedReply, sendResult, result)
+                val afterSentView = PluginV2EventResultCoordinator().buildAfterSentView(
+                    requestId = result.admission.requestId,
+                    conversationId = result.admission.conversationId,
+                    sendAttemptId = "host-send-test",
+                    platformAdapterType = request.platformAdapterType,
+                    platformInstanceKey = request.platformInstanceKey,
+                    sentAtEpochMs = 1L,
+                    deliveryStatus = com.elymbot.android.feature.plugin.domain.runtime.PluginV2AfterSentView.DeliveryStatus.SUCCESS,
+                    deliveredEntries = preparedReply.deliveredEntries,
+                )
+                return com.elymbot.android.feature.plugin.domain.runtime.PluginV2HostLlmDeliveryResult.Sent(
+                    pipelineResult = result,
+                    preparedReply = preparedReply,
+                    sendResult = sendResult,
+                    afterSentView = afterSentView,
+                )
+            }
+
+            override suspend fun dispatchAfterMessageSent(
+                event: PluginMessageEvent,
+                afterSentView: PluginV2AfterSentView,
+            ): PluginV2LlmStageDispatchResult {
+                return PluginV2LlmStageDispatchResult(
+                    stage = PluginV2InternalStage.AfterMessageSent,
+                    invokedHandlerIds = emptyList(),
+                )
+            }
+        }
+        val deps = FakeChatDependencies(
+            sessions = listOf(defaultSession()),
+            bots = listOf(defaultBot(defaultProviderId = "provider-1")),
+            providers = listOf(defaultChatProvider("provider-1")),
+            dispatchEngine = dispatchEngine,
+        )
+        val viewModel = ChatViewModel(
+            dependencies = deps,
+            appChatPluginRuntime = runtime,
+            ioDispatcher = dispatcher,
+        )
+        advanceUntilIdle()
+        deps.clearRecordedSignals()
+
+        viewModel.sendMessage("hello fallback")
+        advanceUntilIdle()
+
+        assertEquals(listOf("hello fallback"), v2Events.map { it.rawText })
+        assertTrue(legacyTriggers.contains(PluginTriggerSource.BeforeSendMessage))
+        assertTrue(legacyContextFactories.get() >= 1)
+        assertEquals(1, deps.sentChatRequests)
+        assertEquals("model reply", deps.latestAssistantMessage()?.content)
+    }
+
+    @Test
+    fun send_message_v2_before_send_custom_filter_failure_appends_user_visible_message_and_skips_model() = runTest(dispatcher) {
+        val dispatchEngine = appChatV2Engine(
+            customFilterFailure = true,
+        )
+        val legacyExecuteCalls = AtomicInteger(0)
+        val runtime = object : AppChatPluginRuntime {
+            override fun execute(
+                trigger: PluginTriggerSource,
+                contextFactory: (PluginRuntimePlugin) -> PluginExecutionContext,
+            ): PluginExecutionBatchResult {
+                legacyExecuteCalls.incrementAndGet()
+                error("legacy runtime must not run after v2 custom filter failure")
+            }
+        }
+        val deps = FakeChatDependencies(
+            sessions = listOf(defaultSession()),
+            bots = listOf(defaultBot(defaultProviderId = "provider-1")),
+            providers = listOf(defaultChatProvider("provider-1")),
+            dispatchEngine = dispatchEngine,
+        )
+        val viewModel = ChatViewModel(
+            dependencies = deps,
+            appChatPluginRuntime = runtime,
+            ioDispatcher = dispatcher,
+        )
+        advanceUntilIdle()
+        deps.clearRecordedSignals()
+
+        viewModel.sendMessage("hello filter failure")
+        advanceUntilIdle()
+
+        assertEquals(0, legacyExecuteCalls.get())
+        assertEquals(0, deps.sentChatRequests)
+        assertEquals(
+            "Plugin filter failed. Please try again later.",
+            deps.latestAssistantMessage()?.content,
+        )
+    }
+
+    @Test
+    fun send_message_uses_v2_llm_delivery_pipeline_when_runtime_supports_it() = runTest(dispatcher) {
+        val deliveredRequests = CopyOnWriteArrayList<PluginV2HostLlmDeliveryRequest>()
+        val runtime = object : AppChatPluginRuntime, AppChatLlmPipelineRuntime {
+            override fun execute(
+                trigger: PluginTriggerSource,
+                contextFactory: (PluginRuntimePlugin) -> PluginExecutionContext,
+            ): PluginExecutionBatchResult {
+                return PluginExecutionBatchResult(
+                    trigger = trigger,
+                    outcomes = emptyList(),
+                    skipped = emptyList(),
+                )
+            }
+
+            override suspend fun runLlmPipeline(
+                input: PluginV2LlmPipelineInput,
+            ): PluginV2LlmPipelineResult {
+                error("runLlmPipeline should not be called by ChatViewModel directly")
+            }
+
+            override suspend fun deliverLlmPipeline(
+                request: PluginV2HostLlmDeliveryRequest,
+            ): PluginV2HostLlmDeliveryResult {
+                deliveredRequests += request
+                val pipelineResult = fakePipelineResult(
+                    input = request.pipelineInput,
+                    text = "pipeline reply",
+                )
+                val preparedReply = request.prepareReply(pipelineResult)
+                val sendResult = request.sendReply(preparedReply)
+                request.persistDeliveredReply(preparedReply, sendResult, pipelineResult)
+                val afterSentView = PluginV2EventResultCoordinator().buildAfterSentView(
+                    requestId = pipelineResult.admission.requestId,
+                    conversationId = pipelineResult.admission.conversationId,
+                    sendAttemptId = "host-send-1",
+                    platformAdapterType = request.platformAdapterType,
+                    platformInstanceKey = request.platformInstanceKey,
+                    sentAtEpochMs = 1L,
+                    deliveryStatus = com.elymbot.android.feature.plugin.domain.runtime.PluginV2AfterSentView.DeliveryStatus.SUCCESS,
+                    deliveredEntries = preparedReply.deliveredEntries,
+                )
+                return com.elymbot.android.feature.plugin.domain.runtime.PluginV2HostLlmDeliveryResult.Sent(
+                    pipelineResult = pipelineResult,
+                    preparedReply = preparedReply,
+                    sendResult = sendResult,
+                    afterSentView = afterSentView,
+                )
+            }
+
+            override suspend fun dispatchAfterMessageSent(
+                event: PluginMessageEvent,
+                afterSentView: PluginV2AfterSentView,
+            ): PluginV2LlmStageDispatchResult {
+                return PluginV2LlmStageDispatchResult(
+                    stage = PluginV2InternalStage.AfterMessageSent,
+                    invokedHandlerIds = emptyList(),
+                )
+            }
+        }
+        val deps = FakeChatDependencies(
+            sessions = listOf(defaultSession()),
+            bots = listOf(defaultBot(defaultProviderId = "provider-1")),
+            providers = listOf(defaultChatProvider("provider-1")),
+        )
+        val viewModel = ChatViewModel(
+            dependencies = deps,
+            appChatPluginRuntime = runtime,
+            ioDispatcher = dispatcher,
+        )
+        advanceUntilIdle()
+        deps.clearRecordedSignals()
+
+        viewModel.sendMessage("hello pipeline")
+        advanceUntilIdle()
+
+        assertEquals(1, deliveredRequests.size)
+        assertEquals(0, deps.sentChatRequests)
+        assertEquals("pipeline reply", deps.latestAssistantMessage()?.content)
+        assertEquals("hello pipeline", deliveredRequests.single().pipelineInput.event.rawText)
+        assertEquals("provider-1", deliveredRequests.single().pipelineInput.selectedProviderId)
+    }
+
+    @Test
+    fun send_message_triggers_after_model_response_plugin_after_streaming_and_tts_updates() = runTest(dispatcher) {
+        val deps = FakeChatDependencies(
+            sessions = listOf(defaultSession()),
+            bots = listOf(
+                defaultBot(
+                    defaultProviderId = "provider-stream",
+                    configProfileId = "config-stream",
+                ),
+            ),
+            providers = listOf(
+                streamingChatProvider("provider-stream"),
+                defaultTtsProvider("tts-1"),
+            ),
+            config = ConfigProfile(
+                id = "config-stream",
+                defaultChatProviderId = "provider-stream",
+                defaultTtsProviderId = "tts-1",
+                textStreamingEnabled = true,
+                ttsEnabled = true,
+                alwaysTtsEnabled = true,
+                ttsVoiceId = "voice-1",
+            ),
+        ).also {
+            it.streamingResponse = "streamed reply"
+            it.streamingDeltas = listOf("streamed ", "reply")
+        }
+        val depsSignals = deps.signalLog
+        val runtime = RecordingAppChatPluginRuntime(
+            plugins = listOf(
+                runtimePlugin(
+                    pluginId = "after-plugin",
+                    supportedTriggers = setOf(PluginTriggerSource.AfterModelResponse),
+                ) {
+                    depsSignals += "plugin:after"
+                    TextResult("after")
+                },
+            ),
+        )
+        val viewModel = ChatViewModel(
+            dependencies = deps,
+            appChatPluginRuntime = runtime,
+            ioDispatcher = dispatcher,
+        )
+        advanceUntilIdle()
+        deps.clearRecordedSignals()
+
+        viewModel.sendMessage("hello stream")
+        advanceUntilIdle()
+        val afterBatch = runtime.batches.single { it.trigger == PluginTriggerSource.AfterModelResponse }
+        val afterContext = afterBatch.outcomes.single().context
+        assertEquals("streamed reply", afterContext.message.contentPreview)
+        assertEquals(1, afterContext.message.attachmentCount)
+        assertOrder(
+            signals = deps.signalLog,
+            before = "tts",
+            after = "plugin:after",
+        )
+        assertEquals(1, deps.sentStreamingRequests)
+        assertEquals(1, deps.synthesizedRequests)
+    }
+
+    @Test
+    fun send_message_keeps_command_priority_over_plugins_and_model_dispatch() = runTest(dispatcher) {
+        val runtime = RecordingAppChatPluginRuntime(
+            plugins = listOf(
+                runtimePlugin(
+                    pluginId = "before-plugin",
+                    supportedTriggers = setOf(PluginTriggerSource.BeforeSendMessage),
+                ) {
+                    TextResult("should-not-run")
+                },
+            ),
+        )
+        val deps = FakeChatDependencies(
+            sessions = listOf(defaultSession()),
+            bots = listOf(defaultBot(defaultProviderId = "provider-1")),
+            providers = listOf(defaultChatProvider("provider-1")),
+        )
+        val viewModel = ChatViewModel(
+            dependencies = deps,
+            appChatPluginRuntime = runtime,
+            ioDispatcher = dispatcher,
+        )
+        advanceUntilIdle()
+        deps.clearRecordedSignals()
+
+        viewModel.sendMessage("/sid")
+        advanceUntilIdle()
+
+        assertTrue(runtime.batches.isEmpty())
+        assertEquals(0, deps.sentChatRequests)
+        assertEquals(1, deps.appendedMessages.count { it.role == "assistant" })
+    }
+
+    @Test
+    fun send_message_unsupported_slash_command_invokes_v2_command_handler_once_and_skips_before_send_reentry() = runTest(dispatcher) {
+        val v2CommandEvents = CopyOnWriteArrayList<PluginCommandEvent>()
+        val dispatchEngine = appChatV2Engine(
+            onCommand = { event ->
+                v2CommandEvents += event
+                event.replyText("v2 command reply")
+            },
+        )
+        val runtime = RecordingAppChatPluginRuntime(
+            plugins = listOf(
+                runtimePlugin(
+                    pluginId = "command-plugin",
+                    supportedTriggers = setOf(PluginTriggerSource.OnCommand, PluginTriggerSource.BeforeSendMessage),
+                ) {
+                    NoOp("legacy")
+                },
+            ),
+        )
+        val deps = FakeChatDependencies(
+            sessions = listOf(defaultSession()),
+            bots = listOf(defaultBot(defaultProviderId = "provider-1")),
+            providers = listOf(defaultChatProvider("provider-1")),
+            dispatchEngine = dispatchEngine,
+        )
+        val viewModel = ChatViewModel(
+            dependencies = deps,
+            appChatPluginRuntime = runtime,
+            ioDispatcher = dispatcher,
+        )
+        advanceUntilIdle()
+        deps.clearRecordedSignals()
+
+        viewModel.sendMessage("/unsupported app chat")
+        advanceUntilIdle()
+
+        assertTrue(runtime.batches.isEmpty())
+        assertEquals(1, v2CommandEvents.size)
+        assertEquals("/unsupported app chat", v2CommandEvents.single().rawText)
+        assertEquals(0, deps.sentChatRequests)
+        assertEquals("v2 command reply", deps.latestAssistantMessage()?.content)
+    }
+
+    @Test
+    fun send_message_unsupported_slash_command_with_only_noop_legacy_result_falls_back_to_model() = runTest(dispatcher) {
+        val v2CommandEvents = CopyOnWriteArrayList<PluginCommandEvent>()
+        val dispatchEngine = appChatV2Engine(
+            onCommand = { event ->
+                v2CommandEvents += event
+            },
+        )
+        val runtime = RecordingAppChatPluginRuntime(
+            plugins = listOf(
+                runtimePlugin(
+                    pluginId = "command-plugin",
+                    supportedTriggers = setOf(PluginTriggerSource.OnCommand),
+                ) {
+                    NoOp("legacy")
+                },
+            ),
+        )
+        val deps = FakeChatDependencies(
+            sessions = listOf(defaultSession()),
+            bots = listOf(defaultBot(defaultProviderId = "provider-1")),
+            providers = listOf(defaultChatProvider("provider-1")),
+            dispatchEngine = dispatchEngine,
+        )
+        val viewModel = ChatViewModel(
+            dependencies = deps,
+            appChatPluginRuntime = runtime,
+            ioDispatcher = dispatcher,
+        )
+        advanceUntilIdle()
+        deps.clearRecordedSignals()
+
+        viewModel.sendMessage("/unsupported app chat")
+        advanceUntilIdle()
+
+        assertEquals(PluginTriggerSource.OnCommand, runtime.batches.firstOrNull()?.trigger)
+        assertEquals(1, v2CommandEvents.size)
+        assertEquals(1, deps.sentChatRequests)
+        assertEquals("model reply", deps.latestAssistantMessage()?.content)
+    }
+
+    @Test
+    fun send_message_unsupported_slash_command_falls_back_to_model_when_no_plugin_handles_it() = runTest(dispatcher) {
+        val dispatchEngine = appChatV2Engine()
+        val runtime = RecordingAppChatPluginRuntime(plugins = emptyList())
+        val deps = FakeChatDependencies(
+            sessions = listOf(defaultSession()),
+            bots = listOf(defaultBot(defaultProviderId = "provider-1")),
+            providers = listOf(defaultChatProvider("provider-1")),
+            dispatchEngine = dispatchEngine,
+        )
+        val viewModel = ChatViewModel(
+            dependencies = deps,
+            appChatPluginRuntime = runtime,
+            ioDispatcher = dispatcher,
+        )
+        advanceUntilIdle()
+        deps.clearRecordedSignals()
+
+        viewModel.sendMessage("/unsupported app chat")
+        advanceUntilIdle()
+
+        assertEquals(1, deps.sentChatRequests)
+        assertEquals("model reply", deps.latestAssistantMessage()?.content)
+    }
+
+    @Test
+    fun send_message_dispatches_plugin_command_and_appends_text_reply_without_model_dispatch() = runTest(dispatcher) {
+        val runtime = RecordingAppChatPluginRuntime(
+            plugins = listOf(
+                runtimePlugin(
+                    pluginId = "command-plugin",
+                    supportedTriggers = setOf(PluginTriggerSource.OnCommand),
+                ) { context ->
+                    assertEquals("/plugin hello", context.triggerMetadata.command)
+                    TextResult("plugin command reply")
+                },
+            ),
+        )
+        val deps = FakeChatDependencies(
+            sessions = listOf(defaultSession()),
+            bots = listOf(defaultBot(defaultProviderId = "provider-1")),
+            providers = listOf(defaultChatProvider("provider-1")),
+        )
+        val viewModel = ChatViewModel(
+            dependencies = deps,
+            appChatPluginRuntime = runtime,
+            ioDispatcher = dispatcher,
+        )
+        advanceUntilIdle()
+        deps.clearRecordedSignals()
+
+        viewModel.sendMessage("/plugin hello")
+        advanceUntilIdle()
+
+        val batch = runtime.batches.single()
+        assertEquals(PluginTriggerSource.OnCommand, batch.trigger)
+        assertEquals("/plugin hello", batch.outcomes.single().context.message.contentPreview)
+        assertEquals(0, deps.sentChatRequests)
+        assertEquals("plugin command reply", deps.latestAssistantMessage()?.content)
+    }
+
+    @Test
+    fun send_message_dispatches_external_catalog_quickjs_command_without_model_dispatch() = runTest(dispatcher) {
+        val tempDir = Files.createTempDirectory("chat-external-quickjs-command").toFile()
+        try {
+            val record = createQuickJsExternalPluginInstallRecord(
+                extractedDir = tempDir,
+                pluginId = "external-command-plugin",
+                supportedTriggers = listOf("on_command"),
+            )
+            val runtime = RecordingAppChatPluginRuntime(
+                plugins = ExternalPluginRuntimeCatalog.plugins(
+                    records = listOf(record),
+                    bridgeRuntime = ExternalPluginBridgeRuntime(
+                        scriptExecutor = RecordingExternalPluginScriptExecutor(
+                            outputs = listOf(
+                                JSONObject(
+                                    mapOf(
+                                        "resultType" to "text",
+                                        "text" to "external quickjs command reply",
+                                    ),
+                                ).toString(),
+                            ),
+                        ),
+                    ),
+                ),
+            )
+
+            val deps = FakeChatDependencies(
+                sessions = listOf(defaultSession()),
+                bots = listOf(defaultBot(defaultProviderId = "provider-1")),
+                providers = listOf(defaultChatProvider("provider-1")),
+            )
+            val viewModel = ChatViewModel(
+                dependencies = deps,
+                appChatPluginRuntime = runtime,
+                ioDispatcher = dispatcher,
+            )
+            advanceUntilIdle()
+            deps.clearRecordedSignals()
+
+            viewModel.sendMessage("/external hello")
+            advanceUntilIdle()
+
+            assertEquals(0, deps.sentChatRequests)
+            assertEquals("external quickjs command reply", deps.latestAssistantMessage()?.content)
+        } finally {
+            tempDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun send_message_reports_plugin_command_runtime_failure_without_model_dispatch() = runTest(dispatcher) {
+        val deps = FakeChatDependencies(
+            sessions = listOf(defaultSession()),
+            bots = listOf(defaultBot(defaultProviderId = "provider-1")),
+            providers = listOf(defaultChatProvider("provider-1")),
+        )
+        val runtime = object : AppChatPluginRuntime {
+            override fun execute(
+                trigger: PluginTriggerSource,
+                contextFactory: (PluginRuntimePlugin) -> PluginExecutionContext,
+            ): PluginExecutionBatchResult {
+                throw IllegalStateException("runtime exploded")
+            }
+        }
+        val viewModel = ChatViewModel(
+            dependencies = deps,
+            appChatPluginRuntime = runtime,
+            ioDispatcher = dispatcher,
+        )
+        advanceUntilIdle()
+        deps.clearRecordedSignals()
+
+        viewModel.sendMessage("/plugin fail")
+        advanceUntilIdle()
+
+        assertEquals(0, deps.sentChatRequests)
+        assertEquals(
+            "\u63d2\u4ef6\u547d\u4ee4\u6267\u884c\u5931\u8d25\uff1aruntime exploded",
+            deps.latestAssistantMessage()?.content,
+        )
+    }
+
+    @Test
+    fun send_message_rethrows_cancellation_from_model_dispatch_without_turning_it_into_failure() = runTest(dispatcher) {
+        val deps = FakeChatDependencies(
+            sessions = listOf(defaultSession()),
+            bots = listOf(defaultBot(defaultProviderId = "provider-1")),
+            providers = listOf(defaultChatProvider("provider-1")),
+        )
+        deps.sendConfiguredChatFailure = CancellationException("cancelled")
+        val viewModel = ChatViewModel(
+            dependencies = deps,
+            ioDispatcher = dispatcher,
+        )
+        advanceUntilIdle()
+        deps.clearRecordedSignals()
+
+        runCatching {
+            viewModel.sendMessage("please cancel")
+            advanceUntilIdle()
+        }
+
+        assertEquals(1, deps.sentChatRequests)
+        assertEquals("", viewModel.uiState.value.error)
+        // CancellationException propagates before the pipeline persists an
+        // assistant message, so no assistant message exists.
+        assertEquals(null, deps.latestAssistantMessage())
+    }
+
+    @Test
+    fun send_message_rethrows_cancellation_from_plugin_command_runtime_without_turning_it_into_failure() = runTest(dispatcher) {
+        val runtime = object : AppChatPluginRuntime {
+            override fun execute(
+                trigger: PluginTriggerSource,
+                contextFactory: (PluginRuntimePlugin) -> PluginExecutionContext,
+            ): PluginExecutionBatchResult {
+                throw CancellationException("cancelled")
+            }
+        }
+        val v2LogBus = InMemoryPluginRuntimeLogBus(clock = { 1L })
+        val dispatchEngine = PluginV2DispatchEngine(
+            store = PluginV2ActiveRuntimeStore(
+                logBus = v2LogBus,
+                clock = { 1L },
+            ),
+            logBus = v2LogBus,
+            clock = { 1L },
+        )
+        val deps = FakeChatDependencies(
+            sessions = listOf(defaultSession()),
+            bots = listOf(defaultBot(defaultProviderId = "provider-1")),
+            providers = listOf(defaultChatProvider("provider-1")),
+            dispatchEngine = dispatchEngine,
+        )
+        val viewModel = ChatViewModel(
+            dependencies = deps,
+            appChatPluginRuntime = runtime,
+            ioDispatcher = dispatcher,
+        )
+        advanceUntilIdle()
+        deps.clearRecordedSignals()
+
+        runCatching {
+            viewModel.sendMessage("/unsupported app chat")
+            advanceUntilIdle()
+        }
+
+        assertEquals(0, deps.sentChatRequests)
+        assertTrue(deps.appendedMessages.isEmpty())
+        assertEquals("", viewModel.uiState.value.error)
+    }
+
+    @Test
+    fun send_message_reports_suspended_plugin_command_without_model_dispatch() = runTest(dispatcher) {
+        val plugin = runtimePlugin(
+            pluginId = "command-plugin",
+            supportedTriggers = setOf(PluginTriggerSource.OnCommand),
+        ) {
+            TextResult("should not run")
+        }
+        val runtime = object : AppChatPluginRuntime {
+            override fun execute(
+                trigger: PluginTriggerSource,
+                contextFactory: (PluginRuntimePlugin) -> PluginExecutionContext,
+            ): PluginExecutionBatchResult {
+                return PluginExecutionBatchResult(
+                    trigger = trigger,
+                    outcomes = emptyList(),
+                    skipped = listOf(
+                        PluginDispatchSkip(
+                            plugin = plugin,
+                            reason = PluginDispatchSkipReason.FailureSuspended,
+                        ),
+                    ),
+                ).also {
+                    contextFactory(plugin)
+                }
+            }
+        }
+        val deps = FakeChatDependencies(
+            sessions = listOf(defaultSession()),
+            bots = listOf(defaultBot(defaultProviderId = "provider-1")),
+            providers = listOf(defaultChatProvider("provider-1")),
+        )
+        val viewModel = ChatViewModel(
+            dependencies = deps,
+            appChatPluginRuntime = runtime,
+            ioDispatcher = dispatcher,
+        )
+        advanceUntilIdle()
+        deps.clearRecordedSignals()
+
+        viewModel.sendMessage("/plugin suspended")
+        advanceUntilIdle()
+
+        assertEquals(0, deps.sentChatRequests)
+        assertEquals(
+            "\u63d2\u4ef6 command-plugin \u56e0\u8fde\u7eed\u5931\u8d25\u5df2\u88ab\u6682\u65f6\u7194\u65ad\uff0c\u8bf7\u7a0d\u540e\u518d\u8bd5\u3002",
+            deps.latestAssistantMessage()?.content,
+        )
+    }
+
+    @Test
+    fun send_message_dispatches_plugin_command_and_appends_media_reply_without_model_dispatch() = runTest(dispatcher) {
+        val tempDir = Files.createTempDirectory("chat-plugin-command-media").toFile()
+        try {
+            val extractedDir = tempDir.resolve("plugin").apply { mkdirs() }
+            extractedDir.resolve("assets").mkdirs()
+            extractedDir.resolve("assets/banner.png").writeText("banner", Charsets.UTF_8)
+            val runtime = RecordingAppChatPluginRuntime(
+                plugins = listOf(
+                    runtimePlugin(
+                        pluginId = "command-plugin",
+                        supportedTriggers = setOf(PluginTriggerSource.OnCommand),
+                        extractedDir = extractedDir.absolutePath,
+                    ) {
+                        MediaResult(
+                            items = listOf(
+                                PluginMediaItem(
+                                    source = "plugin://package/assets/banner.png",
+                                    mimeType = "image/png",
+                                    altText = "Banner",
+                                ),
+                            ),
+                        )
+                    },
+                ),
+            )
+            val deps = FakeChatDependencies(
+                sessions = listOf(defaultSession()),
+                bots = listOf(defaultBot(defaultProviderId = "provider-1")),
+                providers = listOf(defaultChatProvider("provider-1")),
+            )
+            val viewModel = ChatViewModel(
+                dependencies = deps,
+                appChatPluginRuntime = runtime,
+                ioDispatcher = dispatcher,
+            )
+            advanceUntilIdle()
+            deps.clearRecordedSignals()
+
+            viewModel.sendMessage("/plugin media")
+            advanceUntilIdle()
+
+            assertEquals(0, deps.sentChatRequests)
+            val assistantMessage = deps.latestAssistantMessage()
+            assertEquals(1, assistantMessage?.attachments?.size)
+            assertEquals(
+                extractedDir.resolve("assets/banner.png").absolutePath,
+                assistantMessage?.attachments?.single()?.remoteUrl,
+            )
+        } finally {
+            tempDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun send_message_dispatches_plugin_command_host_action_send_message_without_model_dispatch() = runTest(dispatcher) {
+        val runtime = RecordingAppChatPluginRuntime(
+            plugins = listOf(
+                runtimePlugin(
+                    pluginId = "command-plugin",
+                    supportedTriggers = setOf(PluginTriggerSource.OnCommand),
+                ) {
+                    HostActionRequest(
+                        action = PluginHostAction.SendMessage,
+                        payload = mapOf("text" to "host action reply"),
+                    )
+                },
+            ),
+        )
+        val deps = FakeChatDependencies(
+            sessions = listOf(defaultSession()),
+            bots = listOf(defaultBot(defaultProviderId = "provider-1")),
+            providers = listOf(defaultChatProvider("provider-1")),
+        )
+        val viewModel = ChatViewModel(
+            dependencies = deps,
+            appChatPluginRuntime = runtime,
+            ioDispatcher = dispatcher,
+        )
+        advanceUntilIdle()
+        deps.clearRecordedSignals()
+
+        viewModel.sendMessage("/plugin host-action")
+        advanceUntilIdle()
+
+        assertEquals(0, deps.sentChatRequests)
+        assertEquals("host action reply", deps.latestAssistantMessage()?.content)
+    }
+
+    @Test
+    fun send_message_isolates_plugin_failures_and_completes_model_flow() = runTest(dispatcher) {
+        val runtime = RecordingAppChatPluginRuntime(
+            plugins = listOf(
+                runtimePlugin(
+                    pluginId = "before-plugin",
+                    supportedTriggers = setOf(PluginTriggerSource.BeforeSendMessage),
+                ) {
+                    throw IllegalStateException("plugin exploded")
+                },
+            ),
+        )
+        val deps = FakeChatDependencies(
+            sessions = listOf(defaultSession()),
+            bots = listOf(defaultBot(defaultProviderId = "provider-1")),
+            providers = listOf(defaultChatProvider("provider-1")),
+        )
+        val viewModel = ChatViewModel(
+            dependencies = deps,
+            appChatPluginRuntime = runtime,
+            ioDispatcher = dispatcher,
+        )
+        advanceUntilIdle()
+        deps.clearRecordedSignals()
+
+        viewModel.sendMessage("still send")
+        advanceUntilIdle()
+        val failedOutcome = runtime.batches
+            .single { it.trigger == PluginTriggerSource.BeforeSendMessage }
+            .outcomes
+            .single()
+        assertFalse(failedOutcome.succeeded)
+        assertTrue(failedOutcome.result is ErrorResult)
+        assertEquals(1, deps.sentChatRequests)
+        assertEquals("model reply", deps.latestAssistantMessage()?.content)
+        assertEquals("", viewModel.uiState.value.error)
+    }
+
+    @Test
+    fun init_selects_app_session_when_qq_sessions_present() = runTest(dispatcher) {
+        val qqSession = ConversationSession(
+            id = "qq-bot123-private-934457024",
+            title = "QQ Friend",
+            botId = "qq-main",
+            providerId = "",
+            personaId = "",
+            maxContextMessages = 12,
+            messages = emptyList(),
+        )
+        val appSession = defaultSession(id = "my-app-session")
+        val deps = FakeChatDependencies(
+            sessions = listOf(qqSession, appSession),
+            bots = listOf(defaultBot()),
+            providers = emptyList(),
+        )
+
+        val viewModel = ChatViewModel(deps)
+        advanceUntilIdle()
+
+        assertEquals("my-app-session", viewModel.uiState.value.selectedSessionId)
+    }
+
+    @Test
+    fun delete_session_falls_back_to_app_session_not_qq() = runTest(dispatcher) {
+        val qqSession = ConversationSession(
+            id = "qq-bot123-group-111222",
+            title = "QQ Group",
+            botId = "qq-main",
+            providerId = "",
+            personaId = "",
+            maxContextMessages = 12,
+            messages = emptyList(),
+        )
+        val appSession1 = defaultSession(id = "app-1")
+        val appSession2 = defaultSession(id = "app-2")
+        val deps = FakeChatDependencies(
+            sessions = listOf(appSession1, qqSession, appSession2),
+            bots = listOf(defaultBot()),
+            providers = emptyList(),
+        )
+        val viewModel = ChatViewModel(deps)
+        advanceUntilIdle()
+        assertEquals("app-1", viewModel.uiState.value.selectedSessionId)
+
+        viewModel.deleteSession("app-1")
+        advanceUntilIdle()
+
+        // Should fall back to another app session, not the QQ session
+        assertEquals("app-2", viewModel.uiState.value.selectedSessionId)
+    }
+
+    @Test
+    fun session_flow_falls_back_to_remaining_app_session_when_selected_session_disappears() = runTest(dispatcher) {
+        val qqSession = ConversationSession(
+            id = "qq-bot123-private-934457024",
+            title = "QQ Friend",
+            botId = "qq-main",
+            providerId = "",
+            personaId = "",
+            maxContextMessages = 12,
+            messages = emptyList(),
+        )
+        val appSession1 = defaultSession(id = "app-1")
+        val appSession2 = defaultSession(id = "app-2")
+        val deps = FakeChatDependencies(
+            sessions = listOf(appSession1, qqSession, appSession2),
+            bots = listOf(defaultBot()),
+            providers = emptyList(),
+        )
+        val viewModel = ChatViewModel(deps)
+        advanceUntilIdle()
+
+        viewModel.selectSession("app-2")
+        advanceUntilIdle()
+        assertEquals("app-2", viewModel.uiState.value.selectedSessionId)
+
+        deps.sessions.value = listOf(appSession1, qqSession)
+        advanceUntilIdle()
+
+        assertEquals("app-1", viewModel.uiState.value.selectedSessionId)
+    }
+
+    private class FakeChatDependencies(
+        sessions: List<ConversationSession>,
+        bots: List<BotProfile>,
+        providers: List<ProviderProfile>,
+        private val dispatchEngine: PluginV2DispatchEngine = emptyAppChatV2Engine(),
+        private val config: ConfigProfile = ConfigProfile(
+            id = "config-default",
+            defaultChatProviderId = providers.firstOrNull { ProviderCapability.CHAT in it.capabilities }?.id.orEmpty(),
+        ),
+    ) : ChatViewModelRuntimeBindings {
+        override val defaultSessionId: String = "chat-main"
+        override val defaultSessionTitle: String = "Default session"
+        override val defaultAppChatPluginRuntime: AppChatPluginRuntime = DefaultAppChatPluginRuntime
+        override val bots: MutableStateFlow<List<BotProfile>> = MutableStateFlow(bots)
+        override val selectedBotId: StateFlow<String> = MutableStateFlow(bots.firstOrNull()?.id ?: "qq-main")
+        override val providers: StateFlow<List<ProviderProfile>> = MutableStateFlow(providers)
+        override val configProfiles: MutableStateFlow<List<ConfigProfile>> = MutableStateFlow(listOf(config))
+        override val sessions: MutableStateFlow<List<ConversationSession>> = MutableStateFlow(sessions)
+        override val personas: StateFlow<List<PersonaProfile>> = MutableStateFlow(emptyList())
+        private val runtimeContextDataPort = object : RuntimeContextDataPort {
+            override fun resolveConfig(configProfileId: String): RuntimeConfigSnapshot {
+                return this@FakeChatDependencies.resolveConfig(configProfileId).toRuntimeConfigSnapshot()
+            }
+
+            override fun listProviders(): List<RuntimeProviderSnapshot> {
+                return this@FakeChatDependencies.providers.value.map { it.toRuntimeProviderSnapshot() }
+            }
+
+            override fun findEnabledPersona(personaId: String): RuntimePersonaSnapshot? {
+                return this@FakeChatDependencies.personas.value.firstOrNull {
+                    it.id == personaId && it.enabled
+                }?.toRuntimePersonaSnapshot()
+            }
+
+            override fun session(sessionId: String): RuntimeConversationSessionSnapshot {
+                return this@FakeChatDependencies.session(sessionId).toRuntimeConversationSessionSnapshot()
+            }
+
+            override fun compatibilitySnapshotForConfig(
+                config: RuntimeConfigSnapshot,
+            ): RuntimeResourceCenterCompatibilitySnapshot =
+                ResourceCenterCompatibility.projectionsFromConfigProfile(this@FakeChatDependencies.config)
+                    .toRuntimeResourceCenterCompatibilitySnapshot()
+        }
+
+        data class BindingUpdate(
+            val sessionId: String,
+            val providerId: String,
+            val personaId: String,
+            val botId: String,
+        )
+
+        val bindingUpdates = mutableListOf<BindingUpdate>()
+        val savedConfigs = mutableListOf<ConfigProfile>()
+        val savedBots = mutableListOf<BotProfile>()
+        val appendedMessages = mutableListOf<ConversationMessage>()
+        val loggedMessages = mutableListOf<String>()
+        val signalLog = mutableListOf<String>()
+
+        var sentChatRequests = 0
+        var sentStreamingRequests = 0
+        var synthesizedRequests = 0
+        var chatResponse: String = "model reply"
+        var streamingResponse: String = "streamed reply"
+        var streamingDeltas: List<String> = listOf("streamed ", "reply")
+        var sendConfiguredChatFailure: Throwable? = null
+
+        override fun session(sessionId: String): ConversationSession {
+            return sessions.value.first { it.id == sessionId }
+        }
+
+        override fun createSession(botId: String): ConversationSession {
+            val created = ConversationSession(
+                id = "chat-created-${sessions.value.size}",
+                title = defaultSessionTitle,
+                botId = botId,
+                providerId = "",
+                personaId = "",
+                maxContextMessages = 12,
+                messages = emptyList(),
+            )
+            sessions.value = sessions.value + created
+            signalLog += "session:create:${created.id}"
+            return created
+        }
+
+        override fun deleteSession(sessionId: String) {
+            sessions.value = sessions.value.filterNot { it.id == sessionId }
+            signalLog += "session:delete:$sessionId"
+        }
+
+        override fun renameSession(sessionId: String, title: String) {
+            mutateSession(sessionId) { it.copy(title = title) }
+            signalLog += "session:rename:$sessionId:$title"
+        }
+
+        override fun toggleSessionPinned(sessionId: String) {
+            mutateSession(sessionId) { it.copy(pinned = !it.pinned) }
+            signalLog += "session:pin:$sessionId"
+        }
+
+        override fun updateSessionServiceFlags(sessionId: String, sessionSttEnabled: Boolean?, sessionTtsEnabled: Boolean?) {
+            mutateSession(sessionId) {
+                it.copy(
+                    sessionSttEnabled = sessionSttEnabled ?: it.sessionSttEnabled,
+                    sessionTtsEnabled = sessionTtsEnabled ?: it.sessionTtsEnabled,
+                )
+            }
+            signalLog += "session:service-flags:$sessionId"
+        }
+
+        override fun updateSessionBindings(sessionId: String, providerId: String, personaId: String, botId: String) {
+            mutateSession(sessionId) {
+                it.copy(
+                    providerId = providerId,
+                    personaId = personaId,
+                    botId = botId,
+                )
+            }
+            bindingUpdates += BindingUpdate(sessionId, providerId, personaId, botId)
+            signalLog += "bind:$sessionId"
+        }
+
+        override fun appendMessage(
+            sessionId: String,
+            role: String,
+            content: String,
+            attachments: List<ConversationAttachment>,
+        ): String {
+            val message = ConversationMessage(
+                id = "msg-${appendedMessages.size}",
+                role = role,
+                content = content,
+                timestamp = appendedMessages.size.toLong() + 1L,
+                attachments = attachments,
+            )
+            appendedMessages += message
+            mutateSession(sessionId) { it.copy(messages = it.messages + message) }
+            signalLog += "append:$role:${content.ifBlank { "<empty>" }}"
+            return message.id
+        }
+
+        override fun replaceMessages(sessionId: String, messages: List<ConversationMessage>) {
+            mutateSession(sessionId) { it.copy(messages = messages) }
+            signalLog += "replace:$sessionId"
+        }
+
+        override fun updateMessage(
+            sessionId: String,
+            messageId: String,
+            content: String?,
+            attachments: List<ConversationAttachment>?,
+        ) {
+            mutateSession(sessionId) { session ->
+                session.copy(
+                    messages = session.messages.map { message ->
+                        if (message.id != messageId) {
+                            message
+                        } else {
+                            message.copy(
+                                content = content ?: message.content,
+                                attachments = attachments ?: message.attachments,
+                            )
+                        }
+                    },
+                )
+            }
+            val updated = session(sessionId).messages.first { it.id == messageId }
+            signalLog += "update:$messageId:${updated.content.ifBlank { "<empty>" }}:${updated.attachments.size}"
+        }
+
+        override fun syncSystemSessionTitle(sessionId: String, title: String) {
+            mutateSession(sessionId) { it.copy(title = title) }
+            signalLog += "title:$sessionId:$title"
+        }
+
+        override fun resolveConfig(profileId: String): ConfigProfile {
+            return configProfiles.value.firstOrNull { it.id == profileId } ?: config
+        }
+
+        override fun saveConfig(profile: ConfigProfile) {
+            savedConfigs += profile
+            configProfiles.value = configProfiles.value.map {
+                if (it.id == profile.id) profile else it
+            }.ifEmpty { listOf(profile) }
+        }
+
+        override fun saveBot(profile: BotProfile) {
+            savedBots += profile
+            bots.value = bots.value.map {
+                if (it.id == profile.id) profile else it
+            }.ifEmpty { listOf(profile) }
+        }
+
+        override fun saveProvider(profile: ProviderProfile) = Unit
+
+        override suspend fun transcribeAudio(provider: ProviderProfile, attachment: ConversationAttachment): String {
+            signalLog += "stt"
+            return "transcribed"
+        }
+
+        override suspend fun sendConfiguredChat(
+            provider: ProviderProfile,
+            messages: List<ConversationMessage>,
+            systemPrompt: String?,
+            config: ConfigProfile?,
+            availableProviders: List<ProviderProfile>,
+        ): String {
+            sentChatRequests += 1
+            signalLog += "model:sync"
+            sendConfiguredChatFailure?.let { throw it }
+            return chatResponse
+        }
+
+        override suspend fun sendConfiguredChatStream(
+            provider: ProviderProfile,
+            messages: List<ConversationMessage>,
+            systemPrompt: String?,
+            config: ConfigProfile,
+            availableProviders: List<ProviderProfile>,
+            onDelta: suspend (String) -> Unit,
+        ): String {
+            sentStreamingRequests += 1
+            signalLog += "model:stream"
+            streamingDeltas.forEach { delta -> onDelta(delta) }
+            return streamingResponse
+        }
+
+        override suspend fun sendConfiguredChatWithTools(
+            provider: ProviderProfile,
+            messages: List<ConversationMessage>,
+            systemPrompt: String?,
+            config: ConfigProfile?,
+            availableProviders: List<ProviderProfile>,
+            tools: List<LlmToolDefinition>,
+        ): LlmInvocationResult {
+            sentChatRequests += 1
+            signalLog += "model:sync:tools"
+            sendConfiguredChatFailure?.let { throw it }
+            return LlmInvocationResult(text = chatResponse)
+        }
+
+        override suspend fun sendConfiguredChatStreamWithTools(
+            provider: ProviderProfile,
+            messages: List<ConversationMessage>,
+            systemPrompt: String?,
+            config: ConfigProfile?,
+            availableProviders: List<ProviderProfile>,
+            tools: List<LlmToolDefinition>,
+            onDelta: suspend (String) -> Unit,
+            onToolCallDelta: suspend (index: Int, name: String, argumentsFragment: String) -> Unit,
+        ): LlmInvocationResult {
+            sentStreamingRequests += 1
+            signalLog += "model:stream:tools"
+            streamingDeltas.forEach { delta -> onDelta(delta) }
+            return LlmInvocationResult(text = streamingResponse)
+        }
+
+        override suspend fun synthesizeSpeech(
+            provider: ProviderProfile,
+            text: String,
+            voiceId: String,
+            readBracketedContent: Boolean,
+        ): ConversationAttachment {
+            synthesizedRequests += 1
+            signalLog += "tts"
+            return ConversationAttachment(
+                id = "tts-${synthesizedRequests}",
+                type = "audio",
+                mimeType = "audio/mpeg",
+                fileName = "reply.mp3",
+                base64Data = "audio",
+            )
+        }
+
+        override suspend fun <T> withSessionLock(sessionId: String, block: suspend () -> T): T {
+            signalLog += "lock:$sessionId"
+            return block()
+        }
+
+        override fun log(message: String) {
+            loggedMessages += message
+        }
+
+        override val runtimeContextResolverPort: RuntimeContextResolverPort = object : RuntimeContextResolverPort {
+            override fun resolve(
+                event: com.elymbot.android.core.runtime.context.RuntimeIngressEvent,
+                bot: RuntimeBotSnapshot,
+                overrideProviderId: String?,
+                overridePersonaId: String?,
+            ) = RuntimeContextResolver.resolve(
+                event = event,
+                bot = bot,
+                dataPort = runtimeContextDataPort,
+                overrideProviderId = overrideProviderId,
+                overridePersonaId = overridePersonaId,
+            )
+        }
+
+        override val conversationRepositoryPort: ConversationRepositoryPort = object : ConversationRepositoryPort {
+            override val defaultSessionId: String
+                get() = this@FakeChatDependencies.defaultSessionId
+            override val sessions: StateFlow<List<ConversationSession>>
+                get() = this@FakeChatDependencies.sessions
+
+            override fun contextPreview(sessionId: String): String {
+                return session(sessionId).messages.joinToString(separator = "\n") { message ->
+                    "${message.role}: ${message.content}"
+                }
+            }
+
+            override fun session(sessionId: String): ConversationSession {
+                return this@FakeChatDependencies.session(sessionId)
+            }
+
+            override fun syncSystemSessionTitle(sessionId: String, title: String) {
+                this@FakeChatDependencies.renameSession(sessionId, title)
+            }
+
+            override fun appendMessage(
+                sessionId: String,
+                role: String,
+                content: String,
+                attachments: List<ConversationAttachment>,
+            ): String {
+                return this@FakeChatDependencies.appendMessage(sessionId, role, content, attachments)
+            }
+
+            override fun updateSessionBindings(
+                sessionId: String,
+                providerId: String,
+                personaId: String,
+                botId: String,
+            ) {
+                this@FakeChatDependencies.updateSessionBindings(
+                    sessionId = sessionId,
+                    providerId = providerId,
+                    personaId = personaId,
+                    botId = botId,
+                )
+            }
+
+            override fun updateSessionServiceFlags(
+                sessionId: String,
+                sessionSttEnabled: Boolean?,
+                sessionTtsEnabled: Boolean?,
+            ) {
+                this@FakeChatDependencies.updateSessionServiceFlags(
+                    sessionId = sessionId,
+                    sessionSttEnabled = sessionSttEnabled,
+                    sessionTtsEnabled = sessionTtsEnabled,
+                )
+            }
+
+            override fun updateMessage(
+                sessionId: String,
+                messageId: String,
+                content: String?,
+                attachments: List<ConversationAttachment>?,
+            ) {
+                this@FakeChatDependencies.updateMessage(sessionId, messageId, content, attachments)
+            }
+
+            override fun replaceMessages(sessionId: String, messages: List<ConversationMessage>) {
+                this@FakeChatDependencies.replaceMessages(sessionId, messages)
+            }
+
+            override fun renameSession(sessionId: String, title: String) {
+                this@FakeChatDependencies.renameSession(sessionId, title)
+            }
+
+            override fun deleteSession(sessionId: String) {
+                this@FakeChatDependencies.deleteSession(sessionId)
+            }
+        }
+        override val appChatRuntimePort: AppChatRuntimePort
+            get() = error("Not needed in test")
+        override val sendAppMessageUseCase: SendAppMessageUseCase
+            get() = error("Not needed in test")
+        override val chatSessionController: ChatSessionController by lazy {
+            ChatSessionController(this)
+        }
+
+        override fun createChatSendHandler(
+            appChatPluginRuntime: AppChatPluginRuntime,
+            ioDispatcher: CoroutineContext,
+        ): com.elymbot.android.feature.chat.presentation.AppChatSendHandler {
+            return com.elymbot.android.feature.chat.presentation.AppChatSendHandler(
+                SendAppMessageUseCase(
+                    conversations = conversationRepositoryPort,
+                    runtime = com.elymbot.android.feature.chat.runtime.AppChatRuntimeService(
+                        chatDependencies = runtimeBindings(),
+                        appChatPluginRuntime = appChatPluginRuntime,
+                        llmOrchestrator = com.elymbot.android.feature.plugin.runtime.DefaultRuntimeLlmOrchestrator(),
+                        providerInvocationService = com.elymbot.android.feature.chat.runtime.AppChatProviderInvocationService(
+                            chatDependencies = runtimeBindings(),
+                            ioDispatcher = ioDispatcher,
+                        ),
+                        preparedReplyService = com.elymbot.android.feature.chat.runtime.AppChatPreparedReplyService(
+                            chatDependencies = runtimeBindings(),
+                            ioDispatcher = ioDispatcher,
+                        ),
+                        gatewayFactory = testPluginHostCapabilityGatewayFactory(),
+                    ),
+                ),
+            )
+        }
+
+        override fun createAppChatPluginCommandService(
+            appChatPluginRuntime: AppChatPluginRuntime,
+        ): ChatPluginCommandPort {
+            val service = com.elymbot.android.feature.chat.runtime.AppChatPluginCommandService(
+                dependencies = runtimeBindings(),
+                appChatPluginRuntime = appChatPluginRuntime,
+                hostCapabilityGateway = testPluginHostCapabilityGateway(),
+                hostActionExecutor = ExternalPluginHostActionExecutor(),
+                dispatchEngine = dispatchEngine,
+            )
+            return object : ChatPluginCommandPort {
+                override fun isUnsupportedPluginCommand(content: String): Boolean =
+                    service.isUnsupportedPluginCommand(content)
+
+                override fun handlePluginCommand(
+                    session: ConversationSession,
+                    bot: BotProfile,
+                    content: String,
+                    provider: ProviderProfile?,
+                    personaId: String,
+                    languageTag: String,
+                ): Boolean = service.handlePluginCommand(
+                    session = session,
+                    bot = bot,
+                    content = content,
+                    provider = provider,
+                    personaId = personaId,
+                    languageTag = languageTag,
+                )
+
+                override fun dispatchPlugins(
+                    trigger: ChatPluginTrigger,
+                    session: ConversationSession,
+                    message: ConversationMessage,
+                    provider: ProviderProfile,
+                    bot: BotProfile?,
+                    personaId: String,
+                    config: ConfigProfile?,
+                    suppressV2CommandStage: Boolean,
+                ): Boolean = service.dispatchPlugins(
+                    trigger = when (trigger) {
+                        ChatPluginTrigger.BeforeSendMessage ->
+                            com.elymbot.android.model.plugin.PluginTriggerSource.BeforeSendMessage
+                        ChatPluginTrigger.AfterModelResponse ->
+                            com.elymbot.android.model.plugin.PluginTriggerSource.AfterModelResponse
+                    },
+                    session = session,
+                    message = message,
+                    provider = provider,
+                    bot = bot,
+                    personaId = personaId,
+                    config = config,
+                    suppressV2CommandStage = suppressV2CommandStage,
+                )
+            }
+        }
+
+        private fun runtimeBindings(): com.elymbot.android.feature.chat.runtime.AppChatRuntimeBindings {
+            return object : com.elymbot.android.feature.chat.runtime.AppChatRuntimeBindings {
+                override val bots: StateFlow<List<BotProfile>> = this@FakeChatDependencies.bots
+                override val providers: StateFlow<List<ProviderProfile>> = this@FakeChatDependencies.providers
+                override val runtimeContextResolverPort = this@FakeChatDependencies.runtimeContextResolverPort
+
+                override fun session(sessionId: String): ConversationSession =
+                    this@FakeChatDependencies.session(sessionId)
+
+                override fun resolveConfig(profileId: String): ConfigProfile =
+                    this@FakeChatDependencies.resolveConfig(profileId)
+
+                override fun appendMessage(
+                    sessionId: String,
+                    role: String,
+                    content: String,
+                    attachments: List<ConversationAttachment>,
+                ): String = this@FakeChatDependencies.appendMessage(sessionId, role, content, attachments)
+
+                override suspend fun sendConfiguredChatWithTools(
+                    provider: ProviderProfile,
+                    messages: List<ConversationMessage>,
+                    systemPrompt: String?,
+                    config: ConfigProfile?,
+                    availableProviders: List<ProviderProfile>,
+                    tools: List<LlmToolDefinition>,
+                ): LlmInvocationResult = this@FakeChatDependencies.sendConfiguredChatWithTools(
+                    provider = provider,
+                    messages = messages,
+                    systemPrompt = systemPrompt,
+                    config = config,
+                    availableProviders = availableProviders,
+                    tools = tools,
+                )
+
+                override suspend fun sendConfiguredChatStreamWithTools(
+                    provider: ProviderProfile,
+                    messages: List<ConversationMessage>,
+                    systemPrompt: String?,
+                    config: ConfigProfile?,
+                    availableProviders: List<ProviderProfile>,
+                    tools: List<LlmToolDefinition>,
+                    onDelta: suspend (String) -> Unit,
+                    onToolCallDelta: suspend (index: Int, name: String, argumentsFragment: String) -> Unit,
+                ): LlmInvocationResult = this@FakeChatDependencies.sendConfiguredChatStreamWithTools(
+                    provider = provider,
+                    messages = messages,
+                    systemPrompt = systemPrompt,
+                    config = config,
+                    availableProviders = availableProviders,
+                    tools = tools,
+                    onDelta = onDelta,
+                    onToolCallDelta = onToolCallDelta,
+                )
+
+                override suspend fun synthesizeSpeech(
+                    provider: ProviderProfile,
+                    text: String,
+                    voiceId: String,
+                    readBracketedContent: Boolean,
+                ): ConversationAttachment = this@FakeChatDependencies.synthesizeSpeech(
+                    provider = provider,
+                    text = text,
+                    voiceId = voiceId,
+                    readBracketedContent = readBracketedContent,
+                )
+
+                override fun log(message: String) {
+                    this@FakeChatDependencies.log(message)
+                }
+            }
+        }
+
+        fun clearRecordedSignals() {
+            signalLog.clear()
+            loggedMessages.clear()
+        }
+
+        fun latestAssistantMessage(): ConversationMessage? {
+            return sessions.value
+                .flatMap { it.messages }
+                .lastOrNull { it.role == "assistant" }
+        }
+
+        private fun mutateSession(sessionId: String, transform: (ConversationSession) -> ConversationSession) {
+            sessions.value = sessions.value.map { session ->
+                if (session.id == sessionId) transform(session) else session
+            }
+        }
+    }
+
+    private class RecordingAppChatPluginRuntime(
+        plugins: List<PluginRuntimePlugin>,
+    ) : AppChatPluginRuntime, AppChatLlmPipelineRuntime {
+        private val failureGuard = PluginFailureGuard(
+            store = InMemoryPluginFailureStateStore(),
+            scopedStore = InMemoryPluginScopedFailureStateStore(),
+            logBus = InMemoryPluginRuntimeLogBus(),
+        )
+        private val delegate = EngineBackedAppChatPluginRuntime(
+            pluginProvider = { plugins },
+            engine = PluginExecutionEngine(
+                dispatcher = PluginRuntimeDispatcher(
+                    failureGuard = failureGuard,
+                    scheduler = PluginRuntimeScheduler(
+                        store = InMemoryPluginScheduleStateStore(),
+                    ),
+                ),
+                failureGuard = failureGuard,
+            ),
+            hostCapabilityGateway = testPluginHostCapabilityGatewayFactory().create(),
+        )
+
+        val batches = mutableListOf<PluginExecutionBatchResult>()
+
+        override fun execute(
+            trigger: PluginTriggerSource,
+            contextFactory: (PluginRuntimePlugin) -> PluginExecutionContext,
+        ): PluginExecutionBatchResult {
+            return delegate.execute(trigger, contextFactory).also { batches += it }
+        }
+
+        override suspend fun runLlmPipeline(
+            input: PluginV2LlmPipelineInput,
+        ): PluginV2LlmPipelineResult {
+            error("runLlmPipeline should not be called directly in recording runtime")
+        }
+
+        override suspend fun deliverLlmPipeline(
+            request: PluginV2HostLlmDeliveryRequest,
+        ): PluginV2HostLlmDeliveryResult {
+            val input = request.pipelineInput
+            val admission = LlmPipelineAdmission(
+                requestId = "req-recording",
+                conversationId = input.event.conversationId,
+                messageIds = input.messageIds,
+                llmInputSnapshot = input.event.workingText,
+                routingTarget = input.routingTarget,
+                streamingMode = input.streamingMode,
+            )
+            val finalRequest = PluginProviderRequest(
+                requestId = admission.requestId,
+                availableProviderIds = input.availableProviderIds,
+                availableModelIdsByProvider = input.availableModelIdsByProvider,
+                conversationId = admission.conversationId,
+                messageIds = admission.messageIds,
+                llmInputSnapshot = admission.llmInputSnapshot,
+                selectedProviderId = input.selectedProviderId,
+                selectedModelId = input.selectedModelId,
+                systemPrompt = input.systemPrompt,
+                messages = input.messages,
+                temperature = input.temperature,
+                topP = input.topP,
+                maxTokens = input.maxTokens,
+                streamingEnabled = input.streamingEnabled,
+                metadata = input.metadata,
+            )
+            val providerResult = input.invokeProvider(finalRequest, input.streamingMode)
+            val text = when (providerResult) {
+                is com.elymbot.android.feature.plugin.domain.runtime.PluginV2ProviderInvocationResult.NonStreaming -> providerResult.response.text
+                is com.elymbot.android.feature.plugin.domain.runtime.PluginV2ProviderInvocationResult.Streaming ->
+                    providerResult.events.joinToString("") { it.deltaText }
+            }
+            val finalResponse = PluginLlmResponse(
+                requestId = admission.requestId,
+                providerId = finalRequest.selectedProviderId,
+                modelId = finalRequest.selectedModelId,
+                text = text,
+            )
+            val sendableResult = PluginMessageEventResult(
+                requestId = admission.requestId,
+                conversationId = admission.conversationId,
+                text = text,
+            )
+            val pipelineResult = PluginV2LlmPipelineResult(
+                admission = admission,
+                finalRequest = finalRequest,
+                finalResponse = finalResponse,
+                sendableResult = sendableResult,
+                hookInvocationTrace = emptyList(),
+                decoratingRunResult = PluginV2EventResultCoordinator.DecoratingRunResult(
+                    finalResult = sendableResult,
+                    appliedHandlerIds = emptyList(),
+                ),
+            )
+            val preparedReply = request.prepareReply(pipelineResult)
+            val sendResult = request.sendReply(preparedReply)
+            request.persistDeliveredReply(preparedReply, sendResult, pipelineResult)
+            val afterSentView = PluginV2EventResultCoordinator().buildAfterSentView(
+                requestId = admission.requestId,
+                conversationId = admission.conversationId,
+                sendAttemptId = "host-send-recording",
+                platformAdapterType = request.platformAdapterType,
+                platformInstanceKey = request.platformInstanceKey,
+                sentAtEpochMs = 1L,
+                deliveryStatus = com.elymbot.android.feature.plugin.domain.runtime.PluginV2AfterSentView.DeliveryStatus.SUCCESS,
+                deliveredEntries = preparedReply.deliveredEntries,
+            )
+            return com.elymbot.android.feature.plugin.domain.runtime.PluginV2HostLlmDeliveryResult.Sent(
+                pipelineResult = pipelineResult,
+                preparedReply = preparedReply,
+                sendResult = sendResult,
+                afterSentView = afterSentView,
+            )
+        }
+
+        override suspend fun dispatchAfterMessageSent(
+            event: PluginMessageEvent,
+            afterSentView: PluginV2AfterSentView,
+        ): PluginV2LlmStageDispatchResult {
+            return PluginV2LlmStageDispatchResult(
+                stage = PluginV2InternalStage.AfterMessageSent,
+                invokedHandlerIds = emptyList(),
+            )
+        }
+    }
+
+    private fun appChatV2Engine(
+        onMessage: suspend (PluginMessageEvent) -> Unit = {},
+        onCommand: suspend (PluginCommandEvent) -> Unit = {},
+        customFilterFailure: Boolean = false,
+    ): PluginV2DispatchEngine {
+        val logBus = InMemoryPluginRuntimeLogBus(clock = { 1L })
+        val store = PluginV2ActiveRuntimeStore(
+            logBus = logBus,
+            clock = { 1L },
+        )
+        val fixture = appChatV2RuntimeFixture(
+            pluginId = "com.example.chat.v2.ingress",
+            logBus = logBus,
+            customFilterFailure = customFilterFailure,
+            onMessage = onMessage,
+            onCommand = onCommand,
+        )
+        runBlocking {
+            store.commitLoadedRuntime(fixture.entry)
+        }
+        return PluginV2DispatchEngine(
+            store = store,
+            logBus = logBus,
+            clock = { 1L },
+        )
+    }
+
+    private fun appChatV2RuntimeFixture(
+        pluginId: String,
+        logBus: InMemoryPluginRuntimeLogBus,
+        customFilterFailure: Boolean,
+        onMessage: suspend (PluginMessageEvent) -> Unit,
+        onCommand: suspend (PluginCommandEvent) -> Unit,
+    ): AppChatV2RuntimeFixture {
+        val session = PluginV2RuntimeSession(
+            installRecord = samplePluginV2InstallRecord(pluginId = pluginId),
+            sessionInstanceId = "session-$pluginId",
+        )
+        session.transitionTo(PluginV2RuntimeSessionState.Loading)
+        session.transitionTo(PluginV2RuntimeSessionState.BootstrapRunning)
+        val hostApi = PluginV2BootstrapHostApi(
+            session = session,
+            logBus = logBus,
+            clock = { 1L },
+        )
+        hostApi.registerMessageHandler(
+            MessageHandlerRegistrationInput(
+                base = BaseHandlerRegistrationInput(
+                    registrationKey = "message.ingress",
+                    declaredFilters = if (customFilterFailure) {
+                        listOf(BootstrapFilterDescriptor.message("custom_filter:fail"))
+                    } else {
+                        emptyList()
+                    },
+                ),
+                handler = if (customFilterFailure) {
+                    object : PluginV2EventAwareCallbackHandle, PluginV2CustomFilterAwareCallbackHandle {
+                        override fun invoke() = Unit
+
+                        override suspend fun handleEvent(event: PluginErrorEventPayload) = Unit
+
+                        override suspend fun evaluateCustomFilter(request: PluginV2CustomFilterRequest): Boolean {
+                            error("boom:filter")
+                        }
+                    }
+                } else {
+                    object : PluginV2EventAwareCallbackHandle {
+                        override fun invoke() = Unit
+
+                        override suspend fun handleEvent(event: PluginErrorEventPayload) {
+                            onMessage(event as PluginMessageEvent)
+                        }
+                    }
+                },
+            ),
+        )
+        hostApi.registerCommandHandler(
+            CommandHandlerRegistrationInput(
+                base = BaseHandlerRegistrationInput(
+                    registrationKey = "command.ingress",
+                ),
+                command = "unsupported",
+                handler = object : PluginV2EventAwareCallbackHandle {
+                    override fun invoke() = Unit
+
+                    override suspend fun handleEvent(event: PluginErrorEventPayload) {
+                        onCommand(event as PluginCommandEvent)
+                    }
+                },
+            ),
+        )
+        val compileResult = PluginV2RegistryCompiler(
+            logBus = logBus,
+            clock = { 1L },
+        ).compile(requireNotNull(session.rawRegistry))
+        val compiledRegistry = requireNotNull(compileResult.compiledRegistry)
+        session.attachCompiledRegistry(compiledRegistry)
+        session.transitionTo(PluginV2RuntimeSessionState.Active)
+        return AppChatV2RuntimeFixture(
+            entry = PluginV2ActiveRuntimeEntry(
+                session = session,
+                compiledRegistry = compiledRegistry,
+                lastBootstrapSummary = PluginV2BootstrapSummary(
+                    pluginId = pluginId,
+                    sessionInstanceId = session.sessionInstanceId,
+                    compiledAtEpochMillis = 1L,
+                    handlerCount = compiledRegistry.handlerRegistry.totalHandlerCount,
+                    warningCount = compileResult.diagnostics.count { it.severity == DiagnosticSeverity.Warning },
+                    errorCount = compileResult.diagnostics.count { it.severity == DiagnosticSeverity.Error },
+                ),
+                diagnostics = compileResult.diagnostics,
+                callbackTokens = session.snapshotCallbackTokens(),
+            ),
+        )
+    }
+
+    private data class AppChatV2RuntimeFixture(
+        val entry: PluginV2ActiveRuntimeEntry,
+    )
+
+    private fun fakePipelineResult(
+        input: PluginV2LlmPipelineInput,
+        text: String,
+    ): PluginV2LlmPipelineResult {
+        val admission = LlmPipelineAdmission(
+            requestId = "req-test",
+            conversationId = input.event.conversationId,
+            messageIds = input.messageIds,
+            llmInputSnapshot = input.event.workingText,
+            routingTarget = input.routingTarget,
+            streamingMode = input.streamingMode,
+        )
+        val finalRequest = PluginProviderRequest(
+            requestId = admission.requestId,
+            availableProviderIds = input.availableProviderIds,
+            availableModelIdsByProvider = input.availableModelIdsByProvider,
+            conversationId = admission.conversationId,
+            messageIds = admission.messageIds,
+            llmInputSnapshot = admission.llmInputSnapshot,
+            selectedProviderId = input.selectedProviderId,
+            selectedModelId = input.selectedModelId,
+            systemPrompt = input.systemPrompt,
+            messages = input.messages,
+            temperature = input.temperature,
+            topP = input.topP,
+            maxTokens = input.maxTokens,
+            streamingEnabled = input.streamingEnabled,
+            metadata = input.metadata,
+        )
+        val finalResponse = PluginLlmResponse(
+            requestId = admission.requestId,
+            providerId = finalRequest.selectedProviderId,
+            modelId = finalRequest.selectedModelId,
+            text = text,
+        )
+        val finalResult = PluginMessageEventResult(
+            requestId = admission.requestId,
+            conversationId = admission.conversationId,
+            text = text,
+        )
+        return PluginV2LlmPipelineResult(
+            admission = admission,
+            finalRequest = finalRequest,
+            finalResponse = finalResponse,
+            sendableResult = finalResult,
+            hookInvocationTrace = emptyList(),
+            decoratingRunResult = PluginV2EventResultCoordinator.DecoratingRunResult(
+                finalResult = finalResult,
+                appliedHandlerIds = emptyList(),
+            ),
+        )
+    }
+
+    private fun runtimePlugin(
+        pluginId: String,
+        supportedTriggers: Set<PluginTriggerSource>,
+        extractedDir: String = "/plugins/$pluginId",
+        handler: (PluginExecutionContext) -> PluginExecutionResult,
+    ): PluginRuntimePlugin {
+        val manifest = PluginManifest(
+            pluginId = pluginId,
+            version = "1.0.0",
+            protocolVersion = 1,
+            author = "ElymBot",
+            title = pluginId,
+            description = "test plugin",
+            permissions = listOf(
+                PluginPermissionDeclaration(
+                    permissionId = "send_message",
+                    title = "Send message",
+                    description = "Allows sending message",
+                    riskLevel = PluginRiskLevel.LOW,
+                ),
+            ),
+            minHostVersion = "0.3.0",
+            sourceType = PluginSourceType.LOCAL_FILE,
+            entrySummary = "entry",
+            riskLevel = PluginRiskLevel.LOW,
+        )
+        return PluginRuntimePlugin(
+            pluginId = pluginId,
+            pluginVersion = manifest.version,
+            installState = PluginInstallState(
+                status = PluginInstallStatus.INSTALLED,
+                installedVersion = manifest.version,
+                source = PluginSource(
+                    sourceType = PluginSourceType.LOCAL_FILE,
+                    location = "/plugins/$pluginId.zip",
+                    importedAt = 1L,
+                ),
+                manifestSnapshot = manifest,
+                permissionSnapshot = manifest.permissions,
+                compatibilityState = PluginCompatibilityState.evaluated(
+                    protocolSupported = true,
+                    minHostVersionSatisfied = true,
+                    maxHostVersionSatisfied = true,
+                ),
+                enabled = true,
+                lastInstalledAt = 1L,
+                lastUpdatedAt = 1L,
+                localPackagePath = "/plugins/$pluginId.zip",
+                extractedDir = extractedDir,
+            ),
+            supportedTriggers = supportedTriggers,
+            handler = PluginRuntimeHandler { context -> handler(context) },
+        )
+    }
+
+    private fun assertOrder(signals: List<String>, before: String, after: String) {
+        val beforeIndex = signals.indexOfFirst { it == before }
+        val afterIndex = signals.indexOfFirst { it == after }
+        assertTrue("Missing signal: $before in $signals", beforeIndex >= 0)
+        assertTrue("Missing signal: $after in $signals", afterIndex >= 0)
+        assertTrue("Expected $before before $after in $signals", beforeIndex < afterIndex)
+    }
+
+    private fun defaultSession(
+        id: String = "chat-main",
+        botId: String = "qq-main",
+        providerId: String = "",
+    ): ConversationSession {
+        return ConversationSession(
+            id = id,
+            title = "Default session",
+            botId = botId,
+            providerId = providerId,
+            personaId = "",
+            maxContextMessages = 12,
+            messages = emptyList(),
+        )
+    }
+
+    private fun defaultBot(
+        id: String = "qq-main",
+        defaultProviderId: String = "",
+        configProfileId: String = "config-default",
+    ): BotProfile {
+        return BotProfile(
+            id = id,
+            displayName = id,
+            configProfileId = configProfileId,
+            defaultProviderId = defaultProviderId,
+        )
+    }
+
+    private fun defaultChatProvider(id: String): ProviderProfile {
+        return ProviderProfile(
+            id = id,
+            name = id,
+            baseUrl = "https://example.com",
+            model = "gpt",
+            providerType = ProviderType.OPENAI_COMPATIBLE,
+            apiKey = "key",
+            capabilities = setOf(ProviderCapability.CHAT),
+            enabled = true,
+            multimodalRuleSupport = FeatureSupportState.UNKNOWN,
+            multimodalProbeSupport = FeatureSupportState.UNKNOWN,
+        )
+    }
+
+    private fun streamingChatProvider(id: String): ProviderProfile {
+        return ProviderProfile(
+            id = id,
+            name = id,
+            baseUrl = "https://example.com",
+            model = "gpt-4o-mini",
+            providerType = ProviderType.OPENAI_COMPATIBLE,
+            apiKey = "key",
+            capabilities = setOf(ProviderCapability.CHAT),
+            enabled = true,
+            nativeStreamingRuleSupport = FeatureSupportState.SUPPORTED,
+            nativeStreamingProbeSupport = FeatureSupportState.SUPPORTED,
+        )
+    }
+
+    private fun defaultTtsProvider(id: String): ProviderProfile {
+        return ProviderProfile(
+            id = id,
+            name = id,
+            baseUrl = "https://example.com",
+            model = "tts-1",
+            providerType = ProviderType.OPENAI_TTS,
+            apiKey = "key",
+            capabilities = setOf(ProviderCapability.TTS),
+            enabled = true,
+            ttsProbeSupport = FeatureSupportState.SUPPORTED,
+        )
+    }
+}
+
+private fun testPluginHostCapabilityGateway(): PluginHostCapabilityGateway {
+    return testPluginHostCapabilityGatewayFactory().create()
+}
+
+private fun testPluginHostCapabilityGatewayFactory(): PluginHostCapabilityGatewayFactory {
+    return PluginHostCapabilityGatewayFactory(
+        resolver = DefaultPluginExecutionHostResolver(
+            DefaultPluginExecutionHostOperations(),
+        ),
+        hostActionExecutor = ExternalPluginHostActionExecutor(),
+    )
+}
+
+private fun emptyAppChatV2Engine(): PluginV2DispatchEngine {
+    val logBus = InMemoryPluginRuntimeLogBus(clock = { 1L })
+    return PluginV2DispatchEngine(
+        store = PluginV2ActiveRuntimeStore(
+            logBus = logBus,
+            clock = { 1L },
+        ),
+        logBus = logBus,
+        clock = { 1L },
+    )
+}
+

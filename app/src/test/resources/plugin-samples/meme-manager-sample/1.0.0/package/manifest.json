@@ -1,8 +1,8 @@
 {
-  "pluginId": "com.astrbot.samples.meme_manager",
+  "pluginId": "com.elymbot.samples.meme_manager",
   "version": "1.0.0",
   "protocolVersion": 2,
-  "author": "AstrBot Samples",
+  "author": "ElymBot Samples",
   "title": "Meme Manager",
   "description": "Sample meme package with packaged media resources.",
   "permissions": [

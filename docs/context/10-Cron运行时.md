@@ -35,26 +35,26 @@
 - `feature/cron/presentation/src/main/java/**`
 - `feature/cron/runtime/src/main/java/**`
 - `feature/cron/runtime/src/test/java/**`
-- `app-integration/src/main/java/com/astrbot/android/app/integration/cron/CronRepositoryBindings.kt`
-- `app-integration/src/main/java/com/astrbot/android/app/integration/cron/CronRuntimeReconciliationBinding.kt`
-- `app-integration/src/main/java/com/astrbot/android/di/hilt/runtime/CronRuntimeServicesModule.kt`
-- `app-integration/src/main/java/com/astrbot/android/di/hilt/runtime/DefaultScheduledMessageDeliveryPortAdapter.kt`
-- `app/src/main/java/com/astrbot/android/AstrBotApplication.kt`
-- `app/src/main/java/com/astrbot/android/di/startup/RuntimeLaunchStartupChain.kt`
-- `app/src/main/java/com/astrbot/android/ui/navigation/AppDestinations.kt`
-- `app/src/main/java/com/astrbot/android/ui/navigation/AstrBotAppScaffoldParts.kt`
-- `feature/settings/presentation/src/main/java/com/astrbot/android/ui/settings/MeScreen.kt`
-- `feature/settings/presentation/src/main/java/com/astrbot/android/ui/settings/MeEntryComponents.kt`
-- `feature/plugin/runtime/src/main/java/com/astrbot/android/feature/plugin/runtime/toolsource/ActiveCapabilityRuntimeFacade.kt`
-- `core/runtime-context/src/main/java/com/astrbot/android/core/runtime/context/PromptAssembler.kt`
-- `app/src/test/java/com/astrbot/android/architecture/ModuleDependencyGraphContractTest.kt`
-- `app/src/test/java/com/astrbot/android/architecture/HiltExitContractTest.kt`
-- `app/src/test/java/com/astrbot/android/architecture/RepositoryPortSourceContractTest.kt`
-- `app/src/test/java/com/astrbot/android/architecture/StaticRepositoryUsageContractTest.kt`
-- `app/src/test/java/com/astrbot/android/feature/cron/**`
-- `app/src/test/java/com/astrbot/android/runtime/cron/CronJobRunCoordinatorTest.kt`
-- `app/src/test/java/com/astrbot/android/runtime/plugin/toolsource/ActiveCapabilityRuntimeFacadeTest.kt`
-- `app/src/test/java/com/astrbot/android/runtime/plugin/toolsource/ActiveCapabilityToolSourceProviderTest.kt`
+- `app-integration/src/main/java/com/elymbot/android/app/integration/cron/CronRepositoryBindings.kt`
+- `app-integration/src/main/java/com/elymbot/android/app/integration/cron/CronRuntimeReconciliationBinding.kt`
+- `app-integration/src/main/java/com/elymbot/android/di/hilt/runtime/CronRuntimeServicesModule.kt`
+- `app-integration/src/main/java/com/elymbot/android/di/hilt/runtime/DefaultScheduledMessageDeliveryPortAdapter.kt`
+- `app/src/main/java/com/elymbot/android/ElymBotApplication.kt`
+- `app/src/main/java/com/elymbot/android/di/startup/RuntimeLaunchStartupChain.kt`
+- `app/src/main/java/com/elymbot/android/ui/navigation/AppDestinations.kt`
+- `app/src/main/java/com/elymbot/android/ui/navigation/ElymBotAppScaffoldParts.kt`
+- `feature/settings/presentation/src/main/java/com/elymbot/android/ui/settings/MeScreen.kt`
+- `feature/settings/presentation/src/main/java/com/elymbot/android/ui/settings/MeEntryComponents.kt`
+- `feature/plugin/runtime/src/main/java/com/elymbot/android/feature/plugin/runtime/toolsource/ActiveCapabilityRuntimeFacade.kt`
+- `core/runtime-context/src/main/java/com/elymbot/android/core/runtime/context/PromptAssembler.kt`
+- `app/src/test/java/com/elymbot/android/architecture/ModuleDependencyGraphContractTest.kt`
+- `app/src/test/java/com/elymbot/android/architecture/HiltExitContractTest.kt`
+- `app/src/test/java/com/elymbot/android/architecture/RepositoryPortSourceContractTest.kt`
+- `app/src/test/java/com/elymbot/android/architecture/StaticRepositoryUsageContractTest.kt`
+- `app/src/test/java/com/elymbot/android/feature/cron/**`
+- `app/src/test/java/com/elymbot/android/runtime/cron/CronJobRunCoordinatorTest.kt`
+- `app/src/test/java/com/elymbot/android/runtime/plugin/toolsource/ActiveCapabilityRuntimeFacadeTest.kt`
+- `app/src/test/java/com/elymbot/android/runtime/plugin/toolsource/ActiveCapabilityToolSourceProviderTest.kt`
 
 源码数量：
 
@@ -131,7 +131,7 @@
 
 当前生产主线：
 
-1. `AstrBotApplication` 是 `@HiltAndroidApp`，实现 `Configuration.Provider`，通过注入的 `HiltWorkerFactory` 配置 WorkManager。
+1. `ElymBotApplication` 是 `@HiltAndroidApp`，实现 `Configuration.Provider`，通过注入的 `HiltWorkerFactory` 配置 WorkManager。
 2. `AppBootstrapper -> AppStartupRunner -> RuntimeLaunchStartupChain` 是启动链入口。
 3. `RuntimeLaunchStartupChain.run()` 调 `cronRuntimeReconciliationPort.reconcileAsync(appScope)`。
 4. `CronRuntimeReconciliationModule` 将 `HiltCronRuntimeReconciliationPort` 绑定到 `CronRuntimeReconciliationPort`。
@@ -213,9 +213,9 @@
 - `CronJobsViewModel` 是 `@HiltViewModel`，注入 `CronJobRepositoryPort`、`CronJobsPresentationController`、`BotRepositoryPort`、`ConversationRepositoryPort`、`ConfigRepositoryPort`、`ProviderRepositoryPort` 和 `RuntimeLogger`。
 - `CronJobsPresentationController` 只通过 `CronJobUseCases` 和 `ActiveCapabilityTaskPort` 操作 cron job，不在 UI 内直接接 scheduler / coordinator。
 - `CronJobsScreen` 支持 create/edit、pause/resume、delete、run history dialog、pagination 和 target context draft。
-- `MeScreen` 暴露 Cron Jobs 入口，`AppDestinations.CronJobs` route 为 `cron-jobs`，`AstrBotAppScaffoldParts` 通过 `CronJobsScreen(onBack = ...)` 接入。
+- `MeScreen` 暴露 Cron Jobs 入口，`AppDestinations.CronJobs` route 为 `cron-jobs`，`ElymBotAppScaffoldParts` 通过 `CronJobsScreen(onBack = ...)` 接入。
 
-需要注意路径与 package 不完全一致：Cron UI 物理位于 `feature/cron/presentation`，但 package 仍是 `com.astrbot.android.ui.settings`。
+需要注意路径与 package 不完全一致：Cron UI 物理位于 `feature/cron/presentation`，但 package 仍是 `com.elymbot.android.ui.settings`。
 
 ## 合同与回归入口
 
