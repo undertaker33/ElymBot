@@ -1692,55 +1692,17 @@ private fun AppBackupImportPlan.withAllModules(mode: AppBackupImportMode): AppBa
 }
 
 internal fun sortBackupModuleTitlesForDisplay(titles: List<String>): List<String> {
-    val remainingTitles = titles.toMutableList()
-    val orderedTitles = mutableListOf<String>()
-    backupModuleTitleMatchersInDisplayOrder().forEach { matcher ->
-        val matched = remainingTitles.filter(matcher)
-        orderedTitles += matched.sortedWith(compareBy<String> { it.length }.thenBy { it })
-        remainingTitles.removeAll(matched)
+    val fullBackupIndex = titles.indexOfFirst(::isFullBackupTitle)
+    if (fullBackupIndex == -1) {
+        return titles.sortedBy { it }
     }
-    orderedTitles += remainingTitles.sortedWith(compareBy<String> { it.length }.thenBy { it })
-    return orderedTitles
-}
-
-private fun backupModuleTitleMatchersInDisplayOrder(): List<(String) -> Boolean> {
-    return listOf(
-        ::isFullBackupTitle,
-        ::isConversationBackupTitle,
-        ::isBotBackupTitle,
-        ::isModelBackupTitle,
-        ::isPersonaBackupTitle,
-        ::isConfigBackupTitle,
-        ::isTtsBackupTitle,
-    )
+    val fullBackupTitle = titles[fullBackupIndex]
+    val remainingTitles = titles.filterIndexed { index, _ -> index != fullBackupIndex }
+    return listOf(fullBackupTitle) + remainingTitles.sortedBy { it }
 }
 
 private fun isFullBackupTitle(title: String): Boolean {
-    return title.contains("Full", ignoreCase = true)
-}
-
-private fun isConversationBackupTitle(title: String): Boolean {
-    return title.contains("Conversation", ignoreCase = true)
-}
-
-private fun isBotBackupTitle(title: String): Boolean {
-    return title.contains("Bot", ignoreCase = true)
-}
-
-private fun isModelBackupTitle(title: String): Boolean {
-    return title.contains("Model", ignoreCase = true)
-}
-
-private fun isPersonaBackupTitle(title: String): Boolean {
-    return title.contains("Persona", ignoreCase = true)
-}
-
-private fun isConfigBackupTitle(title: String): Boolean {
-    return title.contains("Config", ignoreCase = true)
-}
-
-private fun isTtsBackupTitle(title: String): Boolean {
-    return title.contains("TTS", ignoreCase = true)
+    return title == "完整备份" || title.equals("Full Backup", ignoreCase = true)
 }
 
 internal fun backupModuleCardsForDisplay(modules: List<BackupModuleCardState>): List<BackupModuleCardState> {
@@ -1748,7 +1710,12 @@ internal fun backupModuleCardsForDisplay(modules: List<BackupModuleCardState>): 
 }
 
 private fun sortBackupModuleCardsForDisplay(modules: List<BackupModuleCardState>): List<BackupModuleCardState> {
-    val orderedTitles = sortBackupModuleTitlesForDisplay(modules.map { it.title })
-    return orderedTitles.mapNotNull { title -> modules.firstOrNull { it.title == title } }
+    val fullBackupIndex = modules.indexOfFirst { isFullBackupTitle(it.title) }
+    if (fullBackupIndex == -1) {
+        return modules.sortedBy { it.title }
+    }
+    val fullBackupModule = modules[fullBackupIndex]
+    val remainingModules = modules.filterIndexed { index, _ -> index != fullBackupIndex }
+    return listOf(fullBackupModule) + remainingModules.sortedBy { it.title }
 }
 

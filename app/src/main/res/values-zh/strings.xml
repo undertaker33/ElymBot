@@ -598,6 +598,14 @@
     <!-- MCP -->
     <string name="config_knowledge_base_desc">为此配置文件管理 MCP 服务器和技能。</string>
     <string name="config_mcp_servers_title">MCP 服务器</string>
+    <string name="config_resource_center_manage">打开资源中心</string>
+    <string name="config_resource_selection_empty">尚未选择资源中心里的资源。</string>
+    <string name="config_resource_selection_none_available">资源中心还没有此类型资源。</string>
+    <string name="config_resource_projection_active">在此配置中启用</string>
+    <string name="config_unsaved_exit_title">保存更改？</string>
+    <string name="config_unsaved_exit_message">当前配置有未保存更改。继续前是否保存？</string>
+    <string name="config_unsaved_exit_save">保存并继续</string>
+    <string name="config_unsaved_exit_discard">放弃更改</string>
     <string name="config_mcp_server_name">服务器名称</string>
     <string name="config_mcp_server_url">服务器 URL</string>
     <string name="config_mcp_server_transport">传输方式</string>

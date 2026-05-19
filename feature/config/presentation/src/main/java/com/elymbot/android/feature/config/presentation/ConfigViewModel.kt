@@ -12,15 +12,22 @@ import com.elymbot.android.feature.bot.domain.BotRepositoryPort
 import com.elymbot.android.feature.config.domain.ConfigRepositoryPort
 import com.elymbot.android.feature.config.domain.Phase3DataTransactionService
 import com.elymbot.android.feature.provider.domain.ProviderRepositoryPort
+import com.elymbot.android.feature.resource.domain.ResourceCenterPort
 import com.elymbot.android.feature.bot.domain.model.BotProfile
 import com.elymbot.android.feature.config.domain.model.ConfigProfile
 import com.elymbot.android.feature.provider.domain.model.ProviderProfile
 import com.elymbot.android.feature.voiceasset.api.model.TtsVoiceReferenceAsset
+import com.elymbot.android.model.ConfigResourceProjection
+import com.elymbot.android.model.ResourceCenterItem
+import com.elymbot.android.model.ResourceCenterCompatibilitySnapshot
+import com.elymbot.android.model.ResourceCenterKind
+import com.elymbot.android.model.ResourceConfigSnapshot
 import com.elymbot.android.model.chat.ConversationAttachment
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import javax.inject.Named
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -31,6 +38,7 @@ class ConfigViewModel @Inject constructor(
     private val configRepository: ConfigRepositoryPort,
     private val providerRepository: ProviderRepositoryPort,
     private val botRepository: BotRepositoryPort,
+    private val resourceCenterPort: ResourceCenterPort = EmptyResourceCenterPort,
     @Named("TtsVoiceAssets") private val ttsVoiceAssetsFlow: StateFlow<@JvmSuppressWildcards List<TtsVoiceReferenceAsset>>,
     private val phase3DataTransactionService: Phase3DataTransactionService,
     private val llmProviderProbePort: LlmProviderProbePort,
@@ -40,6 +48,8 @@ class ConfigViewModel @Inject constructor(
     val providers: StateFlow<List<ProviderProfile>> = providerRepository.providers
     val bots: StateFlow<List<BotProfile>> = botRepository.bots
     val ttsVoiceAssets: StateFlow<List<TtsVoiceReferenceAsset>> = ttsVoiceAssetsFlow
+    val resourceCenterResources: StateFlow<List<ResourceCenterItem>> = resourceCenterPort.resources
+    val resourceCenterProjections: StateFlow<List<ConfigResourceProjection>> = resourceCenterPort.projections
 
     fun select(profileId: String) {
         viewModelScope.launch(start = CoroutineStart.UNDISPATCHED) {
@@ -49,6 +59,20 @@ class ConfigViewModel @Inject constructor(
 
     fun save(profile: ConfigProfile) {
         viewModelScope.launch(start = CoroutineStart.UNDISPATCHED) {
+            configRepository.save(profile)
+            val visibleProfile = waitForVisibleSavedProfile(profile)
+            if (visibleProfile != null) {
+                syncSelectedBotBinding(visibleProfile)
+            }
+        }
+    }
+
+    fun saveWithResourceProjections(
+        profile: ConfigProfile,
+        projections: List<ConfigResourceProjection>,
+    ) {
+        viewModelScope.launch(start = CoroutineStart.UNDISPATCHED) {
+            projections.forEach { projection -> resourceCenterPort.setProjection(projection) }
             configRepository.save(profile)
             val visibleProfile = waitForVisibleSavedProfile(profile)
             if (visibleProfile != null) {
@@ -122,6 +146,28 @@ class ConfigViewModel @Inject constructor(
     private companion object {
         private const val CONFIG_SAVE_VISIBILITY_TIMEOUT_MS = 5_000L
     }
+}
+
+private object EmptyResourceCenterPort : ResourceCenterPort {
+    override val resources: StateFlow<List<ResourceCenterItem>> = MutableStateFlow(emptyList())
+    override val projections: StateFlow<List<ConfigResourceProjection>> = MutableStateFlow(emptyList())
+
+    override fun listResources(kind: ResourceCenterKind?): List<ResourceCenterItem> = emptyList()
+
+    override fun saveResource(resource: ResourceCenterItem): ResourceCenterItem = resource
+
+    override fun deleteResource(resourceId: String) = Unit
+
+    override fun setProjection(projection: ConfigResourceProjection): ConfigResourceProjection = projection
+
+    override fun projectionsForConfig(configId: String): List<ConfigResourceProjection> = emptyList()
+
+    override fun compatibilitySnapshotForConfig(
+        config: ResourceConfigSnapshot,
+    ): ResourceCenterCompatibilitySnapshot = ResourceCenterCompatibilitySnapshot(
+        resources = emptyList(),
+        projections = emptyList(),
+    )
 }
 
 private fun ProviderProfile.toLlmProviderProfile(): LlmProviderProfile {

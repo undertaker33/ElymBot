@@ -40,6 +40,7 @@ import androidx.compose.ui.unit.dp
 import com.elymbot.android.R
 import kotlin.math.roundToInt
 
+@Suppress("UNUSED_PARAMETER")
 @Composable
 internal fun RuntimeOverlay(
     status: String,
@@ -111,10 +112,9 @@ internal fun RuntimeOverlay(
                             if (installerCached) stringResource(R.string.runtime_installer_ready)
                             else stringResource(R.string.runtime_waiting)
                         },
+                        percentLabel = "${progressPercent.coerceIn(0, 100)}%",
                         progress = progress,
-                        installerCached = installerCached,
                     )
-                    Text(text = details, color = Color.White.copy(alpha = 0.74f))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Surface(onClick = onStart, shape = RoundedCornerShape(16.dp), color = Color(0xFF1F1F1F)) {
                             Row(
@@ -157,11 +157,18 @@ internal fun RuntimeOverlay(
 @Composable
 private fun RuntimeProgressBar(
     label: String,
+    percentLabel: String,
     progress: Float,
-    installerCached: Boolean,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(label, color = Color.White)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(label, color = Color.White)
+            Text(percentLabel, color = Color.White.copy(alpha = 0.82f), fontWeight = FontWeight.SemiBold)
+        }
         Box(modifier = Modifier.fillMaxWidth().background(Color.White.copy(alpha = 0.12f), RoundedCornerShape(999.dp))) {
             Box(
                 modifier = Modifier
@@ -170,13 +177,5 @@ private fun RuntimeProgressBar(
                     .padding(vertical = 4.dp),
             )
         }
-        Text(
-            text = if (installerCached) {
-                stringResource(R.string.runtime_installer_ready_details)
-            } else {
-                stringResource(R.string.runtime_downloading_details)
-            },
-            color = Color.White.copy(alpha = 0.7f),
-        )
     }
 }

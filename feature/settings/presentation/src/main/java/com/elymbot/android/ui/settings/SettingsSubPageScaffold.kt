@@ -67,9 +67,10 @@ internal fun SettingsSubPageScaffold(
         Box(
             modifier = Modifier
                 .fillMaxSize()
+                .padding(innerPadding)
                 .background(MonochromeUi.pageBackground),
         ) {
-            content(innerPadding)
+            content(PaddingValues(0.dp))
         }
     }
 }
