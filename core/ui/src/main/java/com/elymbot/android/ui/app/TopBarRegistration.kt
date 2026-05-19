@@ -40,6 +40,7 @@ data class RegisteredSecondaryTopBar(
 
 data class ConfigDetailChromeBinding(
     val currentSectionTitle: String,
+    val onBack: () -> Unit,
     val onOpenSections: () -> Unit,
 )
 

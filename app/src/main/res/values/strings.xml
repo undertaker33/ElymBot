@@ -863,6 +863,14 @@
     <!-- MCP -->
     <string name="config_knowledge_base_desc">Configure MCP servers and skills for this profile.</string>
     <string name="config_mcp_servers_title">MCP Servers</string>
+    <string name="config_resource_center_manage">Open Resource Center</string>
+    <string name="config_resource_selection_empty">No Resource Center resources selected.</string>
+    <string name="config_resource_selection_none_available">No resources of this type exist in Resource Center yet.</string>
+    <string name="config_resource_projection_active">Active in this config</string>
+    <string name="config_unsaved_exit_title">Save changes?</string>
+    <string name="config_unsaved_exit_message">This config has unsaved changes. Save them before continuing?</string>
+    <string name="config_unsaved_exit_save">Save and continue</string>
+    <string name="config_unsaved_exit_discard">Discard</string>
     <string name="config_mcp_server_name">Server name</string>
     <string name="config_mcp_server_url">Server URL</string>
     <string name="config_mcp_server_transport">Transport</string>

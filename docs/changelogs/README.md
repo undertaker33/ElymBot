@@ -31,4 +31,6 @@
 
 - 不把 changelog 文件当作 commit log。
 - 先用带版本号的 git 记录确定锚点，再决定是否需要发布正文。
-- `v0.9.1` 目前有 `Release v0.9.1` 提交和 `app/build.gradle.kts` 版本号证据；尚未发现对应 `v0.9.1` tag。
+- `v0.9.1` 目前有 `Release v0.9.1` 提交和历史 `app/build.gradle.kts` 版本号证据；尚未发现对应 `v0.9.1` tag。
+- `v0.9.2` 目前有 release commit `a9aace9` 和 `changelogs/v0.9.2.md`；尚未发现对应 `v0.9.2` tag。
+- `v0.9.3` 和 `v1.0.0` 已有 tag 与正文文件；`v1.0.0` 后的生成产物忽略/CI guard 属于当前 `HEAD` 的发布后维护事实。

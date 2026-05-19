@@ -1,6 +1,6 @@
-# Architecture Governance
+# 架构治理
 
-This directory records architecture governance contracts for the ElymBot Android codebase. It is a local architecture entry point, not a replacement for the module background documents under `docs/01` to `docs/10`.
+本目录记录 ElymBot Android 代码库的架构治理合同。它是本地架构入口，不替代 `docs/context/` 下的编号模块背景文档。
 
 ## Three-Phase Route
 
@@ -16,14 +16,15 @@ Phase 2 can promote only when every temporary owner map entry has a confirmed fe
 
 Phase 3 can promote only when temporary allowlist entries are decreasing, compatibility seams have removal issues, module tests cover migrated callers, and production code no longer depends on review-only ownership.
 
-## Build Chain Baseline
+## 构建链基线
 
-Phase 3 should stabilize the build chain before Gradle module splitting:
+Phase 3 后续结构调整应以当前已完成的 AGP 9 构建链为基线：
 
-- Keep Android Gradle Plugin at `8.13.2` for the first Phase 3 round.
-- Pin Gradle Wrapper to stable Gradle `8.13`; do not use milestone, rc, alpha, or beta distributions.
-- `compileSdk` and `targetSdk` may move to `36` only when local machines and CI install `platforms;android-36`.
-- Treat AGP `9.x` as a separate build-chain major upgrade task with its own compatibility spike and full verification pass.
+- Android Gradle Plugin 当前为 `9.2.0`。
+- Gradle Wrapper 当前为稳定版 Gradle `9.4.1`。
+- Kotlin JVM / Compose plugin 当前为 `2.2.10`，KSP 当前为 `2.3.8`。
+- `compileSdk = 36`、`compileSdkMinor = 1`、`targetSdk = 36`、`minSdk = 29`。
+- Android 模块已走 AGP 9 built-in Kotlin 路线；不要把旧的 `org.jetbrains.kotlin.android` 插件用法写回 Android 模块。
 
 ## Allowlist Eight Fields
 

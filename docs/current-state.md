@@ -1,6 +1,6 @@
 # 当前项目状态
 
-更新时间：2026-05-18 18:03 +08:00
+更新时间：2026-05-18 20:44 +08:00
 
 ## 接管收尾状态
 
@@ -58,8 +58,8 @@
 ## 当前阻塞
 
 - 文档接管收尾：无活跃阻塞。
-- 当前正式任务 `D26051801`：实现与验证已完成，等待用户验收或进入 `uth-git`。
-- Git：本轮不执行 Git 写入；如需提交文档清理结果，应由用户显式进入 `uth-git`。
+- 当前正式任务 `D26051801`：实现、验证、PR 合并与 `v1.0.0` tag 闭环已完成；任务包保留为历史交付证据。
+- Git：当前 `master`、`origin/master`、`codex/ColorOS16(RealmeUI7)` 与 `origin/codex/ColorOS16(RealmeUI7)` 均指向 `66eee69`；本轮 `uth-docs` 不执行 Git 写入。
 
 ## 最新验证证据
 
@@ -78,6 +78,8 @@
 | 2026-05-18 18:03 +08:00 | `clean assembleDebug` | pass | 日志保存到 `build/reports/D26051801-clean-assembleDebug.log`；warning / deprecated / exception 扫描计数为 0 |
 | 2026-05-18 18:03 +08:00 | legacy exact-name scan | pass | 排除 `.git`、`.worktrees`、`build`、`.gradle`、`bin`、`logs`、APK artifacts 和 zip 后，项目自有旧名精确集合无命中 |
 | 2026-05-18 18:03 +08:00 | `tools/uth-hooks/uth-hook.py` L3 closeout | pass | `uth-dev` / `formal-dev` closeout 通过；positive claim evidence 与 code verification clean |
+| 2026-05-18 20:44 +08:00 | version / branch anchor scan | pass | `app/build.gradle.kts` 为 `versionName = "1.0.0"`、`versionCode = 76`；`v1.0.0` tag 指向 `c25812e`，当前 `HEAD` 为 `66eee69` |
+| 2026-05-18 20:44 +08:00 | generated artifacts guard scan | pass | `.gitignore` 排除 `artifacts/`；CI 新增 `Verify generated artifacts are not tracked` 步骤 |
 
 ## 当前事实来源
 
@@ -115,7 +117,7 @@
 - 文档同步：`uth-governance` -> `uth-docs`
 - Git / PR / 发布：`uth-governance` -> `uth-git`
 
-## Active formal task
+## 最近正式任务
 
 - Scene: `uth-dev`
 - Mode: `formal-dev`
@@ -123,5 +125,5 @@
 - Active Todo: `docs/work/D26051801-包名统一ElymBot/10-D26051801-T01-todo-包名统一.md`
 - Feedback: `docs/work/D26051801-包名统一ElymBot/11-D26051801-T01-feedback-包名统一.md`
 - Goal: migrate project-owned historical Android naming and package identity to `ElymBot` / `com.elymbot.android`.
-- Status: implemented and verified; pending human acceptance or `uth-git`.
-- Git status: pending `uth-git`; no Git writes in `uth-dev`.
+- Status: implemented, verified, merged, and tagged as `v1.0.0`.
+- Git baseline: release commit `2a2e718`，PR merge / tag commit `c25812e`，当前分支收口提交 `66eee69`。

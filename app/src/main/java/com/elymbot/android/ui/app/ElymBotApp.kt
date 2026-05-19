@@ -121,6 +121,7 @@ fun ElymBotApp(bridgeViewModel: BridgeViewModel = hiltViewModel()) {
         activeMainRoute,
         fallbackTopBarStrings,
         currentConfigProfile?.name,
+        configDetailChromeBinding,
     ) {
         if (activeMainRoute != null) {
             null
@@ -135,7 +136,7 @@ fun ElymBotApp(bridgeViewModel: BridgeViewModel = hiltViewModel()) {
                 when (spec) {
                     is SecondaryTopBarSpec.SubPage -> spec.copy(onBack = { AppNavigator.back(navController) })
                     is SecondaryTopBarSpec.ConfigDetail -> spec.copy(
-                        onBack = { AppNavigator.back(navController) },
+                        onBack = { configDetailChromeBinding?.onBack?.invoke() ?: AppNavigator.back(navController) },
                         onOpenSections = { configDetailChromeBinding?.onOpenSections?.invoke() },
                     )
                 }

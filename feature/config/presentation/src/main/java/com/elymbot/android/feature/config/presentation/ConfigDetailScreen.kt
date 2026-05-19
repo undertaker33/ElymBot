@@ -19,7 +19,9 @@ import com.elymbot.android.ui.config.detail.sections.WhitelistSettingsSection
 
 import android.media.MediaPlayer
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,17 +30,22 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Done
 import androidx.compose.material.icons.outlined.Menu
+import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.FloatingActionButtonDefaults
@@ -53,6 +60,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -74,7 +82,10 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.elymbot.android.core.ui.R
 import com.elymbot.android.feature.config.domain.model.ConfigProfile
 import com.elymbot.android.feature.provider.domain.model.FeatureSupportState
+import com.elymbot.android.model.ConfigResourceProjection
 import com.elymbot.android.model.McpServerEntry
+import com.elymbot.android.model.ResourceCenterItem
+import com.elymbot.android.model.ResourceCenterKind
 import com.elymbot.android.feature.provider.domain.model.ProviderCapability
 import com.elymbot.android.feature.provider.domain.model.ProviderProfile
 import com.elymbot.android.feature.provider.domain.model.ProviderType
@@ -92,19 +103,23 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.foundation.text.KeyboardOptions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import org.json.JSONObject
 import java.io.File
 import java.util.Base64
-import java.util.UUID
 
 @Composable
 fun ConfigDetailScreen(
     profileId: String,
     onBack: () -> Unit,
+    onOpenResourceCenter: () -> Unit,
     configViewModel: ConfigViewModel = hiltViewModel(),
 ) {
     val profiles by configViewModel.configProfiles.collectAsState()
     val providers by configViewModel.providers.collectAsState()
     val ttsVoiceAssets by configViewModel.ttsVoiceAssets.collectAsState()
+    val resourceCenterResources by configViewModel.resourceCenterResources.collectAsState()
+    val resourceCenterProjections by configViewModel.resourceCenterProjections.collectAsState()
     val profile = profiles.firstOrNull { it.id == profileId }
     val context = LocalContext.current
 
@@ -146,13 +161,6 @@ fun ConfigDetailScreen(
     }
     val screenWidth = LocalConfiguration.current.screenWidthDp.dp
 
-    RegisterConfigDetailChromeBinding(
-        ConfigDetailChromeBinding(
-            currentSectionTitle = context.getString(currentSection.titleRes),
-            onOpenSections = { scope.launch { drawerState.open() } },
-        ),
-    )
-
     ModalNavigationDrawer(
         drawerState = drawerState,
         drawerContent = {
@@ -185,10 +193,16 @@ fun ConfigDetailScreen(
                 captionModelOptions = captionProviderOptions,
                 providers = providers,
                 ttsVoiceAssets = ttsVoiceAssets,
+                resourceCenterResources = resourceCenterResources,
+                resourceCenterProjections = resourceCenterProjections,
+                currentSectionTitle = context.getString(currentSection.titleRes),
+                onOpenSections = { scope.launch { drawerState.open() } },
                 listState = listState,
                 modifier = Modifier.padding(innerPadding),
-                onSave = { updated ->
-                    configViewModel.save(updated)
+                onBack = onBack,
+                onOpenResourceCenter = onOpenResourceCenter,
+                onSave = { updated, projections ->
+                    configViewModel.saveWithResourceProjections(updated, projections)
                     configViewModel.select(updated.id)
                     Toast.makeText(context, context.getString(R.string.common_saved), Toast.LENGTH_SHORT).show()
                 },
@@ -214,9 +228,15 @@ private fun ConfigDetailContent(
     captionModelOptions: List<Pair<String, String>>,
     providers: List<ProviderProfile>,
     ttsVoiceAssets: List<TtsVoiceReferenceAsset>,
+    resourceCenterResources: List<ResourceCenterItem>,
+    resourceCenterProjections: List<ConfigResourceProjection>,
+    currentSectionTitle: String,
+    onOpenSections: () -> Unit,
     listState: androidx.compose.foundation.lazy.LazyListState,
     modifier: Modifier = Modifier,
-    onSave: (ConfigProfile) -> Unit,
+    onBack: () -> Unit,
+    onOpenResourceCenter: () -> Unit,
+    onSave: (ConfigProfile, List<ConfigResourceProjection>) -> Unit,
     onPreviewVoice: (ProviderProfile, String, String, Boolean) -> com.elymbot.android.model.chat.ConversationAttachment,
 ) {
     val context = LocalContext.current
@@ -274,9 +294,29 @@ private fun ConfigDetailContent(
     var llmCompressKeepRecent by remember(profile.id) { mutableStateOf(profile.llmCompressKeepRecent.toString()) }
     var llmCompressProviderId by remember(profile.id) { mutableStateOf(profile.llmCompressProviderId) }
 
-    // MCP / Skill
-    var mcpServers by remember(profile.id) { mutableStateOf(profile.mcpServers) }
-    var skills by remember(profile.id) { mutableStateOf(profile.skills) }
+    // MCP / Skill selections are projections of Resource Center resources.
+    var mcpSelections by remember(profile.id, resourceCenterResources, resourceCenterProjections) {
+        mutableStateOf(
+            initialResourceSelections(
+                profile = profile,
+                resources = resourceCenterResources,
+                projections = resourceCenterProjections,
+                kind = ResourceCenterKind.MCP_SERVER,
+            ),
+        )
+    }
+    var skillSelections by remember(profile.id, resourceCenterResources, resourceCenterProjections) {
+        mutableStateOf(
+            initialResourceSelections(
+                profile = profile,
+                resources = resourceCenterResources,
+                projections = resourceCenterProjections,
+                kind = ResourceCenterKind.SKILL,
+            ),
+        )
+    }
+    var pendingResourceDialogKind by remember { mutableStateOf<ResourceCenterKind?>(null) }
+    var pendingExit by remember { mutableStateOf<ConfigPendingExit?>(null) }
     val unnamedConfigLabel = stringResource(R.string.config_unnamed)
     val defaultChatProvider = providers.firstOrNull { it.id == defaultChatProviderId }
     val defaultTtsProvider = providers.firstOrNull { it.id == defaultTtsProviderId }
@@ -302,6 +342,101 @@ private fun ConfigDetailContent(
     val chatModelSupportsImages = defaultChatProvider?.hasMultimodalSupport() == true
     val needsCaptionModel = imageCaptionTextEnabled && !chatModelSupportsImages
     val missingCaptionModel = needsCaptionModel && defaultVisionProviderId.isBlank()
+    fun draftProfile(): ConfigProfile {
+        return profile.copy(
+            name = name.trim().ifBlank { unnamedConfigLabel },
+            defaultChatProviderId = defaultChatProviderId,
+            defaultVisionProviderId = defaultVisionProviderId,
+            defaultSttProviderId = defaultSttProviderId,
+            defaultTtsProviderId = defaultTtsProviderId,
+            sttEnabled = sttEnabled && sttModelReady,
+            ttsEnabled = ttsEnabled && ttsModelReady,
+            alwaysTtsEnabled = alwaysTtsEnabled && ttsModelReady,
+            ttsReadBracketedContent = ttsReadBracketedContent && ttsModelReady,
+            textStreamingEnabled = textStreamingEnabled,
+            voiceStreamingEnabled = voiceStreamingEnabled,
+            streamingMessageIntervalMs = streamingMessageIntervalMs.toIntOrNull()?.coerceIn(0, 5000) ?: profile.streamingMessageIntervalMs,
+            realWorldTimeAwarenessEnabled = realWorldTimeAwarenessEnabled,
+            imageCaptionTextEnabled = imageCaptionTextEnabled,
+            webSearchEnabled = webSearchEnabled,
+            proactiveEnabled = proactiveEnabled,
+            includeScheduledTaskConversationContext = includeScheduledTaskConversationContext,
+            ttsVoiceId = ttsVoiceId.trim(),
+            imageCaptionPrompt = imageCaptionPrompt.trim(),
+            adminUids = adminUids,
+            sessionIsolationEnabled = sessionIsolationEnabled,
+            wakeWords = wakeWords,
+            wakeWordsAdminOnlyEnabled = wakeWordsAdminOnlyEnabled,
+            privateChatRequiresWakeWord = privateChatRequiresWakeWord,
+            replyTextPrefix = replyTextPrefix.trim(),
+            quoteSenderMessageEnabled = quoteSenderMessageEnabled,
+            mentionSenderEnabled = mentionSenderEnabled,
+            replyOnAtOnlyEnabled = replyOnAtOnlyEnabled,
+            whitelistEnabled = whitelistEnabled,
+            whitelistEntries = whitelistEntries,
+            logOnWhitelistMiss = logOnWhitelistMiss,
+            adminGroupBypassWhitelistEnabled = adminGroupBypassWhitelistEnabled,
+            adminPrivateBypassWhitelistEnabled = adminPrivateBypassWhitelistEnabled,
+            ignoreSelfMessageEnabled = ignoreSelfMessageEnabled,
+            ignoreAtAllEventEnabled = ignoreAtAllEventEnabled,
+            replyWhenPermissionDenied = replyWhenPermissionDenied,
+            rateLimitWindowSeconds = rateLimitWindowSeconds.toIntOrNull() ?: profile.rateLimitWindowSeconds,
+            rateLimitMaxCount = rateLimitMaxCount.toIntOrNull() ?: profile.rateLimitMaxCount,
+            rateLimitStrategy = rateLimitStrategy,
+            keywordDetectionEnabled = keywordDetectionEnabled,
+            keywordPatterns = keywordPatterns,
+            contextLimitStrategy = contextLimitStrategy,
+            maxContextTurns = maxContextTurns.toIntOrNull() ?: profile.maxContextTurns,
+            dequeueContextTurns = dequeueContextTurns.toIntOrNull()?.coerceAtLeast(1) ?: profile.dequeueContextTurns,
+            llmCompressInstruction = llmCompressInstruction.trim(),
+            llmCompressKeepRecent = llmCompressKeepRecent.toIntOrNull()?.coerceAtLeast(0) ?: profile.llmCompressKeepRecent,
+            llmCompressProviderId = llmCompressProviderId.trim(),
+            mcpServers = mcpSelections.mapNotNull { selection ->
+                resourceCenterResources.firstOrNull {
+                    it.resourceId == selection.resourceId && it.kind == ResourceCenterKind.MCP_SERVER
+                }?.toMcpServerEntry(selection)
+            },
+            skills = skillSelections.mapNotNull { selection ->
+                resourceCenterResources.firstOrNull {
+                    it.resourceId == selection.resourceId && it.kind == ResourceCenterKind.SKILL
+                }?.toSkillEntry(selection)
+            },
+        )
+    }
+    fun projectionUpdates(): List<ConfigResourceProjection> {
+        return buildProjectionUpdates(
+            configId = profile.id,
+            mcpSelections = mcpSelections,
+            skillSelections = skillSelections,
+            existingProjections = resourceCenterProjections,
+        )
+    }
+    fun saveDraft() {
+        onSave(draftProfile(), projectionUpdates())
+    }
+    val hasUnsavedChanges = draftProfile() != profile
+    fun requestExit(exit: ConfigPendingExit) {
+        if (hasUnsavedChanges) {
+            pendingExit = exit
+        } else {
+            when (exit) {
+                ConfigPendingExit.Back -> onBack()
+                ConfigPendingExit.ResourceCenter -> onOpenResourceCenter()
+            }
+        }
+    }
+
+    BackHandler {
+        requestExit(ConfigPendingExit.Back)
+    }
+
+    RegisterConfigDetailChromeBinding(
+        ConfigDetailChromeBinding(
+            currentSectionTitle = currentSectionTitle,
+            onBack = { requestExit(ConfigPendingExit.Back) },
+            onOpenSections = onOpenSections,
+        ),
+    )
 
     LaunchedEffect(defaultTtsProvider?.id, ttsVoiceOptions) {
         if (defaultTtsProvider == null) {
@@ -569,138 +704,26 @@ private fun ConfigDetailContent(
                     subtitle = stringResource(R.string.config_knowledge_base_desc),
                 ) {
                     ConfigFieldGroup {
-                        Text(
-                            text = stringResource(R.string.config_mcp_servers_title),
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MonochromeUi.textPrimary,
+                        ResourceSelectionSummary(
+                            title = stringResource(R.string.config_mcp_servers_title),
+                            emptyText = stringResource(R.string.config_resource_selection_empty),
+                            selections = mcpSelections,
+                            resources = resourceCenterResources.filter { it.kind == ResourceCenterKind.MCP_SERVER },
+                            onManage = { pendingResourceDialogKind = ResourceCenterKind.MCP_SERVER },
                         )
-                        mcpServers.forEachIndexed { index, server ->
-                            Column(modifier = Modifier.padding(vertical = 4.dp)) {
-                                OutlinedTextField(
-                                    value = server.name,
-                                    onValueChange = { value ->
-                                        mcpServers = mcpServers.toMutableList().also { it[index] = server.copy(name = value) }
-                                    },
-                                    label = { Text(stringResource(R.string.config_mcp_server_name)) },
-                                    modifier = Modifier.fillMaxWidth(),
-                                    colors = monochromeOutlinedTextFieldColors(),
-                                )
-                                OutlinedTextField(
-                                    value = server.url,
-                                    onValueChange = { value ->
-                                        mcpServers = mcpServers.toMutableList().also { it[index] = server.copy(url = value) }
-                                    },
-                                    label = { Text(stringResource(R.string.config_mcp_server_url)) },
-                                    modifier = Modifier.fillMaxWidth(),
-                                    colors = monochromeOutlinedTextFieldColors(),
-                                )
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    ConfigToggleField(
-                                        title = stringResource(R.string.config_mcp_server_active),
-                                        subtitle = "",
-                                        checked = server.active,
-                                        onCheckedChange = { value ->
-                                            mcpServers = mcpServers.toMutableList().also { it[index] = server.copy(active = value) }
-                                        },
-                                    )
-                                    OutlinedButton(onClick = {
-                                        mcpServers = mcpServers.toMutableList().also { it.removeAt(index) }
-                                    }) {
-                                        Text(stringResource(R.string.config_mcp_server_remove))
-                                    }
-                                }
-                            }
-                        }
+                        ResourceSelectionSummary(
+                            title = stringResource(R.string.config_skills_title),
+                            emptyText = stringResource(R.string.config_resource_selection_empty),
+                            selections = skillSelections,
+                            resources = resourceCenterResources.filter { it.kind == ResourceCenterKind.SKILL },
+                            onManage = { pendingResourceDialogKind = ResourceCenterKind.SKILL },
+                        )
                         OutlinedButton(
-                            onClick = {
-                                mcpServers = mcpServers + McpServerEntry(serverId = UUID.randomUUID().toString().take(8))
-                            },
+                            onClick = { requestExit(ConfigPendingExit.ResourceCenter) },
                             modifier = Modifier.fillMaxWidth(),
                         ) {
-                            Text(stringResource(R.string.config_mcp_server_add))
-                        }
-
-                        Text(
-                            text = stringResource(R.string.config_skills_title),
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MonochromeUi.textPrimary,
-                            modifier = Modifier.padding(top = 12.dp),
-                        )
-                        skills.forEachIndexed { index, skill ->
-                            Column(modifier = Modifier.padding(vertical = 4.dp)) {
-                                OutlinedTextField(
-                                    value = skill.name,
-                                    onValueChange = { value ->
-                                        skills = skills.toMutableList().also { it[index] = skill.copy(name = value) }
-                                    },
-                                    label = { Text(stringResource(R.string.config_skill_name)) },
-                                    modifier = Modifier.fillMaxWidth(),
-                                    colors = monochromeOutlinedTextFieldColors(),
-                                )
-                                OutlinedTextField(
-                                    value = skill.description,
-                                    onValueChange = { value ->
-                                        skills = skills.toMutableList().also { it[index] = skill.copy(description = value) }
-                                    },
-                                    label = { Text(stringResource(R.string.config_skill_description)) },
-                                    modifier = Modifier.fillMaxWidth(),
-                                    colors = monochromeOutlinedTextFieldColors(),
-                                )
-                                OutlinedTextField(
-                                    value = skill.content,
-                                    onValueChange = { value ->
-                                        skills = skills.toMutableList().also { it[index] = skill.copy(content = value) }
-                                    },
-                                    label = { Text(stringResource(R.string.config_skill_content)) },
-                                    modifier = Modifier.fillMaxWidth(),
-                                    minLines = 3,
-                                    maxLines = 8,
-                                    colors = monochromeOutlinedTextFieldColors(),
-                                )
-                                OutlinedTextField(
-                                    value = skill.priority.toString(),
-                                    onValueChange = { value ->
-                                        val parsed = value.toIntOrNull() ?: 0
-                                        skills = skills.toMutableList().also { it[index] = skill.copy(priority = parsed) }
-                                    },
-                                    label = { Text(stringResource(R.string.config_skill_priority)) },
-                                    modifier = Modifier.fillMaxWidth(),
-                                    colors = monochromeOutlinedTextFieldColors(),
-                                )
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    ConfigToggleField(
-                                        title = stringResource(R.string.config_skill_active),
-                                        subtitle = "",
-                                        checked = skill.active,
-                                        onCheckedChange = { value ->
-                                            skills = skills.toMutableList().also { it[index] = skill.copy(active = value) }
-                                        },
-                                    )
-                                    OutlinedButton(onClick = {
-                                        skills = skills.toMutableList().also { it.removeAt(index) }
-                                    }) {
-                                        Text(stringResource(R.string.config_skill_remove))
-                                    }
-                                }
-                            }
-                        }
-                        OutlinedButton(
-                            onClick = {
-                                skills = skills + SkillEntry(skillId = UUID.randomUUID().toString().take(8))
-                            },
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            Text(stringResource(R.string.config_skill_add))
+                            Icon(Icons.Outlined.Settings, contentDescription = null)
+                            Text(stringResource(R.string.config_resource_center_manage))
                         }
                     }
                 }
@@ -877,59 +900,7 @@ private fun ConfigDetailContent(
 
         FloatingActionButton(
             onClick = {
-                onSave(
-                    profile.copy(
-                        name = name.trim().ifBlank { unnamedConfigLabel },
-                        defaultChatProviderId = defaultChatProviderId,
-                        defaultVisionProviderId = defaultVisionProviderId,
-                        defaultSttProviderId = defaultSttProviderId,
-                        defaultTtsProviderId = defaultTtsProviderId,
-                        sttEnabled = sttEnabled && sttModelReady,
-                        ttsEnabled = ttsEnabled && ttsModelReady,
-                        alwaysTtsEnabled = alwaysTtsEnabled && ttsModelReady,
-                        ttsReadBracketedContent = ttsReadBracketedContent && ttsModelReady,
-                        textStreamingEnabled = textStreamingEnabled,
-                        voiceStreamingEnabled = voiceStreamingEnabled,
-                        streamingMessageIntervalMs = streamingMessageIntervalMs.toIntOrNull()?.coerceIn(0, 5000) ?: profile.streamingMessageIntervalMs,
-                        realWorldTimeAwarenessEnabled = realWorldTimeAwarenessEnabled,
-                        imageCaptionTextEnabled = imageCaptionTextEnabled,
-                        webSearchEnabled = webSearchEnabled,
-                        proactiveEnabled = proactiveEnabled,
-                        includeScheduledTaskConversationContext = includeScheduledTaskConversationContext,
-                        ttsVoiceId = ttsVoiceId.trim(),
-                        imageCaptionPrompt = imageCaptionPrompt.trim(),
-                        adminUids = adminUids,
-                        sessionIsolationEnabled = sessionIsolationEnabled,
-                        wakeWords = wakeWords,
-                        wakeWordsAdminOnlyEnabled = wakeWordsAdminOnlyEnabled,
-                        privateChatRequiresWakeWord = privateChatRequiresWakeWord,
-                        replyTextPrefix = replyTextPrefix.trim(),
-                        quoteSenderMessageEnabled = quoteSenderMessageEnabled,
-                        mentionSenderEnabled = mentionSenderEnabled,
-                        replyOnAtOnlyEnabled = replyOnAtOnlyEnabled,
-                        whitelistEnabled = whitelistEnabled,
-                        whitelistEntries = whitelistEntries,
-                        logOnWhitelistMiss = logOnWhitelistMiss,
-                        adminGroupBypassWhitelistEnabled = adminGroupBypassWhitelistEnabled,
-                        adminPrivateBypassWhitelistEnabled = adminPrivateBypassWhitelistEnabled,
-                        ignoreSelfMessageEnabled = ignoreSelfMessageEnabled,
-                        ignoreAtAllEventEnabled = ignoreAtAllEventEnabled,
-                        replyWhenPermissionDenied = replyWhenPermissionDenied,
-                        rateLimitWindowSeconds = rateLimitWindowSeconds.toIntOrNull() ?: profile.rateLimitWindowSeconds,
-                        rateLimitMaxCount = rateLimitMaxCount.toIntOrNull() ?: profile.rateLimitMaxCount,
-                        rateLimitStrategy = rateLimitStrategy,
-                        keywordDetectionEnabled = keywordDetectionEnabled,
-                        keywordPatterns = keywordPatterns,
-                        contextLimitStrategy = contextLimitStrategy,
-                        maxContextTurns = maxContextTurns.toIntOrNull() ?: profile.maxContextTurns,
-                        dequeueContextTurns = dequeueContextTurns.toIntOrNull()?.coerceAtLeast(1) ?: profile.dequeueContextTurns,
-                        llmCompressInstruction = llmCompressInstruction.trim(),
-                        llmCompressKeepRecent = llmCompressKeepRecent.toIntOrNull()?.coerceAtLeast(0) ?: profile.llmCompressKeepRecent,
-                        llmCompressProviderId = llmCompressProviderId.trim(),
-                        mcpServers = mcpServers,
-                        skills = skills,
-                    ),
-                )
+                saveDraft()
             },
             modifier = Modifier
                 .align(Alignment.BottomEnd)
@@ -941,12 +912,424 @@ private fun ConfigDetailContent(
         ) {
             Icon(Icons.Outlined.Done, contentDescription = stringResource(R.string.common_save))
         }
+
+        pendingResourceDialogKind?.let { kind ->
+            ResourceSelectionDialog(
+                kind = kind,
+                resources = resourceCenterResources.filter { it.kind == kind },
+                selections = if (kind == ResourceCenterKind.MCP_SERVER) mcpSelections else skillSelections,
+                onDismiss = { pendingResourceDialogKind = null },
+                onSave = { next ->
+                    if (kind == ResourceCenterKind.MCP_SERVER) {
+                        mcpSelections = next
+                    } else {
+                        skillSelections = next
+                    }
+                    pendingResourceDialogKind = null
+                },
+            )
+        }
+
+        pendingExit?.let { exit ->
+            UnsavedConfigExitDialog(
+                onDismiss = { pendingExit = null },
+                onSaveAndContinue = {
+                    saveDraft()
+                    pendingExit = null
+                    when (exit) {
+                        ConfigPendingExit.Back -> onBack()
+                        ConfigPendingExit.ResourceCenter -> onOpenResourceCenter()
+                    }
+                },
+                onDiscardAndContinue = {
+                    pendingExit = null
+                    when (exit) {
+                        ConfigPendingExit.Back -> onBack()
+                        ConfigPendingExit.ResourceCenter -> onOpenResourceCenter()
+                    }
+                },
+            )
+        }
     }
 }
 
 private fun ProviderProfile.hasMultimodalSupport(): Boolean {
     return multimodalProbeSupport == FeatureSupportState.SUPPORTED ||
         multimodalRuleSupport == FeatureSupportState.SUPPORTED
+}
+
+@Composable
+private fun ResourceSelectionSummary(
+    title: String,
+    emptyText: String,
+    selections: List<ResourceSelectionState>,
+    resources: List<ResourceCenterItem>,
+    onManage: () -> Unit,
+) {
+    val resourcesById = remember(resources) { resources.associateBy { it.resourceId } }
+    val selectedLabels = selections.mapNotNull { selection ->
+        resourcesById[selection.resourceId]?.name?.ifBlank { selection.resourceId }
+    }
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.SemiBold,
+            color = MonochromeUi.textPrimary,
+        )
+        Text(
+            text = if (selectedLabels.isEmpty()) {
+                emptyText
+            } else {
+                buildString {
+                    append(stringResource(R.string.config_list_count, selectedLabels.size))
+                    append(": ")
+                    append(selectedLabels.take(3).joinToString(", "))
+                    val remaining = selectedLabels.size - 3
+                    if (remaining > 0) {
+                        append(" ")
+                        append(stringResource(R.string.config_list_preview_more, remaining))
+                    }
+                }
+            },
+            color = MonochromeUi.textSecondary,
+        )
+        OutlinedButton(
+            onClick = onManage,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text(stringResource(R.string.common_manage))
+        }
+    }
+}
+
+@Composable
+private fun ResourceSelectionDialog(
+    kind: ResourceCenterKind,
+    resources: List<ResourceCenterItem>,
+    selections: List<ResourceSelectionState>,
+    onDismiss: () -> Unit,
+    onSave: (List<ResourceSelectionState>) -> Unit,
+) {
+    var draftSelections by remember(kind, resources, selections) { mutableStateOf(selections) }
+    val title = stringResource(
+        if (kind == ResourceCenterKind.MCP_SERVER) {
+            R.string.config_mcp_servers_title
+        } else {
+            R.string.config_skills_title
+        },
+    )
+    val draftById = draftSelections.associateBy { it.resourceId }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = MonochromeUi.cardBackground,
+        titleContentColor = MonochromeUi.textPrimary,
+        textContentColor = MonochromeUi.textSecondary,
+        title = { Text(title) },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 420.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                if (resources.isEmpty()) {
+                    Text(stringResource(R.string.config_resource_selection_none_available))
+                }
+                resources.sortedWith(compareBy<ResourceCenterItem> { it.name.lowercase() }.thenBy { it.resourceId })
+                    .forEachIndexed { index, resource ->
+                        val selection = draftById[resource.resourceId]
+                        val checked = selection != null
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Checkbox(
+                                    checked = checked,
+                                    onCheckedChange = { nextChecked ->
+                                        draftSelections = if (nextChecked) {
+                                            val nextSortIndex = draftSelections.size
+                                            draftSelections + ResourceSelectionState(
+                                                resourceId = resource.resourceId,
+                                                active = resource.enabled,
+                                                sortIndex = nextSortIndex,
+                                            )
+                                        } else {
+                                            draftSelections.filterNot { it.resourceId == resource.resourceId }
+                                        }
+                                    },
+                                )
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = resource.name.ifBlank { resource.resourceId },
+                                        color = MonochromeUi.textPrimary,
+                                        fontWeight = FontWeight.SemiBold,
+                                    )
+                                    Text(
+                                        text = resource.description.ifBlank { resource.source },
+                                        color = MonochromeUi.textSecondary,
+                                        style = MaterialTheme.typography.bodySmall,
+                                    )
+                                }
+                            }
+                            selection?.let { selectedSelection ->
+                                ConfigToggleField(
+                                    title = stringResource(R.string.config_resource_projection_active),
+                                    subtitle = "",
+                                    checked = selectedSelection.active,
+                                    onCheckedChange = { active ->
+                                        draftSelections = draftSelections.replaceSelection(
+                                            selectedSelection.copy(active = active),
+                                        )
+                                    },
+                                )
+                                if (kind == ResourceCenterKind.SKILL) {
+                                    OutlinedTextField(
+                                        value = selectedSelection.priority.toString(),
+                                        onValueChange = { value ->
+                                            draftSelections = draftSelections.replaceSelection(
+                                                selectedSelection.copy(priority = value.filter { it.isDigit() || it == '-' }.take(4).toIntOrNull() ?: 0),
+                                            )
+                                        },
+                                        label = { Text(stringResource(R.string.config_skill_priority)) },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                        colors = monochromeOutlinedTextFieldColors(),
+                                    )
+                                }
+                            }
+                        }
+                        if (index != resources.lastIndex) {
+                            Surface(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(1.dp),
+                                color = MonochromeUi.divider,
+                            ) {}
+                        }
+                    }
+            }
+        },
+        confirmButton = {
+            OutlinedButton(
+                onClick = {
+                    onSave(draftSelections.mapIndexed { index, selection -> selection.copy(sortIndex = index) })
+                },
+            ) {
+                Text(stringResource(R.string.common_save))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.common_cancel))
+            }
+        },
+    )
+}
+
+@Composable
+private fun UnsavedConfigExitDialog(
+    onDismiss: () -> Unit,
+    onSaveAndContinue: () -> Unit,
+    onDiscardAndContinue: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = MonochromeUi.cardBackground,
+        titleContentColor = MonochromeUi.textPrimary,
+        textContentColor = MonochromeUi.textSecondary,
+        title = { Text(stringResource(R.string.config_unsaved_exit_title)) },
+        text = { Text(stringResource(R.string.config_unsaved_exit_message)) },
+        confirmButton = {
+            OutlinedButton(onClick = onSaveAndContinue) {
+                Text(stringResource(R.string.config_unsaved_exit_save))
+            }
+        },
+        dismissButton = {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(onClick = onDiscardAndContinue) {
+                    Text(stringResource(R.string.config_unsaved_exit_discard))
+                }
+                TextButton(onClick = onDismiss) {
+                    Text(stringResource(R.string.common_cancel))
+                }
+            }
+        },
+    )
+}
+
+private enum class ConfigPendingExit {
+    Back,
+    ResourceCenter,
+}
+
+private data class ResourceSelectionState(
+    val resourceId: String,
+    val active: Boolean,
+    val priority: Int = 0,
+    val sortIndex: Int = 0,
+)
+
+private fun List<ResourceSelectionState>.replaceSelection(
+    next: ResourceSelectionState,
+): List<ResourceSelectionState> {
+    return map { selection ->
+        if (selection.resourceId == next.resourceId) next else selection
+    }
+}
+
+private fun initialResourceSelections(
+    profile: ConfigProfile,
+    resources: List<ResourceCenterItem>,
+    projections: List<ConfigResourceProjection>,
+    kind: ResourceCenterKind,
+): List<ResourceSelectionState> {
+    val resourceIds = resources.asSequence()
+        .filter { it.kind == kind }
+        .map { it.resourceId }
+        .toSet()
+    val stored = projections
+        .filter { it.configId == profile.id && it.kind == kind && it.resourceId in resourceIds }
+        .sortedWith(compareBy<ConfigResourceProjection> { it.sortIndex }.thenBy { it.resourceId })
+    if (stored.isNotEmpty()) {
+        return stored
+            .filterNot { it.isRemovedProjection() }
+            .map { projection ->
+                ResourceSelectionState(
+                    resourceId = projection.resourceId,
+                    active = projection.active,
+                    priority = projection.priority,
+                    sortIndex = projection.sortIndex,
+                )
+            }
+    }
+    val legacy = when (kind) {
+        ResourceCenterKind.MCP_SERVER -> profile.mcpServers.mapIndexedNotNull { index, entry ->
+            entry.serverId.takeIf { it in resourceIds }?.let { resourceId ->
+                ResourceSelectionState(
+                    resourceId = resourceId,
+                    active = entry.active,
+                    sortIndex = index,
+                )
+            }
+        }
+        ResourceCenterKind.SKILL -> profile.skills.mapIndexedNotNull { index, entry ->
+            entry.skillId.takeIf { it in resourceIds }?.let { resourceId ->
+                ResourceSelectionState(
+                    resourceId = resourceId,
+                    active = entry.active,
+                    priority = entry.priority,
+                    sortIndex = index,
+                )
+            }
+        }
+        ResourceCenterKind.TOOL -> emptyList()
+    }
+    return legacy
+}
+
+private fun buildProjectionUpdates(
+    configId: String,
+    mcpSelections: List<ResourceSelectionState>,
+    skillSelections: List<ResourceSelectionState>,
+    existingProjections: List<ConfigResourceProjection>,
+): List<ConfigResourceProjection> {
+    val selected = buildList {
+        mcpSelections.forEachIndexed { index, selection ->
+            add(
+                ConfigResourceProjection(
+                    configId = configId,
+                    resourceId = selection.resourceId,
+                    kind = ResourceCenterKind.MCP_SERVER,
+                    active = selection.active,
+                    priority = 0,
+                    sortIndex = index,
+                ),
+            )
+        }
+        skillSelections.forEachIndexed { index, selection ->
+            add(
+                ConfigResourceProjection(
+                    configId = configId,
+                    resourceId = selection.resourceId,
+                    kind = ResourceCenterKind.SKILL,
+                    active = selection.active,
+                    priority = selection.priority,
+                    sortIndex = index,
+                ),
+            )
+        }
+    }
+    val selectedKeys = selected.map { it.kind to it.resourceId }.toSet()
+    val inactiveRemoved = existingProjections
+        .filter { it.configId == configId && (it.kind == ResourceCenterKind.MCP_SERVER || it.kind == ResourceCenterKind.SKILL) }
+        .filterNot { it.kind to it.resourceId in selectedKeys }
+        .filterNot { it.isRemovedProjection() }
+        .map { it.copy(active = false, configJson = it.configJson.markProjectionRemoved()) }
+    return selected + inactiveRemoved
+}
+
+private fun ConfigResourceProjection.isRemovedProjection(): Boolean {
+    return parseJsonObject(configJson).optBoolean("removed", false)
+}
+
+private fun String.markProjectionRemoved(): String {
+    val json = parseJsonObject(this)
+    json.put("removed", true)
+    return json.toString()
+}
+
+private fun ResourceCenterItem.toMcpServerEntry(selection: ResourceSelectionState): McpServerEntry? {
+    if (kind != ResourceCenterKind.MCP_SERVER) return null
+    val payload = parseJsonObject(payloadJson)
+    val url = payload.optString("url", "").trim()
+    if (url.isBlank()) return null
+    return McpServerEntry(
+        serverId = resourceId,
+        name = name.ifBlank { resourceId },
+        url = url,
+        transport = payload.optString("transport", "streamable_http").ifBlank { "streamable_http" },
+        command = payload.optString("command", ""),
+        args = payload.optJSONArray("args").toStringList(),
+        headers = payload.optJSONObject("headers").toStringMap(),
+        timeoutSeconds = payload.optInt("timeoutSeconds", 30).coerceAtLeast(1),
+        active = enabled && selection.active,
+    )
+}
+
+private fun ResourceCenterItem.toSkillEntry(selection: ResourceSelectionState): SkillEntry? {
+    if (kind != ResourceCenterKind.SKILL) return null
+    return SkillEntry(
+        skillId = resourceId,
+        name = name.ifBlank { resourceId },
+        description = description,
+        content = content,
+        priority = selection.priority,
+        active = enabled && selection.active,
+    )
+}
+
+private fun parseJsonObject(raw: String): JSONObject {
+    return runCatching {
+        raw.takeIf { it.isNotBlank() }?.let(::JSONObject) ?: JSONObject()
+    }.getOrDefault(JSONObject())
+}
+
+private fun JSONArray?.toStringList(): List<String> {
+    if (this == null) return emptyList()
+    return (0 until length()).mapNotNull { index -> optString(index).takeIf { it.isNotBlank() } }
+}
+
+private fun JSONObject?.toStringMap(): Map<String, String> {
+    if (this == null) return emptyMap()
+    return keys().asSequence().associateWith { key -> optString(key, "") }
 }
 
 private fun List<TtsVoiceReferenceAsset>.listVoiceChoicesFor(

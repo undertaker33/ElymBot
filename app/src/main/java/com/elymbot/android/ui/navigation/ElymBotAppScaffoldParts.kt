@@ -374,6 +374,7 @@ internal fun ElymBotAppNavGraph(
             ConfigDetailScreen(
                 profileId = profileId,
                 onBack = { AppNavigator.back(navController) },
+                onOpenResourceCenter = { AppNavigator.open(navController, AppDestination.ResourceCenter.route) },
             )
         }
         composable(AppDestination.Logs.route) {
