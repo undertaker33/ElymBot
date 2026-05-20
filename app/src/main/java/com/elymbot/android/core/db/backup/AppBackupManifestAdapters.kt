@@ -145,6 +145,7 @@ internal fun JSONObject.toConfigProfile(): ConfigProfile {
         ttsVoiceId = optString("ttsVoiceId"),
         imageCaptionPrompt = optString("imageCaptionPrompt"),
         adminUids = optJSONArray("adminUids").jsonStringList(),
+        pluginCommandsAdminOnlyEnabled = optBoolean("pluginCommandsAdminOnlyEnabled", false),
         sessionIsolationEnabled = optBoolean("sessionIsolationEnabled", false),
         wakeWords = optJSONArray("wakeWords").jsonStringList(),
         wakeWordsAdminOnlyEnabled = optBoolean("wakeWordsAdminOnlyEnabled", false),

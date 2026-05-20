@@ -779,6 +779,8 @@
     <string name="config_admin_uids_title">Administrator system UIDs</string>
     <string name="config_admin_uids_desc"></string>
     <string name="config_admin_uid_item_label">Admin UID</string>
+    <string name="config_plugin_commands_admin_only_title">Slash commands only for admins</string>
+    <string name="config_plugin_commands_admin_only_desc">When enabled, slash commands only run for administrator UIDs.</string>
     <string name="config_session_isolation_title">Isolate group sessions</string>
     <string name="config_session_isolation_desc">When enabled, group conversations are isolated by sender under the same group.</string>
     <string name="config_wake_words_title">Wake words</string>

@@ -42,6 +42,7 @@ fun parseLegacyConfigProfiles(
                             ConfigProfile().imageCaptionPrompt,
                         ),
                         adminUids = item.optStringList("adminUids"),
+                        pluginCommandsAdminOnlyEnabled = item.optBoolean("pluginCommandsAdminOnlyEnabled", false),
                         sessionIsolationEnabled = item.optBoolean("sessionIsolationEnabled", false),
                         wakeWords = item.optStringList("wakeWords"),
                         wakeWordsAdminOnlyEnabled = item.optBoolean("wakeWordsAdminOnlyEnabled", false),

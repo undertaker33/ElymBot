@@ -60,6 +60,7 @@ data class RuntimeConfigSnapshot(
     val ttsVoiceId: String = "",
     val imageCaptionPrompt: String = "Describe the image in detail before sending it to the chat model.",
     val adminUids: List<String> = emptyList(),
+    val pluginCommandsAdminOnlyEnabled: Boolean = false,
     val sessionIsolationEnabled: Boolean = false,
     val wakeWords: List<String> = emptyList(),
     val wakeWordsAdminOnlyEnabled: Boolean = false,

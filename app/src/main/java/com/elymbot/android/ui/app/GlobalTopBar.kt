@@ -40,15 +40,14 @@ internal fun fallbackSecondaryTopBarSpecForRoute(
         AppDestination.Models.route -> strings.models
         AppDestination.Runtime.route -> strings.runtime
         AppDestination.CronJobs.route -> strings.cronJobs
-        AppDestination.BackupHub.route,
-        AppDestination.BotBackup.route,
-        AppDestination.ModelBackup.route,
-        AppDestination.PersonaBackup.route,
-        AppDestination.ConversationBackup.route,
-        AppDestination.ConfigBackup.route,
-        AppDestination.TtsBackup.route,
-        AppDestination.FullBackup.route,
-        -> strings.dataBackup
+        AppDestination.BackupHub.route -> strings.dataBackup
+        AppDestination.BotBackup.route -> strings.backupBots
+        AppDestination.ModelBackup.route -> strings.backupModels
+        AppDestination.PersonaBackup.route -> strings.backupPersonas
+        AppDestination.ConversationBackup.route -> strings.backupConversations
+        AppDestination.ConfigBackup.route -> strings.backupConfigs
+        AppDestination.TtsBackup.route -> strings.backupTts
+        AppDestination.FullBackup.route -> strings.backupFull
         else -> null
     } ?: if (matchesAssetDetailRoute(route)) {
         strings.assetManagement

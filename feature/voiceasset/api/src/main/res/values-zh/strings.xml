@@ -732,6 +732,8 @@
     <string name="config_admin_uids_title">管理员系统 UID</string>
     <string name="config_admin_uids_desc"></string>
     <string name="config_admin_uid_item_label">管理员 UID</string>
+    <string name="config_plugin_commands_admin_only_title">仅管理员可触发斜杠指令</string>
+    <string name="config_plugin_commands_admin_only_desc">开启后，斜杠指令只允许管理员 UID 触发。</string>
     <string name="config_session_isolation_title">隔离群聊会话</string>
     <string name="config_session_isolation_desc">开启后，不同群成员拥有独立的上下文</string>
     <string name="config_wake_words_title">唤醒词</string>

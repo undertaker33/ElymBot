@@ -19,6 +19,8 @@ import com.elymbot.android.ui.config.detail.fields.StringListManagerField
 internal fun AdminSettingsSection(
     adminUids: List<String>,
     onAdminUidsChange: (List<String>) -> Unit,
+    pluginCommandsAdminOnlyEnabled: Boolean,
+    onPluginCommandsAdminOnlyEnabledChange: (Boolean) -> Unit,
 ) {
         ConfigSectionCard(
         title = stringResource(R.string.config_section_admin),
@@ -31,6 +33,12 @@ internal fun AdminSettingsSection(
                 itemLabel = stringResource(R.string.config_admin_uid_item_label),
                 onValuesChange = onAdminUidsChange,
                 helperText = stringResource(R.string.config_admin_uids_desc),
+            )
+            ConfigToggleField(
+                title = stringResource(R.string.config_plugin_commands_admin_only_title),
+                subtitle = stringResource(R.string.config_plugin_commands_admin_only_desc),
+                checked = pluginCommandsAdminOnlyEnabled,
+                onCheckedChange = onPluginCommandsAdminOnlyEnabledChange,
             )
         }
     }

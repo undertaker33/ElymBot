@@ -66,6 +66,10 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.UUID
 
+data class AppBackupCreateOptions(
+    val includeProviderApiKeys: Boolean = false,
+)
+
 @Singleton
 class AppBackupService @Inject constructor(
     @ApplicationContext context: Context,
@@ -91,15 +95,19 @@ class AppBackupService @Inject constructor(
         return participantRegistry.supportedParticipants().map { participant -> participant.key }
     }
 
-    suspend fun createBackup(trigger: String = "manual"): Result<AppBackupItem> {
-        return repository.createBackup(trigger)
+    suspend fun createBackup(
+        trigger: String = "manual",
+        options: AppBackupCreateOptions = AppBackupCreateOptions(),
+    ): Result<AppBackupItem> {
+        return repository.createBackup(trigger = trigger, options = options)
     }
 
     suspend fun createModuleBackup(
         module: AppBackupModuleKind,
         trigger: String = "manual",
+        options: AppBackupCreateOptions = AppBackupCreateOptions(),
     ): Result<ModuleBackupItem> {
-        return repository.createModuleBackup(module, trigger)
+        return repository.createModuleBackup(module = module, trigger = trigger, options = options)
     }
 
     suspend fun deleteBackup(backupId: String): Result<Unit> {
@@ -194,9 +202,12 @@ class AppBackupRepository(
         return moduleBackupFlows.getValue(module).asStateFlow()
     }
 
-    suspend fun createBackup(trigger: String = "manual"): Result<AppBackupItem> = withContext(Dispatchers.IO) {
+    suspend fun createBackup(
+        trigger: String = "manual",
+        options: AppBackupCreateOptions = AppBackupCreateOptions(),
+    ): Result<AppBackupItem> = withContext(Dispatchers.IO) {
         runCatching {
-            val manifest = buildManifest(trigger)
+            val manifest = buildManifest(trigger = trigger, options = options)
             val fileName = "full-backup-${timestampFormatter.format(LocalDateTime.ofInstant(java.time.Instant.ofEpochMilli(manifest.createdAt), ZoneId.systemDefault()))}-$trigger.zip"
             val file = File(backupDirectory, fileName)
             writeBackupPayload(file, manifest)
@@ -210,9 +221,10 @@ class AppBackupRepository(
     suspend fun createModuleBackup(
         module: AppBackupModuleKind,
         trigger: String = "manual",
+        options: AppBackupCreateOptions = AppBackupCreateOptions(),
     ): Result<ModuleBackupItem> = withContext(Dispatchers.IO) {
         runCatching {
-            val manifest = buildModuleManifest(module, trigger)
+            val manifest = buildModuleManifest(module = module, trigger = trigger, options = options)
             val fileName =
                 "${module.filePrefix}-backup-${timestampFormatter.format(LocalDateTime.ofInstant(java.time.Instant.ofEpochMilli(manifest.createdAt), ZoneId.systemDefault()))}-$trigger.zip"
             val file = File(resolveModuleBackupDirectory(module), fileName)
@@ -528,7 +540,10 @@ class AppBackupRepository(
         }.getOrNull()
     }
 
-    private fun buildManifest(trigger: String): AppBackupManifest {
+    private fun buildManifest(
+        trigger: String,
+        options: AppBackupCreateOptions,
+    ): AppBackupManifest {
         val now = System.currentTimeMillis()
         val dataPort = resolveDataPort()
         val botProfiles = dataPort.snapshotBots()
@@ -548,7 +563,9 @@ class AppBackupRepository(
                 ),
                 providers = AppBackupModuleSnapshot(
                     count = providerProfiles.size,
-                    records = providerProfiles.map(::providerToJson),
+                    records = providerProfiles.map { profile ->
+                        providerToJson(profile, includeApiKey = options.includeProviderApiKeys)
+                    },
                 ),
                 personas = AppBackupModuleSnapshot(
                     count = personaProfiles.size,
@@ -583,8 +600,9 @@ class AppBackupRepository(
     private fun buildModuleManifest(
         module: AppBackupModuleKind,
         trigger: String,
+        options: AppBackupCreateOptions,
     ): AppBackupManifest {
-        return moduleOnlyManifest(module, buildManifest(trigger))
+        return moduleOnlyManifest(module, buildManifest(trigger = trigger, options = options))
     }
 
     private suspend fun restoreFromManifest(
@@ -865,14 +883,17 @@ class AppBackupRepository(
             .put("status", profile.status)
     }
 
-    private fun providerToJson(profile: ProviderProfile): JSONObject {
+    private fun providerToJson(
+        profile: ProviderProfile,
+        includeApiKey: Boolean,
+    ): JSONObject {
         return JSONObject()
             .put("id", profile.id)
             .put("name", profile.name)
             .put("baseUrl", profile.baseUrl)
             .put("model", profile.model)
             .put("providerType", profile.providerType.name)
-            .put("apiKey", profile.apiKey)
+            .put("apiKey", if (includeApiKey) profile.apiKey else "")
             .put("enabled", profile.enabled)
             .put("multimodalRuleSupport", profile.multimodalRuleSupport.name)
             .put("multimodalProbeSupport", profile.multimodalProbeSupport.name)
@@ -919,6 +940,7 @@ class AppBackupRepository(
             .put("ttsVoiceId", profile.ttsVoiceId)
             .put("imageCaptionPrompt", profile.imageCaptionPrompt)
             .put("adminUids", JSONArray(profile.adminUids))
+            .put("pluginCommandsAdminOnlyEnabled", profile.pluginCommandsAdminOnlyEnabled)
             .put("sessionIsolationEnabled", profile.sessionIsolationEnabled)
             .put("wakeWords", JSONArray(profile.wakeWords))
             .put("wakeWordsAdminOnlyEnabled", profile.wakeWordsAdminOnlyEnabled)

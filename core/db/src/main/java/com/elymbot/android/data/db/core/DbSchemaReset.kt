@@ -145,6 +145,7 @@ internal fun SupportSQLiteDatabase.resetSchemaToV9() {
             proactiveEnabled INTEGER NOT NULL,
             includeScheduledTaskConversationContext INTEGER NOT NULL,
             ttsVoiceId TEXT NOT NULL,
+            pluginCommandsAdminOnlyEnabled INTEGER NOT NULL,
             sessionIsolationEnabled INTEGER NOT NULL,
             wakeWordsAdminOnlyEnabled INTEGER NOT NULL,
             privateChatRequiresWakeWord INTEGER NOT NULL,

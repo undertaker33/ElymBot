@@ -416,6 +416,8 @@
     <string name="backup_auto_hint">When enabled, ElymBot creates one conversation backup after the chosen time each day.</string>
     <string name="backup_auto_time_title">Auto-backup time</string>
     <string name="backup_create_action">Create backup now</string>
+    <string name="backup_create_confirm_title">Create %1$s</string>
+    <string name="backup_include_api_keys_title">Back up API keys</string>
     <string name="backup_create_success">Backup created: %1$s</string>
     <string name="backup_import_file_action">Import file</string>
     <string name="backup_import_analyzing">Analyzing backup file…</string>
@@ -779,6 +781,8 @@
     <string name="config_admin_uids_title">Administrator system UIDs</string>
     <string name="config_admin_uids_desc"></string>
     <string name="config_admin_uid_item_label">Admin UID</string>
+    <string name="config_plugin_commands_admin_only_title">Slash commands only for admins</string>
+    <string name="config_plugin_commands_admin_only_desc">When enabled, slash commands only run for administrator UIDs.</string>
     <string name="config_session_isolation_title">Isolate group sessions</string>
     <string name="config_session_isolation_desc">When enabled, group conversations are isolated by sender under the same group.</string>
     <string name="config_wake_words_title">Wake words</string>

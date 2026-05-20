@@ -78,8 +78,8 @@ class ElymBotDatabaseSchemaContractTest {
     }
 
     @Test
-    fun latestMigration_targetsVersion20() {
-        assertTrue(astrBotDatabaseMigrations.maxOf { it.endVersion } == 22)
+    fun latestMigration_targetsCurrentVersion() {
+        assertTrue(astrBotDatabaseMigrations.maxOf { it.endVersion } == 23)
     }
 
     @Test
@@ -131,6 +131,29 @@ class ElymBotDatabaseSchemaContractTest {
             astrBotDatabaseMigrations.any { migration ->
                 migration.startVersion == 21 && migration.endVersion == 22
             },
+        )
+    }
+
+    @Test
+    fun migrations_include22To23Step() {
+        assertTrue(
+            astrBotDatabaseMigrations.any { migration ->
+                migration.startVersion == 22 && migration.endVersion == 23
+            },
+        )
+    }
+
+    @Test
+    fun version23Schema_containsPluginCommandAdminOnlyFlag() {
+        val schemaFile = listOf(
+            File("schemas/com.elymbot.android.data.db.ElymBotDatabase/23.json"),
+            File("app/schemas/com.elymbot.android.data.db.ElymBotDatabase/23.json"),
+        ).firstOrNull { it.exists() } ?: error("Room schema file for v23 was not found")
+        val schema = schemaFile.readText()
+
+        assertTrue(
+            "Expected pluginCommandsAdminOnlyEnabled to exist in v23 schema",
+            "pluginCommandsAdminOnlyEnabled" in schema,
         )
     }
 
