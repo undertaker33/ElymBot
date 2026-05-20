@@ -57,6 +57,13 @@ data class SecondaryTopBarStrings(
     val models: String,
     val runtime: String,
     val dataBackup: String,
+    val backupBots: String,
+    val backupModels: String,
+    val backupPersonas: String,
+    val backupConversations: String,
+    val backupConfigs: String,
+    val backupTts: String,
+    val backupFull: String,
     val cronJobs: String,
     val configDetailDefaultSection: String,
 )

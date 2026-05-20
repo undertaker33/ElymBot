@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModel
 import com.elymbot.android.feature.settings.api.SettingsAppBackupImportMode
 import com.elymbot.android.feature.settings.api.SettingsAppBackupImportPlan
 import com.elymbot.android.feature.settings.api.SettingsAppBackupImportSource
+import com.elymbot.android.feature.settings.api.SettingsBackupCreateOptions
 import com.elymbot.android.feature.settings.api.SettingsBackupModuleKind
 import com.elymbot.android.feature.settings.api.SettingsBackupPort
 import com.elymbot.android.feature.settings.api.SettingsConversationImportSource
@@ -23,7 +24,8 @@ class SettingsBackupViewModel @Inject constructor(
 
     fun moduleBackups(module: SettingsBackupModuleKind) = backupPort.moduleBackups(module)
 
-    suspend fun createFullBackup() = backupPort.createFullBackup()
+    suspend fun createFullBackup(options: SettingsBackupCreateOptions = SettingsBackupCreateOptions()) =
+        backupPort.createFullBackup(options)
     suspend fun deleteFullBackup(backupId: String) = backupPort.deleteFullBackup(backupId)
     suspend fun exportFullBackup(context: Context, backupId: String, targetUri: Uri) =
         backupPort.exportFullBackup(context, backupId, targetUri)
@@ -32,7 +34,10 @@ class SettingsBackupViewModel @Inject constructor(
     suspend fun importFullBackup(source: SettingsAppBackupImportSource, plan: SettingsAppBackupImportPlan) =
         backupPort.importFullBackup(source, plan)
 
-    suspend fun createModuleBackup(module: SettingsBackupModuleKind) = backupPort.createModuleBackup(module)
+    suspend fun createModuleBackup(
+        module: SettingsBackupModuleKind,
+        options: SettingsBackupCreateOptions = SettingsBackupCreateOptions(),
+    ) = backupPort.createModuleBackup(module, options)
     suspend fun deleteModuleBackup(module: SettingsBackupModuleKind, backupId: String) =
         backupPort.deleteModuleBackup(module, backupId)
     suspend fun exportModuleBackup(

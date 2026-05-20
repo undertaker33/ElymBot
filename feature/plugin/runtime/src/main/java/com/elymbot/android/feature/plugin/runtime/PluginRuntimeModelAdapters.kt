@@ -53,6 +53,7 @@ internal fun ConfigProfile.toRuntimeConfigSnapshot(): RuntimeConfigSnapshot {
         ttsVoiceId = ttsVoiceId,
         imageCaptionPrompt = imageCaptionPrompt,
         adminUids = adminUids,
+        pluginCommandsAdminOnlyEnabled = pluginCommandsAdminOnlyEnabled,
         sessionIsolationEnabled = sessionIsolationEnabled,
         wakeWords = wakeWords,
         wakeWordsAdminOnlyEnabled = wakeWordsAdminOnlyEnabled,

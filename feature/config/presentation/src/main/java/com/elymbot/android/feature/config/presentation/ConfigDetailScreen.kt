@@ -264,6 +264,9 @@ private fun ConfigDetailContent(
     var isPreviewingVoice by remember(profile.id) { mutableStateOf(false) }
     var imageCaptionPrompt by remember(profile.id) { mutableStateOf(profile.imageCaptionPrompt) }
     var adminUids by remember(profile.id) { mutableStateOf(profile.adminUids) }
+    var pluginCommandsAdminOnlyEnabled by remember(profile.id) {
+        mutableStateOf(profile.pluginCommandsAdminOnlyEnabled)
+    }
     var sessionIsolationEnabled by remember(profile.id) { mutableStateOf(profile.sessionIsolationEnabled) }
     var wakeWords by remember(profile.id) { mutableStateOf(profile.wakeWords) }
     var wakeWordsAdminOnlyEnabled by remember(profile.id) { mutableStateOf(profile.wakeWordsAdminOnlyEnabled) }
@@ -364,6 +367,7 @@ private fun ConfigDetailContent(
             ttsVoiceId = ttsVoiceId.trim(),
             imageCaptionPrompt = imageCaptionPrompt.trim(),
             adminUids = adminUids,
+            pluginCommandsAdminOnlyEnabled = pluginCommandsAdminOnlyEnabled,
             sessionIsolationEnabled = sessionIsolationEnabled,
             wakeWords = wakeWords,
             wakeWordsAdminOnlyEnabled = wakeWordsAdminOnlyEnabled,
@@ -824,6 +828,8 @@ private fun ConfigDetailContent(
                 AdminSettingsSection(
                     adminUids = adminUids,
                     onAdminUidsChange = { adminUids = it },
+                    pluginCommandsAdminOnlyEnabled = pluginCommandsAdminOnlyEnabled,
+                    onPluginCommandsAdminOnlyEnabledChange = { pluginCommandsAdminOnlyEnabled = it },
                 )
             }
             item(key = ConfigSection.Session.name) {

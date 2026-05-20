@@ -1,6 +1,6 @@
 # 当前项目状态
 
-更新时间：2026-05-18 20:44 +08:00
+更新时间：2026-05-20 13:07 +08:00
 
 ## 接管收尾状态
 
@@ -58,7 +58,7 @@
 ## 当前阻塞
 
 - 文档接管收尾：无活跃阻塞。
-- 当前正式任务 `D26051801`：实现、验证、PR 合并与 `v1.0.0` tag 闭环已完成；任务包保留为历史交付证据。
+- 当前正式任务 `D26051901`：QQ 斜杠指令管理员权限已实现并完成 `/help` 绕过权限的 debug 修复；Git 写入未执行，等待后续 `uth-git`。
 - Git：当前 `master`、`origin/master`、`codex/ColorOS16(RealmeUI7)` 与 `origin/codex/ColorOS16(RealmeUI7)` 均指向 `66eee69`；本轮 `uth-docs` 不执行 Git 写入。
 
 ## 最新验证证据
@@ -80,6 +80,14 @@
 | 2026-05-18 18:03 +08:00 | `tools/uth-hooks/uth-hook.py` L3 closeout | pass | `uth-dev` / `formal-dev` closeout 通过；positive claim evidence 与 code verification clean |
 | 2026-05-18 20:44 +08:00 | version / branch anchor scan | pass | `app/build.gradle.kts` 为 `versionName = "1.0.0"`、`versionCode = 76`；`v1.0.0` tag 指向 `c25812e`，当前 `HEAD` 为 `66eee69` |
 | 2026-05-18 20:44 +08:00 | generated artifacts guard scan | pass | `.gitignore` 排除 `artifacts/`；CI 新增 `Verify generated artifacts are not tracked` 步骤 |
+| 2026-05-19 23:49 +08:00 | targeted `:app:testDebugUnitTest` | pass | 覆盖 `QqPluginDispatchServiceTest`、`ElymBotDatabaseSchemaContractTest`、`ConfigMappersTest`；`BUILD SUCCESSFUL in 35s` |
+| 2026-05-19 23:56 +08:00 | `clean architectureCheck assembleDebug` | pass | 日志保存到 `build/reports/D26051901-plugin-command-admin-only-clean-architecture-assemble.log`；warning / deprecated / exception 扫描计数为 0 |
+| 2026-05-19 23:59 +08:00 | `:app:testDebugUnitTest` | pass | 日志保存到 `build/reports/D26051901-plugin-command-admin-only-app-testDebugUnitTest.log`；warning / deprecated / exception 扫描计数为 0 |
+| 2026-05-20 00:01 +08:00 | `tools/uth-hooks/uth-hook.py` L3 closeout | pass | `uth-dev` / `formal-dev` closeout 通过；`code-verification-clean` |
+| 2026-05-20 13:00 +08:00 | red regression test | fail expected | `QqPluginDispatchServiceTest.qq_bot_command_permission_blocks_non_admin_help_when_admin_only_enabled` 复现非管理员 `/help` 返回帮助文本 |
+| 2026-05-20 13:03 +08:00 | focused QQ command tests | pass | `QqPluginDispatchServiceTest` 与 `BotCommandRouterProviderTest` 通过；覆盖 QQ 内置命令和插件命令权限入口 |
+| 2026-05-20 13:06 +08:00 | `clean architectureCheck assembleDebug` | pass | 日志保存到 `build/reports/D26051901-slash-command-admin-only-debug-clean-architecture-assemble.log`；warning / deprecated / exception 扫描计数为 0 |
+| 2026-05-20 13:07 +08:00 | `:app:testDebugUnitTest` | pass | 日志保存到 `build/reports/D26051901-slash-command-admin-only-debug-app-testDebugUnitTest.log`；warning / deprecated / exception 扫描计数为 0 |
 
 ## 当前事实来源
 
@@ -121,9 +129,9 @@
 
 - Scene: `uth-dev`
 - Mode: `formal-dev`
-- Task package: `docs/work/D26051801-包名统一ElymBot/`
-- Active Todo: `docs/work/D26051801-包名统一ElymBot/10-D26051801-T01-todo-包名统一.md`
-- Feedback: `docs/work/D26051801-包名统一ElymBot/11-D26051801-T01-feedback-包名统一.md`
-- Goal: migrate project-owned historical Android naming and package identity to `ElymBot` / `com.elymbot.android`.
-- Status: implemented, verified, merged, and tagged as `v1.0.0`.
-- Git baseline: release commit `2a2e718`，PR merge / tag commit `c25812e`，当前分支收口提交 `66eee69`。
+- Task package: `docs/work/D26051901-插件指令管理员权限/`
+- Active Todo: `docs/work/D26051901-插件指令管理员权限/10-D26051901-T01-todo-插件指令管理员权限.md`
+- Feedback: `docs/work/D26051901-插件指令管理员权限/11-D26051901-T01-feedback-插件指令管理员权限.md`
+- Goal: add a config switch that restricts QQ slash commands to administrator UIDs.
+- Status: implemented, debug-fixed, and verified; pending human acceptance / optional `uth-git`.
+- Git baseline: pending `uth-git`；本轮 `uth-dev` 未执行 Git 写入。

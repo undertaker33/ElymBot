@@ -36,6 +36,25 @@ internal class QqBotCommandRuntimeService(
         currentPersona: PersonaProfile?,
     ): Boolean {
         val trimmedText = message.text.trim()
+        if (
+            !QqSlashCommandPermissionPolicy.canTrigger(
+                adminOnlyEnabled = config.pluginCommandsAdminOnlyEnabled,
+                isAdmin = message.senderId in config.adminUids,
+            )
+        ) {
+            log("QQ bot command blocked by admin-only permission: command=${trimmedText.substringBefore(' ')} user=${message.senderId}")
+            if (config.replyWhenPermissionDenied) {
+                replySender.send(
+                    QqReplyPayload(
+                        conversationId = message.conversationId,
+                        messageType = message.messageType,
+                        text = QqSlashCommandPermissionPolicy.ADMIN_ONLY_NOTICE,
+                    ),
+                    message,
+                )
+            }
+            return true
+        }
         val result = BotCommandRouter.handle(
             input = trimmedText,
             context = BotCommandContext(

@@ -95,6 +95,25 @@ internal class QqPluginDispatchService(
         if (!trimmedText.startsWith("/")) {
             return false
         }
+        if (
+            !QqSlashCommandPermissionPolicy.canTrigger(
+                adminOnlyEnabled = config.pluginCommandsAdminOnlyEnabled,
+                isAdmin = message.senderId in config.adminUids,
+            )
+        ) {
+            log("QQ plugin command blocked by admin-only permission: command=${trimmedText.substringBefore(' ')} user=${message.senderId}")
+            if (config.replyWhenPermissionDenied) {
+                replySender.send(
+                    QqReplyPayload(
+                        conversationId = message.conversationId,
+                        messageType = message.messageType,
+                        text = QqSlashCommandPermissionPolicy.ADMIN_ONLY_NOTICE,
+                    ),
+                    message,
+                )
+            }
+            return true
+        }
         val dispatchResult = dispatchMessageIngress(
             trigger = PluginTriggerSource.OnCommand,
             message = message,

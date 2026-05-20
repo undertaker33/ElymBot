@@ -49,7 +49,7 @@ import com.elymbot.android.data.db.resource.ResourceCenterItemEntity
         ResourceCenterItemEntity::class,
         ConfigResourceProjectionEntity::class,
     ],
-    version = 22,
+    version = 23,
     exportSchema = true,
 )
 abstract class ElymBotDatabase : RoomDatabase() {

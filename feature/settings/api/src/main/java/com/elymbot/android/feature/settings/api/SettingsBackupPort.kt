@@ -11,7 +11,9 @@ interface SettingsBackupPort {
 
     fun moduleBackups(module: SettingsBackupModuleKind): StateFlow<List<SettingsModuleBackupItem>>
 
-    suspend fun createFullBackup(): Result<SettingsAppBackupItem>
+    suspend fun createFullBackup(
+        options: SettingsBackupCreateOptions = SettingsBackupCreateOptions(),
+    ): Result<SettingsAppBackupItem>
     suspend fun deleteFullBackup(backupId: String): Result<Unit>
     suspend fun exportFullBackup(context: Context, backupId: String, targetUri: Uri): Result<Unit>
     suspend fun prepareFullImportFromBackup(backupId: String): Result<SettingsAppBackupImportSource>
@@ -21,7 +23,10 @@ interface SettingsBackupPort {
         plan: SettingsAppBackupImportPlan,
     ): Result<SettingsAppBackupRestoreResult>
 
-    suspend fun createModuleBackup(module: SettingsBackupModuleKind): Result<SettingsModuleBackupItem>
+    suspend fun createModuleBackup(
+        module: SettingsBackupModuleKind,
+        options: SettingsBackupCreateOptions = SettingsBackupCreateOptions(),
+    ): Result<SettingsModuleBackupItem>
     suspend fun deleteModuleBackup(module: SettingsBackupModuleKind, backupId: String): Result<Unit>
     suspend fun exportModuleBackup(
         context: Context,
@@ -65,6 +70,10 @@ enum class SettingsBackupModuleKind {
     QQ_ACCOUNTS,
     TTS_ASSETS,
 }
+
+data class SettingsBackupCreateOptions(
+    val includeProviderApiKeys: Boolean = false,
+)
 
 enum class SettingsAppBackupImportMode {
     REPLACE_ALL,

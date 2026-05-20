@@ -14,6 +14,7 @@ import com.elymbot.android.core.db.backup.AppBackupModuleSnapshot
 import com.elymbot.android.core.db.backup.AppBackupModules
 import com.elymbot.android.core.db.backup.AppBackupRestoreResult
 import com.elymbot.android.core.db.backup.AppBackupService
+import com.elymbot.android.core.db.backup.AppBackupCreateOptions
 import com.elymbot.android.core.db.backup.ConversationBackupItem
 import com.elymbot.android.core.db.backup.ConversationBackupService
 import com.elymbot.android.core.db.backup.ConversationBackupSettings
@@ -31,6 +32,7 @@ import com.elymbot.android.feature.settings.api.SettingsAppBackupModuleConflict
 import com.elymbot.android.feature.settings.api.SettingsAppBackupModuleSnapshot
 import com.elymbot.android.feature.settings.api.SettingsAppBackupModules
 import com.elymbot.android.feature.settings.api.SettingsAppBackupRestoreResult
+import com.elymbot.android.feature.settings.api.SettingsBackupCreateOptions
 import com.elymbot.android.feature.settings.api.SettingsBackupModuleKind
 import com.elymbot.android.feature.settings.api.SettingsBackupPort
 import com.elymbot.android.feature.settings.api.SettingsConversationBackupItem
@@ -73,8 +75,8 @@ class AppSettingsBackupPortAdapter @Inject constructor(
         }
     }
 
-    override suspend fun createFullBackup(): Result<SettingsAppBackupItem> {
-        return appBackupService.createBackup().map(AppBackupItem::toSettings)
+    override suspend fun createFullBackup(options: SettingsBackupCreateOptions): Result<SettingsAppBackupItem> {
+        return appBackupService.createBackup(options = options.toCore()).map(AppBackupItem::toSettings)
     }
 
     override suspend fun deleteFullBackup(backupId: String): Result<Unit> {
@@ -105,8 +107,12 @@ class AppSettingsBackupPortAdapter @Inject constructor(
         return appBackupService.importBackup(coreSource, plan.toCore()).map(AppBackupRestoreResult::toSettings)
     }
 
-    override suspend fun createModuleBackup(module: SettingsBackupModuleKind): Result<SettingsModuleBackupItem> {
-        return appBackupService.createModuleBackup(module.toCore()).map(ModuleBackupItem::toSettings)
+    override suspend fun createModuleBackup(
+        module: SettingsBackupModuleKind,
+        options: SettingsBackupCreateOptions,
+    ): Result<SettingsModuleBackupItem> {
+        return appBackupService.createModuleBackup(module.toCore(), options = options.toCore())
+            .map(ModuleBackupItem::toSettings)
     }
 
     override suspend fun deleteModuleBackup(
@@ -256,6 +262,10 @@ private fun SettingsAppBackupImportMode.toCore(): AppBackupImportMode = when (th
     SettingsAppBackupImportMode.REPLACE_ALL -> AppBackupImportMode.REPLACE_ALL
     SettingsAppBackupImportMode.MERGE_SKIP_DUPLICATES -> AppBackupImportMode.MERGE_SKIP_DUPLICATES
     SettingsAppBackupImportMode.MERGE_OVERWRITE_DUPLICATES -> AppBackupImportMode.MERGE_OVERWRITE_DUPLICATES
+}
+
+private fun SettingsBackupCreateOptions.toCore(): AppBackupCreateOptions {
+    return AppBackupCreateOptions(includeProviderApiKeys = includeProviderApiKeys)
 }
 
 private fun SettingsAppBackupImportPlan.toCore(): AppBackupImportPlan = AppBackupImportPlan(

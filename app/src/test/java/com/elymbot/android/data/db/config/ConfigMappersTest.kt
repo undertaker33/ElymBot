@@ -26,7 +26,7 @@ class ConfigMappersTest {
                 textStreamingEnabled = false, voiceStreamingEnabled = false, streamingMessageIntervalMs = 120,
                 realWorldTimeAwarenessEnabled = false, imageCaptionTextEnabled = false, webSearchEnabled = false,
                 proactiveEnabled = false, includeScheduledTaskConversationContext = false,
-                ttsVoiceId = "", sessionIsolationEnabled = false,
+                ttsVoiceId = "", pluginCommandsAdminOnlyEnabled = true, sessionIsolationEnabled = false,
                 wakeWordsAdminOnlyEnabled = false, privateChatRequiresWakeWord = false, replyTextPrefix = "",
                 quoteSenderMessageEnabled = false, mentionSenderEnabled = false, replyOnAtOnlyEnabled = true,
                 whitelistEnabled = false, logOnWhitelistMiss = false, adminGroupBypassWhitelistEnabled = true,
@@ -47,6 +47,7 @@ class ConfigMappersTest {
         ).toProfile()
 
         assertEquals(listOf("10001"), profile.adminUids)
+        assertEquals(true, profile.pluginCommandsAdminOnlyEnabled)
         assertEquals(listOf("ping"), profile.keywordPatterns)
         assertEquals("prompt", profile.imageCaptionPrompt)
     }

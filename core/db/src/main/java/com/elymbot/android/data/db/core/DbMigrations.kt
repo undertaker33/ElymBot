@@ -682,3 +682,14 @@ internal val migration21To22 = object : Migration(21, 22) {
         )
     }
 }
+
+internal val migration22To23 = object : Migration(22, 23) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            """
+            ALTER TABLE config_profiles
+            ADD COLUMN pluginCommandsAdminOnlyEnabled INTEGER NOT NULL DEFAULT 0
+            """.trimIndent(),
+        )
+    }
+}

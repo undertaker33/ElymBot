@@ -112,6 +112,13 @@ fun ElymBotApp(bridgeViewModel: BridgeViewModel = hiltViewModel()) {
             models = context.getString(R.string.nav_models),
             runtime = context.getString(R.string.settings_runtime_title),
             dataBackup = context.getString(R.string.backup_data_title),
+            backupBots = context.getString(R.string.backup_module_bots_title),
+            backupModels = context.getString(R.string.backup_module_models_title),
+            backupPersonas = context.getString(R.string.backup_module_personas_title),
+            backupConversations = context.getString(R.string.backup_module_conversations_title),
+            backupConfigs = context.getString(R.string.backup_module_configs_title),
+            backupTts = context.getString(R.string.backup_module_tts_title),
+            backupFull = context.getString(R.string.backup_module_full_title),
             cronJobs = context.getString(R.string.cron_jobs_title),
             configDetailDefaultSection = context.getString(ConfigSection.ModelSettings.titleRes),
         )

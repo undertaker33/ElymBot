@@ -23,6 +23,7 @@ data class ConfigProfileEntity(
     val proactiveEnabled: Boolean,
     val includeScheduledTaskConversationContext: Boolean,
     val ttsVoiceId: String,
+    val pluginCommandsAdminOnlyEnabled: Boolean,
     val sessionIsolationEnabled: Boolean,
     val wakeWordsAdminOnlyEnabled: Boolean,
     val privateChatRequiresWakeWord: Boolean,

@@ -66,6 +66,7 @@ import com.elymbot.android.feature.settings.api.SettingsAppBackupImportPlan as A
 import com.elymbot.android.feature.settings.api.SettingsAppBackupImportSource as AppBackupImportSource
 import com.elymbot.android.feature.settings.api.SettingsAppBackupItem as AppBackupItem
 import com.elymbot.android.feature.settings.api.SettingsAppBackupRestoreResult as AppBackupRestoreResult
+import com.elymbot.android.feature.settings.api.SettingsBackupCreateOptions
 import com.elymbot.android.feature.settings.api.SettingsBackupModuleKind as AppBackupModuleKind
 import com.elymbot.android.feature.settings.api.SettingsConversationBackupItem as ConversationBackupItem
 import com.elymbot.android.feature.settings.api.SettingsConversationImportResult as ConversationImportResult
@@ -204,6 +205,7 @@ fun ModuleBackupScreen(
     var pendingImport by remember { mutableStateOf<ModuleBackupImportSource?>(null) }
     var deletingBackupId by remember { mutableStateOf<String?>(null) }
     var exportingBackupId by remember { mutableStateOf<String?>(null) }
+    var showApiKeyCreateConfirmation by remember { mutableStateOf(false) }
     var isPreparingImport by remember { mutableStateOf(false) }
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         if (uri == null) return@rememberLauncherForActivityResult
@@ -229,6 +231,22 @@ fun ModuleBackupScreen(
                 .onFailure { error ->
                     Toast.makeText(context, error.message ?: error.javaClass.simpleName, Toast.LENGTH_LONG).show()
                 }
+        }
+    }
+    fun createBackup(includeProviderApiKeys: Boolean = false) {
+        scope.launch {
+            backupViewModel.createModuleBackup(
+                module = module,
+                options = SettingsBackupCreateOptions(includeProviderApiKeys = includeProviderApiKeys),
+            ).onSuccess {
+                Toast.makeText(
+                    context,
+                    context.getString(R.string.backup_create_success, it.fileName),
+                    Toast.LENGTH_LONG,
+                ).show()
+            }.onFailure { error ->
+                Toast.makeText(context, error.message ?: error.javaClass.simpleName, Toast.LENGTH_LONG).show()
+            }
         }
     }
 
@@ -264,16 +282,10 @@ fun ModuleBackupScreen(
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             Button(
                                 onClick = {
-                                    scope.launch {
-                                        backupViewModel.createModuleBackup(module).onSuccess {
-                                            Toast.makeText(
-                                                context,
-                                                context.getString(R.string.backup_create_success, it.fileName),
-                                                Toast.LENGTH_LONG,
-                                            ).show()
-                                        }.onFailure { error ->
-                                            Toast.makeText(context, error.message ?: error.javaClass.simpleName, Toast.LENGTH_LONG).show()
-                                        }
+                                    if (module == AppBackupModuleKind.PROVIDERS) {
+                                        showApiKeyCreateConfirmation = true
+                                    } else {
+                                        createBackup()
                                     }
                                 },
                                 colors = ButtonDefaults.buttonColors(
@@ -352,6 +364,17 @@ fun ModuleBackupScreen(
         }
     }
 
+    if (showApiKeyCreateConfirmation) {
+        ApiKeyBackupConfirmDialog(
+            title = title,
+            onDismiss = { showApiKeyCreateConfirmation = false },
+            onConfirm = { includeProviderApiKeys ->
+                showApiKeyCreateConfirmation = false
+                createBackup(includeProviderApiKeys = includeProviderApiKeys)
+            },
+        )
+    }
+
     pendingImport?.let { importSource ->
         ModuleBackupImportDialog(
             title = stringResource(R.string.backup_restore_module_confirm_title, title),
@@ -419,6 +442,7 @@ fun FullBackupScreen(
     var pendingImport by remember { mutableStateOf<AppBackupImportSource?>(null) }
     var deletingBackupId by remember { mutableStateOf<String?>(null) }
     var exportingBackupId by remember { mutableStateOf<String?>(null) }
+    var showApiKeyCreateConfirmation by remember { mutableStateOf(false) }
     var isPreparingImport by remember { mutableStateOf(false) }
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         if (uri == null) return@rememberLauncherForActivityResult
@@ -444,6 +468,21 @@ fun FullBackupScreen(
                 .onFailure { error ->
                     Toast.makeText(context, error.message ?: error.javaClass.simpleName, Toast.LENGTH_LONG).show()
                 }
+        }
+    }
+    fun createBackup(includeProviderApiKeys: Boolean = false) {
+        scope.launch {
+            backupViewModel.createFullBackup(
+                options = SettingsBackupCreateOptions(includeProviderApiKeys = includeProviderApiKeys),
+            ).onSuccess {
+                Toast.makeText(
+                    context,
+                    context.getString(R.string.backup_create_success, it.fileName),
+                    Toast.LENGTH_LONG,
+                ).show()
+            }.onFailure { error ->
+                Toast.makeText(context, error.message ?: error.javaClass.simpleName, Toast.LENGTH_LONG).show()
+            }
         }
     }
 
@@ -478,19 +517,7 @@ fun FullBackupScreen(
                         )
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             Button(
-                                onClick = {
-                                    scope.launch {
-                                        backupViewModel.createFullBackup().onSuccess {
-                                            Toast.makeText(
-                                                context,
-                                                context.getString(R.string.backup_create_success, it.fileName),
-                                                Toast.LENGTH_LONG,
-                                            ).show()
-                                        }.onFailure { error ->
-                                            Toast.makeText(context, error.message ?: error.javaClass.simpleName, Toast.LENGTH_LONG).show()
-                                        }
-                                    }
-                                },
+                                onClick = { showApiKeyCreateConfirmation = true },
                                 colors = ButtonDefaults.buttonColors(
                                     containerColor = MonochromeUi.strong,
                                     contentColor = MonochromeUi.strongText,
@@ -565,6 +592,17 @@ fun FullBackupScreen(
                 }
             }
         }
+    }
+
+    if (showApiKeyCreateConfirmation) {
+        ApiKeyBackupConfirmDialog(
+            title = stringResource(R.string.backup_module_full_title),
+            onDismiss = { showApiKeyCreateConfirmation = false },
+            onConfirm = { includeProviderApiKeys ->
+                showApiKeyCreateConfirmation = false
+                createBackup(includeProviderApiKeys = includeProviderApiKeys)
+            },
+        )
     }
 
     pendingImport?.let { importSource ->
@@ -1250,6 +1288,56 @@ private fun ConfirmBackupDialog(
                 colors = ButtonDefaults.textButtonColors(contentColor = MonochromeUi.textPrimary),
             ) {
                 Text(confirmLabel)
+            }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = onDismiss,
+                colors = ButtonDefaults.textButtonColors(contentColor = MonochromeUi.textSecondary),
+            ) {
+                Text(stringResource(R.string.common_cancel))
+            }
+        },
+    )
+}
+
+@Composable
+private fun ApiKeyBackupConfirmDialog(
+    title: String,
+    onDismiss: () -> Unit,
+    onConfirm: (includeProviderApiKeys: Boolean) -> Unit,
+) {
+    var includeProviderApiKeys by remember { mutableStateOf(false) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = MonochromeUi.cardBackground,
+        titleContentColor = MonochromeUi.textPrimary,
+        textContentColor = MonochromeUi.textSecondary,
+        title = { Text(stringResource(R.string.backup_create_confirm_title, title)) },
+        text = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    modifier = Modifier.weight(1f),
+                    text = stringResource(R.string.backup_include_api_keys_title),
+                    color = MonochromeUi.textPrimary,
+                    fontWeight = FontWeight.Medium,
+                )
+                Switch(
+                    checked = includeProviderApiKeys,
+                    onCheckedChange = { includeProviderApiKeys = it },
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onConfirm(includeProviderApiKeys) },
+                colors = ButtonDefaults.textButtonColors(contentColor = MonochromeUi.textPrimary),
+            ) {
+                Text(stringResource(R.string.backup_create_action))
             }
         },
         dismissButton = {
