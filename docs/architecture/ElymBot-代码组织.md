@@ -5,8 +5,7 @@
 ## 先按职责定位，再看职责内部的分层
 
 ```text
-app/                       Android 启动、导航和依赖装配
-features/                  应用自身的功能，例如人格、会话、设置
+app/                       Android 启动、导航、基础界面和依赖装配
 core/                      Agent 执行、上下文装配、文本和视觉模型
 plugins/
   qq/                      QQ 安装登录、OneBot、收发和设置
@@ -14,7 +13,7 @@ plugins/
 docs/                      产品决定、设计与工程说明
 ```
 
-每个插件拥有自己的源码、资源和测试目录，例如 `plugins/qq/src/main/kotlin/` 和 `plugins/qq/src/test/kotlin/`。插件较复杂时，可在内部按实际职责分为 `login/`、`onebot/`、`runtime/` 和 `ui/`。应用功能内部可按需要用 `ui/`、`data/` 组织，跨页面复用的业务规则再单独提取。Core 内部按 `agent/`、`context/`、`model/` 等职责定位。目录与 Kotlin 包结构保持对应。 [Android 应用架构](https://developer.android.com/topic/architecture) · [Kotlin 源码组织](https://kotlinlang.org/docs/coding-conventions.html#source-code-organization)
+人格、聊天、基础设置和插件管理入口按需在 `app/` 内部分包。Core 内部按 `agent/`、`context/`、`model/` 等职责组织。每个插件拥有自己的源码、资源和测试目录，例如 `plugins/qq/src/main/kotlin/` 和 `plugins/qq/src/test/kotlin/`。较复杂的插件可在内部按实际职责划分，例如 QQ 的 `login/`、`onebot/`、`runtime/` 和 `ui/`。目录与 Kotlin 包结构保持对应。 [Android 应用架构](https://developer.android.com/topic/architecture) · [Kotlin 源码组织](https://kotlinlang.org/docs/coding-conventions.html#source-code-organization)
 
 例如修改 QQ 登录时，从 `plugins/qq/` 就能找到登录实现、设置和对应测试。Spring MVC 的 Controller、Service、Repository 分工适合帮助理解请求入口、业务处理和数据访问。ElymBot 的输入来自界面、消息通道和定时任务，代码导航以功能归属为主，内部再根据职责选择所需的层次。 [Android 模块化模式](https://developer.android.com/topic/modularization/patterns)
 

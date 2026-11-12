@@ -7,10 +7,10 @@ ElymBot 是一个独立运行的 Android 个人助手。一个宿主 Agent 处�
 | 路径 | 用途 |
 | --- | --- |
 | [AGENTS.md](AGENTS.md) | Codex 项目说明与当前工作边界 |
-| `app/` | Android 应用入口和 Material 3 启动页 |
+| `app/` | Android 应用入口、基础界面和依赖装配 |
 | `core/` | Kotlin/JVM 模块，承载后续宿主 Agent、上下文和模型接入 |
 | `plugins/` | QQ 和定时任务各有独立 Gradle 模块，用户按需另行下载插件 |
-| [docs/](docs/) | 功能盘点、产品决定和 Minimal Core 设计 |
+| [docs/](docs/README.md) | 产品、架构、工作方式和任务记录 |
 | `探索/` | 本地独立探针、复现说明和探索记录，Git 忽略 |
 | `验证/` | 本地 QQ 验证材料，包含安装包、日志和构建输入 |
 
@@ -30,10 +30,8 @@ Kotlin 2.4.21 的完整兼容矩阵上限为 Gradle 9.7.0 与 AGP 9.3.1。骨架
 
 ## 阅读入口
 
-- [功能简表](docs/ElymBot-功能简表.md)供原型绘制参考。
-- [重构前功能盘点](docs/ElymBot-重构前功能盘点.md)第五节记录 D01–D16 产品决定。
-- [Minimal Core 设计](docs/ElymBot-Minimal-Core设计.md)记录宿主、会话、上下文和插件的职责边界。
-- [代码组织](docs/ElymBot-代码组织.md)记录物理隔离要求和 Kotlin/Android 分层建议。
+- [文档索引](docs/README.md)提供功能简表、D01–D16 产品决定、Core 设计和代码组织。
+- [工作方式和模板](docs/workflow/README.md)说明正式任务、快速任务和用户验收怎么衔接。
 - 本地 `探索/重构前准备.md` 整理验证范围，`探索/core-probe/README.md` 提供 JVM 和 Android 探针的运行步骤。
 
 历史记录中的部分链接指向本机旧仓库、参考仓库或本地制品，需在原工作环境中打开。

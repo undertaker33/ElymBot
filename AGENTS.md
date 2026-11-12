@@ -6,11 +6,16 @@ ElymBot 是独立运行的 Android 个人助手。重构采用一个宿主 Agent
 
 ## 工作入口
 
-- 从 `README.md` 了解目录和当前阶段。核对功能范围时查看 `docs/ElymBot-重构前功能盘点.md` 的 D01–D16，核对运行边界时查看 `docs/ElymBot-Minimal-Core设计.md`。
+- 从 `README.md` 了解目录和当前阶段，文档索引见 `docs/README.md`。核对功能范围时查看 `docs/product/ElymBot-重构前功能盘点.md` 的 D01–D16，核对运行边界时查看 `docs/architecture/ElymBot-Minimal-Core设计.md`。
 - 目前处于前期准备和探索阶段。正式开发从用户确定项目工作方式和交互原型后开始。
 - 旧 ElymBot 和 Re-UthCode 供源码与行为参考。ElymBot 原生独立运行。插件接口随实际插件需要逐步开放。
-- Core 与插件使用独立物理目录。每个插件的源码、资源和测试放在自己的 `plugins/<插件标识>/` 下。Core 和其他插件不引用该插件的内部实现。代码分层建议见 `docs/ElymBot-代码组织.md`。
+- Core 与插件使用独立物理目录。每个插件的源码、资源和测试放在自己的 `plugins/<插件标识>/` 下。Core 和其他插件不引用该插件的内部实现。代码分层建议见 `docs/architecture/ElymBot-代码组织.md`。
 - 基础 APK 只包含应用和 Core 所需内容，可选插件独立发布，由用户选择是否下载、安装和删除。App 和 Core 的构建依赖中排除插件实现和专用资源。
+
+## 任务与记录
+
+- 用户交付任务书并要求执行时，由总控 Agent 负责拆分、分派、集成和验证。几句话即可说明范围与完成标准的任务，按用户描述直接执行。
+- 两种方式都在 `docs/tasks/` 留下任务记录。使用 `docs/workflow/README.md` 中的模板和验收口径。
 
 ## 本地验证
 

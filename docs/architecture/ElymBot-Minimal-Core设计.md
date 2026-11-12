@@ -1,6 +1,6 @@
 # ElymBot Minimal Core 设计
 
-ElymBot 在 Android 上独立运行。App 对话直接进入宿主，QQ 接入和定时任务分别由插件提交给同一个宿主 Agent。人格决定助手如何交流，应用确定会话归属并装配上下文，宿主 Agent 负责模型调用和工具执行。QQ 插件采用 D06 选定的组合。 [功能盘点及产品决策](C:/Users/93445/Desktop/ElymBot/docs/ElymBot-重构前功能盘点.md:195)、[QQ 安装验证记录](C:/Users/93445/Desktop/ElymBot/验证/记录.md:68)
+ElymBot 在 Android 上独立运行。App 对话直接进入宿主，QQ 接入和定时任务分别由插件提交给同一个宿主 Agent。人格决定助手如何交流，应用确定会话归属并装配上下文，宿主 Agent 负责模型调用和工具执行。QQ 插件采用 D06 选定的组合。 [功能盘点及产品决策](../product/ElymBot-重构前功能盘点.md) · [本地 QQ 安装验证记录](C:/Users/93445/Desktop/ElymBot/验证/记录.md:68)
 
 ## 参考 Re-UthCode 的实现
 
