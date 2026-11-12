@@ -1,0 +1,29 @@
+# Android 和 Gradle 本地文件
+.gradle/
+.kotlin/
+.idea/
+.cxx/
+.externalNativeBuild/
+*.iml
+local.properties
+build/
+out/
+
+# 安装包、签名文件和本地凭据
+*.apk
+*.aab
+*.apks
+*.idsig
+*.jks
+*.keystore
+keystore.properties
+.env
+.env.*
+!.env.example
+
+# 本地验证和设备日志
+/探索/
+/验证/
+*.log
+Thumbs.db
+.DS_Store
