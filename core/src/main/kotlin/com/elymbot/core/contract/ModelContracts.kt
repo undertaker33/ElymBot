@@ -120,13 +120,20 @@ sealed class ModelRequestException(
 
     class HttpStatus(val statusCode: Int, message: String) : ModelRequestException(message)
 
-    class ApiRejected(val code: String?, message: String) : ModelRequestException(message)
+    class ApiRejected(
+        val code: String?,
+        message: String,
+        val httpStatusCode: Int? = null,
+    ) : ModelRequestException(message)
 
     class Protocol(message: String, cause: Throwable? = null) : ModelRequestException(message, cause)
 
     class StreamInterrupted(message: String, cause: Throwable? = null) : ModelRequestException(message, cause)
 
-    class ContextLimit(message: String) : ModelRequestException(message)
+    class ContextLimit(
+        message: String,
+        val httpStatusCode: Int? = null,
+    ) : ModelRequestException(message)
 
     class TimedOut(message: String, cause: Throwable? = null) : ModelRequestException(message, cause)
 }
