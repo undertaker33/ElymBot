@@ -14,3 +14,4 @@
 
 | 编号 | 工作包 | 状态 | 更新日期与验收证据 |
 | --- | --- | --- | --- |
+| T01 | [Core 和基础 App 重构](work/T01-Core和基础app重构/T01-Core和基础app重构-spec.md) | `not_implemented` | 2026-11-13 已同步全局主会话与人格专属会话设计。见 [Tasks](work/T01-Core和基础app重构/T01-Core和基础app重构-tasks.md) 和 [Checklist](work/T01-Core和基础app重构/T01-Core和基础app重构-checklist.md)。界面基准为 v0.6.3。并行回复、批量删除、新消息提示和图片位置调整已纳入验收，正式验收待实施。 |
