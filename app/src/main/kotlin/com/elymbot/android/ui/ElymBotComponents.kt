@@ -22,6 +22,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -267,9 +268,15 @@ internal fun PersonaImage(
     persona: PersonaCard,
     modifier: Modifier,
     avatar: Boolean = false,
+) = PersonaImage(rememberBitmap(persona.cover), if (avatar) persona.avatarPosition else persona.coverPosition, modifier)
+
+@Composable
+internal fun PersonaImage(
+    custom: ImageBitmap?,
+    position: ImagePosition,
+    modifier: Modifier,
     onPositionChange: ((ImagePosition) -> Unit)? = null,
 ) {
-    val custom = rememberBitmap(persona.cover)
     if (custom == null) {
         Box(
             modifier.background(Brush.verticalGradient(listOf(Soft, Accent))),
@@ -279,7 +286,6 @@ internal fun PersonaImage(
         }
         return
     }
-    val position = if (avatar) persona.avatarPosition else persona.coverPosition
     val sourceSize = IntSize(custom.width, custom.height)
     val latestPosition by rememberUpdatedState(position)
     val latestChange by rememberUpdatedState(onPositionChange)
@@ -353,32 +359,33 @@ internal fun Photo(uri: Uri, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun rememberBitmap(uri: Uri?): androidx.compose.ui.graphics.ImageBitmap? {
+internal fun rememberBitmap(uri: Uri?): ImageBitmap? {
     val context = LocalContext.current
-    val bitmap by produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, uri, context) {
-        value = null
-        value = withContext(Dispatchers.IO) {
-            uri?.let {
-                try {
-                    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                    context.contentResolver.openInputStream(it)?.use { stream -> BitmapFactory.decodeStream(stream, null, bounds) }
-                    val options = BitmapFactory.Options().apply {
-                        while (maxOf(bounds.outWidth, bounds.outHeight) / inSampleSize.coerceAtLeast(1) > 2048) {
-                            inSampleSize = inSampleSize.coerceAtLeast(1) * 2
+    return key(uri, context) {
+        val bitmap by produceState<ImageBitmap?>(null) {
+            value = withContext(Dispatchers.IO) {
+                uri?.let {
+                    try {
+                        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                        context.contentResolver.openInputStream(it)?.use { stream -> BitmapFactory.decodeStream(stream, null, bounds) }
+                        val options = BitmapFactory.Options().apply {
+                            while (maxOf(bounds.outWidth, bounds.outHeight) / inSampleSize.coerceAtLeast(1) > 2048) {
+                                inSampleSize = inSampleSize.coerceAtLeast(1) * 2
+                            }
                         }
+                        context.contentResolver.openInputStream(it)?.use { stream ->
+                            BitmapFactory.decodeStream(stream, null, options)?.asImageBitmap()
+                        }
+                    } catch (_: java.io.IOException) {
+                        null
+                    } catch (_: SecurityException) {
+                        null
                     }
-                    context.contentResolver.openInputStream(it)?.use { stream ->
-                        BitmapFactory.decodeStream(stream, null, options)?.asImageBitmap()
-                    }
-                } catch (_: java.io.IOException) {
-                    null
-                } catch (_: SecurityException) {
-                    null
                 }
             }
         }
+        bitmap
     }
-    return bitmap
 }
 
 internal fun issueLabel(issue: UiIssue): Int = when (issue) {

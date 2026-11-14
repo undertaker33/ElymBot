@@ -5,7 +5,11 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -14,6 +18,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -28,6 +35,7 @@ internal fun PersonaForm(persona: PersonaCard, dismiss: () -> Unit, save: (Perso
     var edited by remember(persona) { mutableStateOf(persona) }
     var tags by remember(persona) { mutableStateOf(persona.tags.joinToString("、")) }
     var cropAvatar by remember { mutableStateOf<Boolean?>(null) }
+    val image = rememberBitmap(edited.cover)
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) {
         if (it != null) edited = edited.copy(cover = it, coverPosition = ImagePosition(), avatarPosition = ImagePosition())
     }
@@ -42,8 +50,8 @@ internal fun PersonaForm(persona: PersonaCard, dismiss: () -> Unit, save: (Perso
             stringResource(if (edited.cover == null) R.string.elym_pick_image else R.string.elym_replace_image),
             { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
         )
-        PositionPreview(stringResource(R.string.elym_cover_position), edited, false) { cropAvatar = false }
-        PositionPreview(stringResource(R.string.elym_avatar_position), edited, true) { cropAvatar = true }
+        PositionPreview(stringResource(R.string.elym_cover_position), image, edited.coverPosition, false) { cropAvatar = false }
+        PositionPreview(stringResource(R.string.elym_avatar_position), image, edited.avatarPosition, true) { cropAvatar = true }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Text(stringResource(R.string.elym_add_favorite), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
             Checkbox(edited.favorite, { edited = edited.copy(favorite = it) }, modifier = Modifier.semanticsLabel(stringResource(R.string.elym_add_favorite)))
@@ -56,7 +64,7 @@ internal fun PersonaForm(persona: PersonaCard, dismiss: () -> Unit, save: (Perso
         )
     }
     cropAvatar?.let { avatar ->
-        CropDialog(edited, avatar, { cropAvatar = null }) { position ->
+        CropDialog(image, if (avatar) edited.avatarPosition else edited.coverPosition, avatar, { cropAvatar = null }) { position ->
             edited = if (avatar) edited.copy(avatarPosition = position) else edited.copy(coverPosition = position)
             cropAvatar = null
         }
@@ -64,23 +72,22 @@ internal fun PersonaForm(persona: PersonaCard, dismiss: () -> Unit, save: (Perso
 }
 
 @Composable
-private fun PositionPreview(label: String, persona: PersonaCard, avatar: Boolean, onClick: () -> Unit) {
+private fun PositionPreview(label: String, image: ImageBitmap?, position: ImagePosition, avatar: Boolean, onClick: () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(label, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
         val frame = if (avatar) Modifier.size(72.dp) else Modifier.fillMaxWidth().aspectRatio(1.79f)
         PersonaImage(
-            persona,
+            image, position,
             frame.clip(RoundedCornerShape(16.dp)).then(
-                if (persona.cover == null) Modifier else Modifier.semanticsLabel(label).clickable(onClick = onClick)
+                if (image == null) Modifier else Modifier.semanticsLabel(label).clickable(onClick = onClick)
             ),
-            avatar = avatar,
         )
     }
 }
 
 @Composable
-private fun CropDialog(persona: PersonaCard, avatar: Boolean, dismiss: () -> Unit, confirm: (ImagePosition) -> Unit) {
-    var position by remember { mutableStateOf(if (avatar) persona.avatarPosition else persona.coverPosition) }
+private fun CropDialog(image: ImageBitmap?, initial: ImagePosition, avatar: Boolean, dismiss: () -> Unit, confirm: (ImagePosition) -> Unit) {
+    var position by remember { mutableStateOf(initial) }
     val label = stringResource(if (avatar) R.string.elym_avatar_position else R.string.elym_cover_position)
     Dialog(onDismissRequest = dismiss) {
         Surface(shape = RoundedCornerShape(24.dp), color = SurfaceColor, contentColor = Ink) {
@@ -90,10 +97,9 @@ private fun CropDialog(persona: PersonaCard, avatar: Boolean, dismiss: () -> Uni
                     val ratio = if (avatar) 1f else 1.79f
                     val width = minOf(maxWidth, if (avatar) 240.dp else 360.dp)
                     PersonaImage(
-                        if (avatar) persona.copy(avatarPosition = position) else persona.copy(coverPosition = position),
+                        image, position,
                         Modifier.width(width).aspectRatio(ratio).clip(RoundedCornerShape(16.dp))
                             .semanticsLabel(stringResource(R.string.elym_crop_image)),
-                        avatar = avatar,
                         onPositionChange = { position = it },
                     )
                 }
@@ -140,10 +146,26 @@ internal fun SessionsPage(model: ElymBotViewModel, persona: PersonaCard, back: (
                 Action(stringResource(R.string.elym_new_session), create, primary = true)
             }
         } else {
-            Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 18.dp).padding(top = 10.dp, bottom = 14.dp)) {
-                Group {
-                    sessions.forEachIndexed { index, session ->
-                        if (index > 0) HorizontalDivider(color = Line)
+            LazyColumn(
+                Modifier.weight(1f).fillMaxWidth(),
+                contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 10.dp, bottom = 14.dp),
+            ) {
+                itemsIndexed(sessions, key = { _, session -> session.id }) { index, session ->
+                    val shape = RoundedCornerShape(
+                        topStart = if (index == 0) 18.dp else 0.dp,
+                        topEnd = if (index == 0) 18.dp else 0.dp,
+                        bottomStart = if (index == sessions.lastIndex) 18.dp else 0.dp,
+                        bottomEnd = if (index == sessions.lastIndex) 18.dp else 0.dp,
+                    )
+                    val singleRow = sessions.size == 1
+                    val edge = if (singleRow) Modifier.border(1.dp, Line, shape) else Modifier.drawBehind {
+                        val stroke = 1.dp.toPx()
+                        drawLine(Line, Offset(stroke / 2, 0f), Offset(stroke / 2, size.height), stroke)
+                        drawLine(Line, Offset(size.width - stroke / 2, 0f), Offset(size.width - stroke / 2, size.height), stroke)
+                        if (index == 0) drawLine(Line, Offset(0f, stroke / 2), Offset(size.width, stroke / 2), stroke)
+                        drawLine(Line, Offset(0f, size.height - stroke / 2), Offset(size.width, size.height - stroke / 2), stroke)
+                    }
+                    Column(Modifier.fillMaxWidth().clip(shape).background(SurfaceColor).then(edge)) {
                         val chosen = session.id in selection
                         val toggle = { selection = if (chosen) selection - session.id else selection + session.id }
                         Row(verticalAlignment = Alignment.CenterVertically) {

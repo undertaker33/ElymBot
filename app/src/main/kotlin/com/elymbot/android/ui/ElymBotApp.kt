@@ -40,7 +40,7 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalFocusManager
@@ -176,7 +176,7 @@ fun ElymBotApp(service: ElymBotUiService) {
                         initialState.depth > targetState.depth ->
                             slideInHorizontally(offset) { -(it * 0.3f).roundToInt() } togetherWith slideOutHorizontally(offset) { it }
                         else -> fadeIn(fade) togetherWith fadeOut(fade)
-                    }.apply { targetContentZIndex = targetState.depth.toFloat() }
+                    }.using(null).apply { targetContentZIndex = targetState.depth.toFloat() }
                 },
             ) { screen ->
                 val current = screen.key == destination.key
@@ -194,10 +194,7 @@ fun ElymBotApp(service: ElymBotUiService) {
                 val persona = if (screen.sessionId == null && screen.page == Page.Chat) active
                     else personas.firstOrNull { it.id == screen.ownerId }
                 Box(
-                    Modifier.fillMaxSize().background(pageBackground).drawWithContent {
-                        drawContent()
-                        if (scrim.value > 0f) drawRect(Color.Black.copy(alpha = scrim.value))
-                    }.then(
+                    Modifier.fillMaxSize().background(pageBackground).then(
                         if (current) Modifier else Modifier.semantics { hideFromAccessibility() }
                             .pointerInput(Unit) {
                                 awaitPointerEventScope {
@@ -235,6 +232,7 @@ fun ElymBotApp(service: ElymBotUiService) {
                         }
                         else -> Unit
                     }
+                    Box(Modifier.matchParentSize().graphicsLayer { alpha = scrim.value }.background(Color.Black))
                 }
             }
             var selectedRoot by remember { mutableStateOf(destination.page.takeIf { destination.depth == 0 } ?: Page.Gallery) }

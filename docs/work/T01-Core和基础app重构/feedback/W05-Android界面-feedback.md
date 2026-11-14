@@ -130,3 +130,18 @@
 
 - 从聊天检查点列表点选检查点时显示确认弹窗。标题显示编号，提示永久删除且说明保留范围，固定空点说明会清空当前会话。取消和系统返回只关闭弹窗，确认才交给原有回退流程。服务在既有事务内核对编号与稳定 ID；编号复用时保留新检查点及其历史。
 - `:app:assembleDebug :app:assembleDebugAndroidTest` 通过。在独立 MuMu Android 15（`127.0.0.1:16416`）运行 `ElymBotUiIntegrationTest#checkpointMenuSavesCompletedTurnAndRestoresTheEmptyPoint` 与 `ElymBotStorageTest#typedCheckpointApiListsRetainedHistoryRestoresAndBlocksMutationsWhileGenerating`，结果 `OK (2 tests)`，耗时 6.437 秒。覆盖普通点与空点文案、取消和返回保留轮次、确认产生一条回执并删尾、过期 ID 与生成中回退拒绝。
+
+### 页面切换与编辑开销优化
+
+- 页面切换时遮罩由独立图层处理透明度，固定大小的整页转场关闭尺寸插值。会话列表按会话 ID 使用 LazyColumn，保留圆角、单分隔线和多选操作。编辑人格时封面、头像与裁剪共用该表单内同一份已解码图片，更换图片时立即丢弃旧位图引用。
+- 基线 `9dd7db5` 与本轮候选均在独立 MuMu Android 15（`127.0.0.1:16416`）取样。每条入口热身一次后进行三次进入，使用 `dumpsys gfxinfo ... framestats`，按 IntendedVsync 取每次新增的有效帧，耗时用 FrameCompleted − IntendedVsync，慢帧以 16.67 ms 为比较阈值。编辑路径使用测试人格已有的本地封面。
+
+| 路径 | 基线帧数 / P95 / 慢帧 | 候选帧数 / P95 / 慢帧 |
+| --- | --- | --- |
+| 进入聊天 | 32 / 54.29 ms / 15 | 30 / 59.49 ms / 6 |
+| 打开会话 | 38 / 34.32 ms / 17 | 40 / 34.27 ms / 36 |
+| 打开编辑人格 | 57 / 52.08 ms / 3 | 57 / 14.49 ms / 2 |
+
+- 模拟器小样本结果方向不一致。会话路径样本为空或少量会话，未测出长列表表现，也不能据此认定用户手机上的掉帧原因或改善幅度。
+- 会话列表以候选、基线顺序重复同一点击路线，组内先热身一次再取三次。FrameCompleted 晚于 FrameDeadline 的帧数为候选 3/39、基线 3/38，原先顺序为基线 4/38、候选 3/40。反序的 16.67 ms 阈值计数为候选 5/39、基线 15/38，P95 为 42.38 ms、39.00 ms。首轮绝对阈值的慢帧增量未复现。复测后模拟器恢复候选 App。
+- `:app:assembleDebug :app:assembleDebugAndroidTest` 通过。候选 APK 在同一 MuMu 复跑 `personaEditorSavesIndependentCoverAndAvatarPositions`、`settingsAndModelNavigationLeadBackToChatThenOpeningClearsUnreadAndAllowsBatchDelete` 和 `AppSessionIntegrationTest`，结果 3/3，耗时 10 秒。
