@@ -418,7 +418,10 @@ class ElymBotStorageTest {
             val main = fixture.database.conversationDao().getMain()!!
             val service = fixture.service()
 
-            assertEquals(listOf(ChatCheckpoint(1, current = true, retainedMessageCount = 0)), service.checkpoints(main.id).first())
+            assertEquals(
+                listOf(ChatCheckpoint("empty:main", 1, current = true, retainedMessageCount = 0)),
+                service.checkpoints(main.id).first(),
+            )
             val emptySave = runCatching { service.saveCheckpoint(main.id) }.exceptionOrNull() as UiServiceException
             assertEquals(UiIssue.NoCheckpointBoundary, emptySave.issue)
 
@@ -432,15 +435,16 @@ class ElymBotStorageTest {
             )
 
             service.saveCheckpoint(main.id)
+            val originalSecondCheckpoint = service.checkpoints(main.id).first().single { it.displayNumber == 2 }
             assertEquals(
                 listOf(
-                    ChatCheckpoint(1, current = false, retainedMessageCount = 0),
-                    ChatCheckpoint(2, current = true, retainedMessageCount = 4),
+                    ChatCheckpoint("empty:main", 1, current = false, retainedMessageCount = 0),
+                    ChatCheckpoint(originalSecondCheckpoint.id, 2, current = true, retainedMessageCount = 4),
                 ),
                 service.checkpoints(main.id).first(),
             )
 
-            service.restoreCheckpoint(main.id, 1)
+            service.restoreCheckpoint(main.id, 1, "empty:main")
             assertEquals(listOf("empty:main"), fixture.database.checkpointDao().getForSession(main.id).map { it.id })
             assertEquals("empty:main", fixture.database.conversationDao().getMain()?.currentCheckpointId)
             assertNull(fixture.database.turnDao().latest(main.id))
@@ -455,7 +459,18 @@ class ElymBotStorageTest {
             service.saveCheckpoint(main.id)
             val recreated = service.checkpoints(main.id).first()
             assertEquals(listOf(1, 2), recreated.map { it.displayNumber })
-            assertEquals(ChatCheckpoint(2, current = true, retainedMessageCount = 2), recreated.last())
+            assertEquals(2, recreated.last().displayNumber)
+            assertEquals(true, recreated.last().current)
+            assertEquals(2, recreated.last().retainedMessageCount)
+            assertTrue(originalSecondCheckpoint.id != recreated.last().id)
+
+            val staleRestore = runCatching {
+                service.restoreCheckpoint(main.id, originalSecondCheckpoint.displayNumber, originalSecondCheckpoint.id)
+            }.exceptionOrNull() as UiServiceException
+            assertEquals(UiIssue.InvalidInput, staleRestore.issue)
+            assertEquals(recreated, service.checkpoints(main.id).first())
+            assertEquals(3L, fixture.database.turnDao().latest(main.id)?.sequence)
+            assertEquals(recreated.last().id, fixture.database.conversationDao().getMain()?.currentCheckpointId)
 
             val completed = fixture.database.turnDao().get(main.id, 3)!!
             fixture.database.withTransaction {
@@ -475,7 +490,9 @@ class ElymBotStorageTest {
 
             val saveWhileGenerating = runCatching { service.saveCheckpoint(main.id) }.exceptionOrNull() as UiServiceException
             assertEquals(UiIssue.Busy, saveWhileGenerating.issue)
-            val restoreWhileGenerating = runCatching { service.restoreCheckpoint(main.id, 1) }.exceptionOrNull() as UiServiceException
+            val restoreWhileGenerating = runCatching {
+                service.restoreCheckpoint(main.id, 1, originalSecondCheckpoint.id)
+            }.exceptionOrNull() as UiServiceException
             assertEquals(UiIssue.Busy, restoreWhileGenerating.issue)
             assertEquals(recreated, service.checkpoints(main.id).first())
         } finally {
@@ -1585,7 +1602,8 @@ class ElymBotStorageTest {
                 service.conversation(main.id).first().messages.first { it.text == feedback.text }.text,
             )
 
-            service.restoreCheckpoint(main.id, 2)
+            val checkpointToRestore = service.checkpoints(main.id).first().single { it.displayNumber == 2 }
+            service.restoreCheckpoint(main.id, checkpointToRestore.displayNumber, checkpointToRestore.id)
             assertTrue(fixture.database.messageDao().forTurn(main.id, 9).isEmpty())
             assertTrue(fixture.database.messageDao().forTurn(main.id, firstTurnSequence).isEmpty())
             val afterRollbackTurnSequence = fixture.database.conversationDao().get(main.id)!!.nextTurnSequence

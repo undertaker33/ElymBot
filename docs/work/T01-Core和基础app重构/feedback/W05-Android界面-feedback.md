@@ -125,3 +125,8 @@
 - 人格表单中有图片时可点封面或头像预览，打开各自固定裁剪框并单指拖图。封面编辑框沿用 1.79 比例，头像为正方形。人格库通栏与双列卡片继续分别使用 1.79 和 1.06，同一归一化封面位置按各自显示比例计算。现有 `ImagePosition` 和持久化格式沿用。
 - 裁剪绘制与拖动共用铺满裁剪框后的实际像素溢出，拖动只改变有溢出的轴并限制到图片边缘。选择「完成」后位置进入表单草稿，取消或系统返回均丢弃本次调整。裁剪框提供对应可移动轴的无障碍移动动作，替代原滑条。
 - `:app:assembleDebug :app:assembleDebugAndroidTest` 成功。MuMu Android 15（`127.0.0.1:16416`）更新两包后执行 `ElymBotUiIntegrationTest#personaEditorSavesIndependentCoverAndAvatarPositions`，结果 `OK (1 test)`，耗时 7.568 秒。用宽图核对水平无障碍动作、拖动后取消与系统返回、完成后分别保存两种裁剪位置，以及垂直位置保持原值。未在实体手机上安装本轮 APK。 [Compose 拖动检测](https://developer.android.com/develop/ui/compose/touch-input/pointer-input/drag-composables)
+
+### 检查点回退确认
+
+- 从聊天检查点列表点选检查点时显示确认弹窗。标题显示编号，提示永久删除且说明保留范围，固定空点说明会清空当前会话。取消和系统返回只关闭弹窗，确认才交给原有回退流程。服务在既有事务内核对编号与稳定 ID；编号复用时保留新检查点及其历史。
+- `:app:assembleDebug :app:assembleDebugAndroidTest` 通过。在独立 MuMu Android 15（`127.0.0.1:16416`）运行 `ElymBotUiIntegrationTest#checkpointMenuSavesCompletedTurnAndRestoresTheEmptyPoint` 与 `ElymBotStorageTest#typedCheckpointApiListsRetainedHistoryRestoresAndBlocksMutationsWhileGenerating`，结果 `OK (2 tests)`，耗时 6.437 秒。覆盖普通点与空点文案、取消和返回保留轮次、确认产生一条回执并删尾、过期 ID 与生成中回退拒绝。

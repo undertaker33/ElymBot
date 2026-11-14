@@ -18,6 +18,10 @@
     <string name="elym_checkpoints">检查点</string>
     <string name="elym_checkpoint_current">当前</string>
     <string name="elym_checkpoint_title">检查点 %1$d</string>
+    <string name="elym_restore_checkpoint_title">回到检查点 %1$d？</string>
+    <string name="elym_restore_checkpoint_message">当前会话在此检查点之后的消息和检查点将永久删除，无法撤销。此前的内容会保留。</string>
+    <string name="elym_restore_empty_checkpoint_message">当前会话的所有消息和后续检查点将永久删除，无法撤销。</string>
+    <string name="elym_restore_checkpoint">确认回退</string>
     <string name="elym_save_checkpoint">保存当前检查点</string>
     <string name="elym_choose_persona">选择人格</string>
     <string name="elym_other_sessions">其他人格的会话</string>

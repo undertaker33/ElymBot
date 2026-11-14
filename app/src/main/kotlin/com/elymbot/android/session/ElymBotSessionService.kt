@@ -201,6 +201,7 @@ class ElymBotSessionService(
             ) { checkpoints, currentCheckpointId, historyMessageCounts ->
                 checkpoints.map { checkpoint ->
                     ChatCheckpoint(
+                        id = checkpoint.id,
                         displayNumber = checkpoint.displayNumber,
                         current = checkpoint.id == currentCheckpointId,
                         retainedMessageCount = historyMessageCounts.asSequence()
@@ -219,10 +220,10 @@ class ElymBotSessionService(
         }
     }
 
-    override suspend fun restoreCheckpoint(sessionId: String, displayNumber: Int) {
+    override suspend fun restoreCheckpoint(sessionId: String, displayNumber: Int, expectedCheckpointId: String) {
         repository.initialize()
         sessionLock(sessionId).withLock {
-            val checkpoint = restoreCheckpointState(sessionId, displayNumber)
+            val checkpoint = restoreCheckpointState(sessionId, displayNumber, expectedCheckpointId)
             recordCommand(
                 sessionId = sessionId,
                 commandInput = null,
@@ -1218,13 +1219,18 @@ class ElymBotSessionService(
         point
     }
 
-    private suspend fun restoreCheckpointState(sessionId: String, displayNumber: Int): CheckpointEntity {
+    private suspend fun restoreCheckpointState(
+        sessionId: String,
+        displayNumber: Int,
+        expectedCheckpointId: String? = null,
+    ): CheckpointEntity {
         var removedAssetPaths: List<String> = emptyList()
         val restored = repository.database.withTransaction {
             val session = repository.database.conversationDao().get(sessionId) ?: fail(UiIssue.InvalidInput)
             if (repository.database.turnDao().isRunning(sessionId)) fail(UiIssue.Busy)
             val selected = repository.database.checkpointDao().getByNumber(sessionId, displayNumber)
                 ?: fail(UiIssue.InvalidInput)
+            if (expectedCheckpointId != null && selected.id != expectedCheckpointId) fail(UiIssue.InvalidInput)
             removedAssetPaths = repository.database.attachmentDao().pathsAfterTurn(sessionId, selected.boundaryTurnSequence)
             repository.database.turnDao().deleteAfter(sessionId, selected.boundaryTurnSequence)
             repository.database.historySummaryDao().deleteAfter(sessionId, selected.boundaryTurnSequence)

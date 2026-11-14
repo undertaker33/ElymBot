@@ -115,3 +115,16 @@ Checklist 未修改。T01.05/T01.06 的存储服务测试覆盖已更新，但�
 - HistoryRead 首次有诊断的 MuMu 运行得到终态 `CONTEXT_LIMIT`，`responseRequests=1`、`summaryRequests=3`、`summaryRows=1`，已写入 `HISTORY,FEEDBACK,HISTORY`。缩短 turn 1 合成文本后该终态问题消失；随后检查发现编译器为满足请求上限移除了已持久化摘要。最终将测试上下文窗口调至 3000、压缩触发比例调至 0.4，并保留其他较长历史轮次，使摘要出现在模型请求中。
 - 最终执行 `adb -s 127.0.0.1:16416 shell am instrument -w -e class 'com.elymbot.android.data.ElymBotStorageTest#historyReadCanReachCompressedTurnsPersistsFeedbackAndRollbackRemovesLaterHistory' com.elymbot.android.debug.test/androidx.test.runner.AndroidJUnitRunner`，返回 `OK (1 test)`，耗时 0.396 秒。用例证明模型请求拿到压缩摘要；同批合法 HistoryRead 读取摘要覆盖范围中的原始 marker，缺少 `toTurn` 的调用按原 call ID 回填拒绝结果，`FEEDBACK` 文本先于最终 assistant `HISTORY` 保存。回退后第二次真实 App service 请求仍读到保留 turn 1；读取被删的 turn 9 返回空记录且无哨兵。
 - 本轮没有从用户配置的 MEIZU App 模型设置页读取模型 ID 或既有探测状态；未触发真实服务网络请求，也未打开密钥编辑界面。Checklist 的 T01.08 保持未勾选。
+
+## 2026-11-15 检查点确认防陈旧状态
+
+### 实际改动
+
+- `ChatCheckpoint.id` 暴露现有 `CheckpointEntity.id`；`ElymBotUiService.restoreCheckpoint` 使用 `restoreCheckpoint(sessionId, displayNumber, expectedCheckpointId)` typed 契约。
+- UI 恢复沿用原会话互斥锁和删尾 Room transaction。事务内先检查会话及生成状态，再按会话和展示编号读取检查点，并在任何删除前比较预期 ID；编号对应的检查点已替换或不存在时返回现有 `UiIssue.InvalidInput`，生成中仍优先返回 `UiIssue.Busy`。`/checkpoint` 和 `/reset` 继续走不带预期 ID 的私有恢复路径。
+- 扩展 `ElymBotStorageTest.typedCheckpointApiListsRetainedHistoryRestoresAndBlocksMutationsWhileGenerating`：记录旧编号 2 的 ID，回退后重新建立编号 2，再以旧 ID 发起恢复，断言受控拒绝、检查点/current ID 和最新轮次保持不变。同步更新所有 typed restore 测试调用方。
+
+### 验证与待验
+
+- 静态核对服务契约、Room 事务中的比较顺序和全部 Kotlin 调用点；没有发现遗漏的旧签名调用。
+- 本轮按集成安排未运行 Gradle、Android 测试或设备操作。编译及上述定向测试等待 W01/W05 统一验证；当前不据源码改动宣称构建或测试通过。

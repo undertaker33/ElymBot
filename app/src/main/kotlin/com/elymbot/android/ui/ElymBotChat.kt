@@ -26,6 +26,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
@@ -254,6 +255,7 @@ private fun CheckpointsSheet(model: ElymBotViewModel, sessionId: String, running
     val checkpoints by remember(sessionId) { service.checkpoints(sessionId) }
         .collectAsStateWithLifecycle(emptyList())
     var pending by remember { mutableStateOf(false) }
+    var selected by remember { mutableStateOf<ChatCheckpoint?>(null) }
     val enabled = !running && !pending && checkpoints.isNotEmpty()
     fun runCheckpointAction(action: suspend () -> Unit) {
         if (!enabled || pending) return
@@ -280,12 +282,7 @@ private fun CheckpointsSheet(model: ElymBotViewModel, sessionId: String, running
                 ListRow(
                     stringResource(R.string.elym_checkpoint_title, point.displayNumber),
                     R.drawable.elym_clock,
-                    {
-                        runCheckpointAction {
-                            service.restoreCheckpoint(sessionId, point.displayNumber)
-                            dismiss()
-                        }
-                    },
+                    { selected = point },
                     subtitle = pluralStringResource(
                         R.plurals.elym_checkpoint_retained_messages, point.retainedMessageCount, point.retainedMessageCount,
                     ),
@@ -295,6 +292,33 @@ private fun CheckpointsSheet(model: ElymBotViewModel, sessionId: String, running
                 )
             }
         }
+    }
+    selected?.let { point ->
+        val warning = if (point.displayNumber == 1) {
+            R.string.elym_restore_empty_checkpoint_message
+        } else {
+            R.string.elym_restore_checkpoint_message
+        }
+        AlertDialog(
+            onDismissRequest = { selected = null },
+            title = { Text(stringResource(R.string.elym_restore_checkpoint_title, point.displayNumber)) },
+            text = { Text(stringResource(warning)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        selected = null
+                        runCheckpointAction {
+                            service.restoreCheckpoint(sessionId, point.displayNumber, point.id)
+                            dismiss()
+                        }
+                    },
+                    enabled = enabled,
+                ) { Text(stringResource(R.string.elym_restore_checkpoint), color = if (enabled) Danger else Color.Unspecified) }
+            },
+            dismissButton = {
+                TextButton(onClick = { selected = null }) { Text(stringResource(R.string.elym_cancel)) }
+            },
+        )
     }
 }
 

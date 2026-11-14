@@ -14,7 +14,7 @@ interface ElymBotUiService {
     fun conversation(sessionId: String): Flow<Conversation>
     fun checkpoints(sessionId: String): Flow<List<ChatCheckpoint>>
     suspend fun saveCheckpoint(sessionId: String)
-    suspend fun restoreCheckpoint(sessionId: String, displayNumber: Int)
+    suspend fun restoreCheckpoint(sessionId: String, displayNumber: Int, expectedCheckpointId: String)
     suspend fun setViewedConversation(sessionId: String?)
     suspend fun newSession(personaId: String): String
     suspend fun activatePersona(personaId: String)
@@ -74,6 +74,7 @@ data class ChatMessage(
 )
 
 data class ChatCheckpoint(
+    val id: String,
     val displayNumber: Int,
     val current: Boolean,
     val retainedMessageCount: Int,

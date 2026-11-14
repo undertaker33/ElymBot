@@ -294,12 +294,30 @@ class ElymBotUiIntegrationTest {
         waitForText(savedPoint)
         val retained = fixture.context.resources.getQuantityString(R.plurals.elym_checkpoint_retained_messages, 1, 1)
         compose.onNode(hasText(savedPoint) and hasText(current) and hasText(retained)).assertIsDisplayed()
+        compose.onNodeWithText(savedPoint).performClick()
+        compose.onNodeWithText(fixture.context.getString(R.string.elym_restore_checkpoint_title, 2)).assertIsDisplayed()
+        compose.onNodeWithText(label(R.string.elym_restore_checkpoint_message)).assertIsDisplayed()
+        click(R.string.elym_cancel)
+        compose.onNodeWithText(savedPoint).assertIsDisplayed()
+        assertEquals("COMPLETED", runBlocking { fixture.database.turnDao().latest(sessionId)?.status })
+
         compose.onNodeWithText(emptyPoint).performClick()
+        compose.onNodeWithText(fixture.context.getString(R.string.elym_restore_checkpoint_title, 1)).assertIsDisplayed()
+        compose.onNodeWithText(label(R.string.elym_restore_empty_checkpoint_message)).assertIsDisplayed()
+        androidx.test.platform.app.InstrumentationRegistry.getInstrumentation()
+            .sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK)
+        compose.onNodeWithText(emptyPoint).assertIsDisplayed()
+        assertEquals("COMPLETED", runBlocking { fixture.database.turnDao().latest(sessionId)?.status })
+
+        compose.onNodeWithText(emptyPoint).performClick()
+        click(R.string.elym_restore_checkpoint)
         compose.waitUntil(10_000) {
             compose.onAllNodesWithText(reply).fetchSemanticsNodes().isEmpty() &&
                 compose.onAllNodesWithText(emptyPoint).fetchSemanticsNodes().isEmpty()
         }
-        waitForText(fixture.context.getString(R.string.elym_command_checkpoint_restored, 1))
+        val receipt = fixture.context.getString(R.string.elym_command_checkpoint_restored, 1)
+        waitForText(receipt)
+        assertEquals(1, compose.onAllNodesWithText(receipt).fetchSemanticsNodes().size)
         assertEquals(null, runBlocking { fixture.database.turnDao().latest(sessionId) })
 
         openChatMenu()
