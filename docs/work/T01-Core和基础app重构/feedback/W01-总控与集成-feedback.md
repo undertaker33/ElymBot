@@ -109,3 +109,45 @@
 - 独立空库 Room 测试不等同于 Compose 的真正空库首次创建 UI 路径。本轮尝试的 test-only Compose Activity 首次放在 instrumentation APK 时遇到进程不匹配；临时 acceptance variant 的新包安装被 Android 返回 `INSTALL_FAILED_USER_RESTRICTED`。未改系统设置；为恢复常规 `connectedDebugAndroidTest` 入口并确保交付 debug APK 不含测试宿主，已移除该临时 variant、Activity 和 Compose 测试源码。现有 MainActivity 测试 fixture 会先创建测试人格，故真正空库 Compose 首次创建仍未验收。
 - T01.08 仍未覆盖或未形成正式入口证据的项：非流式、停止与断流；视觉模型直连及次级模型两路；回退后的 HistoryRead 不可读、结构化能力随模型请求发送及压缩后续读续答；批量删除、清除未读和图片位置 UI 操作；实际模型服务探测与正式对话。W04 已有服务层/Room 覆盖不替代这些 App 入口行为。正式服务验收尚未读取或配置凭据；需由总控另行安排可用测试端点。
 - 测试 Activity 依赖移除后没有重跑 MainActivity/双会话 UI 用例；改动只删除了通用 `ComponentActivity` 测试宿主，正式 `MainActivity` 和 localhost 配置未改。该次构建与静态 APK 检查通过，亮屏下的 2/2 UI 证据仍来自移除宿主前同一代码和设备。
+
+### App 正式入口断流与重试复验
+
+执行日期：2026-11-14（北京时间）。
+
+#### 实际改动
+
+- 新增 `app/src/androidTest/kotlin/com/elymbot/android/AppFailureIntegrationTest.kt`。通过 `MainActivity`、共享测试数据 fixture、本地 HTTP SSE 端点及 Room 状态，验证部分增量已到达后传输意外结束时的界面错误、重试入口和最终落盘。
+- 合成端点首次响应发送部分正文后关闭 chunked 流，未发送终止帧；重试响应返回完整 SSE。测试断言重试复用同一 turn sequence 和 user message ID、attempt ID 更新，结束后该 turn 仅保留一条用户消息和一条完成的助手回复。
+
+#### 构建和设备结果
+
+- 环境：MEIZU 20 Pro，Android 16，序列号 `391QYGCM225VG`；Gradle Wrapper 9.9.1、Android SDK Platform 37。执行 `:app:compileDebugAndroidTestKotlin` 成功，W01 与 W05 仪器测试均编译通过；执行 `:app:assembleDebug :app:assembleDebugAndroidTest` 成功。APK 为 `app/build/outputs/apk/debug/app-debug.apk` 和 `app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk`。
+- 设备当时 `mWakefulness=Awake`。对 `com.elymbot.android.debug` 与 `com.elymbot.android.debug.test` 分别执行普通 `adb install -r` 均返回 `Success`；`pm path` 可解析两包及基础包 `com.elymbot.android`。未清除数据、卸载或更新基础包，也未读取或配置真实模型凭据。
+- 命令 `adb -s 391QYGCM225VG shell am instrument -w -e class 'com.elymbot.android.AppFailureIntegrationTest#interruptedStreamShowsRetryAndReusesTheExistingUserMessage' com.elymbot.android.debug.test/androidx.test.runner.AndroidJUnitRunner` 返回 `OK (1 test)`，耗时 4.519 秒。正式 App 显示回复失败、连接错误和重试操作；合成端点的第二次请求成功后，数据库中的同一轮完成，消息数量和身份断言通过。
+- W05 的 `ElymBotUiIntegrationTest` 同次构建后定向运行，返回 `OK (2 tests)`，耗时 12.355 秒；详细 UI 路径由 W05 Feedback 记录。
+
+#### 覆盖与限制
+
+- 本次覆盖 App 正式入口的 SSE 断流、错误呈现、重试及同一用户消息复用，输入和响应来自本地 loopback 合成端点。它不证明实际服务接入、认证、模型列表、三项能力探测、非流式响应或视觉请求；这些仍按后续设备验证补充。T01.08 复合验收仍不勾选。
+
+### 已配置 Text 模型的设置与对话验收
+
+执行日期：2026-11-14（北京时间）。
+
+#### 实际改动
+
+- 新增 `app/src/androidTest/kotlin/com/elymbot/android/ConfiguredModelAcceptanceTest.kt`。仪器测试从现有 Text 角色设置读取服务名、模型 ID 和是否有已保存凭据标记，不读取凭据内容；通过正式模型设置 UI 打开已配置服务、请求模型列表、确认当前模型可选，并启动能力探测。
+- 探测 UI 的可用性、视觉、原生流式三个结果行均退出“等待探测”。测试核对这三类结果记录存在，但运行器输出未保留模型名称或每项具体状态值，因此不据此声称任何能力支持或不支持。
+- 使用 fixture 临时创建的专属会话，从正式聊天 UI 发送无个人信息的 `DEVICE_TEST_OK` 请求。turn 完成，Room 持久化了非空助手回复；fixture 随后恢复原主会话人格并清理本次测试会话。没有修改已保存服务、Text/Vision assignment 或凭据。
+
+#### 构建和设备结果
+
+- 环境：MEIZU 20 Pro，Android 16，序列号 `391QYGCM225VG`；Gradle Wrapper 9.9.1、Android SDK Platform 37。`:app:assembleDebug :app:assembleDebugAndroidTest` 成功；修复关闭嵌套 Dialog 的测试节点选择后，`:app:assembleDebugAndroidTest` 成功。测试 APK 为 `app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk`，目标 APK 为 `app/build/outputs/apk/debug/app-debug.apk`。
+- 设备当时 Awake。更新 `com.elymbot.android.debug` 与 `com.elymbot.android.debug.test` 的普通 `adb install -r` 均成功；`pm path` 核对基础包 `com.elymbot.android` 仍安装。本次未清除任何数据、卸载基础包或修改系统设置。
+- 命令 `adb -s 391QYGCM225VG shell am instrument -w -e class 'com.elymbot.android.ConfiguredModelAcceptanceTest#configuredTextModelListsProbesAndRepliesToATestPrompt' com.elymbot.android.debug.test/androidx.test.runner.AndroidJUnitRunner` 返回 `OK (1 test)`，耗时 10.148 秒。模型列表已通过正式 UI 返回并显示当前模型可用；能力探测流程结束；正式聊天的合成提示已得到非空完成回复。
+- 运行器没有提供模型 ID、服务名、能力状态细节或回复文本的可用输出。本记录只写“用户已配置 Text 模型”，不从设备日志或真实数据库额外提取这些字段。实际请求使用 App 中已配置的认证，但本轮没有读取、输出或复制凭据。
+
+#### 其他验收边界
+
+- 用户反馈识图当前正常；这是用户观察，本轮没有自动重跑图片输入。能力探测在真实服务中提交了产品自带视觉探针，但由于具体状态值未捕获，不把它写成识图能力的自动化证明。
+- 这项验收覆盖真实服务配置下的模型列表、设置页三项探测流程和 Text 对话。用户最终选择的真实服务完整验收仍需用户确认，T01.08 其他必需项与 T01.09 未关闭，Checklist 复合项保持未勾选。

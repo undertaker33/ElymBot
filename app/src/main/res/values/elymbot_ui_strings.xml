@@ -16,6 +16,9 @@
     <string name="elym_chat">聊天</string>
     <string name="elym_chat_menu">聊天菜单</string>
     <string name="elym_checkpoints">检查点</string>
+    <string name="elym_checkpoint_current">当前</string>
+    <string name="elym_checkpoint_title">检查点 %1$d</string>
+    <string name="elym_save_checkpoint">保存当前检查点</string>
     <string name="elym_choose_persona">选择人格</string>
     <string name="elym_other_sessions">其他人格的会话</string>
     <string name="elym_clear_filter">清除筛选</string>
@@ -160,6 +163,9 @@
     <string name="elym_tool_progress">正在调用工具…</string>
     <plurals name="elym_models_found">
         <item quantity="other">找到 %1$d 个模型</item>
+    </plurals>
+    <plurals name="elym_checkpoint_retained_messages">
+        <item quantity="other">保留 %1$d 条上下文消息</item>
     </plurals>
     <plurals name="elym_selected">
         <item quantity="other">已选择 %1$d 个会话</item>

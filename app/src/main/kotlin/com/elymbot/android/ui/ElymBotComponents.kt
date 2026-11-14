@@ -142,9 +142,10 @@ internal fun ListRow(
     badge: String? = null,
     selected: Boolean = false,
     trailing: Boolean = true,
+    enabled: Boolean = true,
 ) {
     Row(
-        modifier.fillMaxWidth().heightIn(min = 63.dp).clickable(onClick = onClick)
+        modifier.fillMaxWidth().heightIn(min = 63.dp).clickable(enabled = enabled, onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 10.dp),
         horizontalArrangement = Arrangement.spacedBy(11.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -330,6 +331,7 @@ internal fun issueLabel(issue: UiIssue): Int = when (issue) {
     UiIssue.Busy -> R.string.elym_busy
     UiIssue.OwnedSessions -> R.string.elym_owned_sessions
     UiIssue.InvalidInput -> R.string.elym_invalid_input
+    UiIssue.NoCheckpointBoundary -> R.string.elym_command_no_mark_boundary
     UiIssue.Failed -> R.string.elym_failed
 }
 

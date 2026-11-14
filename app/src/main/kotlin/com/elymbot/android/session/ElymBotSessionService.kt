@@ -20,6 +20,7 @@ import com.elymbot.android.data.ModelServiceEntity
 import com.elymbot.android.data.PersonaEntity
 import com.elymbot.android.data.RoomModelServiceConnectionProvider
 import com.elymbot.android.data.TurnEntity
+import com.elymbot.android.ui.ChatCheckpoint
 import com.elymbot.android.ui.ChatCommand
 import com.elymbot.android.ui.ChatMessage
 import com.elymbot.android.ui.Conversation
@@ -189,6 +190,46 @@ class ElymBotSessionService(
             },
         )
     }.flowOn(Dispatchers.IO)
+
+    override fun checkpoints(sessionId: String): Flow<List<ChatCheckpoint>> = flow {
+        repository.initialize()
+        emitAll(
+            combine(
+                repository.database.checkpointDao().observeForSession(sessionId),
+                repository.database.conversationDao().observeCurrentCheckpointId(sessionId),
+                repository.database.messageDao().observeHistoryMessageCountsByTurn(sessionId),
+            ) { checkpoints, currentCheckpointId, historyMessageCounts ->
+                checkpoints.map { checkpoint ->
+                    ChatCheckpoint(
+                        displayNumber = checkpoint.displayNumber,
+                        current = checkpoint.id == currentCheckpointId,
+                        retainedMessageCount = historyMessageCounts.asSequence()
+                            .takeWhile { it.turnSequence <= checkpoint.boundaryTurnSequence }
+                            .sumOf { it.messageCount },
+                    )
+                }
+            },
+        )
+    }.flowOn(Dispatchers.IO)
+
+    override suspend fun saveCheckpoint(sessionId: String) {
+        repository.initialize()
+        sessionLock(sessionId).withLock {
+            if (createCheckpoint(sessionId) == null) fail(UiIssue.NoCheckpointBoundary)
+        }
+    }
+
+    override suspend fun restoreCheckpoint(sessionId: String, displayNumber: Int) {
+        repository.initialize()
+        sessionLock(sessionId).withLock {
+            val checkpoint = restoreCheckpointState(sessionId, displayNumber)
+            recordCommand(
+                sessionId = sessionId,
+                commandInput = null,
+                receipt = commandText.checkpointRestored(checkpoint.displayNumber),
+            )
+        }
+    }
 
     override suspend fun setViewedConversation(sessionId: String?) {
         repository.initialize()
@@ -1135,15 +1176,16 @@ class ElymBotSessionService(
             is CommandAction.Checkpoint -> {
                 val number = action.number
                 if (number == null) checkpointList(sessionId)
-                else restoreCheckpoint(sessionId, number)
+                else commandText.checkpointRestored(restoreCheckpointState(sessionId, number).displayNumber)
             }
             CommandAction.Reset -> {
                 val current = repository.database.conversationDao().get(sessionId) ?: fail(UiIssue.InvalidInput)
                 val checkpoint = repository.database.checkpointDao().getForSession(sessionId)
                     .firstOrNull { it.id == current.currentCheckpointId } ?: fail(UiIssue.InvalidInput)
-                restoreCheckpoint(sessionId, checkpoint.displayNumber)
+                commandText.checkpointRestored(restoreCheckpointState(sessionId, checkpoint.displayNumber).displayNumber)
             }
-            CommandAction.Mark -> createCheckpoint(sessionId)
+            CommandAction.Mark -> createCheckpoint(sessionId)?.let { commandText.checkpointMarked(it.displayNumber) }
+                ?: commandText.noMarkBoundary()
         }
         recordCommand(sessionId, commandInput, receipt)
     }
@@ -1157,32 +1199,28 @@ class ElymBotSessionService(
         }
     }
 
-    private suspend fun createCheckpoint(sessionId: String): String {
+    private suspend fun createCheckpoint(sessionId: String): CheckpointEntity? = repository.database.withTransaction {
         val session = repository.database.conversationDao().get(sessionId) ?: fail(UiIssue.InvalidInput)
+        if (repository.database.turnDao().isRunning(sessionId)) fail(UiIssue.Busy)
         val latest = repository.database.turnDao().latest(sessionId)
-        if (latest?.status != TURN_STATUS_COMPLETED) return commandText.noMarkBoundary()
+        if (latest?.status != TURN_STATUS_COMPLETED) return@withTransaction null
         val checkpoints = repository.database.checkpointDao().getForSession(sessionId)
-        val number = (checkpoints.maxOfOrNull { it.displayNumber } ?: 0) + 1
         val point = CheckpointEntity(
             id = UUID.randomUUID().toString(),
             sessionId = sessionId,
-            displayNumber = number,
+            displayNumber = (checkpoints.maxOfOrNull { it.displayNumber } ?: 0) + 1,
             boundaryTurnSequence = latest.sequence,
             creationOrder = repository.database.checkpointDao().nextCreationOrder(sessionId),
             createdAt = System.currentTimeMillis(),
         )
-        repository.database.withTransaction {
-            if (repository.database.turnDao().isRunning(sessionId)) fail(UiIssue.Busy)
-            repository.database.checkpointDao().insert(point)
-            repository.database.conversationDao().update(session.copy(currentCheckpointId = point.id))
-        }
-        return commandText.checkpointMarked(number)
+        repository.database.checkpointDao().insert(point)
+        repository.database.conversationDao().update(session.copy(currentCheckpointId = point.id))
+        point
     }
 
-    private suspend fun restoreCheckpoint(sessionId: String, displayNumber: Int): String {
-        var restored: CheckpointEntity? = null
+    private suspend fun restoreCheckpointState(sessionId: String, displayNumber: Int): CheckpointEntity {
         var removedAssetPaths: List<String> = emptyList()
-        repository.database.withTransaction {
+        val restored = repository.database.withTransaction {
             val session = repository.database.conversationDao().get(sessionId) ?: fail(UiIssue.InvalidInput)
             if (repository.database.turnDao().isRunning(sessionId)) fail(UiIssue.Busy)
             val selected = repository.database.checkpointDao().getByNumber(sessionId, displayNumber)
@@ -1194,21 +1232,20 @@ class ElymBotSessionService(
             repository.database.conversationDao().update(
                 session.copy(currentCheckpointId = selected.id, unread = false, lastActivityAt = System.currentTimeMillis()),
             )
-            restored = selected
+            selected
         }
-        val point = restored ?: fail(UiIssue.Failed)
         repository.cleanupUnreferencedAssets(removedAssetPaths)
         commandMessages.update { it - sessionId }
-        return commandText.checkpointRestored(point.displayNumber)
+        return restored
     }
 
-    private suspend fun recordCommand(sessionId: String, commandInput: String, receipt: String) {
+    private suspend fun recordCommand(sessionId: String, commandInput: String?, receipt: String) {
         val session = repository.database.conversationDao().get(sessionId) ?: fail(UiIssue.InvalidInput)
         val persona = repository.database.personaDao().get(session.personaId) ?: fail(UiIssue.InvalidInput)
-        val messages = listOf(
-            ChatMessage(UUID.randomUUID().toString(), text = commandInput),
-            ChatMessage(UUID.randomUUID().toString(), text = receipt, assistant = true, author = persona.name),
-        )
+        val messages = buildList {
+            commandInput?.let { add(ChatMessage(UUID.randomUUID().toString(), text = it)) }
+            add(ChatMessage(UUID.randomUUID().toString(), text = receipt, assistant = true, author = persona.name))
+        }
         val group = CommandMessageGroup(session.nextTurnSequence, messages)
         commandMessages.update { current -> current + (sessionId to (current[sessionId].orEmpty() + group)) }
     }

@@ -110,7 +110,7 @@ fun ElymBotApp(service: ElymBotUiService) {
         Box(
             Modifier.fillMaxSize()
                 .background(Brush.verticalGradient(listOf(PaperTop, Paper, Paper), endY = 1200f))
-                .safeDrawingPadding().imePadding(),
+                .safeDrawingPadding(),
         ) {
             when (page) {
                 Page.Gallery -> stateHolder.SaveableStateProvider(Page.Gallery.name) { GalleryPage(
@@ -137,7 +137,7 @@ fun ElymBotApp(service: ElymBotUiService) {
                 Page.Chat -> if (persona != null && chatId != null) {
                     stateHolder.SaveableStateProvider(chatId.orEmpty()) {
                         ChatPage(
-                            model, persona, chatId.orEmpty(), chatTitle, mainChat, personas, commands, back,
+                            model, persona, chatId.orEmpty(), chatTitle, mainChat, personas, back,
                             onSessions = openSessions,
                             onEdit = { personaForm = persona },
                             onDelete = { deletePersona = persona },

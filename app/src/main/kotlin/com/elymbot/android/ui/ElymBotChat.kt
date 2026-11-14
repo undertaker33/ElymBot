@@ -18,6 +18,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -34,7 +35,6 @@ internal fun ChatPage(
     title: String,
     main: Boolean,
     personas: List<PersonaCard>,
-    commands: Map<ChatCommand, String>,
     back: () -> Unit,
     onSessions: (String) -> Unit,
     onEdit: () -> Unit,
@@ -53,6 +53,7 @@ internal fun ChatPage(
     var chooseSessions by remember { mutableStateOf(false) }
     var rename by remember { mutableStateOf(false) }
     var delete by remember { mutableStateOf(false) }
+    var showCheckpoints by remember { mutableStateOf(false) }
     var draft by rememberSaveable { mutableStateOf("") }
     var image by rememberSaveable { mutableStateOf<String?>(null) }
     var submitting by remember { mutableStateOf(false) }
@@ -118,9 +119,9 @@ internal fun ChatPage(
                     } else if (displayTitle.isNotBlank()) {
                         ChatMenuItem(R.string.elym_rename, R.drawable.elym_sliders) { menu = false; rename = true }
                     }
-                    ChatMenuItem(R.string.elym_checkpoints, R.drawable.elym_clock) {
+                    ChatMenuItem(R.string.elym_checkpoints, R.drawable.elym_clock, enabled = !conversation.generating && !submitting) {
                         menu = false
-                        submit("/" + (commands[ChatCommand.Checkpoint] ?: ChatCommand.Checkpoint.defaultName))
+                        showCheckpoints = true
                     }
                     ChatMenuItem(R.string.elym_model_config, R.drawable.elym_sliders) { menu = false; onModelSettings() }
                     if (main) ChatMenuItem(R.string.elym_delete_persona, R.drawable.elym_close, danger = true) { menu = false; onDelete() }
@@ -229,18 +230,72 @@ internal fun ChatPage(
     if (rename) RenameSession(displayTitle, { rename = false }) { edited ->
         model.perform { service.renameSession(id, edited); onRename(edited); rename = false }
     }
+    if (showCheckpoints) {
+        CheckpointsSheet(model, id, conversation.generating, { showCheckpoints = false })
+    }
     if (delete) ConfirmSessionDelete(
         conversation.generating, stringResource(R.string.elym_confirm_session, displayTitle), { delete = false },
     ) { model.perform { service.deleteSessions(persona.id, setOf(id)); delete = false; back() } }
 }
 
 @Composable
-private fun ChatMenuItem(label: Int, icon: Int, danger: Boolean = false, onClick: () -> Unit) {
+private fun CheckpointsSheet(model: ElymBotViewModel, sessionId: String, running: Boolean, dismiss: () -> Unit) {
+    val service = model.service
+    val checkpoints by remember(sessionId) { service.checkpoints(sessionId) }
+        .collectAsStateWithLifecycle(emptyList())
+    var pending by remember { mutableStateOf(false) }
+    val enabled = !running && !pending && checkpoints.isNotEmpty()
+    fun runCheckpointAction(action: suspend () -> Unit) {
+        if (!enabled || pending) return
+        pending = true
+        model.perform {
+            try {
+                action()
+            } finally {
+                pending = false
+            }
+        }
+    }
+
+    Sheet(stringResource(R.string.elym_checkpoints), dismiss) {
+        Action(
+            stringResource(R.string.elym_save_checkpoint),
+            { runCheckpointAction { service.saveCheckpoint(sessionId) } },
+            primary = true,
+            enabled = enabled,
+        )
+        if (checkpoints.isNotEmpty()) Group {
+            checkpoints.sortedByDescending(ChatCheckpoint::displayNumber).forEachIndexed { index, point ->
+                if (index > 0) HorizontalDivider(color = Line)
+                ListRow(
+                    stringResource(R.string.elym_checkpoint_title, point.displayNumber),
+                    R.drawable.elym_clock,
+                    {
+                        runCheckpointAction {
+                            service.restoreCheckpoint(sessionId, point.displayNumber)
+                            dismiss()
+                        }
+                    },
+                    subtitle = pluralStringResource(
+                        R.plurals.elym_checkpoint_retained_messages, point.retainedMessageCount, point.retainedMessageCount,
+                    ),
+                    badge = if (point.current) stringResource(R.string.elym_checkpoint_current) else null,
+                    selected = point.current,
+                    enabled = enabled,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ChatMenuItem(label: Int, icon: Int, danger: Boolean = false, enabled: Boolean = true, onClick: () -> Unit) {
     val tint = if (danger) Danger else Ink
     DropdownMenuItem(
         text = { Text(stringResource(label), color = tint, fontSize = 14.sp) },
         leadingIcon = { Glyph(icon, color = tint) },
         onClick = onClick,
+        enabled = enabled,
     )
 }
 

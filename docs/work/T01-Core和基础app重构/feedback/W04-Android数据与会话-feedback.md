@@ -75,3 +75,22 @@ Checklist 未修改。T01.05/T01.06 的存储服务测试覆盖已更新，但�
 
 - W01 在 W04 源码冻结后通过 `:app:assembleDebug :app:assembleDebugAndroidTest` 构建并将两个 APK 更新至 MEIZU 20 Pro（Android 16，`391QYGCM225VG`），详见 [W01 无内置预设 APK 与最终合成复验](W01-总控与集成-feedback.md#无内置预设-apk-与最终合成复验)。
 - 在该设备运行 `adb -s 391QYGCM225VG shell am instrument -w -e class 'com.elymbot.android.data.ElymBotStorageTest#diskRestartPreservesSessionHistoryModelsCommandsAndPersonaImagesThenReusesCheckpointNumber' com.elymbot.android.debug.test/androidx.test.runner.AndroidJUnitRunner`，返回 `OK (1 test)`，耗时 0.424 秒。该结果覆盖扩展后的磁盘重开、主会话回退和重新建点。早前同机 23/23 执行后，W04 对存储测试只扩展了这一用例。
+
+## 2026-11-14 检查点界面服务接线
+
+### 实际改动
+
+- `ElymBotSessionService` 实现 `checkpoints(sessionId)`、`saveCheckpoint(sessionId)` 和 `restoreCheckpoint(sessionId, displayNumber)`，直接映射 W05 的 `ChatCheckpoint`。
+- Room 按检查点建点顺序发出列表；消息数通过会话内 `HISTORY` 用户/助手消息按轮聚合，再按各检查点边界累计。指令回执、助手工具反馈和界面临时提示不计入数量。
+- UI 建点与 Slash Command `/mark` 共用同一会话互斥锁及建点事务；均要求末轮已完整结束并将新点设为当前点。UI 回退与 `/checkpoint N` 共用删尾事务，保留所选检查点、删除后续检查点及摘要，清除失效附件并设定当前点。生成中回退或建点返回 `Busy`；没有完整边界的 UI 建点返回 `NoCheckpointBoundary`。
+- UI 回退通过现有会话消息流追加助手纯文本回执，不合成 Slash Command 用户消息。新增 `typedCheckpointApiListsRetainedHistoryRestoresAndBlocksMutationsWhileGenerating`，覆盖固定空点、当前标记、消息计数排除项、回退回执、编号复用和生成期间拒绝变更。
+
+### 验证
+
+- 静态核对本次差异；`git diff --check` 通过，Feedback 严格 UTF-8 读取通过，本地链接 1/1 可达，代码围栏配对（0 组）。Git 仅提示工作区 LF 将在后续操作时转为 CRLF。
+- 本轮未运行 Gradle、仪器测试或设备操作；新测试待 W01 统一构建并由验收负责人执行。编译及运行结果以该次统一验收记录为准。
+
+#### 真机定向复验
+
+- 2026-11-14（北京时间），在 MEIZU 20 Pro（Android 16，序列号 `391QYGCM225VG`）已安装的 `com.elymbot.android.debug.test` 上运行 `adb -s 391QYGCM225VG shell am instrument -w -e class 'com.elymbot.android.data.ElymBotStorageTest#typedCheckpointApiListsRetainedHistoryRestoresAndBlocksMutationsWhileGenerating' com.elymbot.android.debug.test/androidx.test.runner.AndroidJUnitRunner`，返回 `OK (1 test)`，耗时 0.297 秒。
+- 用例使用 Android 仪器环境和内存型 Room fixture，覆盖 API 检查点的固定空点、保留消息计数、当前点、回退回执、编号复用及生成中拒绝变更；没有访问 `.debug` 用户数据库、模型配置或凭据。此次运行未重建 APK，也未改设备设置。

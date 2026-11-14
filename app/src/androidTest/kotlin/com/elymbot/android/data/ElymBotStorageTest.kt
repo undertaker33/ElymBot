@@ -15,6 +15,7 @@ import androidx.test.filters.SdkSuppress
 import com.elymbot.android.R
 import com.elymbot.android.session.CommandTextProvider
 import com.elymbot.android.session.ElymBotSessionService
+import com.elymbot.android.ui.ChatCheckpoint
 import com.elymbot.android.ui.ChatCommand
 import com.elymbot.android.ui.ModelChoice
 import com.elymbot.android.ui.ModelRole as UiModelRole
@@ -396,6 +397,79 @@ class ElymBotStorageTest {
                 ),
             )
             assertEquals(listOf("user-1", "assistant-1"), retainedHistory.records.map { it.text })
+        } finally {
+            fixture.close()
+        }
+    }
+
+    @Test
+    fun typedCheckpointApiListsRetainedHistoryRestoresAndBlocksMutationsWhileGenerating() = runBlocking {
+        val fixture = Fixture(context)
+        try {
+            fixture.initializeTestState()
+            val main = fixture.database.conversationDao().getMain()!!
+            val service = fixture.service()
+
+            assertEquals(listOf(ChatCheckpoint(1, current = true, retainedMessageCount = 0)), service.checkpoints(main.id).first())
+            val emptySave = runCatching { service.saveCheckpoint(main.id) }.exceptionOrNull() as UiServiceException
+            assertEquals(UiIssue.NoCheckpointBoundary, emptySave.issue)
+
+            fixture.insertTurn(main.id, 1, "user-1", "assistant-1")
+            fixture.insertTurn(main.id, 2, "user-2", "assistant-2")
+            fixture.database.messageDao().insertAll(
+                listOf(
+                    MessageEntity("feedback-${main.id}", main.id, 2, 2, "ASSISTANT", "tool display", "FEEDBACK", null, null),
+                    MessageEntity("command-${main.id}", main.id, 2, 3, "USER", "/mark", "COMMAND", null, null),
+                ),
+            )
+
+            service.saveCheckpoint(main.id)
+            assertEquals(
+                listOf(
+                    ChatCheckpoint(1, current = false, retainedMessageCount = 0),
+                    ChatCheckpoint(2, current = true, retainedMessageCount = 4),
+                ),
+                service.checkpoints(main.id).first(),
+            )
+
+            service.restoreCheckpoint(main.id, 1)
+            assertEquals(listOf("empty:main"), fixture.database.checkpointDao().getForSession(main.id).map { it.id })
+            assertEquals("empty:main", fixture.database.conversationDao().getMain()?.currentCheckpointId)
+            assertNull(fixture.database.turnDao().latest(main.id))
+            val restoredConversation = service.conversation(main.id).first()
+            assertEquals(listOf("restored 1"), restoredConversation.messages.map { it.text })
+            assertTrue(restoredConversation.messages.single().assistant)
+
+            val restoreEmpty = runCatching { service.saveCheckpoint(main.id) }.exceptionOrNull() as UiServiceException
+            assertEquals(UiIssue.NoCheckpointBoundary, restoreEmpty.issue)
+
+            fixture.insertTurn(main.id, 3, "user-3", "assistant-3")
+            service.saveCheckpoint(main.id)
+            val recreated = service.checkpoints(main.id).first()
+            assertEquals(listOf(1, 2), recreated.map { it.displayNumber })
+            assertEquals(ChatCheckpoint(2, current = true, retainedMessageCount = 2), recreated.last())
+
+            val completed = fixture.database.turnDao().get(main.id, 3)!!
+            fixture.database.withTransaction {
+                fixture.database.turnDao().insert(
+                    completed.copy(
+                        sequence = 4,
+                        executionId = "running-${main.id}",
+                        attemptId = "running-${main.id}",
+                        status = "RUNNING",
+                        startedAt = 4,
+                        finishedAt = null,
+                    ),
+                )
+                val current = fixture.database.conversationDao().get(main.id)!!
+                fixture.database.conversationDao().update(current.copy(nextTurnSequence = 5))
+            }
+
+            val saveWhileGenerating = runCatching { service.saveCheckpoint(main.id) }.exceptionOrNull() as UiServiceException
+            assertEquals(UiIssue.Busy, saveWhileGenerating.issue)
+            val restoreWhileGenerating = runCatching { service.restoreCheckpoint(main.id, 1) }.exceptionOrNull() as UiServiceException
+            assertEquals(UiIssue.Busy, restoreWhileGenerating.issue)
+            assertEquals(recreated, service.checkpoints(main.id).first())
         } finally {
             fixture.close()
         }

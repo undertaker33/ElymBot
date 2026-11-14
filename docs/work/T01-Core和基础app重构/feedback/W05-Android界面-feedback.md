@@ -58,3 +58,30 @@
 - 删除 App 主资源中的示例封面图集。新建人格使用默认空表单。未选图片时，封面和聊天头像使用现有暖色与人格图标组成的占位。选图后展示自定义图片，可分别预览和调节封面、头像位置。
 - 去除 UI 契约中的图集索引。W04 同步调整持久层映射及仪器测试图片来源。原型 HTML 和标题字体仍供原有界面与设计对照使用。
 - 源码与主资源扫描确认 UI 已无图集引用，主资源目录已移除图集文件。正式 APK 内容及空库创建、选图、裁切行为由总控在最终版本复验。
+
+### T01.07 正式入口定向测试（2026-11-14）
+
+- 新增 `ElymBotUiIntegrationTest`，复用 W01 的 `AndroidTestAppFixtureRule` 启动正式 MainActivity。测试人格、会话、测试图片由用例持有并清理，指令名恢复至测试前保存的配置。
+- 设置及会话用例从设置页改名帮助指令，从主会话进入模型服务编辑和文本模型用途后返回聊天，再从所属人格的列表打开标记未读的专属会话。用 Compose IME 发送改名后的指令，检查纯文本帮助回执，返回核对徽标移除和 Room 未读清零，然后选择两条会话一次删除。
+- 人格编辑用例使用临时 PNG，操作封面、头像各自的水平滑块并点保存，核对各自的位置值及独立的垂直默认值。图片通过测试夹具装配，系统选图器仍需补验。
+- 原型源码中的聊天菜单、人像切换、专属列表和聊天返回路径与当前界面入口已静态核对。该轮生产界面沿用 `27bdf4f` 的实现。
+- Gradle Wrapper 9.9.1、Android SDK Platform 37 下，`:app:compileDebugAndroidTestKotlin` 和 `:app:assembleDebug :app:assembleDebugAndroidTest` 通过。使用对应 debug App 和 androidTest APK，在 MEIZU 20 Pro（Android 16，`391QYGCM225VG`）执行 `adb -s 391QYGCM225VG shell am instrument -w -e class 'com.elymbot.android.ElymBotUiIntegrationTest' com.elymbot.android.debug.test/androidx.test.runner.AndroidJUnitRunner`，结果 `OK (2 tests)`，耗时 12.355 秒。
+- T01.07 验收 1–6 已取得正式界面进入人格聊天、模型服务编辑和文本用途、帮助指令改名与纯文本回执、IME 发送的证据。主会话实际切人格、两个人格的专属会话归属与搜索/筛选、空库创建、系统选图后的图片附件、模型服务录入保存与目录/三项能力探测、工具反馈的实际界面呈现仍需复验，保留未勾选。
+- T01.07 验收 9–11 已取得正式界面调整并写入独立封面和头像位置、两条专属会话批删、打开后清除对应未读的真机证据。本轮从合成未读状态验证清除，离页生成未读和双会话并行见 W01 Feedback。W04 磁盘重启用例证明位置字段持久化，本轮未做保存后重启的视觉对照，也未核对名下会话阻止删除人格、未选会话与其他人格会话仍可打开、编辑提示词后进入实际请求的完整流程，保留未勾选。
+
+### 人格切换与会话归属复验（2026-11-14）
+
+- 在设置页改名人格切换指令，从原人格主会话尝试删除人格，看到名下会话拦截并进入该人格的列表。打开其专属会话，经键盘发送改名后的切换指令，验证收到纯文本无效指令回执，Room 中专属会话的人格归属不变。返回主会话发送同一指令，验证切到第二人格且主会话 ID 不变。第二人格列表显示其名下会话，两个列表均未显示另一人格的会话。
+- 使用成功构建并安装的 debug App 和 androidTest APK，在 MEIZU 20 Pro（Android 16，`391QYGCM225VG`）运行 `adb -s 391QYGCM225VG shell am instrument -w -e class 'com.elymbot.android.ElymBotUiIntegrationTest#renamedPersonaCommandSwitchesMainAndDedicatedSessionsRetainTheirOwner' com.elymbot.android.debug.test/androidx.test.runner.AndroidJUnitRunner`，结果 `OK (1 test)`，耗时 8.123 秒。前两条测试源码保留，使用上一轮 2/2 真机证据。
+- 本轮补齐上一轮的人格切换、双人格专属会话归属、名下会话阻止删除人格。人格搜索与标签筛选、空库首次创建、系统选图及发送附件、屏幕与原型的视觉对照、重启后裁切视觉核对，以及批删后打开未选及其他人格会话仍待验证。模型端点和工具反馈由 W01 的独立正式入口验证记录承接。T01.07 两条复合验收维持待核验。
+
+### 检查点弹层返工
+
+- 原型 v0.6.3 的 `openCheckpoints` 从聊天菜单打开检查点弹层，顶部保存按钮，下方从新到旧列出检查点及保留消息数。原 Compose 菜单仅执行检查点列表指令。现接入同一弹层和列表组件，按当前会话读取结构化检查点，包括固定空点、当前标记和保留消息数。保存保持弹层，成功回退后关闭并显示聊天回执；当前会话生成时禁用入口及操作。已有 Slash Command 保持纯文本。
+- 菜单保存、回退经类型化服务调用现有完整轮次建点与删尾逻辑。新增 `checkpointMenuSavesCompletedTurnAndRestoresTheEmptyPoint` 从正式入口打开专属会话，核对初始空点、保存后检查点和消息计数、回退后聊天回执、Room 轮次删除以及重新打开时的当前标记。测试输入为隔离专属会话的合成已完成轮次。
+- MEIZU 20 Pro（Android 16，`391QYGCM225VG`）使用同批 debug App 和 androidTest APK，执行 `adb -s 391QYGCM225VG shell am instrument -w -e class 'com.elymbot.android.ElymBotUiIntegrationTest#checkpointMenuSavesCompletedTurnAndRestoresTheEmptyPoint' com.elymbot.android.debug.test/androidx.test.runner.AndroidJUnitRunner`，结果 `OK (1 test)`，耗时 5.412 秒。
+
+### 聊天软键盘打开闪动
+
+- 主 Activity 的窗口配置显式启用 edge-to-edge 与 `adjustResize`，Compose 根布局通过 `safeDrawingPadding()` 同时接收系统栏与键盘 Insets。去除根布局额外声明的 `imePadding()`。Compose 会消费已处理的 Insets，源码核对无法确认重复声明导致了闪动。聊天输入区布局与底部弹层自己的键盘处理未变。
+- 在 MEIZU 20 Pro（Android 16，`391QYGCM225VG`）的同批 debug APK 上，从主会话点击输入栏打开实体软键盘，按返回收起，共两轮。以 `adb shell screenrecord --size 720x1600 --time-limit 8` 录制并逐帧查看两次展开和收起的画面。输入栏随键盘移动且全程可见，未观察到闪白、键盘重现或输入栏跳回。没有在设备重装旧 APK 对照，因此根因仍未确认。 [Android 窗口配置](https://developer.android.com/develop/ui/compose/system/setup-e2e) · [Compose Insets 消费](https://developer.android.com/develop/ui/compose/system/insets-ui)

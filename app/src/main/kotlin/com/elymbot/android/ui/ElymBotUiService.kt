@@ -12,6 +12,9 @@ interface ElymBotUiService {
 
     fun sessions(personaId: String): Flow<List<ConversationSummary>>
     fun conversation(sessionId: String): Flow<Conversation>
+    fun checkpoints(sessionId: String): Flow<List<ChatCheckpoint>>
+    suspend fun saveCheckpoint(sessionId: String)
+    suspend fun restoreCheckpoint(sessionId: String, displayNumber: Int)
     suspend fun setViewedConversation(sessionId: String?)
     suspend fun newSession(personaId: String): String
     suspend fun activatePersona(personaId: String)
@@ -70,11 +73,18 @@ data class ChatMessage(
     val status: MessageStatus? = null,
 )
 
+data class ChatCheckpoint(
+    val displayNumber: Int,
+    val current: Boolean,
+    val retainedMessageCount: Int,
+)
+
 enum class MessageStatus { Waiting, Stopped, Interrupted }
 
 enum class UiIssue {
     MainModelMissing, VisionModelMissing, VisionCapabilityUnknown, Authentication, Connection,
-    ServiceResponse, ServiceRejected, ServiceProtocol, TimedOut, Busy, OwnedSessions, InvalidInput, Failed,
+    ServiceResponse, ServiceRejected, ServiceProtocol, TimedOut, Busy, OwnedSessions, InvalidInput,
+    NoCheckpointBoundary, Failed,
 }
 
 class UiServiceException(val issue: UiIssue) : RuntimeException()

@@ -263,6 +263,11 @@ data class HistoryMessageWithTurnStatus(
     val turnStatus: String?,
 )
 
+data class HistoryMessageCountByTurn(
+    val turnSequence: Long,
+    val messageCount: Int,
+)
+
 data class ConversationSummaryRow(
     val id: String,
     val personaId: String,
@@ -315,6 +320,9 @@ interface ConversationDao {
 
     @Query("SELECT * FROM conversations WHERE id = :id")
     suspend fun get(id: String): ConversationEntity?
+
+    @Query("SELECT currentCheckpointId FROM conversations WHERE id = :id")
+    fun observeCurrentCheckpointId(id: String): Flow<String?>
 
     @Query("SELECT * FROM conversations WHERE personaId = :personaId AND kind = 'DEDICATED' ORDER BY lastActivityAt DESC, createdAt DESC")
     suspend fun getDedicated(personaId: String): List<ConversationEntity>
@@ -394,6 +402,17 @@ interface MessageDao {
     @Transaction
     @Query("SELECT * FROM messages WHERE sessionId = :sessionId ORDER BY turnSequence, messageIndex")
     fun observeForSession(sessionId: String): Flow<List<MessageWithAttachments>>
+
+    @Query(
+        """
+        SELECT turnSequence, COUNT(*) AS messageCount
+        FROM messages
+        WHERE sessionId = :sessionId AND category = 'HISTORY' AND role IN ('USER', 'ASSISTANT')
+        GROUP BY turnSequence
+        ORDER BY turnSequence
+        """,
+    )
+    fun observeHistoryMessageCountsByTurn(sessionId: String): Flow<List<HistoryMessageCountByTurn>>
 
     @Transaction
     @Query("SELECT * FROM messages WHERE sessionId = :sessionId AND turnSequence = :sequence ORDER BY messageIndex")
