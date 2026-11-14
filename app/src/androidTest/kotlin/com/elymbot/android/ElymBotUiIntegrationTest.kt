@@ -3,6 +3,7 @@ package com.elymbot.android
 import android.graphics.Bitmap
 import android.graphics.Color
 import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasSetTextAction
@@ -14,7 +15,9 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performImeAction
 import androidx.compose.ui.test.performScrollTo
-import androidx.compose.ui.test.performSemanticsAction
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipeLeft
+import androidx.compose.ui.test.swipeRight
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
@@ -328,14 +331,41 @@ class ElymBotUiIntegrationTest {
             openPersonaChat()
             openChatMenu()
             click(R.string.elym_edit_persona)
-            val horizontal = compose.onAllNodesWithContentDescription(label(R.string.elym_horizontal))
-            horizontal[0].performScrollTo().performSemanticsAction(SemanticsActions.SetProgress) { it(0.25f) }
-            horizontal[1].performScrollTo().performSemanticsAction(SemanticsActions.SetProgress) { it(0.75f) }
+            val crop = description(R.string.elym_crop_image)
+            description(R.string.elym_cover_position).performScrollTo().performClick()
+            compose.waitUntil(10_000) {
+                crop.fetchSemanticsNode().config.getOrNull(SemanticsActions.CustomActions)
+                    ?.map { it.label } == listOf(label(R.string.elym_crop_move_left), label(R.string.elym_crop_move_right))
+            }
+            crop.performTouchInput { swipeLeft() }
+            click(R.string.elym_cancel)
+            description(R.string.elym_cover_position).performScrollTo().performClick()
+            click(R.string.elym_done)
+            description(R.string.elym_avatar_position).performScrollTo().performClick()
+            crop.performTouchInput { swipeRight() }
+            androidx.test.platform.app.InstrumentationRegistry.getInstrumentation()
+                .sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK)
+            crop.assertDoesNotExist()
+            description(R.string.elym_avatar_position).performScrollTo().performClick()
+            click(R.string.elym_done)
+            scrollAndClick(R.string.elym_save)
+            val unchanged = runBlocking { requireNotNull(fixture.database.personaDao().get(fixture.personaId)) }
+            assertEquals(0.5f, unchanged.coverX, 0f)
+            assertEquals(0.5f, unchanged.avatarX, 0f)
+
+            openChatMenu()
+            click(R.string.elym_edit_persona)
+            description(R.string.elym_cover_position).performScrollTo().performClick()
+            crop.performTouchInput { swipeRight() }
+            click(R.string.elym_done)
+            description(R.string.elym_avatar_position).performScrollTo().performClick()
+            crop.performTouchInput { swipeLeft() }
+            click(R.string.elym_done)
             scrollAndClick(R.string.elym_save)
             compose.waitUntil(10_000) {
                 runBlocking {
                     val persona = fixture.database.personaDao().get(fixture.personaId)
-                    persona?.coverX == 0.25f && persona.avatarX == 0.75f
+                    persona?.coverX == 0f && persona.avatarX == 1f
                 }
             }
             val saved = runBlocking { requireNotNull(fixture.database.personaDao().get(fixture.personaId)) }

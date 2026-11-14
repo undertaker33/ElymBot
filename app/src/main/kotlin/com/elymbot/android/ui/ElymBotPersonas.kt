@@ -4,6 +4,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -16,6 +17,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -25,6 +27,7 @@ import com.elymbot.android.R
 internal fun PersonaForm(persona: PersonaCard, dismiss: () -> Unit, save: (PersonaCard) -> Unit) {
     var edited by remember(persona) { mutableStateOf(persona) }
     var tags by remember(persona) { mutableStateOf(persona.tags.joinToString("、")) }
+    var cropAvatar by remember { mutableStateOf<Boolean?>(null) }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) {
         if (it != null) edited = edited.copy(cover = it, coverPosition = ImagePosition(), avatarPosition = ImagePosition())
     }
@@ -39,12 +42,8 @@ internal fun PersonaForm(persona: PersonaCard, dismiss: () -> Unit, save: (Perso
             stringResource(if (edited.cover == null) R.string.elym_pick_image else R.string.elym_replace_image),
             { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
         )
-        PositionEditor(stringResource(R.string.elym_cover_position), edited, false) {
-            edited = edited.copy(coverPosition = it)
-        }
-        PositionEditor(stringResource(R.string.elym_avatar_position), edited, true) {
-            edited = edited.copy(avatarPosition = it)
-        }
+        PositionPreview(stringResource(R.string.elym_cover_position), edited, false) { cropAvatar = false }
+        PositionPreview(stringResource(R.string.elym_avatar_position), edited, true) { cropAvatar = true }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Text(stringResource(R.string.elym_add_favorite), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
             Checkbox(edited.favorite, { edited = edited.copy(favorite = it) }, modifier = Modifier.semanticsLabel(stringResource(R.string.elym_add_favorite)))
@@ -56,21 +55,53 @@ internal fun PersonaForm(persona: PersonaCard, dismiss: () -> Unit, save: (Perso
             primary = true, enabled = edited.name.isNotBlank(),
         )
     }
+    cropAvatar?.let { avatar ->
+        CropDialog(edited, avatar, { cropAvatar = null }) { position ->
+            edited = if (avatar) edited.copy(avatarPosition = position) else edited.copy(coverPosition = position)
+            cropAvatar = null
+        }
+    }
 }
 
 @Composable
-private fun PositionEditor(label: String, persona: PersonaCard, avatar: Boolean, update: (ImagePosition) -> Unit) {
-    val position = if (avatar) persona.avatarPosition else persona.coverPosition
+private fun PositionPreview(label: String, persona: PersonaCard, avatar: Boolean, onClick: () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(label, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+        val frame = if (avatar) Modifier.size(72.dp) else Modifier.fillMaxWidth().aspectRatio(1.79f)
         PersonaImage(
             persona,
-            (if (avatar) Modifier.size(72.dp) else Modifier.fillMaxWidth().aspectRatio(1.79f)).clip(RoundedCornerShape(16.dp)),
+            frame.clip(RoundedCornerShape(16.dp)).then(
+                if (persona.cover == null) Modifier else Modifier.semanticsLabel(label).clickable(onClick = onClick)
+            ),
             avatar = avatar,
         )
-        if (persona.cover != null) {
-            Slider(position.x, { update(position.copy(x = it)) }, modifier = Modifier.semanticsLabel(stringResource(R.string.elym_horizontal)))
-            Slider(position.y, { update(position.copy(y = it)) }, modifier = Modifier.semanticsLabel(stringResource(R.string.elym_vertical)))
+    }
+}
+
+@Composable
+private fun CropDialog(persona: PersonaCard, avatar: Boolean, dismiss: () -> Unit, confirm: (ImagePosition) -> Unit) {
+    var position by remember { mutableStateOf(if (avatar) persona.avatarPosition else persona.coverPosition) }
+    val label = stringResource(if (avatar) R.string.elym_avatar_position else R.string.elym_cover_position)
+    Dialog(onDismissRequest = dismiss) {
+        Surface(shape = RoundedCornerShape(24.dp), color = SurfaceColor, contentColor = Ink) {
+            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(label, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                BoxWithConstraints(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    val ratio = if (avatar) 1f else 1.79f
+                    val width = minOf(maxWidth, if (avatar) 240.dp else 360.dp)
+                    PersonaImage(
+                        if (avatar) persona.copy(avatarPosition = position) else persona.copy(coverPosition = position),
+                        Modifier.width(width).aspectRatio(ratio).clip(RoundedCornerShape(16.dp))
+                            .semanticsLabel(stringResource(R.string.elym_crop_image)),
+                        avatar = avatar,
+                        onPositionChange = { position = it },
+                    )
+                }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
+                    Action(stringResource(R.string.elym_cancel), dismiss)
+                    Action(stringResource(R.string.elym_done), { confirm(position) }, primary = true)
+                }
+            }
         }
     }
 }

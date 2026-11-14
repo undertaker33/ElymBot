@@ -64,7 +64,12 @@
     <string name="elym_failed">操作失败</string>
     <string name="elym_favorites">常用</string>
     <string name="elym_generating">正在生成…</string>
-    <string name="elym_horizontal">水平位置</string>
+    <string name="elym_crop_image">裁剪预览</string>
+    <string name="elym_crop_move_left">向左移图片</string>
+    <string name="elym_crop_move_right">向右移图片</string>
+    <string name="elym_crop_move_up">向上移图片</string>
+    <string name="elym_crop_move_down">向下移图片</string>
+    <string name="elym_done">完成</string>
     <string name="elym_image_message">图片消息</string>
     <string name="elym_interrupted">已中断</string>
     <string name="elym_invalid_input">请检查输入</string>
@@ -147,7 +152,6 @@
     <string name="elym_unsupported">不支持</string>
     <string name="elym_url_hint">https://api.example.com/v1</string>
     <string name="elym_use_model">使用所选模型</string>
-    <string name="elym_vertical">垂直位置</string>
     <string name="elym_view_sessions">查看会话</string>
     <string name="elym_vision_missing">请配置可用的视觉理解模型</string>
     <string name="elym_vision_unknown">请在模型配置中探测文本对话模型的视觉支持。</string>

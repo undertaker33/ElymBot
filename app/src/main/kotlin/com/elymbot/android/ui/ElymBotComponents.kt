@@ -6,6 +6,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -16,6 +17,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -25,9 +28,12 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
@@ -257,7 +263,12 @@ internal fun Input(
 }
 
 @Composable
-internal fun PersonaImage(persona: PersonaCard, modifier: Modifier, avatar: Boolean = false) {
+internal fun PersonaImage(
+    persona: PersonaCard,
+    modifier: Modifier,
+    avatar: Boolean = false,
+    onPositionChange: ((ImagePosition) -> Unit)? = null,
+) {
     val custom = rememberBitmap(persona.cover)
     if (custom == null) {
         Box(
@@ -269,18 +280,70 @@ internal fun PersonaImage(persona: PersonaCard, modifier: Modifier, avatar: Bool
         return
     }
     val position = if (avatar) persona.avatarPosition else persona.coverPosition
-    Canvas(modifier.background(Soft)) {
-        val sourceWidth = custom.width
-        val sourceHeight = custom.height
-        val scale = maxOf(size.width / sourceWidth, size.height / sourceHeight)
-        val width = (sourceWidth * scale).roundToInt().coerceAtLeast(1)
-        val height = (sourceHeight * scale).roundToInt().coerceAtLeast(1)
+    val sourceSize = IntSize(custom.width, custom.height)
+    val latestPosition by rememberUpdatedState(position)
+    val latestChange by rememberUpdatedState(onPositionChange)
+    val drag = if (onPositionChange == null) Modifier else {
+        var frame by remember { mutableStateOf(IntSize.Zero) }
+        val fitted = fittedImageSize(sourceSize, Size(frame.width.toFloat(), frame.height.toFloat()))
+        val overflowX = if (frame == IntSize.Zero) 0 else fitted.width - frame.width
+        val overflowY = if (frame == IntSize.Zero) 0 else fitted.height - frame.height
+        val left = stringResource(R.string.elym_crop_move_left)
+        val right = stringResource(R.string.elym_crop_move_right)
+        val up = stringResource(R.string.elym_crop_move_up)
+        val down = stringResource(R.string.elym_crop_move_down)
+        fun moveBy(x: Float, y: Float): Boolean {
+            val before = latestPosition
+            val after = before.moveCrop(x, y)
+            if (before == after) return false
+            latestChange?.invoke(after)
+            return true
+        }
+        Modifier.onSizeChanged { frame = it }.semantics {
+            customActions = buildList {
+                if (overflowX > 0) {
+                    add(CustomAccessibilityAction(left) { moveBy(0.1f, 0f) })
+                    add(CustomAccessibilityAction(right) { moveBy(-0.1f, 0f) })
+                }
+                if (overflowY > 0) {
+                    add(CustomAccessibilityAction(up) { moveBy(0f, 0.1f) })
+                    add(CustomAccessibilityAction(down) { moveBy(0f, -0.1f) })
+                }
+            }
+        }.then(if (overflowX > 0 || overflowY > 0) Modifier.pointerInput(overflowX, overflowY) {
+            var dragged = latestPosition
+            detectDragGestures(onDragStart = { dragged = latestPosition }) { change, amount ->
+                change.consume()
+                dragged = dragged.moveCrop(
+                    if (overflowX > 0) -amount.x / overflowX else 0f,
+                    if (overflowY > 0) -amount.y / overflowY else 0f,
+                )
+                latestChange?.invoke(dragged)
+            }
+        } else Modifier)
+    }
+    Canvas(modifier.then(drag).background(Soft)) {
+        val fitted = fittedImageSize(sourceSize, size)
         drawImage(
-            custom, srcSize = IntSize(sourceWidth, sourceHeight),
-            dstOffset = IntOffset(((size.width - width) * position.x).roundToInt(), ((size.height - height) * position.y).roundToInt()),
-            dstSize = IntSize(width, height),
+            custom, srcSize = sourceSize,
+            dstOffset = IntOffset(
+                ((size.width - fitted.width) * position.x).roundToInt(),
+                ((size.height - fitted.height) * position.y).roundToInt(),
+            ),
+            dstSize = fitted,
         )
     }
+}
+
+private fun ImagePosition.moveCrop(x: Float, y: Float) =
+    ImagePosition((this.x + x).coerceIn(0f, 1f), (this.y + y).coerceIn(0f, 1f))
+
+private fun fittedImageSize(source: IntSize, frame: Size): IntSize {
+    val scale = maxOf(frame.width / source.width, frame.height / source.height)
+    return IntSize(
+        (source.width * scale).roundToInt().coerceAtLeast(1),
+        (source.height * scale).roundToInt().coerceAtLeast(1),
+    )
 }
 
 @Composable

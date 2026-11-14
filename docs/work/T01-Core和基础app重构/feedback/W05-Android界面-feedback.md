@@ -119,3 +119,9 @@
 - 根页使用 220 ms 交叉淡化，下钻与返回使用 300 ms 横移。上层进出移动整页宽度，下层移动 30% 页宽并在盖住时加最多 10% 遮罩。底栏沿自身高度滑入滑出，同时淡化。人格筛选的填色、描边和文字颜色使用 150 ms 过渡，胶囊内水波纹继续可用。转场按原页面渐变绘制。
 - 当前目的地作为一个可保存快照，聊天仍按会话 ID 保存输入草稿。导航切换清除输入焦点，退场页面隐藏操作弹层并停止处理返回，提交系统返回与顶栏返回共用目的地逻辑。ModalBottomSheet 继续由 Material3 管理。
 - `:app:assembleDebug :app:assembleDebugAndroidTest` 成功。MuMu Android 15（`127.0.0.1:16416`）首轮执行 `ElymBotUiIntegrationTest,AppSessionIntegrationTest` 共 6/6 通过。调整渐变、焦点与返回遮罩后，两包构建成功，更新 App 后定向复跑设置与会话导航测试和双会话并行测试，结果 2/2。人工在聊天输入测试草稿，进入模型配置后按系统返回，确认草稿仍在聊天输入栏。快速按两次返回从会话列表回到人格库。
+
+### 头像和封面直接裁剪
+
+- 人格表单中有图片时可点封面或头像预览，打开各自固定裁剪框并单指拖图。封面编辑框沿用 1.79 比例，头像为正方形。人格库通栏与双列卡片继续分别使用 1.79 和 1.06，同一归一化封面位置按各自显示比例计算。现有 `ImagePosition` 和持久化格式沿用。
+- 裁剪绘制与拖动共用铺满裁剪框后的实际像素溢出，拖动只改变有溢出的轴并限制到图片边缘。选择「完成」后位置进入表单草稿，取消或系统返回均丢弃本次调整。裁剪框提供对应可移动轴的无障碍移动动作，替代原滑条。
+- `:app:assembleDebug :app:assembleDebugAndroidTest` 成功。MuMu Android 15（`127.0.0.1:16416`）更新两包后执行 `ElymBotUiIntegrationTest#personaEditorSavesIndependentCoverAndAvatarPositions`，结果 `OK (1 test)`，耗时 7.568 秒。用宽图核对水平无障碍动作、拖动后取消与系统返回、完成后分别保存两种裁剪位置，以及垂直位置保持原值。未在实体手机上安装本轮 APK。 [Compose 拖动检测](https://developer.android.com/develop/ui/compose/touch-input/pointer-input/drag-composables)
