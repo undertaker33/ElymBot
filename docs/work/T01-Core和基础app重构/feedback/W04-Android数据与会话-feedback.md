@@ -94,3 +94,24 @@ Checklist 未修改。T01.05/T01.06 的存储服务测试覆盖已更新，但�
 
 - 2026-11-14（北京时间），在 MEIZU 20 Pro（Android 16，序列号 `391QYGCM225VG`）已安装的 `com.elymbot.android.debug.test` 上运行 `adb -s 391QYGCM225VG shell am instrument -w -e class 'com.elymbot.android.data.ElymBotStorageTest#typedCheckpointApiListsRetainedHistoryRestoresAndBlocksMutationsWhileGenerating' com.elymbot.android.debug.test/androidx.test.runner.AndroidJUnitRunner`，返回 `OK (1 test)`，耗时 0.297 秒。
 - 用例使用 Android 仪器环境和内存型 Room fixture，覆盖 API 检查点的固定空点、保留消息计数、当前点、回退回执、编号复用及生成中拒绝变更；没有访问 `.debug` 用户数据库、模型配置或凭据。此次运行未重建 APK，也未改设备设置。
+
+## 2026-11-14 非流式视觉与 HistoryRead 组合增量
+
+### 实际改动
+
+- `ElymBotStorageTest.nonStreamingVisionRoutesDirectAndThroughConfiguredFallback` 使用内存型 Room、独立的临时模型分配和本机合成 OpenAI 兼容端点。第一轮配置主 Text 模型视觉支持并验证图片直达；第二轮将主模型视觉状态改为不支持，沿已配置 Vision 模型转述，再将描述送回主 Text 模型。请求断言覆盖模型顺序、`stream=false`、图片数据 URI 和转述请求不再附带图片。
+- `ElymBotStorageTest.historyReadCanReachCompressedTurnsPersistsFeedbackAndRollbackRemovesLaterHistory` 在内存型 Room 写入八轮合成历史及检查点后的哨兵，以 ReAct 与 RoomHistoryStore 编译并持久化压缩摘要。同一模型响应批次请求合法和缺少 `toTurn` 的 HistoryRead，断言工具结果按原 `call_id` 回填、压缩前历史仍可回读、失败文本持久化为 `FEEDBACK`，且后续助手答复保存为 `HISTORY`。回退后再次执行 HistoryRead，断言检查点后的哨兵不可见。
+- 两个用例不读取或修改 `.debug` 的用户模型分配、会话或凭据；视觉用例仅使用生成并在 `finally` 删除的 2×2 PNG。HistoryRead 用例仅使用内存型 Room 和脚本化 `ModelGateway`。
+
+### 构建与设备状态
+
+- 环境：Windows PowerShell、Gradle Wrapper 9.9.1。只为 Gradle 命令临时设置 `ANDROID_HOME` 和 `ANDROID_SDK_ROOT`。MEIZU 20 Pro / Android 16 序列号 `391QYGCM225VG` 用于安装限制诊断；最终仪器测试在总控交接的隔离 MuMu Android 15 实例（型号 `ABR-AL80`，序列号 `127.0.0.1:16416`）执行。
+- 最终视觉能力状态已核对为主模型 `model-text` 首轮 `VISION=SUPPORTED`、`NATIVE_STREAMING=UNSUPPORTED`；切换后主模型 `VISION=UNSUPPORTED`，Vision assignment 指向 `model-vision`，其 `VISION=SUPPORTED`、`NATIVE_STREAMING=UNSUPPORTED`。最终代码断言端点请求依次为 `model-text`、`model-vision`、`model-text`。
+- Gradle `connectedDebugAndroidTest` 在 MEIZU 上试图自动卸载 `.debug` 和 `.debug.test`，日志分别返回 `DELETE_FAILED_INTERNAL_ERROR`；随后只读包列表未发现这两个包，基础 `com.elymbot.android` 仍在。未运行 `pm clear`、未改系统限制。总控授权恢复 `.debug` 后，MEIZU 上普通 `adb install -r app-debug.apk` 返回 `Success`；恢复前包路径缺失，因此不能确认该包原私有数据是否保留。基础包未触碰。
+- MEIZU 上测试 APK 普通 `adb install -r app-debug-androidTest.apk` 与一次 `adb install -r -t app-debug-androidTest.apk` 均返回 `INSTALL_FAILED_USER_RESTRICTED`。`aapt` 未在测试 APK Manifest 发现 `android:testOnly` 标记；未发现 PackageInstaller 确认 Activity，包管理器筛选日志没有可脱敏的拒绝原因。MEIZU 最终保留 `.debug`、没有 `.debug.test`；后续仪器测试全部改在隔离 MuMu 序列上进行。
+- 只读 MuMuManager 6.8.8.0 帮助和 `info --vmindex all` 显示现存用户实例为 index 0、Android 15 且未启动；总控另行交接的测试实例为 `127.0.0.1:16416`。安装前该测试序列没有 `.debug` 和 `.debug.test` 包。仅在此序列用普通 `adb install -r` 安装 debug 与 androidTest APK，均返回 `Success`；之后只更新测试 APK，不接触 MEIZU 或 MuMu index 0。
+- 最终 `:app:assembleDebugAndroidTest` 通过，AndroidTest Kotlin、Dex 与 APK 打包成功；包含本节两个 W04 用例及当时冻结的 W05 测试源码。最后一次该构建也成功编译 W05 新增的 stop 测试；该 stop 测试本轮没有执行。
+- 初次视觉试跑使用 `Fixture.service()` 默认假 `AgentRuntime`，断言得到 `reply`，未证明模型适配器。修正为 `ReActAgentRuntime + ContextCompiler + OpenAiCompatibleModelGateway` 后，在 MuMu 定向运行 `nonStreamingVisionRoutesDirectAndThroughConfiguredFallback`，通过；同批的早期 HistoryRead 方法失败，不能把该批总体记为通过。
+- HistoryRead 首次有诊断的 MuMu 运行得到终态 `CONTEXT_LIMIT`，`responseRequests=1`、`summaryRequests=3`、`summaryRows=1`，已写入 `HISTORY,FEEDBACK,HISTORY`。缩短 turn 1 合成文本后该终态问题消失；随后检查发现编译器为满足请求上限移除了已持久化摘要。最终将测试上下文窗口调至 3000、压缩触发比例调至 0.4，并保留其他较长历史轮次，使摘要出现在模型请求中。
+- 最终执行 `adb -s 127.0.0.1:16416 shell am instrument -w -e class 'com.elymbot.android.data.ElymBotStorageTest#historyReadCanReachCompressedTurnsPersistsFeedbackAndRollbackRemovesLaterHistory' com.elymbot.android.debug.test/androidx.test.runner.AndroidJUnitRunner`，返回 `OK (1 test)`，耗时 0.396 秒。用例证明模型请求拿到压缩摘要；同批合法 HistoryRead 读取摘要覆盖范围中的原始 marker，缺少 `toTurn` 的调用按原 call ID 回填拒绝结果，`FEEDBACK` 文本先于最终 assistant `HISTORY` 保存。回退后第二次真实 App service 请求仍读到保留 turn 1；读取被删的 turn 9 返回空记录且无哨兵。
+- 本轮没有从用户配置的 MEIZU App 模型设置页读取模型 ID 或既有探测状态；未触发真实服务网络请求，也未打开密钥编辑界面。Checklist 的 T01.08 保持未勾选。

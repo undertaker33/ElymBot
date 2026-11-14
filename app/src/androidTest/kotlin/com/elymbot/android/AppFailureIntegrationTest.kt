@@ -31,6 +31,7 @@ import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
@@ -49,7 +50,7 @@ class AppFailureIntegrationTest {
     @get:Rule
     val rules: RuleChain = RuleChain.outerRule(fixtureRule).around(compose)
 
-    private lateinit var server: InterruptedThenSuccessServer
+    private lateinit var server: TwoReplyServer
     private var serviceId: String? = null
     private var previousTextAssignment: ModelAssignmentEntity? = null
 
@@ -57,19 +58,11 @@ class AppFailureIntegrationTest {
     fun interruptedStreamShowsRetryAndReusesTheExistingUserMessage() {
         val prefix = "w01-${UUID.randomUUID().toString().take(12)}"
         val prompt = "$prefix retry"
-        server = InterruptedThenSuccessServer(prompt, "recovered-$prefix").also(InterruptedThenSuccessServer::start)
-        configureModel(server.port)
+        server = TwoReplyServer(prompt, "recovered-$prefix").also(TwoReplyServer::start)
+        configureModel(server.port, streaming = true)
 
+        sendInNewSession(prompt)
         val strings = compose.activity
-        waitForText(compose, fixture.personaName)
-        compose.onNodeWithText(fixture.personaName).performClick()
-        waitForDescription(compose, strings.getString(R.string.elym_chat_menu))
-        compose.onNodeWithContentDescription(strings.getString(R.string.elym_chat_menu)).performClick()
-        compose.onNodeWithText(strings.getString(R.string.elym_sessions)).performClick()
-        waitForText(compose, strings.getString(R.string.elym_sessions))
-        openNewSession(compose, strings.getString(R.string.elym_new_session))
-        compose.onNodeWithContentDescription(strings.getString(R.string.elym_type_message)).performTextInput(prompt)
-        compose.onNodeWithContentDescription(strings.getString(R.string.elym_send)).performClick()
 
         val failedRequest = server.awaitAttempt(1)
         assertTrue(failedRequest.contains("\"stream\":true"))
@@ -102,6 +95,81 @@ class AppFailureIntegrationTest {
         assertEquals(server.reply, completedMessages.single { it.message.role == "ASSISTANT" }.message.text)
     }
 
+    @Test
+    fun stopKeepsVisibleFirstDeltaAndDiscardsReleasedTail() {
+        val prompt = "stop-ui-${UUID.randomUUID().toString().take(12)}"
+        val firstDelta = "Visible before stop"
+        val tail = " Tail after stop"
+        server = TwoReplyServer(prompt, tail, heldFirstDelta = firstDelta).also(TwoReplyServer::start)
+        configureModel(server.port, streaming = true)
+
+        sendInNewSession(prompt)
+        try {
+            server.awaitAttempt(1)
+            waitForText(compose, firstDelta)
+            val stop = compose.activity.getString(R.string.elym_stop)
+            compose.onNodeWithContentDescription(stop).performClick()
+            waitForText(compose, compose.activity.getString(R.string.elym_stopped))
+        } finally {
+            server.releaseReply()
+        }
+        server.awaitTailAttempt()
+        waitForText(compose, firstDelta)
+        compose.onNodeWithText(tail.trim(), substring = true).assertDoesNotExist()
+
+        val session = awaitSession(prompt)
+        val turn = latestTurn(session.id)
+        assertEquals("STOPPED", turn.status)
+        val assistant = messages(session.id, turn.sequence).single { it.message.role == "ASSISTANT" }.message
+        assertEquals(firstDelta, assistant.text)
+    }
+
+    @Test
+    fun rejectedHistoryReadShowsAssistantTextAndContinuesWithCompleteJsonReply() {
+        val prompt = "tool-ui-${UUID.randomUUID().toString().take(12)}"
+        val reply = "The model continued after the rejected call."
+        server = TwoReplyServer(prompt, reply, streaming = false).also(TwoReplyServer::start)
+        configureModel(server.port, streaming = false)
+
+        val denial = "Provide both fromTurn and toTurn, or neither."
+        val feedback = "HistoryRead: $denial"
+        try {
+            sendInNewSession(prompt)
+            val initial = server.awaitAttempt(1)
+            assertTrue(initial.contains("\"stream\":false"))
+            assertTrue(initial.contains("\"name\":\"HistoryRead\""))
+            val followUp = JSONObject(server.awaitAttempt(2)).getJSONArray("messages")
+            val toolResult = (0 until followUp.length()).map { followUp.getJSONObject(it) }.single {
+                it.optString("role") == "tool" && it.optString("tool_call_id") == "rejected-history"
+            }
+            assertEquals(denial, toolResult.getString("content"))
+            waitForText(compose, feedback)
+            assertTrue(compose.onAllNodesWithText(reply).fetchSemanticsNodes().isEmpty())
+        } finally {
+            server.releaseReply()
+        }
+        waitForText(compose, reply)
+        val session = awaitSession(prompt)
+        waitForCompleted(session.id)
+        val assistantMessages = messages(session.id, latestTurn(session.id).sequence)
+            .filter { it.message.role == "ASSISTANT" }
+        assertEquals(listOf(feedback, reply), assistantMessages.map { it.message.text })
+        assertEquals(fixture.personaName, assistantMessages.first().message.author)
+    }
+
+    private fun sendInNewSession(prompt: String) {
+        val strings = compose.activity
+        waitForText(compose, fixture.personaName)
+        compose.onNodeWithText(fixture.personaName).performClick()
+        waitForDescription(compose, strings.getString(R.string.elym_chat_menu))
+        compose.onNodeWithContentDescription(strings.getString(R.string.elym_chat_menu)).performClick()
+        compose.onNodeWithText(strings.getString(R.string.elym_sessions)).performClick()
+        waitForText(compose, strings.getString(R.string.elym_sessions))
+        openNewSession(compose, strings.getString(R.string.elym_new_session))
+        compose.onNodeWithContentDescription(strings.getString(R.string.elym_type_message)).performTextInput(prompt)
+        compose.onNodeWithContentDescription(strings.getString(R.string.elym_send)).performClick()
+    }
+
     @After
     fun tearDown() {
         val configuredServiceId = serviceId
@@ -122,7 +190,7 @@ class AppFailureIntegrationTest {
         if (::server.isInitialized) server.close()
     }
 
-    private fun configureModel(port: Int) {
+    private fun configureModel(port: Int, streaming: Boolean) {
         val id = "w01-${UUID.randomUUID()}"
         serviceId = id
         val database = fixture.database
@@ -148,11 +216,14 @@ class AppFailureIntegrationTest {
                         modelId = "w01-local-model",
                         baseUrl = baseUrl,
                         target = "NATIVE_STREAMING",
-                        status = "SUPPORTED",
+                        status = if (streaming) "SUPPORTED" else "UNSUPPORTED",
                         failureKind = null,
                         httpStatusCode = null,
                     ),
                 )
+                if (!streaming) {
+                    dao.upsertProbe(ModelProbeEntity(id, "w01-local-model", baseUrl, "STRUCTURED_TOOL_CALLS", "SUPPORTED", null, null))
+                }
             }
         }
     }
@@ -206,9 +277,11 @@ class AppFailureIntegrationTest {
     }
 }
 
-private class InterruptedThenSuccessServer(
+private class TwoReplyServer(
     val prompt: String,
     val reply: String,
+    private val streaming: Boolean = true,
+    private val heldFirstDelta: String? = null,
 ) : AutoCloseable {
     private val socket = ServerSocket().apply {
         reuseAddress = true
@@ -218,6 +291,8 @@ private class InterruptedThenSuccessServer(
     private val activeSockets = ConcurrentHashMap.newKeySet<Socket>()
     private val requestBodies = CopyOnWriteArrayList<String>()
     private val attemptSignals = listOf(CountDownLatch(1), CountDownLatch(1))
+    private val replySignal = CountDownLatch(1)
+    private val tailAttempted = CountDownLatch(1)
     private val failure = AtomicReference<Throwable?>()
     @Volatile private var acceptThread: Thread? = null
     val port: Int get() = socket.localPort
@@ -247,6 +322,12 @@ private class InterruptedThenSuccessServer(
         return requestBodies[attempt - 1]
     }
 
+    fun releaseReply() = replySignal.countDown()
+
+    fun awaitTailAttempt() {
+        check(tailAttempted.await(15, TimeUnit.SECONDS)) { "The endpoint did not attempt the released tail." }
+    }
+
     private fun serve(client: Socket) {
         try {
             client.soTimeout = 15_000
@@ -265,13 +346,32 @@ private class InterruptedThenSuccessServer(
             DataInputStream(input).readFully(bodyBytes)
             val body = String(bodyBytes, UTF_8)
             check(requestLine.startsWith("POST /v1/chat/completions ")) { "Unexpected request: $requestLine" }
-            check(body.contains("\"stream\":true")) { "App did not request a streaming response." }
+            check(body.contains("\"stream\":$streaming")) { "Unexpected request streaming mode." }
             check(body.contains(prompt)) { "Request did not contain the submitted prompt." }
             val attempt = requestBodies.size + 1
             check(attempt <= 2) { "Unexpected extra request attempt $attempt." }
             requestBodies += body
             attemptSignals[attempt - 1].countDown()
-            if (attempt == 1) sendTruncatedStream(client) else sendCompletedStream(client)
+            if (heldFirstDelta != null) {
+                val output = openChunkedStream(client)
+                writeChunk(output, event(deltaPayload(heldFirstDelta)))
+                output.flush()
+                check(replySignal.await(30, TimeUnit.SECONDS)) { "The SSE tail was not released." }
+                // The stopped client may already have closed its response stream.
+                try {
+                    writeCompletedStream(output)
+                } catch (_: IOException) {
+                } finally {
+                    tailAttempted.countDown()
+                }
+            } else if (streaming) {
+                if (attempt == 1) sendTruncatedStream(client) else sendCompletedStream(client)
+            } else if (attempt == 1) {
+                writeJson(client, """{"choices":[{"index":0,"message":{"role":"assistant","content":null,"tool_calls":[{"id":"rejected-history","type":"function","function":{"name":"HistoryRead","arguments":"{\"fromTurn\":1}"}}]},"finish_reason":"tool_calls"}]}""")
+            } else {
+                check(replySignal.await(30, TimeUnit.SECONDS)) { "Final JSON reply was not released." }
+                writeJson(client, """{"choices":[{"index":0,"message":{"role":"assistant","content":"$reply"},"finish_reason":"stop"}]}""")
+            }
         } catch (caught: Throwable) {
             failure.compareAndSet(null, caught)
             attemptSignals.forEach(CountDownLatch::countDown)
@@ -279,6 +379,17 @@ private class InterruptedThenSuccessServer(
             activeSockets -= client
             runCatching { client.close() }
         }
+    }
+
+    private fun writeJson(client: Socket, json: String) {
+        val body = json.toByteArray(UTF_8)
+        val output = client.getOutputStream()
+        output.write(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: ${body.size}\r\nConnection: close\r\n\r\n"
+                .toByteArray(UTF_8),
+        )
+        output.write(body)
+        output.flush()
     }
 
     private fun sendTruncatedStream(client: Socket) {
@@ -289,7 +400,10 @@ private class InterruptedThenSuccessServer(
     }
 
     private fun sendCompletedStream(client: Socket) {
-        val output = openChunkedStream(client)
+        writeCompletedStream(openChunkedStream(client))
+    }
+
+    private fun writeCompletedStream(output: BufferedOutputStream) {
         writeChunk(output, event(deltaPayload(reply)))
         writeChunk(output, event("""{"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}"""))
         writeChunk(output, event("[DONE]"))
@@ -333,6 +447,7 @@ private class InterruptedThenSuccessServer(
     }
 
     override fun close() {
+        releaseReply()
         runCatching { socket.close() }
         activeSockets.forEach { runCatching { it.close() } }
         executor.shutdownNow()

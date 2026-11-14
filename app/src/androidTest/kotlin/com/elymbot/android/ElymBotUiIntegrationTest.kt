@@ -5,6 +5,7 @@ import android.graphics.Color
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasClickAction
+import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
@@ -42,6 +43,51 @@ class ElymBotUiIntegrationTest {
 
     @get:Rule
     val rules: RuleChain = RuleChain.outerRule(fixtureRule).around(compose)
+
+    @Test
+    fun personaCreatedThroughGalleryCanBeFoundByNameAndTag() {
+        val name = "UI-${fixture.prefix.takeLast(12)}"
+        val tag = label(R.string.elym_default_tag_learning)
+        val personaCard = compose.onNode(hasText(name) and hasClickAction() and !hasSetTextAction())
+        val personaDao = fixture.database.personaDao()
+        val beforeIds = runBlocking { personaDao.getAll().map { it.id }.toSet() }
+        var createdId: String? = null
+        try {
+            waitForText(fixture.personaName)
+            description(R.string.elym_create_persona).performClick()
+            description(R.string.elym_name).performTextInput(name)
+            description(R.string.elym_tags).performScrollTo().performTextInput(tag)
+            description(R.string.elym_prompt).performScrollTo().performTextInput("Gallery test prompt")
+            scrollAndClick(R.string.elym_create)
+            compose.waitUntil(10_000) {
+                createdId = runBlocking {
+                    personaDao.getAll().singleOrNull { it.id !in beforeIds && it.name == name }?.id
+                }
+                createdId != null
+            }
+
+            description(R.string.elym_search).performClick()
+            val search = description(R.string.elym_search_hint)
+            search.performTextInput("Absent-${fixture.prefix.takeLast(12)}")
+            waitForText(label(R.string.elym_no_personas))
+            personaCard.assertDoesNotExist()
+            search.performTextReplacement(name)
+            personaCard.assertIsDisplayed()
+            compose.onNodeWithText(fixture.personaName).assertDoesNotExist()
+            click(R.string.elym_company)
+            waitForText(label(R.string.elym_no_personas))
+            personaCard.assertDoesNotExist()
+            click(R.string.elym_learning)
+            personaCard.assertIsDisplayed()
+            description(R.string.elym_close_search).performClick()
+            personaCard.assertIsDisplayed()
+            compose.onNodeWithText(fixture.personaName).assertDoesNotExist()
+        } finally {
+            runBlocking {
+                createdId?.let { service.deletePersona(it) }
+            }
+        }
+    }
 
     @Test
     fun settingsAndModelNavigationLeadBackToChatThenOpeningClearsUnreadAndAllowsBatchDelete() {

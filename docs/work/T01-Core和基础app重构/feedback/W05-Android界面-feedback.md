@@ -90,3 +90,21 @@
 
 - 复用 [正式入口定向测试](#t0107-正式入口定向测试2026-11-14) 的真机 2/2 结果。人格编辑页分别显示封面和头像预览，测试操作各自的水平滑块并核对保存后的独立位置。专属会话列表一次删除两条所选会话，打开带新消息标记的会话并返回后，界面徽标消失，Room 未读状态清零。
 - 复用 [W01 正式入口与双会话合成复验](W01-总控与集成-feedback.md#android-正式入口与双会话合成复验)，确认回复在离开会话后完成时显示对应会话的新消息徽标。与 W05 打开后清除徽标的结果共同覆盖未读提示。勾选 [Checklist](../T01-Core和基础app重构-checklist.md#t0107-原型界面资源与-viewmodel) 的验收 9–11。验收 1–6 仍待正式聊天中助手工具反馈的纯文本证据。
+
+### T01.07 正式聊天工具反馈与人格筛选补证
+
+- `AppFailureIntegrationTest#rejectedHistoryReadShowsAssistantTextAndContinuesWithCompleteJsonReply` 复用正式 MainActivity 和本地合成端点。首个 JSON 响应发出缺少 `toTurn` 的 HistoryRead 调用。测试断言后续请求按同一调用 ID 回填完整拒绝文本，聊天显示助手纯文本回执，放行最终 JSON 后显示完整回复，并核对两条助手文本落盘。最终响应的闸门延长至 30 秒，超过 Compose 观察窗口，测试退出与端点关闭时均释放闸门。
+- `ElymBotUiIntegrationTest#personaCreatedThroughGalleryCanBeFoundByNameAndTag` 从正式人格库创建带标签和提示词的人格，按名称搜索并验证匹配与不匹配标签。根据新建前后的 ID 差异识别用例创建的人格，只按实际新增的 ID 清理。
+- 最终 AndroidTest 构建通过。MEIZU 20 Pro（Android 16）拒绝安装更新的测试 APK。两个用例均未运行，其现有 MainActivity 夹具连接目标 App 的持久化 `elymbot.db` 并涉及写入主会话或模型设置，后续在独立测试环境执行。T01.07 的验收 1–6 仍待取得正式聊天助手文本证据。
+
+#### MuMu 独立环境复验
+
+- 在 MuMu（Android 15，`127.0.0.1:16416`）使用合批 `:app:assembleDebugAndroidTest` 生成的测试 APK。`AppFailureIntegrationTest#rejectedHistoryReadShowsAssistantTextAndContinuesWithCompleteJsonReply` 首轮通过。正式聊天显示助手纯文本拒绝回执，合成端点收到带原调用 ID 的拒绝结果，端点放行最终 JSON 前界面未出现最终回复，放行后显示完整回复并核对两条助手文本落盘。
+- `ElymBotUiIntegrationTest#personaCreatedThroughGalleryCanBeFoundByNameAndTag` 首轮因搜索输入框和人格卡片同时匹配而失败。按可点击且不具备文本编辑动作收紧卡片选择器，修复后定向复验通过，覆盖正式人格创建、名称搜索、标签过滤及组合过滤。
+- T01.07 验收 1–6 继续待核验。人工最短路径使用文本对话模型已探测为不支持视觉、视觉理解模型为「未选择」的测试配置。进入聊天点「添加图片」，从系统选图器选一张测试图，确认「图片附件」及缩略图后发送，核对「请配置可用的视觉理解模型」与「模型配置」入口。该路径同时验证选图结果回填和缺少可用视觉模型时的提示。
+
+#### MuMu 停止生成、空库首建与系统选图
+
+- MuMu Android 15（`127.0.0.1:16416`）使用已有的 debug App 和 androidTest APK。运行 `AppFailureIntegrationTest#stopKeepsVisibleFirstDeltaAndDiscardsReleasedTail` 得到 `OK (1 test)`，耗时 2.795 秒。首段在聊天可见后点击停止，界面显示已停止，随后允许合成端点尝试继续发送，确认聊天和 Room 仅保留首段且轮次为 `STOPPED`。
+- 在独立 MuMu 上清除测试 App 数据后打开，确认初始人格库为空。通过「创建人格」输入测试名与提示词，使用系统选图器选择自建双色 PNG 作为封面。保存后人格显示「已激活」，点击卡片进入该人格的空主会话。
+- 在主会话再次打开系统选图器，选取同一张测试图。返回后正式聊天显示「图片附件」、缩略图和「移除图片」。随后点发送时，此空库未配置文本模型，App 显示文本模型配置提示。

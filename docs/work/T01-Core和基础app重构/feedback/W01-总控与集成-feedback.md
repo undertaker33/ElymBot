@@ -151,3 +151,8 @@
 
 - 用户反馈识图当前正常；这是用户观察，本轮没有自动重跑图片输入。能力探测在真实服务中提交了产品自带视觉探针，但由于具体状态值未捕获，不把它写成识图能力的自动化证明。
 - 这项验收覆盖真实服务配置下的模型列表、设置页三项探测流程和 Text 对话。用户最终选择的真实服务完整验收仍需用户确认，T01.08 其他必需项与 T01.09 未关闭，Checklist 复合项保持未勾选。
+
+#### 实际验收服务模型补记
+
+- 用户确认本次真实服务验收的主模型 ID 为 `deepseek-flash`。真机为 MEIZU 20 Pro（Android 16，序列号 `391QYGCM225VG`）。目标 APK 为 `app/build/outputs/apk/debug/app-debug.apk`，包名 `com.elymbot.android.debug`，构建配置版本 `0.1.0`（versionCode `1`）。测试 APK 为 `app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk`。
+- 上述仪器测试返回 `OK (1 test)`。正式界面完成模型可用性、视觉和原生流式三种探测，三项具体状态未采集。正式聊天发送测试提示后取得完整非空回复并保存。T01.08 的实际服务单项据此勾选，复合项与 T01.09 仍待验收。

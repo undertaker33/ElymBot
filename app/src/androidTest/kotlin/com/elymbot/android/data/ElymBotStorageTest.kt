@@ -47,12 +47,19 @@ import com.elymbot.core.contract.ModelProbeTarget
 import com.elymbot.core.contract.ModelReference
 import com.elymbot.core.contract.ModelRequest
 import com.elymbot.core.contract.ModelRequestException
+import com.elymbot.core.contract.ModelRole as CoreModelRole
 import com.elymbot.core.contract.ModelStreamEvent
+import com.elymbot.core.contract.ModelToolCall
 import com.elymbot.core.contract.SlashCommandParser
 import com.elymbot.core.contract.SummaryCommitResult
+import com.elymbot.core.agent.ReActAgentRuntime
+import com.elymbot.core.context.ContextBudget
+import com.elymbot.core.context.ContextCompiler
+import com.elymbot.core.context.DefaultModelContextBudgetProvider
 import com.elymbot.core.model.OpenAiCompatibleModelGateway
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.InputStream
 import java.io.InputStreamReader
 import java.net.InetAddress
 import java.net.ServerSocket
@@ -77,6 +84,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.sync.Mutex
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -1316,6 +1324,300 @@ class ElymBotStorageTest {
         }
     }
 
+    @Test
+    @SdkSuppress(minSdkVersion = Build.VERSION_CODES.Q)
+    fun nonStreamingVisionRoutesDirectAndThroughConfiguredFallback() = runBlocking {
+        val fixture = Fixture(context)
+        val server = VisualCompletionServer(expectedRequests = 3)
+        var imageUri: Uri? = null
+        try {
+            fixture.initializeTestState()
+            val connectionProvider = RoomModelServiceConnectionProvider(fixture.repository)
+            val modelGateway = OpenAiCompatibleModelGateway(connectionProvider)
+            val historyStore = RoomHistoryStore(fixture.database)
+            val service = fixture.service(
+                runtime = ReActAgentRuntime(
+                    modelGateway = modelGateway,
+                    contextCompiler = ContextCompiler(historyStore, historyStore, modelGateway),
+                    historyReader = historyStore,
+                ),
+                connectionProvider = connectionProvider,
+                modelGateway = modelGateway,
+            )
+            service.saveModelService(
+                ModelServiceDraft(
+                    provider = "compatible",
+                    name = "Isolated visual fixture",
+                    baseUrl = server.baseUrl,
+                    modelId = "model-text",
+                    catalog = listOf("model-vision"),
+                ),
+            )
+            val serviceId = fixture.database.modelConfigurationDao().getServices().single().id
+            service.setModel(UiModelRole.Text, ModelChoice(serviceId, "model-text"))
+            service.setModel(UiModelRole.Vision, ModelChoice(serviceId, "model-vision"))
+            fixture.setModelProbe(
+                serviceId = serviceId,
+                modelId = "model-text",
+                baseUrl = server.baseUrl,
+                vision = CapabilityStatus.SUPPORTED,
+                nativeStreaming = CapabilityStatus.UNSUPPORTED,
+            )
+            fixture.setModelProbe(
+                serviceId = serviceId,
+                modelId = "model-vision",
+                baseUrl = server.baseUrl,
+                vision = CapabilityStatus.SUPPORTED,
+                nativeStreaming = CapabilityStatus.UNSUPPORTED,
+            )
+            val session = service.newSession(fixture.personaId(0))
+            val uri = fixture.createImageContentUri()
+            imageUri = uri
+
+            service.send(session, "Describe the synthetic image directly", uri)
+            fixture.awaitStatus(session, "COMPLETED")
+            assertEquals("Direct visual answer", fixture.database.messageDao().forTurn(session, 1).last().message.text)
+
+            fixture.setModelProbe(
+                serviceId = serviceId,
+                modelId = "model-text",
+                baseUrl = server.baseUrl,
+                vision = CapabilityStatus.UNSUPPORTED,
+                nativeStreaming = CapabilityStatus.UNSUPPORTED,
+            )
+            service.send(session, "Describe the synthetic image through fallback", uri)
+            fixture.awaitStatus(session, "COMPLETED")
+            assertEquals("Fallback text answer", fixture.database.messageDao().forTurn(session, 2).last().message.text)
+            server.awaitRequests()
+
+            val requests = server.requests
+            assertEquals(listOf("model-text", "model-vision", "model-text"), requests.map { it.modelId })
+            assertTrue(requests.all { it.body.contains("\"stream\":false") })
+            assertTrue(requests[0].body.contains("data:image/png;base64,"))
+            assertTrue(requests[1].body.contains("data:image/png;base64,"))
+            assertFalse(requests[2].body.contains("image_url"))
+            assertTrue(requests[2].body.contains("Image description:"))
+        } finally {
+            imageUri?.let { context.contentResolver.delete(it, null, null) }
+            server.close()
+            fixture.close()
+        }
+    }
+
+    @Test
+    fun historyReadCanReachCompressedTurnsPersistsFeedbackAndRollbackRemovesLaterHistory() = runBlocking {
+        val fixture = Fixture(context)
+        val historyStore = RoomHistoryStore(fixture.database)
+        val summaryRequests = CopyOnWriteArrayList<ModelRequest>()
+        val responseRequests = CopyOnWriteArrayList<ModelRequest>()
+        val gateway = object : ModelGateway {
+            override suspend fun listModels(serviceId: String) = listOf("model-a")
+
+            override suspend fun probe(model: ModelReference) = ModelCapabilityReport(
+                model = model,
+                availability = CapabilityStatus.SUPPORTED,
+                vision = CapabilityStatus.UNSUPPORTED,
+                nativeStreaming = CapabilityStatus.UNSUPPORTED,
+                structuredToolCalls = CapabilityStatus.SUPPORTED,
+            )
+
+            override fun stream(request: ModelRequest): Flow<ModelStreamEvent> = flow {
+                if (request.maxOutputTokens != null) {
+                    summaryRequests += request
+                    emit(ModelStreamEvent.TextDelta("COMPRESSED_HISTORY_SUMMARY"))
+                    emit(ModelStreamEvent.Completed(ModelFinishReason.STOP))
+                } else {
+                    val responseIndex = responseRequests.size
+                    responseRequests += request
+                    if (responseIndex == 0) {
+                        emit(
+                            ModelStreamEvent.Completed(
+                                ModelFinishReason.TOOL_CALLS,
+                                listOf(
+                                    ModelToolCall(
+                                        "history-valid-call",
+                                        "HistoryRead",
+                                        "{\"fromTurn\":1,\"toTurn\":1,\"limit\":8}",
+                                    ),
+                                    ModelToolCall(
+                                        "history-post-checkpoint-call",
+                                        "HistoryRead",
+                                        "{\"fromTurn\":9,\"toTurn\":9,\"limit\":8}",
+                                    ),
+                                    ModelToolCall("history-invalid-call", "HistoryRead", "{\"fromTurn\":1}"),
+                                ),
+                            ),
+                        )
+                    } else if (responseIndex == 2) {
+                        emit(
+                            ModelStreamEvent.Completed(
+                                ModelFinishReason.TOOL_CALLS,
+                                listOf(
+                                    ModelToolCall(
+                                        "after-rollback-retained-call",
+                                        "HistoryRead",
+                                        "{\"fromTurn\":1,\"toTurn\":1,\"limit\":8}",
+                                    ),
+                                    ModelToolCall(
+                                        "after-rollback-deleted-call",
+                                        "HistoryRead",
+                                        "{\"fromTurn\":9,\"toTurn\":9,\"limit\":8}",
+                                    ),
+                                ),
+                            ),
+                        )
+                    } else {
+                        emit(ModelStreamEvent.TextDelta("I recovered the retained history and completed the request."))
+                        emit(ModelStreamEvent.Completed(ModelFinishReason.STOP))
+                    }
+                }
+            }
+        }
+        val budgetProvider = DefaultModelContextBudgetProvider(
+            ContextBudget(
+                contextWindowTokens = 3_000,
+                outputReserveTokens = 128,
+                safetyMarginTokens = 128,
+                compressionTriggerRatio = 0.4,
+                recentCompleteTurnsToKeep = 2,
+            ),
+        )
+        val service = fixture.service(
+            runtime = ReActAgentRuntime(
+                modelGateway = gateway,
+                contextCompiler = ContextCompiler(historyStore, historyStore, gateway, budgetProvider),
+                historyReader = historyStore,
+            ),
+            modelGateway = gateway,
+            parser = SlashCommandParser { _, _ -> CommandParseResult.NotCommand },
+        )
+        try {
+            fixture.initializeTestState()
+            val main = fixture.database.conversationDao().getMain()!!
+            (1L..8L).forEach { sequence ->
+                fixture.insertTurn(
+                    main.id,
+                    sequence,
+                    if (sequence == 1L) "history-user-$sequence OLD_HISTORY_MARKER_$sequence"
+                    else "history-user-$sequence ${"OLD_HISTORY_MARKER_$sequence ".repeat(40)}",
+                    if (sequence == 1L) "history-assistant-$sequence OLD_ASSISTANT_MARKER_$sequence"
+                    else "history-assistant-$sequence ${"OLD_ASSISTANT_MARKER_$sequence ".repeat(40)}",
+                )
+            }
+            service.saveCheckpoint(main.id)
+            fixture.insertTurn(main.id, 9, "POST_CHECKPOINT_MARKER", "post-checkpoint assistant turn")
+
+            service.saveModelService(
+                ModelServiceDraft(
+                    provider = "compatible",
+                    name = "In-memory HistoryRead fixture",
+                    baseUrl = "https://fixture.invalid/v1",
+                    modelId = "model-a",
+                ),
+            )
+            val serviceId = fixture.database.modelConfigurationDao().getServices().single().id
+            service.setModel(UiModelRole.Text, ModelChoice(serviceId, "model-a"))
+            fixture.setModelProbe(
+                serviceId = serviceId,
+                modelId = "model-a",
+                baseUrl = "https://fixture.invalid/v1",
+                vision = CapabilityStatus.UNSUPPORTED,
+                nativeStreaming = CapabilityStatus.UNSUPPORTED,
+                structuredToolCalls = CapabilityStatus.SUPPORTED,
+            )
+
+            suspend fun awaitTerminalTurn(sequence: Long): TurnEntity? = withTimeoutOrNull(9_000) {
+                fixture.database.turnDao().observeForSession(main.id).first { turns ->
+                    turns.any { it.sequence == sequence && it.status != "RUNNING" }
+                }.first { it.sequence == sequence }
+            }
+
+            val firstTurnSequence = fixture.database.conversationDao().get(main.id)!!.nextTurnSequence
+            service.send(main.id, "Read an older detail and answer", null)
+            val terminalTurn = awaitTerminalTurn(firstTurnSequence) ?: fixture.database.turnDao().latest(main.id)
+            val persistedCategories = fixture.database.messageDao().forTurn(main.id, firstTurnSequence)
+                .joinToString(",") { it.message.category }
+            assertEquals(
+                "HistoryRead terminal=${terminalTurn?.status}, failure=${terminalTurn?.failureKind}, " +
+                    "responseRequests=${responseRequests.size}, summaryRequests=${summaryRequests.size}, " +
+                    "summaryRows=${fixture.database.historySummaryDao().getForSession(main.id).size}, " +
+                    "messageCategories=$persistedCategories",
+                "COMPLETED",
+                terminalTurn?.status,
+            )
+
+            assertTrue("Context compilation should create a persisted summary", summaryRequests.isNotEmpty())
+            val summaryInput = summaryRequests.first().messages
+                .flatMap { it.content }
+                .filterIsInstance<ModelContentPart.Text>()
+                .joinToString("\n") { it.value }
+            assertTrue(summaryInput.contains("OLD_HISTORY_MARKER_1"))
+            assertTrue(fixture.database.historySummaryDao().getForSession(main.id).isNotEmpty())
+
+            val firstRequestText = responseRequests.first().messages
+                .flatMap { it.content }
+                .filterIsInstance<ModelContentPart.Text>()
+                .joinToString("\n") { it.value }
+            assertTrue(firstRequestText.contains("COMPRESSED_HISTORY_SUMMARY"))
+            assertFalse(firstRequestText.contains("OLD_HISTORY_MARKER_1"))
+            assertTrue(responseRequests.first().tools.any { it.name == "HistoryRead" })
+
+            val toolResults = responseRequests[1].messages.filter { it.role == CoreModelRole.TOOL }
+            assertEquals(
+                listOf("history-valid-call", "history-post-checkpoint-call", "history-invalid-call"),
+                toolResults.map { it.toolCallId },
+            )
+            assertTrue(toolResults[0].content.filterIsInstance<ModelContentPart.Text>().single().value.contains("OLD_HISTORY_MARKER_1"))
+            assertTrue(toolResults[1].content.filterIsInstance<ModelContentPart.Text>().single().value.contains("POST_CHECKPOINT_MARKER"))
+            assertEquals(
+                "Provide both fromTurn and toTurn, or neither.",
+                toolResults.last().content.filterIsInstance<ModelContentPart.Text>().single().value,
+            )
+
+            val turnMessages = fixture.database.messageDao().forTurn(main.id, firstTurnSequence)
+            val feedback = turnMessages.single { it.message.category == "FEEDBACK" }.message
+            val finalAssistant = turnMessages.single { it.message.category == "HISTORY" && it.message.role == "ASSISTANT" }.message
+            assertEquals("HistoryRead: Provide both fromTurn and toTurn, or neither.", feedback.text)
+            assertEquals("I recovered the retained history and completed the request.", finalAssistant.text)
+            assertTrue(feedback.messageIndex < finalAssistant.messageIndex)
+            assertEquals(
+                feedback.text,
+                service.conversation(main.id).first().messages.first { it.text == feedback.text }.text,
+            )
+
+            service.restoreCheckpoint(main.id, 2)
+            assertTrue(fixture.database.messageDao().forTurn(main.id, 9).isEmpty())
+            assertTrue(fixture.database.messageDao().forTurn(main.id, firstTurnSequence).isEmpty())
+            val afterRollbackTurnSequence = fixture.database.conversationDao().get(main.id)!!.nextTurnSequence
+            service.send(main.id, "Read retained history after rollback", null)
+            val afterRollbackTurn = awaitTerminalTurn(afterRollbackTurnSequence)
+                ?: fixture.database.turnDao().latest(main.id)
+            assertEquals(
+                "After rollback terminal=${afterRollbackTurn?.status}, failure=${afterRollbackTurn?.failureKind}, " +
+                    "responseRequests=${responseRequests.size}, summaryRequests=${summaryRequests.size}",
+                "COMPLETED",
+                afterRollbackTurn?.status,
+            )
+            assertEquals(4, responseRequests.size)
+            val afterRollbackToolResults = responseRequests[3].messages.filter { it.role == CoreModelRole.TOOL }
+            assertEquals(
+                listOf("after-rollback-retained-call", "after-rollback-deleted-call"),
+                afterRollbackToolResults.map { it.toolCallId },
+            )
+            val retainedAfterRollback = afterRollbackToolResults[0].content
+                .filterIsInstance<ModelContentPart.Text>().single().value
+            val deletedAfterRollback = afterRollbackToolResults[1].content
+                .filterIsInstance<ModelContentPart.Text>().single().value
+            assertTrue(retainedAfterRollback.contains("OLD_HISTORY_MARKER_1"))
+            assertFalse(retainedAfterRollback.contains("POST_CHECKPOINT_MARKER"))
+            assertTrue(deletedAfterRollback.contains("\"records\":[]"))
+            assertFalse(deletedAfterRollback.contains("POST_CHECKPOINT_MARKER"))
+            assertFalse(service.conversation(main.id).first().messages.any { it.text.contains("POST_CHECKPOINT_MARKER") })
+        } finally {
+            fixture.close()
+        }
+    }
+
     private class Fixture(context: Context, private val persistentDatabaseName: String? = null) {
         private val appContext = context.applicationContext
         val database = if (persistentDatabaseName == null) {
@@ -1485,6 +1787,35 @@ class ElymBotStorageTest {
             return id
         }
 
+        suspend fun setModelProbe(
+            serviceId: String,
+            modelId: String,
+            baseUrl: String,
+            vision: CapabilityStatus,
+            nativeStreaming: CapabilityStatus,
+            structuredToolCalls: CapabilityStatus = CapabilityStatus.UNKNOWN,
+        ) {
+            val dao = database.modelConfigurationDao()
+            listOf(
+                ModelProbeTarget.AVAILABILITY to CapabilityStatus.SUPPORTED,
+                ModelProbeTarget.VISION to vision,
+                ModelProbeTarget.NATIVE_STREAMING to nativeStreaming,
+                ModelProbeTarget.STRUCTURED_TOOL_CALLS to structuredToolCalls,
+            ).forEach { (target, status) ->
+                dao.upsertProbe(
+                    ModelProbeEntity(
+                        serviceId = serviceId,
+                        modelId = modelId,
+                        baseUrl = baseUrl,
+                        target = target.name,
+                        status = status.name,
+                        failureKind = null,
+                        httpStatusCode = null,
+                    ),
+                )
+            }
+        }
+
         fun createImageContentUri(): Uri {
             val bitmap = Bitmap.createBitmap(2, 2, Bitmap.Config.ARGB_8888)
             val pngBytes = try {
@@ -1609,6 +1940,100 @@ class ElymBotStorageTest {
             worker.join(1_000)
         }
     }
+
+    private class VisualCompletionServer(expectedRequests: Int) : AutoCloseable {
+        private val server = ServerSocket(0, expectedRequests, InetAddress.getByName("127.0.0.1"))
+        private val expectedRequestCount = expectedRequests
+        private val failure = AtomicReference<Throwable?>()
+        val requests = CopyOnWriteArrayList<CapturedCompletionRequest>()
+        val baseUrl = "http://localhost:${server.localPort}/v1"
+        private val worker = Thread(::serve).apply {
+            name = "elymbot-visual-completion-fixture"
+            isDaemon = true
+            start()
+        }
+
+        suspend fun awaitRequests() {
+            withTimeout(10_000) {
+                while (requests.size < expectedRequestCount) {
+                    failure.get()?.let { throw AssertionError("Synthetic model endpoint failed", it) }
+                    delay(10)
+                }
+            }
+            failure.get()?.let { throw AssertionError("Synthetic model endpoint failed", it) }
+        }
+
+        private fun serve() {
+            try {
+                repeat(expectedRequestCount) {
+                    server.accept().use { socket ->
+                        socket.soTimeout = 10_000
+                        val request = readRequest(socket.getInputStream())
+                        val modelId = MODEL_ID_PATTERN.find(request)?.groupValues?.get(1)
+                            ?: error("Synthetic completion request omitted model ID")
+                        requests += CapturedCompletionRequest(modelId, request)
+                        val includesImage = request.contains("data:image/png;base64,")
+                        val answer = when {
+                            modelId == "model-vision" -> "A small blue square."
+                            includesImage -> "Direct visual answer"
+                            else -> "Fallback text answer"
+                        }
+                        val responseBody = (
+                            "{\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"$answer\"},\"finish_reason\":\"stop\"}]}"
+                            ).toByteArray(Charsets.UTF_8)
+                        val output = socket.getOutputStream()
+                        output.write(
+                            (
+                                "HTTP/1.1 200 OK\r\n" +
+                                    "Content-Type: application/json\r\n" +
+                                    "Content-Length: ${responseBody.size}\r\n" +
+                                    "Connection: close\r\n\r\n"
+                                ).toByteArray(Charsets.ISO_8859_1),
+                        )
+                        output.write(responseBody)
+                        output.flush()
+                    }
+                }
+            } catch (problem: Throwable) {
+                if (!server.isClosed) failure.compareAndSet(null, problem)
+            }
+        }
+
+        private fun readRequest(input: InputStream): String {
+            val headerBytes = ByteArrayOutputStream()
+            while (true) {
+                val next = input.read()
+                if (next < 0) error("Synthetic completion request ended before headers")
+                headerBytes.write(next)
+                val bytes = headerBytes.toByteArray()
+                if (bytes.size >= HEADER_END.size && bytes.takeLast(HEADER_END.size).toByteArray().contentEquals(HEADER_END)) break
+            }
+            val headerText = headerBytes.toString(Charsets.ISO_8859_1.name())
+            val contentLength = CONTENT_LENGTH_PATTERN.find(headerText)?.groupValues?.get(1)?.toIntOrNull()
+                ?: error("Synthetic completion request omitted Content-Length")
+            val body = ByteArray(contentLength)
+            var offset = 0
+            while (offset < body.size) {
+                val count = input.read(body, offset, body.size - offset)
+                if (count < 0) error("Synthetic completion request body was incomplete")
+                offset += count
+            }
+            return String(body, Charsets.UTF_8)
+        }
+
+        override fun close() {
+            server.close()
+            worker.join(1_000)
+        }
+
+        private companion object {
+            val HEADER_END = byteArrayOf(13, 10, 13, 10)
+            val CONTENT_LENGTH_PATTERN = Regex("Content-Length\\s*:\\s*(\\d+)", RegexOption.IGNORE_CASE)
+            val MODEL_ID_PATTERN = Regex("\"model\"\\s*:\\s*\"([^\"]+)\"")
+        }
+    }
+
+    private data class CapturedCompletionRequest(val modelId: String, val body: String)
 
     private object FakeModelGateway : ModelGateway {
         override suspend fun listModels(serviceId: String): List<String> = listOf("model-a")
