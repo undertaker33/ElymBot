@@ -4,6 +4,13 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.StartOffset
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -12,12 +19,14 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -315,9 +324,7 @@ private fun MessageBubble(message: ChatMessage, persona: String) {
             message.image?.let { Photo(it, Modifier.widthIn(max = 210.dp).heightIn(max = 175.dp).clip(RoundedCornerShape(8.dp))) }
             if (message.text.isNotEmpty()) Text(message.text, color = Ink, fontSize = 15.sp, lineHeight = 24.sp)
             else if (message.status == MessageStatus.Waiting) {
-                Row(Modifier.semanticsLabel(stringResource(R.string.elym_waiting)), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    repeat(3) { Box(Modifier.size(5.dp).background(Accent, androidx.compose.foundation.shape.CircleShape)) }
-                }
+                WaitingDots()
             }
         }
         val status = when (message.status) {
@@ -326,5 +333,28 @@ private fun MessageBubble(message: ChatMessage, persona: String) {
             else -> null
         }
         if (status != null) Text(stringResource(status), Modifier.padding(horizontal = 4.dp, vertical = 5.dp), color = Muted, fontSize = 11.sp)
+    }
+}
+
+@Composable
+private fun WaitingDots() {
+    val pulse = rememberInfiniteTransition(label = "Waiting dots")
+    Row(
+        Modifier.semanticsLabel(stringResource(R.string.elym_waiting)),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        repeat(3) { index ->
+            val opacity = pulse.animateFloat(
+                initialValue = 0.32f,
+                targetValue = 1f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(1200, easing = CubicBezierEasing(0.42f, 0f, 0.58f, 1f)),
+                    repeatMode = RepeatMode.Reverse,
+                    initialStartOffset = StartOffset(index * 150),
+                ),
+                label = "Waiting dot ${index + 1}",
+            )
+            Box(Modifier.size(5.dp).graphicsLayer { alpha = opacity.value }.background(Accent, CircleShape))
+        }
     }
 }

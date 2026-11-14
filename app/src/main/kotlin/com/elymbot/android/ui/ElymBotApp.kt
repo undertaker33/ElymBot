@@ -4,6 +4,8 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.indication
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
@@ -280,10 +282,17 @@ private fun GalleryPage(
         Row(Modifier.padding(start = 18.dp, end = 18.dp, top = 2.dp, bottom = 11.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             filters.forEachIndexed { index, label ->
                 val chosen = index == filter
-                Box(Modifier.weight(1f).height(48.dp).clickable { filter = index }, contentAlignment = Alignment.Center) {
+                val interaction = remember { MutableInteractionSource() }
+                Box(
+                    Modifier.weight(1f).height(48.dp)
+                        .clickable(interactionSource = interaction, indication = null) { filter = index },
+                    contentAlignment = Alignment.Center,
+                ) {
                     Box(
-                        Modifier.fillMaxWidth().height(32.dp).background(if (chosen) Accent else SurfaceColor, CircleShape)
-                            .border(1.dp, if (chosen) Accent else Line, CircleShape),
+                        Modifier.fillMaxWidth().height(32.dp).clip(CircleShape)
+                            .background(if (chosen) Accent else SurfaceColor)
+                            .border(1.dp, if (chosen) Accent else Line, CircleShape)
+                            .indication(interaction, ripple(bounded = true, color = Ink)),
                         contentAlignment = Alignment.Center,
                     ) {
                         Text(stringResource(label), color = if (chosen) AccentInk else Ink, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
