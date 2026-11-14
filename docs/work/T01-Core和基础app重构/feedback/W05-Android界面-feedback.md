@@ -85,3 +85,8 @@
 
 - 主 Activity 的窗口配置显式启用 edge-to-edge 与 `adjustResize`，Compose 根布局通过 `safeDrawingPadding()` 同时接收系统栏与键盘 Insets。去除根布局额外声明的 `imePadding()`。Compose 会消费已处理的 Insets，源码核对无法确认重复声明导致了闪动。聊天输入区布局与底部弹层自己的键盘处理未变。
 - 在 MEIZU 20 Pro（Android 16，`391QYGCM225VG`）的同批 debug APK 上，从主会话点击输入栏打开实体软键盘，按返回收起，共两轮。以 `adb shell screenrecord --size 720x1600 --time-limit 8` 录制并逐帧查看两次展开和收起的画面。输入栏随键盘移动且全程可见，未观察到闪白、键盘重现或输入栏跳回。没有在设备重装旧 APK 对照，因此根因仍未确认。 [Android 窗口配置](https://developer.android.com/develop/ui/compose/system/setup-e2e) · [Compose Insets 消费](https://developer.android.com/develop/ui/compose/system/insets-ui)
+
+### T01.07 验收 9–11 证据复用
+
+- 复用 [正式入口定向测试](#t0107-正式入口定向测试2026-11-14) 的真机 2/2 结果。人格编辑页分别显示封面和头像预览，测试操作各自的水平滑块并核对保存后的独立位置。专属会话列表一次删除两条所选会话，打开带新消息标记的会话并返回后，界面徽标消失，Room 未读状态清零。
+- 复用 [W01 正式入口与双会话合成复验](W01-总控与集成-feedback.md#android-正式入口与双会话合成复验)，确认回复在离开会话后完成时显示对应会话的新消息徽标。与 W05 打开后清除徽标的结果共同覆盖未读提示。勾选 [Checklist](../T01-Core和基础app重构-checklist.md#t0107-原型界面资源与-viewmodel) 的验收 9–11。验收 1–6 仍待正式聊天中助手工具反馈的纯文本证据。
