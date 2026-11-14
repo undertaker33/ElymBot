@@ -1,6 +1,21 @@
 package com.elymbot.android.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterExitState
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.updateTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -15,17 +30,26 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.semantics.hideFromAccessibility
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.ViewModel
@@ -36,6 +60,7 @@ import androidx.lifecycle.viewModelScope
 import com.elymbot.android.R
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 internal class ElymBotViewModel(val service: ElymBotUiService) : ViewModel() {
     var issue by mutableStateOf<UiIssue?>(null)
@@ -68,6 +93,43 @@ private enum class Page(val title: Int, val icon: Int) {
     Sessions(R.string.elym_sessions, R.drawable.elym_chat),
 }
 
+private data class Destination(
+    val page: Page = Page.Gallery,
+    val mainId: String? = null,
+    val ownerId: String? = null,
+    val sessionId: String? = null,
+    val title: String = "",
+) {
+    val depth: Int
+        get() = when (page) {
+            Page.Chat -> if (sessionId == null) 1 else 3
+            Page.Sessions -> 2
+            Page.Models -> if (mainId == null) 0 else if (sessionId == null) 2 else 4
+            else -> 0
+        }
+    val displayedChatId: String? get() = if (page == Page.Chat) sessionId ?: mainId else null
+    val key: String get() = "${page.name}:$mainId:$ownerId:$sessionId"
+
+    fun back(): Destination = when (page) {
+        Page.Models -> if (depth == 0) Destination() else copy(page = Page.Chat)
+        Page.Chat -> if (sessionId == null) Destination() else copy(page = Page.Sessions, sessionId = null, title = "")
+        Page.Sessions -> copy(page = Page.Chat, ownerId = null)
+        else -> Destination()
+    }
+
+    companion object {
+        val Saver = listSaver<Destination, String>(
+            save = { listOf(it.page.name, it.mainId.orEmpty(), it.ownerId.orEmpty(), it.sessionId.orEmpty(), it.title) },
+            restore = { (page, main, owner, session, title) ->
+                Destination(Page.valueOf(page), main.ifEmpty { null }, owner.ifEmpty { null }, session.ifEmpty { null }, title)
+            },
+        )
+    }
+}
+
+private val FadeEasing = CubicBezierEasing(0.42f, 0f, 0.58f, 1f)
+private val SlideEasing = CubicBezierEasing(0.20f, 0.54f, 0.30f, 1f)
+
 @Composable
 fun ElymBotApp(service: ElymBotUiService) {
     val model: ElymBotViewModel = viewModel { ElymBotViewModel(service) }
@@ -77,85 +139,118 @@ fun ElymBotApp(service: ElymBotUiService) {
     val config by service.models.collectAsStateWithLifecycle(ModelConfiguration())
     val commands by service.commandNames.collectAsStateWithLifecycle(emptyMap())
     val stateHolder = rememberSaveableStateHolder()
-    var page by rememberSaveable { mutableStateOf(Page.Gallery) }
-    var owner by rememberSaveable { mutableStateOf<String?>(null) }
-    var chatId by rememberSaveable { mutableStateOf<String?>(null) }
-    var chatTitle by rememberSaveable { mutableStateOf("") }
-    var mainChat by rememberSaveable { mutableStateOf(false) }
-    var modelsFromChat by rememberSaveable { mutableStateOf(false) }
+    var destination by rememberSaveable(stateSaver = Destination.Saver) { mutableStateOf(Destination()) }
+    val focusManager = LocalFocusManager.current
     var personaForm by remember { mutableStateOf<PersonaCard?>(null) }
     var deletePersona by remember { mutableStateOf<PersonaCard?>(null) }
     val active = personas.firstOrNull { it.id == activeId }
-    val persona = if (page == Page.Chat && mainChat) active else personas.firstOrNull { it.id == owner }
-    val openSessions = { id: String -> owner = id; page = Page.Sessions }
-    val back = {
-        page = when (page) {
-            Page.Chat -> if (mainChat) Page.Gallery else Page.Sessions
-            Page.Sessions -> {
-                chatId = main?.id
-                mainChat = true
-                if (chatId == null) Page.Gallery else Page.Chat
-            }
-            Page.Settings -> Page.Gallery
-            Page.Models -> if (modelsFromChat) Page.Chat else Page.Gallery
-            else -> Page.Gallery
-        }
+    fun navigate(next: Destination) {
+        if (destination.key != next.key) focusManager.clearFocus(force = true)
+        destination = next
     }
-    BackHandler(page != Page.Gallery, back)
-    val visibleChatId = chatId.takeIf { page == Page.Chat }
+    val back = { navigate(destination.back()) }
+    BackHandler(destination.page != Page.Gallery, back)
+    val visibleChatId = destination.displayedChatId
     LifecycleStartEffect(visibleChatId) {
         model.perform { service.setViewedConversation(visibleChatId) }
         onStopOrDispose { model.perform { service.setViewedConversation(null) } }
     }
 
+    val pageBackground = Brush.verticalGradient(listOf(PaperTop, Paper, Paper), endY = 1200f)
     MaterialTheme(colorScheme = lightColorScheme(primary = Accent, onPrimary = AccentInk, surface = SurfaceColor, onSurface = Ink, background = Paper, error = Danger)) {
         Box(
             Modifier.fillMaxSize()
-                .background(Brush.verticalGradient(listOf(PaperTop, Paper, Paper), endY = 1200f))
+                .background(pageBackground)
                 .safeDrawingPadding(),
         ) {
-            when (page) {
-                Page.Gallery -> stateHolder.SaveableStateProvider(Page.Gallery.name) { GalleryPage(
-                    personas, activeId, main?.unread == true, { personaForm = PersonaCard() },
-                ) { selected ->
-                    val target = main
-                    if (target != null) model.perform {
-                        if (!target.running && selected.id != activeId) service.activatePersona(selected.id)
-                        chatId = target.id
-                        chatTitle = ""
-                        mainChat = true
-                        page = Page.Chat
+            val navigationTransition = updateTransition(destination, label = "Page navigation")
+            navigationTransition.AnimatedContent(
+                modifier = Modifier.fillMaxSize().clipToBounds(),
+                contentKey = { it.key },
+                transitionSpec = {
+                    val offset = tween<IntOffset>(300, easing = SlideEasing)
+                    val fade = tween<Float>(220, easing = FadeEasing)
+                    when {
+                        initialState.depth < targetState.depth ->
+                            slideInHorizontally(offset) { it } togetherWith slideOutHorizontally(offset) { -(it * 0.3f).roundToInt() }
+                        initialState.depth > targetState.depth ->
+                            slideInHorizontally(offset) { -(it * 0.3f).roundToInt() } togetherWith slideOutHorizontally(offset) { it }
+                        else -> fadeIn(fade) togetherWith fadeOut(fade)
+                    }.apply { targetContentZIndex = targetState.depth.toFloat() }
+                },
+            ) { screen ->
+                val current = screen.key == destination.key
+                val scrim = transition.animateFloat(
+                    transitionSpec = { tween(300, easing = SlideEasing) },
+                    label = "Covered page scrim",
+                ) { state ->
+                    when (state) {
+                        EnterExitState.Visible -> 0f
+                        EnterExitState.PreEnter -> if (screen.depth < navigationTransition.currentState.depth) 0.10f else 0f
+                        EnterExitState.PostExit -> if (screen.depth < navigationTransition.targetState.depth) 0.10f else 0f
                     }
                 }
-                }
-                Page.Models -> ModelsPage(model, config, if (modelsFromChat) back else null)
-                Page.Settings -> CommandsPage(model, commands)
-                Page.Sessions -> if (persona != null) SessionsPage(model, persona, back) { id, title ->
-                    chatId = id
-                    chatTitle = title
-                    mainChat = false
-                    page = Page.Chat
-                }
-                Page.Chat -> if (persona != null && chatId != null) {
-                    stateHolder.SaveableStateProvider(chatId.orEmpty()) {
-                        ChatPage(
-                            model, persona, chatId.orEmpty(), chatTitle, mainChat, personas, back,
-                            onSessions = openSessions,
-                            onEdit = { personaForm = persona },
-                            onDelete = { deletePersona = persona },
-                            onModelSettings = { modelsFromChat = true; page = Page.Models },
-                            onRename = { chatTitle = it },
-                        )
+                val backFromScreen = { if (destination.key == screen.key) back() }
+                val persona = if (screen.sessionId == null && screen.page == Page.Chat) active
+                    else personas.firstOrNull { it.id == screen.ownerId }
+                Box(
+                    Modifier.fillMaxSize().background(pageBackground).drawWithContent {
+                        drawContent()
+                        if (scrim.value > 0f) drawRect(Color.Black.copy(alpha = scrim.value))
+                    }.then(
+                        if (current) Modifier else Modifier.semantics { hideFromAccessibility() }
+                            .pointerInput(Unit) {
+                                awaitPointerEventScope {
+                                    while (true) awaitPointerEvent(PointerEventPass.Initial).changes.forEach { it.consume() }
+                                }
+                            }
+                    ),
+                ) {
+                    when (screen.page) {
+                        Page.Gallery -> stateHolder.SaveableStateProvider(Page.Gallery.name) { GalleryPage(
+                            personas, activeId, main?.unread == true, { if (current) personaForm = PersonaCard() },
+                        ) { selected ->
+                            val target = main
+                            if (current && target != null) model.perform {
+                                if (!target.running && selected.id != activeId) service.activatePersona(selected.id)
+                                if (destination.key == screen.key) navigate(Destination(Page.Chat, mainId = target.id))
+                            }
+                        } }
+                        Page.Models -> ModelsPage(model, config, backFromScreen.takeIf { screen.depth > 0 }, current)
+                        Page.Settings -> CommandsPage(model, commands, current)
+                        Page.Sessions -> if (persona != null) SessionsPage(model, persona, backFromScreen, current) { id, title ->
+                            if (destination.key == screen.key) navigate(screen.copy(page = Page.Chat, sessionId = id, title = title))
+                        }
+                        Page.Chat -> screen.displayedChatId?.let { id ->
+                            if (persona != null) stateHolder.SaveableStateProvider(id) {
+                                ChatPage(
+                                    model, persona, id, screen.title, screen.sessionId == null, personas, backFromScreen, current,
+                                    onSessions = { ownerId -> if (current) navigate(screen.copy(page = Page.Sessions, ownerId = ownerId)) },
+                                    onEdit = { if (current) personaForm = persona },
+                                    onDelete = { if (current) deletePersona = persona },
+                                    onModelSettings = { if (current) navigate(screen.copy(page = Page.Models)) },
+                                    onRename = { if (destination.key == screen.key) destination = screen.copy(title = it) },
+                                )
+                            }
+                        }
+                        else -> Unit
                     }
                 }
-                else -> Unit
             }
-            if (page == Page.Gallery || page == Page.Settings || (page == Page.Models && !modelsFromChat)) {
-                Navigation(page, Modifier.align(Alignment.BottomCenter)) { destination ->
-                    modelsFromChat = false
-                    page = destination
+            var selectedRoot by remember { mutableStateOf(destination.page.takeIf { destination.depth == 0 } ?: Page.Gallery) }
+            SideEffect { if (destination.depth == 0) selectedRoot = destination.page }
+            AnimatedVisibility(
+                visible = destination.depth == 0,
+                modifier = Modifier.align(Alignment.BottomCenter),
+                enter = slideInVertically(tween(300, easing = SlideEasing)) { it } + fadeIn(tween(300, easing = SlideEasing)),
+                exit = slideOutVertically(tween(300, easing = SlideEasing)) { it } + fadeOut(tween(300, easing = SlideEasing)),
+                label = "Root navigation",
+            ) {
+                Navigation(selectedRoot, Modifier) { page ->
+                    if (destination.depth == 0) navigate(Destination(page))
                 }
             }
+
         }
         personaForm?.let { existing ->
             PersonaForm(existing, { personaForm = null }) { edited ->
@@ -169,9 +264,9 @@ fun ElymBotApp(service: ElymBotUiService) {
             Sheet(stringResource(if (hasSessions) R.string.elym_owned_sessions else R.string.elym_delete_persona), dismiss) {
                 Text(if (hasSessions) stringResource(R.string.elym_persona_has_sessions) else stringResource(R.string.elym_confirm_persona, target.name))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (hasSessions) Action(stringResource(R.string.elym_view_sessions), { dismiss(); openSessions(target.id) }, primary = true)
+                    if (hasSessions) Action(stringResource(R.string.elym_view_sessions), { dismiss(); navigate(destination.copy(page = Page.Sessions, ownerId = target.id)) }, primary = true)
                     else Action(stringResource(R.string.elym_delete_persona), {
-                        model.perform { service.deletePersona(target.id); dismiss(); page = Page.Gallery }
+                        model.perform { service.deletePersona(target.id); dismiss(); navigate(Destination()) }
                     }, danger = true)
                     Action(stringResource(R.string.elym_cancel), dismiss)
                 }
@@ -283,6 +378,9 @@ private fun GalleryPage(
             filters.forEachIndexed { index, label ->
                 val chosen = index == filter
                 val interaction = remember { MutableInteractionSource() }
+                val fill by animateColorAsState(if (chosen) Accent else SurfaceColor, tween(150, easing = FadeEasing), label = "Filter fill")
+                val stroke by animateColorAsState(if (chosen) Accent else Line, tween(150, easing = FadeEasing), label = "Filter outline")
+                val textColor by animateColorAsState(if (chosen) AccentInk else Ink, tween(150, easing = FadeEasing), label = "Filter text")
                 Box(
                     Modifier.weight(1f).height(48.dp)
                         .clickable(interactionSource = interaction, indication = null) { filter = index },
@@ -290,12 +388,12 @@ private fun GalleryPage(
                 ) {
                     Box(
                         Modifier.fillMaxWidth().height(32.dp).clip(CircleShape)
-                            .background(if (chosen) Accent else SurfaceColor)
-                            .border(1.dp, if (chosen) Accent else Line, CircleShape)
+                            .background(fill)
+                            .border(1.dp, stroke, CircleShape)
                             .indication(interaction, ripple(bounded = true, color = Ink)),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Text(stringResource(label), color = if (chosen) AccentInk else Ink, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                        Text(stringResource(label), color = textColor, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
                     }
                 }
             }

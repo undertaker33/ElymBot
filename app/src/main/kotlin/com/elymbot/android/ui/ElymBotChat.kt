@@ -45,6 +45,7 @@ internal fun ChatPage(
     main: Boolean,
     personas: List<PersonaCard>,
     back: () -> Unit,
+    current: Boolean,
     onSessions: (String) -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
@@ -83,7 +84,7 @@ internal fun ChatPage(
         if (follow && itemCount > 0) list.requestScrollToItem(itemCount - 1)
     }
     fun submit(text: String, attachment: Uri? = null, fromComposer: Boolean = false) {
-        if (submitting) return
+        if (!current || submitting) return
         submitting = true
         model.perform {
             try {
@@ -120,7 +121,7 @@ internal fun ChatPage(
             )
             Box {
                 RoundAction(R.drawable.elym_more, stringResource(R.string.elym_chat_menu), { menu = true })
-                DropdownMenu(menu, { menu = false }, containerColor = SurfaceColor, shape = RoundedCornerShape(16.dp)) {
+                DropdownMenu(current && menu, { menu = false }, containerColor = SurfaceColor, shape = RoundedCornerShape(16.dp)) {
                     if (main) {
                         ChatMenuItem(R.string.elym_sessions, R.drawable.elym_chat) { menu = false; onSessions(persona.id) }
                         if (conversation.generating) ChatMenuItem(R.string.elym_other_sessions, R.drawable.elym_person) { menu = false; chooseSessions = true }
@@ -192,7 +193,7 @@ internal fun ChatPage(
                     if (running) R.drawable.elym_stop else R.drawable.elym_send,
                     stringResource(if (running) R.string.elym_stop else R.string.elym_send),
                     {
-                        if (running) model.perform { service.stop(id) }
+                        if (current && running) model.perform { service.stop(id) }
                         else sendDraft()
                     },
                     primary = true, enabled = running || (!submitting && (draft.isNotBlank() || image != null)), roundedSquare = true,
@@ -201,7 +202,7 @@ internal fun ChatPage(
         }
     }
 
-    if (showMainModelConfig) AlertDialog(
+    if (current && showMainModelConfig) AlertDialog(
         onDismissRequest = { showMainModelConfig = false },
         text = { Text(stringResource(R.string.elym_main_missing)) },
         confirmButton = {
@@ -215,7 +216,7 @@ internal fun ChatPage(
         },
     )
 
-    if (choosePersona) Sheet(stringResource(R.string.elym_switch_persona), { choosePersona = false }) {
+    if (current && choosePersona) Sheet(stringResource(R.string.elym_switch_persona), { choosePersona = false }) {
         Group {
             personas.forEachIndexed { index, item ->
                 if (index > 0) HorizontalDivider(color = Line)
@@ -228,7 +229,7 @@ internal fun ChatPage(
             }
         }
     }
-    if (chooseSessions) Sheet(stringResource(R.string.elym_choose_persona), { chooseSessions = false }) {
+    if (current && chooseSessions) Sheet(stringResource(R.string.elym_choose_persona), { chooseSessions = false }) {
         Group {
             personas.filter { it.id != persona.id }.forEachIndexed { index, item ->
                 if (index > 0) HorizontalDivider(color = Line)
@@ -236,13 +237,13 @@ internal fun ChatPage(
             }
         }
     }
-    if (rename) RenameSession(displayTitle, { rename = false }) { edited ->
+    if (current && rename) RenameSession(displayTitle, { rename = false }) { edited ->
         model.perform { service.renameSession(id, edited); onRename(edited); rename = false }
     }
-    if (showCheckpoints) {
+    if (current && showCheckpoints) {
         CheckpointsSheet(model, id, conversation.generating, { showCheckpoints = false })
     }
-    if (delete) ConfirmSessionDelete(
+    if (current && delete) ConfirmSessionDelete(
         conversation.generating, stringResource(R.string.elym_confirm_session, displayTitle), { delete = false },
     ) { model.perform { service.deleteSessions(persona.id, setOf(id)); delete = false; back() } }
 }

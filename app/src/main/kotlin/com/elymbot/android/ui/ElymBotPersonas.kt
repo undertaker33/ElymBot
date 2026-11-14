@@ -76,7 +76,7 @@ private fun PositionEditor(label: String, persona: PersonaCard, avatar: Boolean,
 }
 
 @Composable
-internal fun SessionsPage(model: ElymBotViewModel, persona: PersonaCard, back: () -> Unit, open: (String, String) -> Unit) {
+internal fun SessionsPage(model: ElymBotViewModel, persona: PersonaCard, back: () -> Unit, current: Boolean, open: (String, String) -> Unit) {
     val service = model.service
     val sessions by remember(persona.id) { service.sessions(persona.id) }.collectAsStateWithLifecycle(emptyList())
     var editing by remember(persona.id) { mutableStateOf(false) }
@@ -85,7 +85,7 @@ internal fun SessionsPage(model: ElymBotViewModel, persona: PersonaCard, back: (
     var rename by remember { mutableStateOf<ConversationSummary?>(null) }
     var deletion by remember { mutableStateOf<Set<String>?>(null) }
     val create = { model.perform { open(service.newSession(persona.id), "") } }
-    BackHandler(editing) { editing = false; selection = emptySet() }
+    BackHandler(current && editing) { editing = false; selection = emptySet() }
 
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().heightIn(min = 65.dp).padding(start = 5.dp, end = 18.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -137,7 +137,7 @@ internal fun SessionsPage(model: ElymBotViewModel, persona: PersonaCard, back: (
         }
     }
 
-    options?.let { item ->
+    options?.takeIf { current }?.let { item ->
         Sheet(item.title, { options = null }) {
             Group {
                 ListRow(stringResource(R.string.elym_rename), R.drawable.elym_sliders, { options = null; rename = item })
@@ -146,12 +146,12 @@ internal fun SessionsPage(model: ElymBotViewModel, persona: PersonaCard, back: (
             }
         }
     }
-    rename?.let { item ->
+    rename?.takeIf { current }?.let { item ->
         RenameSession(item.title, { rename = null }) { edited ->
             model.perform { service.renameSession(item.id, edited); rename = null }
         }
     }
-    deletion?.let { ids ->
+    deletion?.takeIf { current }?.let { ids ->
         val title = sessions.firstOrNull { it.id in ids }?.title.orEmpty()
         ConfirmSessionDelete(
             sessions.any { it.id in ids && it.running },

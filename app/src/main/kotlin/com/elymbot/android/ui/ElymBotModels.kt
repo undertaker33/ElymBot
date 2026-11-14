@@ -19,7 +19,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.elymbot.android.R
 
 @Composable
-internal fun ModelsPage(model: ElymBotViewModel, config: ModelConfiguration, back: (() -> Unit)?) {
+internal fun ModelsPage(model: ElymBotViewModel, config: ModelConfiguration, back: (() -> Unit)?, current: Boolean) {
     var editor by remember { mutableStateOf<ModelServiceDraft?>(null) }
     var hasKey by remember { mutableStateOf(false) }
     var role by remember { mutableStateOf<ModelRole?>(null) }
@@ -47,8 +47,8 @@ internal fun ModelsPage(model: ElymBotViewModel, config: ModelConfiguration, bac
             }
         }
     }
-    editor?.let { initial -> ModelEditor(model, initial, hasKey, { editor = null }) }
-    role?.let { selected ->
+    editor?.takeIf { current }?.let { initial -> ModelEditor(model, initial, hasKey, { editor = null }) }
+    role?.takeIf { current }?.let { selected ->
         val choice = if (selected == ModelRole.Text) config.text else config.vision
         var edited by remember(selected, choice) { mutableStateOf(choice) }
         Sheet(stringResource(if (selected == ModelRole.Text) R.string.elym_text_model else R.string.elym_vision_model), { role = null }) {
@@ -229,7 +229,7 @@ private fun Capability(label: Int, status: ProbeStatus, failure: ProbeFailure?) 
 }
 
 @Composable
-internal fun CommandsPage(model: ElymBotViewModel, names: Map<ChatCommand, String>) {
+internal fun CommandsPage(model: ElymBotViewModel, names: Map<ChatCommand, String>, current: Boolean) {
     var editing by remember { mutableStateOf(false) }
     Column {
         Header(stringResource(R.string.elym_settings))
@@ -239,7 +239,7 @@ internal fun CommandsPage(model: ElymBotViewModel, names: Map<ChatCommand, Strin
             }
         }
     }
-    if (editing) {
+    if (current && editing) {
         val edited = remember(names) { mutableStateMapOf<ChatCommand, String>().apply { ChatCommand.entries.forEach { put(it, names[it] ?: it.defaultName) } } }
         Sheet(stringResource(R.string.elym_command_names), { editing = false }) {
             ChatCommand.entries.forEach { command ->
