@@ -77,6 +77,8 @@ data class HistorySummaryCandidate(
     val fromTurnInclusive: Long,
     val toTurnInclusive: Long,
     val text: String,
+    /** Existing summaries wholly covered by this candidate and atomically replaced. */
+    val replacesSummaryIds: Set<String> = emptySet(),
 )
 
 sealed interface SummaryCommitResult {
@@ -89,7 +91,9 @@ sealed interface SummaryCommitResult {
 
 /**
  * Stores summaries independently of raw messages. Commit must verify the candidate
- * range against retained history and must not modify or replace that raw history.
+ * range against retained history, replace only the explicitly listed summaries
+ * wholly covered by the candidate, and reject overlap with any unlisted summary.
+ * The raw history is never modified or replaced.
  */
 interface HistorySummaryStore {
     suspend fun read(sessionId: String, upperBoundExclusive: Long): List<HistorySummary>

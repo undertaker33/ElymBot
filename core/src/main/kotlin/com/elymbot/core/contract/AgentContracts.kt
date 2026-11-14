@@ -74,6 +74,13 @@ sealed interface AgentEvent {
         val text: String,
     ) : AgentEvent
 
+    /** Temporary host-generated tool execution state. It carries no tool-source text. */
+    data class ToolProgress(
+        override val executionId: String,
+        override val attemptId: String,
+        val active: Boolean,
+    ) : AgentEvent
+
     /** Emitted once for controlled termination; caller cancellation propagates. */
     data class Finished(
         override val executionId: String,
