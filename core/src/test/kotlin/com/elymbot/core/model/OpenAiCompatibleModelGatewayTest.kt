@@ -34,6 +34,8 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import okhttp3.OkHttpClient
+import java.io.InterruptedIOException
 import java.util.concurrent.TimeUnit
 
 class OpenAiCompatibleModelGatewayTest {
@@ -407,6 +409,98 @@ class OpenAiCompatibleModelGatewayTest {
         val toolBody = Json.parseToJsonElement(tools.body?.utf8().orEmpty()).jsonObject
         assertEquals("required", toolBody.getValue("tool_choice").jsonPrimitive.content)
         assertEquals("Bearer " + API_KEY, tools.headers["Authorization"])
+    }
+
+    @Test
+    fun targetedVisionProbeSendsOnlyOneSyntheticImageRequest() = runBlocking {
+        server.enqueue(jsonResponse(completionJson("red blue green yellow", "stop")))
+
+        val report = gateway().probeVision(MODEL)
+
+        assertEquals(CapabilityStatus.UNKNOWN, report.availability)
+        assertEquals(CapabilityStatus.SUPPORTED, report.vision)
+        assertEquals(CapabilityStatus.UNKNOWN, report.nativeStreaming)
+        assertEquals(CapabilityStatus.UNKNOWN, report.structuredToolCalls)
+        val request = server.takeRequest(1, TimeUnit.SECONDS)!!
+        val body = Json.parseToJsonElement(request.body?.utf8().orEmpty()).jsonObject
+        assertEquals(MODEL.modelId, body.getValue("model").jsonPrimitive.content)
+        assertEquals("false", body.getValue("stream").jsonPrimitive.content)
+        val messages = body.getValue("messages").jsonArray
+        assertEquals(1, messages.size)
+        val content = messages.single().jsonObject.getValue("content").jsonArray
+        assertTrue(content[0].jsonObject.getValue("text").jsonPrimitive.content.contains("four block colors"))
+        val imageUrl = content[1].jsonObject.getValue("image_url").jsonObject.getValue("url").jsonPrimitive.content
+        assertTrue(imageUrl.startsWith("data:image/png;base64,"))
+        assertNull(server.takeRequest(100, TimeUnit.MILLISECONDS))
+    }
+
+    @Test
+    fun targetedVisionProbeKeepsUnsupportedDistinctFromTransientFailure() = runBlocking {
+        server.enqueue(
+            jsonResponse(
+                """{"error":{"code":"image_not_supported","type":"invalid_request_error","message":"Images are not supported by this model."}}""",
+                400,
+            ),
+        )
+        val unsupported = gateway().probeVision(MODEL)
+
+        assertEquals(CapabilityStatus.UNSUPPORTED, unsupported.vision)
+        assertEquals(
+            ModelProbeFailureKind.HTTP,
+            unsupported.failuresByTarget.getValue(ModelProbeTarget.VISION).kind,
+        )
+        assertEquals(400, unsupported.failuresByTarget.getValue(ModelProbeTarget.VISION).httpStatusCode)
+        assertNotNull(server.takeRequest(1, TimeUnit.SECONDS))
+        assertNull(server.takeRequest(100, TimeUnit.MILLISECONDS))
+
+        server.enqueue(
+            jsonResponse(
+                """{"error":{"code":"rate_limit_exceeded","type":"rate_limit_error","message":"Vision image input is not supported by this model. Try again later."}}""",
+                429,
+            ),
+        )
+        val rateLimited = gateway().probeVision(MODEL)
+
+        assertEquals(CapabilityStatus.UNKNOWN, rateLimited.vision)
+        assertEquals(
+            ModelProbeFailureKind.HTTP,
+            rateLimited.failuresByTarget.getValue(ModelProbeTarget.VISION).kind,
+        )
+        assertTrue(rateLimited.failuresByTarget.getValue(ModelProbeTarget.VISION).retryable)
+        assertNotNull(server.takeRequest(1, TimeUnit.SECONDS))
+        assertNull(server.takeRequest(100, TimeUnit.MILLISECONDS))
+    }
+
+    @Test
+    fun targetedVisionProbePropagatesCancellation() = runBlocking {
+        val gateway = OpenAiCompatibleModelGateway(
+            connectionProvider = ModelServiceConnectionProvider {
+                throw CancellationException("synthetic cancellation")
+            },
+        )
+        val failure = runCatching { gateway.probeVision(MODEL) }.exceptionOrNull()
+
+        assertTrue(failure is CancellationException)
+    }
+
+    @Test
+    fun targetedVisionProbeReportsOkHttpCallTimeoutAsTimedOut() = runBlocking {
+        val timeoutGateway = OpenAiCompatibleModelGateway(
+            connectionProvider = ModelServiceConnectionProvider {
+                ModelServiceConnection("http://model.invalid/v1", API_KEY)
+            },
+            client = OkHttpClient.Builder()
+                .addInterceptor { throw InterruptedIOException("timeout") }
+                .build(),
+        )
+
+        val report = timeoutGateway.probeVision(MODEL)
+
+        assertEquals(CapabilityStatus.UNKNOWN, report.vision)
+        assertEquals(
+            ModelProbeFailureKind.TIMED_OUT,
+            report.failuresByTarget.getValue(ModelProbeTarget.VISION).kind,
+        )
     }
 
     @Test

@@ -43,6 +43,8 @@ import com.elymbot.core.contract.ModelCapabilityReport
 import com.elymbot.core.contract.ModelContentPart
 import com.elymbot.core.contract.ModelFinishReason
 import com.elymbot.core.contract.ModelGateway
+import com.elymbot.core.contract.ModelProbeFailure
+import com.elymbot.core.contract.ModelProbeFailureKind
 import com.elymbot.core.contract.ModelProbeTarget
 import com.elymbot.core.contract.ModelReference
 import com.elymbot.core.contract.ModelRequest
@@ -1454,7 +1456,7 @@ class ElymBotStorageTest {
     @SdkSuppress(minSdkVersion = Build.VERSION_CODES.Q)
     fun nonStreamingVisionRoutesDirectAndThroughConfiguredFallback() = runBlocking {
         val fixture = Fixture(context)
-        val server = VisualCompletionServer(expectedRequests = 3)
+        val server = VisualCompletionServer(expectedRequests = 5)
         var imageUri: Uri? = null
         try {
             fixture.initializeTestState()
@@ -1482,20 +1484,6 @@ class ElymBotStorageTest {
             val serviceId = fixture.database.modelConfigurationDao().getServices().single().id
             service.setModel(UiModelRole.Text, ModelChoice(serviceId, "model-text"))
             service.setModel(UiModelRole.Vision, ModelChoice(serviceId, "model-vision"))
-            fixture.setModelProbe(
-                serviceId = serviceId,
-                modelId = "model-text",
-                baseUrl = server.baseUrl,
-                vision = CapabilityStatus.SUPPORTED,
-                nativeStreaming = CapabilityStatus.UNSUPPORTED,
-            )
-            fixture.setModelProbe(
-                serviceId = serviceId,
-                modelId = "model-vision",
-                baseUrl = server.baseUrl,
-                vision = CapabilityStatus.SUPPORTED,
-                nativeStreaming = CapabilityStatus.UNSUPPORTED,
-            )
             val session = service.newSession(fixture.personaId(0))
             val uri = fixture.createImageContentUri()
             imageUri = uri
@@ -1503,6 +1491,9 @@ class ElymBotStorageTest {
             service.send(session, "Describe the synthetic image directly", uri)
             fixture.awaitStatus(session, "COMPLETED")
             assertEquals("Direct visual answer", fixture.database.messageDao().forTurn(session, 1).last().message.text)
+            val primaryProbes = fixture.database.modelConfigurationDao().getProbes(serviceId, "model-text", server.baseUrl)
+            assertEquals(listOf(ModelProbeTarget.VISION.name), primaryProbes.map { it.target })
+            assertEquals(CapabilityStatus.SUPPORTED.name, primaryProbes.single().status)
 
             fixture.setModelProbe(
                 serviceId = serviceId,
@@ -1510,6 +1501,15 @@ class ElymBotStorageTest {
                 baseUrl = server.baseUrl,
                 vision = CapabilityStatus.UNSUPPORTED,
                 nativeStreaming = CapabilityStatus.UNSUPPORTED,
+                structuredToolCalls = CapabilityStatus.SUPPORTED,
+            )
+            fixture.setModelProbe(
+                serviceId = serviceId,
+                modelId = "model-vision",
+                baseUrl = server.baseUrl,
+                vision = CapabilityStatus.UNKNOWN,
+                nativeStreaming = CapabilityStatus.SUPPORTED,
+                structuredToolCalls = CapabilityStatus.SUPPORTED,
             )
             service.send(session, "Describe the synthetic image through fallback", uri)
             fixture.awaitStatus(session, "COMPLETED")
@@ -1517,15 +1517,124 @@ class ElymBotStorageTest {
             server.awaitRequests()
 
             val requests = server.requests
-            assertEquals(listOf("model-text", "model-vision", "model-text"), requests.map { it.modelId })
+            assertEquals(
+                listOf("model-text", "model-text", "model-vision", "model-vision", "model-text"),
+                requests.map { it.modelId },
+            )
             assertTrue(requests.all { it.body.contains("\"stream\":false") })
-            assertTrue(requests[0].body.contains("data:image/png;base64,"))
-            assertTrue(requests[1].body.contains("data:image/png;base64,"))
-            assertFalse(requests[2].body.contains("image_url"))
-            assertTrue(requests[2].body.contains("Image description:"))
+            assertTrue(requests[0].body.contains("Name the four block colors in order"))
+            assertFalse(requests[0].body.contains("Describe the synthetic image directly"))
+            assertTrue(requests[1].body.contains("Describe the synthetic image directly"))
+            assertTrue(requests[2].body.contains("Name the four block colors in order"))
+            assertFalse(requests[2].body.contains("Describe the synthetic image through fallback"))
+            assertFalse(requests[3].body.contains("Describe the synthetic image through fallback"))
+            assertFalse(requests[4].body.contains("image_url"))
+            assertTrue(requests[4].body.contains("Image description:"))
+            assertTrue(requests[4].body.contains("Describe the synthetic image through fallback"))
+            fun imageUrl(request: CapturedCompletionRequest): String? =
+                Regex("\"url\"\\s*:\\s*\"(data:image/png;base64,[^\"]+)\"")
+                    .find(request.body)?.groupValues?.get(1)
+            assertNotNull(imageUrl(requests[0]))
+            assertNotNull(imageUrl(requests[1]))
+            assertNotNull(imageUrl(requests[2]))
+            assertNotNull(imageUrl(requests[3]))
+            assertTrue(imageUrl(requests[0]) != imageUrl(requests[1]))
+            assertTrue(imageUrl(requests[2]) != imageUrl(requests[3]))
+            assertEquals(imageUrl(requests[1]), imageUrl(requests[3]))
+
+            val visionProbes = fixture.database.modelConfigurationDao().getProbes(serviceId, "model-vision", server.baseUrl)
+                .associateBy { it.target }
+            assertEquals(CapabilityStatus.SUPPORTED.name, visionProbes.getValue(ModelProbeTarget.VISION.name).status)
+            assertEquals(CapabilityStatus.SUPPORTED.name, visionProbes.getValue(ModelProbeTarget.STRUCTURED_TOOL_CALLS.name).status)
+            assertEquals(CapabilityStatus.SUPPORTED.name, visionProbes.getValue(ModelProbeTarget.NATIVE_STREAMING.name).status)
         } finally {
             imageUri?.let { context.contentResolver.delete(it, null, null) }
             server.close()
+            fixture.close()
+        }
+    }
+
+    @Test
+    @SdkSuppress(minSdkVersion = Build.VERSION_CODES.Q)
+    fun transientPrimaryVisionProbeFailureDoesNotUseFallbackModel() = runBlocking {
+        val fixture = Fixture(context)
+        val probedModels = CopyOnWriteArrayList<String>()
+        val agentRuns = AtomicInteger()
+        val gateway = object : ModelGateway {
+            override suspend fun listModels(serviceId: String) = listOf("model-text", "model-vision")
+
+            override suspend fun probe(model: ModelReference) = ModelCapabilityReport(
+                model = model,
+                availability = CapabilityStatus.UNKNOWN,
+                vision = CapabilityStatus.UNKNOWN,
+                nativeStreaming = CapabilityStatus.UNKNOWN,
+                structuredToolCalls = CapabilityStatus.UNKNOWN,
+            )
+
+            override suspend fun probeVision(model: ModelReference): ModelCapabilityReport {
+                probedModels += model.modelId
+                return ModelCapabilityReport(
+                    model = model,
+                    availability = CapabilityStatus.UNKNOWN,
+                    vision = CapabilityStatus.UNKNOWN,
+                    nativeStreaming = CapabilityStatus.UNKNOWN,
+                    structuredToolCalls = CapabilityStatus.UNKNOWN,
+                    failuresByTarget = mapOf(
+                        ModelProbeTarget.VISION to ModelProbeFailure(
+                            ModelProbeFailureKind.HTTP,
+                            httpStatusCode = 429,
+                            retryable = true,
+                        ),
+                    ),
+                )
+            }
+
+            override fun stream(request: ModelRequest): Flow<ModelStreamEvent> = flow {
+                emit(ModelStreamEvent.Completed(ModelFinishReason.STOP))
+            }
+        }
+        val service = fixture.service(
+            runtime = AgentRuntime { request ->
+                agentRuns.incrementAndGet()
+                flow {
+                    emit(AgentEvent.Finished(request.executionId, request.attemptId, AgentTerminalStatus.COMPLETED))
+                }
+            },
+            modelGateway = gateway,
+        )
+        var imageUri: Uri? = null
+        try {
+            fixture.initializeTestState()
+            service.saveModelService(
+                ModelServiceDraft(
+                    provider = "compatible",
+                    name = "Transient vision fixture",
+                    baseUrl = "https://fixture.invalid/v1",
+                    apiKey = "synthetic-key",
+                    modelId = "model-text",
+                    catalog = listOf("model-vision"),
+                ),
+            )
+            val serviceId = fixture.database.modelConfigurationDao().getServices().single().id
+            service.setModel(UiModelRole.Text, ModelChoice(serviceId, "model-text"))
+            service.setModel(UiModelRole.Vision, ModelChoice(serviceId, "model-vision"))
+            val session = service.newSession(fixture.personaId(0))
+            imageUri = fixture.createImageContentUri()
+
+            service.send(session, "Describe this image", imageUri)
+            fixture.awaitStatus(session, "FAILED")
+
+            assertEquals(listOf("model-text"), probedModels)
+            assertEquals(0, agentRuns.get())
+            assertEquals(UiIssue.ServiceRejected, service.conversation(session).first().issue)
+            assertEquals(AgentFailureKind.MODEL_REJECTED.name, fixture.database.turnDao().latest(session)?.failureKind)
+            assertTrue(fixture.database.turnDao().latest(session)?.retryable == true)
+            assertTrue(
+                fixture.database.modelConfigurationDao()
+                    .getProbes(serviceId, "model-vision", "https://fixture.invalid/v1").isEmpty(),
+            )
+        } finally {
+            imageUri?.let { context.contentResolver.delete(it, null, null) }
             fixture.close()
         }
     }
@@ -2100,7 +2209,9 @@ class ElymBotStorageTest {
                             ?: error("Synthetic completion request omitted model ID")
                         requests += CapturedCompletionRequest(modelId, request)
                         val includesImage = request.contains("data:image/png;base64,")
+                        val isVisionProbe = request.contains("Name the four block colors in order")
                         val answer = when {
+                            isVisionProbe -> "red blue green yellow"
                             modelId == "model-vision" -> "A small blue square."
                             includesImage -> "Direct visual answer"
                             else -> "Fallback text answer"

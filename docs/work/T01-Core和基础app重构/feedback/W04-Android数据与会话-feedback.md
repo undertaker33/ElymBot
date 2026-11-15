@@ -142,3 +142,18 @@ Checklist 未修改。T01.05/T01.06 的存储服务测试覆盖已更新，但�
 - Windows PowerShell，Gradle Wrapper 9.9.1：`.\gradlew.bat :app:assembleDebug :app:assembleDebugAndroidTest --console=plain --quiet`，通过。
 - 使用 MuMu `ElymBot-T01-Clean`（ABR-AL80，Android 15/API 35，`127.0.0.1:16416`）安装同批 debug 与 AndroidTest APK，运行 `ElymBotUiIntegrationTest#savingAnUnchangedModelServiceKeepsItsApiKey`、`ElymBotStorageTest#savingModelServicePreservesAndInvalidatesProbeCacheWithCredentialIdentity`、`ElymBotStorageTest#modelServiceUrlAndCredentialUpdatesStayAtomicAcrossSnapshotsAndDrafts`，结果 `OK (3 tests)`，耗时 3.593 秒。debug APK SHA-256 前缀 `F04499BDB9AA`。仅使用隔离 Room 数据和合成凭据；未访问已配置的真实模型服务或用户数据库。
 - W05 的界面回归与本节 W04 数据回归共用该次构建和 MuMu 测试证据，完整命令见 [W05 Feedback](W05-Android界面-feedback.md#保存模型服务后的-api-key)。
+
+## 2026-11-15 首次图片发送的视觉路由复验
+
+### 实际改动
+
+- `ElymBotSessionService` 在首张图片的执行快照中读取主模型、Vision assignment、能力记录、服务地址和加密凭据身份。若主模型 VISION 为 UNKNOWN，在启动 Agent 和读取实际图片前调用 Core 的 targeted `probeVision`；只探测该模型的视觉能力。只有主模型明确 UNSUPPORTED 才检查已配置 Vision 模型；Vision 模型为 UNKNOWN 时才探测它。相同模型引用复用主模型的判定，不重复探测。
+- 合成视觉探测结果仅写入 VISION 缓存列，保留 SSE/工具能力记录；UNKNOWN 不写入缓存，避免把暂时失败或并发的明确结果改成 UNKNOWN。探测后的缓存写入在短 Room 事务内核对相同服务 ID、地址和加密凭据快照；网络失败、超时、认证失败、取消或限流不会被解释为 UNSUPPORTED，也不会触发 fallback。缓存写入的陈旧身份或存储异常不改变当前有效请求。
+- 人工模型探测使用同一保存身份核对；保存前手工输入的模型仍可探测，不要求先进入模型目录。明确 Key 草稿可使用新 Key 发起探测，即使旧的已保存 Key 无法解密也不会阻断草稿请求；该草稿不写入已保存缓存。
+- 新增 `transientPrimaryVisionProbeFailureDoesNotUseFallbackModel`，确认 HTTP 429 时仅探测主模型、不启动 Agent、不探测 Vision 模型，且会话保留可重试的 `MODEL_REJECTED` 终态。扩展 `nonStreamingVisionRoutesDirectAndThroughConfiguredFallback`：首轮 UNKNOWN 主模型经自动探测后将实际图片直传；后续明确不支持时只探测配置的 Vision 模型，再沿既有视觉转述路径处理同一实际图片。断言五个端点请求的模型顺序、synthetic probe image 与实际图片不同、实际图片在直传与 fallback 路由中一致，且转述后回到文本模型的请求不含图片。
+
+### 构建与定向设备验证
+
+- Windows PowerShell，Gradle Wrapper 9.9.1：`.\gradlew.bat :app:assembleDebug :app:assembleDebugAndroidTest :core:test --continue --console=plain --quiet`，App、AndroidTest APK 和 Core 测试通过；Core 模型适配测试 XML 报告 23 项、0 failures、0 errors。
+- MuMu `ElymBot-T01-Clean`（ABR-AL80，Android 15/API 35，`127.0.0.1:16416`）安装同批 APK 后运行：`adb -s 127.0.0.1:16416 shell am instrument -w -e class 'com.elymbot.android.ElymBotUiIntegrationTest#savingAnUnchangedModelServiceKeepsItsApiKey,com.elymbot.android.data.ElymBotStorageTest#nonStreamingVisionRoutesDirectAndThroughConfiguredFallback,com.elymbot.android.data.ElymBotStorageTest#transientPrimaryVisionProbeFailureDoesNotUseFallbackModel' com.elymbot.android.debug.test/androidx.test.runner.AndroidJUnitRunner`，结果 `OK (3 tests)`，耗时 3.759 秒。
+- debug APK SHA-256：`DEC51C34945EC82F48928675046BCB6522A96071928DFC4D82AE6758B912C7CC`；AndroidTest APK SHA-256：`B40529BAF8E0F68E385CE65FDEE999711E3D7A4A8AA847A501F37D2940001F61`。仪器用例只使用隔离 Room fixture、生成 PNG、合成 Key 和本机模拟端点；没有读取用户数据库或连接真实模型服务。

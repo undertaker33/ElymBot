@@ -9,6 +9,7 @@ import com.elymbot.android.data.CheckpointEntity
 import com.elymbot.android.data.CommandNameEntity
 import com.elymbot.android.data.ConversationEntity
 import com.elymbot.android.data.ConversationSummaryRow
+import com.elymbot.android.data.CredentialEntity
 import com.elymbot.android.data.CredentialVault
 import com.elymbot.android.data.ElymBotDataRepository
 import com.elymbot.android.data.HistorySummaryEntity
@@ -566,7 +567,7 @@ class ElymBotSessionService(
         val result = try {
             connectionProvider.withDraftConnection(service) { temporaryId ->
                 val report = modelGateway.probe(ModelReference(temporaryId, service.modelId.trim()))
-                saveProbeIfPersisted(service, report)
+                saveProbeIfPersisted(service, temporaryId, report)
                 report.toUiProbe()
             }
         } catch (cancelled: CancellationException) {
@@ -773,16 +774,22 @@ class ElymBotSessionService(
             val user = repository.database.messageDao().forTurn(execution.sessionId, execution.turnSequence)
                 .firstOrNull { it.message.id == execution.userMessageId }
                 ?: throw IllegalStateException("Turn input is unavailable")
+            if (user.attachments.any { !it.mediaType.startsWith("image/") }) {
+                throw IllegalArgumentException("Unsupported attachment type")
+            }
+            val (primary, vision) = if (user.attachments.isEmpty()) {
+                execution.snapshot.primary to execution.snapshot.vision
+            } else {
+                resolveVisionModels(execution)
+            }
             val content = buildList {
                 if (user.message.text.isNotEmpty()) add(ModelContentPart.Text(user.message.text))
                 user.attachments.forEach { attachment ->
-                    if (!attachment.mediaType.startsWith("image/")) throw IllegalArgumentException("Unsupported attachment type")
                     val bytes = repository.assets.file(attachment.privatePath).readBytes()
                     add(ModelContentPart.Image(bytes, attachment.mediaType))
                 }
                 if (isEmpty()) add(ModelContentPart.Text(user.message.text))
             }
-            val mainModel = execution.snapshot.primary.selection
             val request = AgentRequest(
                 sessionId = execution.sessionId,
                 executionId = execution.executionId,
@@ -790,8 +797,8 @@ class ElymBotSessionService(
                 turnSequence = execution.turnSequence,
                 historyUpperBoundExclusive = execution.turnSequence,
                 persona = execution.persona,
-                primaryModel = mainModel,
-                visionModel = execution.snapshot.vision?.selection,
+                primaryModel = primary.selection,
+                visionModel = vision?.selection,
                 currentInput = ModelMessage(ModelRole.USER, content),
                 toolScope = if (execution.sessionKind == SESSION_KIND_MAIN) ToolScope.MAIN_SESSION else ToolScope.PERSONA_SESSION,
                 toolSources = toolSources(),
@@ -852,6 +859,12 @@ class ElymBotSessionService(
                 uiIssue = UiIssue.Connection
                 throw cancelled
             }
+        } catch (failure: CapabilityProbeException) {
+            val requestFailure = failure.requestFailure
+            terminalStatus = requestFailure.toTurnStatus()
+            failureKind = requestFailure.toStoredFailureKind()
+            retryable = failure.retryable
+            uiIssue = requestFailure.toUiIssue()
         } catch (failure: Throwable) {
             terminalStatus = failure.toTurnStatus()
             failureKind = failure.toStoredFailureKind()
@@ -861,6 +874,71 @@ class ElymBotSessionService(
             withContext(NonCancellable) {
                 finalizeExecution(execution, terminalStatus, failureKind, retryable, uiIssue)
             }
+        }
+    }
+
+    private suspend fun resolveVisionModels(execution: ActiveExecution): Pair<RunModel, RunModel?> {
+        var primary = execution.snapshot.primary
+        var vision = execution.snapshot.vision
+        if (primary.selection.capabilities.vision == CapabilityStatus.UNKNOWN) {
+            primary = probeVision(primary)
+        }
+        if (primary.selection.capabilities.vision == CapabilityStatus.UNSUPPORTED) {
+            val configuredVision = vision ?: return primary to null
+            if (configuredVision.selection.reference == primary.selection.reference) {
+                vision = primary
+            } else if (configuredVision.selection.capabilities.vision == CapabilityStatus.UNKNOWN) {
+                vision = probeVision(configuredVision)
+            }
+        }
+        return primary to vision
+    }
+
+    private suspend fun probeVision(model: RunModel): RunModel {
+        val report = modelGateway.probeVision(model.selection.reference)
+        val failure = report.failuresByTarget[ModelProbeTarget.VISION]
+        if (report.vision == CapabilityStatus.UNKNOWN && failure != null) {
+            throw CapabilityProbeException(failure.toModelRequestException(), failure.retryable)
+        }
+        saveVisionProbeIfCurrent(model, report, failure)
+        val currentCapabilities = model.selection.capabilities
+        val failures = currentCapabilities.failuresByTarget - ModelProbeTarget.VISION
+        val updatedFailures = failure?.let { failures + (ModelProbeTarget.VISION to it) } ?: failures
+        return model.copy(
+            selection = model.selection.copy(
+                capabilities = currentCapabilities.copy(
+                    vision = report.vision,
+                    failuresByTarget = updatedFailures,
+                ),
+            ),
+        )
+    }
+
+    private suspend fun saveVisionProbeIfCurrent(
+        model: RunModel,
+        report: ModelCapabilityReport,
+        failure: ModelProbeFailure?,
+    ) {
+        if (report.vision == CapabilityStatus.UNKNOWN) return
+        try {
+            connectionProvider.withSavedIdentity(model.connectionServiceId, model.persistedServiceId) { service ->
+                val dao = repository.database.modelConfigurationDao()
+                dao.upsertProbe(
+                    ModelProbeEntity(
+                        serviceId = model.persistedServiceId,
+                        modelId = model.modelId,
+                        baseUrl = service.baseUrl,
+                        target = ModelProbeTarget.VISION.name,
+                        status = report.vision.name,
+                        failureKind = failure?.kind?.name,
+                        httpStatusCode = failure?.httpStatusCode,
+                    ),
+                )
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            // A cache write must not fail the run using its captured connection.
         }
     }
 
@@ -1064,29 +1142,80 @@ class ElymBotSessionService(
         val persona = retry?.let { PersonaPrompt(it.personaId, it.personaName, it.personaPrompt) }
             ?: repository.database.personaDao().get(session.personaId)?.let { PersonaPrompt(it.id, it.name, it.prompt) }
             ?: fail(UiIssue.InvalidInput)
-        val primary = if (retry == null) {
-            configuredModel(UiModelRole.Text.name)
-        } else {
-            configuredModel(retry.primaryServiceId, retry.primaryModelId)
-        } ?: fail(UiIssue.MainModelMissing)
-        val vision = if (retry == null) configuredModel(UiModelRole.Vision.name) else {
-            configuredModel(retry.visionServiceId, retry.visionModelId)
+        val configuredModels = repository.database.withTransaction {
+            val dao = repository.database.modelConfigurationDao()
+            val primaryAssignment = if (retry == null) dao.getAssignment(UiModelRole.Text.name) else null
+            val visionAssignment = if (retry == null) dao.getAssignment(UiModelRole.Vision.name) else null
+
+            suspend fun configuredModel(serviceId: String?, modelId: String?): ConfiguredModel? {
+                if (serviceId == null || modelId.isNullOrBlank()) return null
+                val service = dao.getService(serviceId) ?: return null
+                val rows = dao.getProbes(serviceId, modelId, service.baseUrl)
+                val statuses = rows.associate { it.target to it.status }
+                val failures = rows.mapNotNull { row ->
+                    row.failureKind?.let { kind ->
+                        val target = runCatching { ModelProbeTarget.valueOf(row.target) }.getOrNull() ?: return@let null
+                        target to ModelProbeFailure(
+                            kind = runCatching { ModelProbeFailureKind.valueOf(kind) }.getOrNull() ?: ModelProbeFailureKind.PROTOCOL,
+                            httpStatusCode = row.httpStatusCode,
+                            retryable = kind in setOf("NETWORK", "HTTP", "TIMED_OUT"),
+                        )
+                    }
+                }.toMap()
+                val reference = ModelReference(serviceId, modelId)
+                val capabilities = ModelCapabilityReport(
+                    model = reference,
+                    availability = statuses.status(ModelProbeTarget.AVAILABILITY),
+                    vision = statuses.status(ModelProbeTarget.VISION),
+                    nativeStreaming = statuses.status(ModelProbeTarget.NATIVE_STREAMING),
+                    structuredToolCalls = statuses.status(ModelProbeTarget.STRUCTURED_TOOL_CALLS),
+                    failuresByTarget = failures,
+                )
+                val credential = repository.database.credentialDao().get(serviceId)
+                return ConfiguredModel(service, modelId, capabilities, credential)
+            }
+
+            val primary = if (retry == null) {
+                primaryAssignment?.let { configuredModel(it.serviceId, it.modelId) }
+            } else {
+                configuredModel(retry.primaryServiceId, retry.primaryModelId)
+            }
+            val vision = if (retry == null) {
+                visionAssignment?.let { configuredModel(it.serviceId, it.modelId) }
+            } else {
+                configuredModel(retry.visionServiceId, retry.visionModelId)
+            }
+            primary to vision
         }
+        val primary = configuredModels.first ?: fail(UiIssue.MainModelMissing)
+        val vision = configuredModels.second
         val leases = linkedMapOf<String, com.elymbot.android.data.ModelConnectionLease>()
         return try {
-            suspend fun selection(configured: ConfiguredModel): ModelSelection {
+            suspend fun selection(configured: ConfiguredModel): RunModel {
                 val lease = leases[configured.service.id] ?: try {
-                    connectionProvider.snapshot(configured.service.id, configured.service.baseUrl)
+                    connectionProvider.snapshot(
+                        configured.service.id,
+                        configured.service.baseUrl,
+                        configured.credential,
+                    )
                 } catch (_: CredentialVault.CredentialUnavailableException) {
                     fail(UiIssue.Authentication)
-                }?.also { leases[configured.service.id] = it } ?: fail(UiIssue.MainModelMissing)
+                }?.also { leases[configured.service.id] = it } ?: run {
+                    val current = repository.database.modelConfigurationDao().getService(configured.service.id)
+                    fail(if (current == null) UiIssue.MainModelMissing else UiIssue.Connection)
+                }
                 val reference = ModelReference(lease.serviceId, configured.modelId)
-                return ModelSelection(reference, configured.capabilities.copy(model = reference))
+                return RunModel(
+                    persistedServiceId = configured.service.id,
+                    modelId = configured.modelId,
+                    connectionServiceId = lease.serviceId,
+                    selection = ModelSelection(reference, configured.capabilities.copy(model = reference)),
+                )
             }
             RunSnapshot(
                 persona = persona,
-                primary = RunModel(primary.service.id, primary.modelId, selection(primary)),
-                vision = vision?.let { RunModel(it.service.id, it.modelId, selection(it)) },
+                primary = selection(primary),
+                vision = vision?.let { selection(it) },
                 leases = leases.values.toMutableList(),
             )
         } catch (failure: Throwable) {
@@ -1095,45 +1224,17 @@ class ElymBotSessionService(
         }
     }
 
-    private suspend fun configuredModel(role: String): ConfiguredModel? {
-        val assignment = repository.database.modelConfigurationDao().getAssignment(role) ?: return null
-        return configuredModel(assignment.serviceId, assignment.modelId)
-    }
-
-    private suspend fun configuredModel(serviceId: String?, modelId: String?): ConfiguredModel? {
-        if (serviceId == null || modelId.isNullOrBlank()) return null
-        val service = repository.database.modelConfigurationDao().getService(serviceId) ?: return null
-        val rows = repository.database.modelConfigurationDao().getProbes(serviceId, modelId, service.baseUrl)
-        val statuses = rows.associate { it.target to it.status }
-        val failures = rows.mapNotNull { row ->
-            row.failureKind?.let { kind ->
-                val target = runCatching { ModelProbeTarget.valueOf(row.target) }.getOrNull() ?: return@let null
-                target to ModelProbeFailure(
-                    kind = runCatching { ModelProbeFailureKind.valueOf(kind) }.getOrNull() ?: ModelProbeFailureKind.PROTOCOL,
-                    httpStatusCode = row.httpStatusCode,
-                    retryable = kind in setOf("NETWORK", "HTTP", "TIMED_OUT"),
-                )
-            }
-        }.toMap()
-        val reference = ModelReference(serviceId, modelId)
-        val capabilities = ModelCapabilityReport(
-            model = reference,
-            availability = statuses.status(ModelProbeTarget.AVAILABILITY),
-            vision = statuses.status(ModelProbeTarget.VISION),
-            nativeStreaming = statuses.status(ModelProbeTarget.NATIVE_STREAMING),
-            structuredToolCalls = statuses.status(ModelProbeTarget.STRUCTURED_TOOL_CALLS),
-            failuresByTarget = failures,
-        )
-        return ConfiguredModel(service, modelId, capabilities)
-    }
-
-    private suspend fun saveProbeIfPersisted(draft: ModelServiceDraft, report: ModelCapabilityReport) {
+    private suspend fun saveProbeIfPersisted(
+        draft: ModelServiceDraft,
+        temporaryServiceId: String,
+        report: ModelCapabilityReport,
+    ) {
         val serviceId = draft.id ?: return
-        val service = repository.database.modelConfigurationDao().getService(serviceId) ?: return
-        if (service.baseUrl != draft.baseUrl.trim()) return
-        repository.database.withTransaction {
+        connectionProvider.withSavedIdentity(temporaryServiceId, serviceId) { service ->
+            if (service.baseUrl != draft.baseUrl.trim()) return@withSavedIdentity
+            val modelId = draft.modelId.trim()
             val dao = repository.database.modelConfigurationDao()
-            dao.deleteProbesForModel(serviceId, draft.modelId.trim(), service.baseUrl)
+            dao.deleteProbesForModel(serviceId, modelId, service.baseUrl)
             ModelProbeTarget.entries.forEach { target ->
                 val status = when (target) {
                     ModelProbeTarget.AVAILABILITY -> report.availability
@@ -1145,7 +1246,7 @@ class ElymBotSessionService(
                 dao.upsertProbe(
                     ModelProbeEntity(
                         serviceId = serviceId,
-                        modelId = draft.modelId.trim(),
+                        modelId = modelId,
                         baseUrl = service.baseUrl,
                         target = target.name,
                         status = status.name,
@@ -1343,8 +1444,6 @@ class ElymBotSessionService(
         emitAll(source())
     }
 
-    private suspend fun configuredModel(role: UiModelRole): ConfiguredModel? = configuredModel(role.name)
-
     private fun Map<String, String>.status(target: ModelProbeTarget): CapabilityStatus =
         this[target.name]?.let { runCatching { CapabilityStatus.valueOf(it) }.getOrNull() } ?: CapabilityStatus.UNKNOWN
 
@@ -1380,6 +1479,26 @@ class ElymBotSessionService(
         ModelProbeFailureKind.API_REJECTED -> UiIssue.ServiceRejected
         ModelProbeFailureKind.PROTOCOL -> UiIssue.ServiceProtocol
         ModelProbeFailureKind.TIMED_OUT -> UiIssue.TimedOut
+    }
+
+    private fun ModelProbeFailure.toModelRequestException(): ModelRequestException = when (kind) {
+        ModelProbeFailureKind.NETWORK -> ModelRequestException.Network("The model service could not be reached.")
+        ModelProbeFailureKind.AUTHENTICATION -> ModelRequestException.HttpStatus(
+            httpStatusCode?.takeIf { it == HttpURLConnection.HTTP_UNAUTHORIZED || it == HttpURLConnection.HTTP_FORBIDDEN }
+                ?: HttpURLConnection.HTTP_UNAUTHORIZED,
+            "The model service rejected authentication.",
+        )
+        ModelProbeFailureKind.HTTP -> ModelRequestException.HttpStatus(
+            httpStatusCode ?: HttpURLConnection.HTTP_INTERNAL_ERROR,
+            "The model service returned an error.",
+        )
+        ModelProbeFailureKind.API_REJECTED -> ModelRequestException.ApiRejected(
+            code = null,
+            message = "The model service rejected the capability probe.",
+            httpStatusCode = httpStatusCode,
+        )
+        ModelProbeFailureKind.PROTOCOL -> ModelRequestException.Protocol("The model service returned an invalid capability response.")
+        ModelProbeFailureKind.TIMED_OUT -> ModelRequestException.TimedOut("The model capability probe timed out.")
     }
 
     private fun AgentFailureKind.toUiIssue(): UiIssue = when (this) {
@@ -1522,13 +1641,20 @@ class ElymBotSessionService(
         val service: ModelServiceEntity,
         val modelId: String,
         val capabilities: ModelCapabilityReport,
+        val credential: CredentialEntity?,
     )
 
     private data class RunModel(
         val persistedServiceId: String,
         val modelId: String,
+        val connectionServiceId: String,
         val selection: ModelSelection,
     )
+
+    private class CapabilityProbeException(
+        val requestFailure: ModelRequestException,
+        val retryable: Boolean,
+    ) : Exception(requestFailure.message, requestFailure)
 
     private data class RunSnapshot(
         val persona: PersonaPrompt,

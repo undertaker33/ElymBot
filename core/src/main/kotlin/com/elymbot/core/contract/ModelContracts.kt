@@ -144,6 +144,15 @@ interface ModelGateway {
 
     suspend fun probe(model: ModelReference): ModelCapabilityReport
 
+    /** Runs only the synthetic vision capability probe when the adapter supports it. */
+    suspend fun probeVision(model: ModelReference): ModelCapabilityReport = ModelCapabilityReport(
+        model = model,
+        availability = CapabilityStatus.UNKNOWN,
+        vision = CapabilityStatus.UNKNOWN,
+        nativeStreaming = CapabilityStatus.UNKNOWN,
+        structuredToolCalls = CapabilityStatus.UNKNOWN,
+    )
+
     /**
      * Emits body deltas as they arrive, then exactly one Completed event when the
      * response is complete and valid. Tool calls are emitted only in that terminal

@@ -40,3 +40,17 @@
 - W02 首次定向测试发现测试夹具的截断 JSON 外层转义缺少结束引号，以及前一个成功探测留下的 RecordedRequest 未从队列取出；已修正夹具，并在验证短路前显式消费先前探测及当前可用性探测的请求，最终 19 项筛选测试全通过。
 - 此前一次全量 `:core:test` 在 `:core:compileTestKotlin` 因并行 W03 测试的三处源码编译错误中止；W01 修复后报告 W03 定向 16 项测试通过。随后 W02 单类筛选测试通过。此次未因 W02 扩展而重跑全量测试，以避免覆盖并发 W03 测试结果目录；包级集成测试仍由总控统一安排。
 - 编码复核：`uth-utf8-guard` 检查本 Feedback 通过 UTF-8、乱码标记和 Markdown 围栏检查。实际模型服务、Android 正式入口及设备验证仍待 T01.08。
+
+## 2026-11-15 首次图片发送的目标视觉探测
+
+### 实际改动
+
+- `ModelGateway` 增加默认返回 UNKNOWN 的 `probeVision(model)` 契约，既有假实现不需要改动；OpenAI 兼容适配器实现只执行合成图片的单次视觉请求，其余能力保持 UNKNOWN，不触发模型列表、SSE 或工具探测。
+- 视觉探测只有在稳定错误分类明确表明该模型不支持图片时才返回 UNSUPPORTED。视觉专用分类仅对 HTTP 400/422 的明确能力错误生效；认证、限流、配额、过载、服务端错误和网络失败保持 UNKNOWN 并携带原 typed failure。OkHttp 的 `InterruptedIOException("timeout")` 映射为超时，同时取消仍传播 `CancellationException`。
+- `OpenAiCompatibleModelGatewayTest` 增加只发一个合成视觉请求、明确不支持与 HTTP 429 不支持措辞的区分、取消传播及 OkHttp 调用超时用例。
+
+### 验证
+
+- Windows PowerShell，Gradle Wrapper 9.9.1：`.\gradlew.bat :app:assembleDebug :app:assembleDebugAndroidTest :core:test --continue --console=plain --quiet`，构建和 Core 测试通过。
+- `core/build/test-results/test/TEST-com.elymbot.core.model.OpenAiCompatibleModelGatewayTest.xml` 报告 23 项、0 failures、0 errors；覆盖本次新增 targeted Vision 用例。使用 MockWebServer 与合成输入，未连接真实模型服务。
+- 组合仪器运行结果及设备 APK 信息记在 [W04 首次图片发送视觉路由复验](W04-Android数据与会话-feedback.md#2026-11-15-首次图片发送的视觉路由复验)。

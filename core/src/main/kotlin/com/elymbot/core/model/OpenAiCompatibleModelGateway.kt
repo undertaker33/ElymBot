@@ -32,6 +32,7 @@ import okhttp3.Response
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
+import java.io.InterruptedIOException
 import java.net.SocketTimeoutException
 import java.util.Locale
 import java.util.concurrent.TimeUnit
@@ -144,6 +145,36 @@ class OpenAiCompatibleModelGateway(
             vision = vision,
             nativeStreaming = nativeStreaming,
             structuredToolCalls = structuredTools,
+            failuresByTarget = failures,
+        )
+    }
+
+    override suspend fun probeVision(model: ModelReference): ModelCapabilityReport {
+        validateModelReference(model)
+        val failures = LinkedHashMap<ModelProbeTarget, ModelProbeFailure>()
+        val vision = try {
+            val connection = resolveConnection(model.serviceId)
+            runProbe(failures, ModelProbeTarget.VISION) {
+                probeVision(connection, model)
+            }
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (failure: ModelRequestException) {
+            failures[ModelProbeTarget.VISION] = failure.toProbeFailure()
+            CapabilityStatus.UNKNOWN
+        } catch (failure: Exception) {
+            failures[ModelProbeTarget.VISION] = ModelRequestException.Protocol(
+                "The vision capability probe could not be completed.",
+                failure,
+            ).toProbeFailure()
+            CapabilityStatus.UNKNOWN
+        }
+        return ModelCapabilityReport(
+            model = model,
+            availability = CapabilityStatus.UNKNOWN,
+            vision = vision,
+            nativeStreaming = CapabilityStatus.UNKNOWN,
+            structuredToolCalls = CapabilityStatus.UNKNOWN,
             failuresByTarget = failures,
         )
     }
@@ -383,9 +414,40 @@ class OpenAiCompatibleModelGateway(
 
     private fun ModelRequestException.isExplicitUnsupported(target: ModelProbeTarget): Boolean {
         if (this !is ModelRequestException.ApiRejected && this !is ModelRequestException.HttpStatus) return false
+        val status = when (this) {
+            is ModelRequestException.ApiRejected -> httpStatusCode
+            is ModelRequestException.HttpStatus -> statusCode
+            else -> null
+        }
         val code = (this as? ModelRequestException.ApiRejected)?.code.orEmpty()
         val details = (code + " " + message.orEmpty()).lowercase(Locale.ROOT)
-        val explicitUnsupported = listOf("unsupported", "not_supported", "does not support", "not available", "not found", "not_found")
+        if (listOf(
+                "invalid_api_key",
+                "authentication_error",
+                "permission_denied",
+                "unauthorized",
+                "forbidden",
+                "rate_limit",
+                "too_many_requests",
+                "insufficient_quota",
+                "quota",
+                "overloaded",
+                "temporarily_unavailable",
+                "service_unavailable",
+                "server_error",
+            ).any(details::contains)
+        ) return false
+        if (target == ModelProbeTarget.VISION && status != null && status !in setOf(400, 422)) return false
+        val explicitUnsupported = listOf(
+            "unsupported",
+            "not_supported",
+            "not supported",
+            "does not support",
+            "doesn't support",
+            "not available",
+            "not found",
+            "not_found",
+        )
             .any(details::contains)
         if (!explicitUnsupported) return false
         return when (target) {
@@ -463,6 +525,13 @@ private fun Exception.toModelFailure(duringStream: Boolean): ModelRequestExcepti
     is ModelRequestException -> this
     is CancellationException -> throw this
     is SocketTimeoutException -> ModelRequestException.TimedOut("The model request timed out.", this)
+    is InterruptedIOException -> if (message.equals("timeout", ignoreCase = true)) {
+        ModelRequestException.TimedOut("The model request timed out.", this)
+    } else if (duringStream) {
+        ModelRequestException.StreamInterrupted("The model stream was interrupted.", this)
+    } else {
+        ModelRequestException.Network("The model service could not be reached.", this)
+    }
     is IOException -> if (duringStream) {
         ModelRequestException.StreamInterrupted("The model stream was interrupted.", this)
     } else {
