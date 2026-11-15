@@ -32,6 +32,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.RuleChain
@@ -157,6 +158,48 @@ class ElymBotUiIntegrationTest {
             })
         } finally {
             runBlocking { fixture.database.commandNameDao().upsertAll(previousNames) }
+        }
+    }
+
+    @Test
+    fun savingAnUnchangedModelServiceKeepsItsApiKey() {
+        val serviceName = "Key retention ${fixture.prefix.takeLast(12)}"
+        val serviceDao = fixture.database.modelConfigurationDao()
+        val row = compose.onNode(hasText(serviceName) and hasClickAction())
+        val savedKey = label(R.string.elym_saved_key)
+        val editTitle = label(R.string.elym_edit_service)
+        try {
+            openPersonaChat()
+            openChatMenu()
+            click(R.string.elym_model_config)
+            scrollAndClick(R.string.elym_add_service)
+            click(R.string.elym_select_provider)
+            click(R.string.elym_provider_openai)
+            description(R.string.elym_base_url).performScrollTo().performTextReplacement("https://example.invalid/v1")
+            description(R.string.elym_key).performScrollTo().performTextInput("synthetic-key-test")
+            description(R.string.elym_service_name).performScrollTo().performTextReplacement(serviceName)
+            scrollAndClick(R.string.elym_save)
+            waitForText(serviceName)
+
+            val serviceId = runBlocking { serviceDao.getServices().single { it.name == serviceName }.id }
+            row.performScrollTo().performClick()
+            waitForText(savedKey)
+            scrollAndClick(R.string.elym_save)
+            compose.waitUntil(10_000) {
+                compose.onAllNodesWithText(editTitle).fetchSemanticsNodes().isEmpty()
+            }
+
+            assertTrue("Saving without a replacement must preserve the credential", runBlocking {
+                serviceDao.hasCredential(serviceId)
+            })
+            row.performScrollTo().performClick()
+            waitForText(savedKey)
+        } finally {
+            runBlocking {
+                serviceDao.getServices().singleOrNull { it.name == serviceName }?.let {
+                    service.deleteModelService(it.id)
+                }
+            }
         }
     }
 

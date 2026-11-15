@@ -523,13 +523,24 @@ class ElymBotSessionService(
         repository.database.withTransaction {
             val serviceDao = repository.database.modelConfigurationDao()
             val existing = serviceDao.getService(id)
+            val baseUrlChanged = existing != null && existing.baseUrl != baseUrl
+            val apiKeyChanged = if (existing != null && service.apiKey.isNotBlank()) {
+                val storedKey = try {
+                    repository.credentials.resolve(id)
+                } catch (_: CredentialVault.CredentialUnavailableException) {
+                    null
+                }
+                storedKey != service.apiKey
+            } else {
+                false
+            }
             serviceDao.upsertService(newRecord)
-            if (service.apiKey.isNotBlank()) {
+            if (service.apiKey.isNotBlank() && (existing == null || baseUrlChanged || apiKeyChanged)) {
                 repository.credentials.store(id, service.apiKey)
-            } else if (existing != null && existing.baseUrl != baseUrl) {
+            } else if (baseUrlChanged) {
                 repository.credentials.delete(id)
             }
-            if (existing != null && existing.baseUrl != baseUrl) {
+            if (baseUrlChanged || apiKeyChanged) {
                 serviceDao.deleteProbes(id)
             }
         }

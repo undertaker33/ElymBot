@@ -15,6 +15,7 @@ import androidx.room.Relation
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.Transaction
+import androidx.room.Upsert
 import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
 
@@ -588,7 +589,7 @@ interface ModelConfigurationDao {
     @Query("SELECT * FROM model_services WHERE id = :id")
     suspend fun getService(id: String): ModelServiceEntity?
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Upsert
     suspend fun upsertService(item: ModelServiceEntity)
 
     @Query("DELETE FROM model_services WHERE id = :id")

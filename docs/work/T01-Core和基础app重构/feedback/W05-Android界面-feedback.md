@@ -145,3 +145,10 @@
 - 模拟器小样本结果方向不一致。会话路径样本为空或少量会话，未测出长列表表现，也不能据此认定用户手机上的掉帧原因或改善幅度。
 - 会话列表以候选、基线顺序重复同一点击路线，组内先热身一次再取三次。FrameCompleted 晚于 FrameDeadline 的帧数为候选 3/39、基线 3/38，原先顺序为基线 4/38、候选 3/40。反序的 16.67 ms 阈值计数为候选 5/39、基线 15/38，P95 为 42.38 ms、39.00 ms。首轮绝对阈值的慢帧增量未复现。复测后模拟器恢复候选 App。
 - `:app:assembleDebug :app:assembleDebugAndroidTest` 通过。候选 APK 在同一 MuMu 复跑 `personaEditorSavesIndependentCoverAndAvatarPositions`、`settingsAndModelNavigationLeadBackToChatThenOpeningClearsUnreadAndAllowsBatchDelete` 和 `AppSessionIntegrationTest`，结果 3/3，耗时 10 秒。
+
+### 保存模型服务后的 API Key
+
+- `ElymBotUiIntegrationTest#savingAnUnchangedModelServiceKeepsItsApiKey` 从正式聊天菜单打开模型配置，新增带合成 Key 的服务，重开表单确认「已填入 · 留空沿用」，保持地址与字段不变直接保存。用例只检查凭据记录是否存在，并重开表单核对提示。
+- `:app:assembleDebugAndroidTest` 通过。在独立 MuMu Android 15（`127.0.0.1:16416`）安装基线 `4fba0e0` 的 debug APK 和测试 APK，运行该用例。首次保存成功，重开出现已填入提示，再次保存后凭据记录存在性断言失败。生成的 Room SQL 对 `model_services` 执行 `INSERT OR REPLACE`，删除旧服务行时触发 `service_credentials` 的外键级联删除。编辑页把空 Key 交给保存入口，保存逻辑跳过写入新凭据。
+- Room 改用更新现有服务行后，`:app:assembleDebug :app:assembleDebugAndroidTest` 通过。候选 debug APK（SHA-256 前缀 `DC73D9DE794F`）在同一 MuMu 上运行上述用例，以及 `ElymBotStorageTest#savingModelServicePreservesAndInvalidatesProbeCacheWithCredentialIdentity` 和 `#modelServiceUrlAndCredentialUpdatesStayAtomicAcrossSnapshotsAndDrafts`，得到 `OK (3 tests)`，耗时 3.657 秒。再次保存后凭据记录仍在，重开仍显示原提示，覆盖 T01.07 模型配置的该反馈路径。仅使用合成凭据和隔离模拟器。
+- 同地址再次输入同一 Key 时沿用原密文。调整后重建两包，在新版 debug APK（SHA-256 前缀 `F04499BDB9AA`）上复跑同一组用例，结果 `OK (3 tests)`，耗时 3.593 秒。

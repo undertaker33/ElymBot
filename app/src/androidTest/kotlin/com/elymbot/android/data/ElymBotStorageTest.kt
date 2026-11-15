@@ -830,6 +830,115 @@ class ElymBotStorageTest {
     }
 
     @Test
+    fun savingModelServicePreservesAndInvalidatesProbeCacheWithCredentialIdentity() = runBlocking {
+        val fixture = Fixture(context)
+        try {
+            fixture.initializeTestState()
+            val service = fixture.service()
+            val dao = fixture.database.modelConfigurationDao()
+            val serviceId = "test-service-identity"
+            val baseUrl = "https://model.example/v1"
+            val changedBaseUrl = "https://other-model.example/v1"
+
+            service.saveModelService(
+                ModelServiceDraft(
+                    id = serviceId,
+                    provider = "compatible",
+                    name = "Connection",
+                    baseUrl = baseUrl,
+                    apiKey = "saved-key",
+                    modelId = "model-a",
+                ),
+            )
+            service.setModel(UiModelRole.Text, ModelChoice(serviceId, "model-a"))
+            fixture.setModelProbe(
+                serviceId = serviceId,
+                modelId = "model-a",
+                baseUrl = baseUrl,
+                vision = CapabilityStatus.SUPPORTED,
+                nativeStreaming = CapabilityStatus.UNSUPPORTED,
+            )
+            val savedCredential = fixture.database.credentialDao().get(serviceId)!!
+
+            service.saveModelService(
+                ModelServiceDraft(
+                    id = serviceId,
+                    provider = "compatible",
+                    name = "Renamed connection",
+                    baseUrl = baseUrl,
+                    apiKey = "",
+                    modelId = "model-a",
+                ),
+            )
+            assertEquals("saved-key", fixture.repository.credentials.resolve(serviceId))
+            val unchangedCredential = fixture.database.credentialDao().get(serviceId)!!
+            assertTrue(savedCredential.iv.contentEquals(unchangedCredential.iv))
+            assertTrue(savedCredential.encryptedKey.contentEquals(unchangedCredential.encryptedKey))
+            assertEquals(4, dao.getProbes(serviceId, "model-a", baseUrl).size)
+            assertEquals(
+                ModelAssignmentEntity(UiModelRole.Text.name, serviceId, "model-a"),
+                dao.getAssignment(UiModelRole.Text.name),
+            )
+
+            service.saveModelService(
+                ModelServiceDraft(
+                    id = serviceId,
+                    provider = "compatible",
+                    name = "Renamed connection",
+                    baseUrl = baseUrl,
+                    apiKey = "saved-key",
+                    modelId = "model-a",
+                ),
+            )
+            assertEquals("saved-key", fixture.repository.credentials.resolve(serviceId))
+            val sameValueCredential = fixture.database.credentialDao().get(serviceId)!!
+            assertTrue(savedCredential.iv.contentEquals(sameValueCredential.iv))
+            assertTrue(savedCredential.encryptedKey.contentEquals(sameValueCredential.encryptedKey))
+            assertEquals(4, dao.getProbes(serviceId, "model-a", baseUrl).size)
+
+            service.saveModelService(
+                ModelServiceDraft(
+                    id = serviceId,
+                    provider = "compatible",
+                    name = "Renamed connection",
+                    baseUrl = baseUrl,
+                    apiKey = "rotated-key",
+                    modelId = "model-a",
+                ),
+            )
+            assertEquals("rotated-key", fixture.repository.credentials.resolve(serviceId))
+            assertTrue(dao.getProbes(serviceId, "model-a", baseUrl).isEmpty())
+
+            fixture.setModelProbe(
+                serviceId = serviceId,
+                modelId = "model-a",
+                baseUrl = baseUrl,
+                vision = CapabilityStatus.SUPPORTED,
+                nativeStreaming = CapabilityStatus.UNSUPPORTED,
+            )
+            service.saveModelService(
+                ModelServiceDraft(
+                    id = serviceId,
+                    provider = "compatible",
+                    name = "Moved connection",
+                    baseUrl = changedBaseUrl,
+                    apiKey = "",
+                    modelId = "model-a",
+                ),
+            )
+            assertNull(fixture.repository.credentials.resolve(serviceId))
+            assertTrue(dao.getProbes(serviceId, "model-a", baseUrl).isEmpty())
+            assertTrue(dao.getProbes(serviceId, "model-a", changedBaseUrl).isEmpty())
+            assertEquals(
+                ModelAssignmentEntity(UiModelRole.Text.name, serviceId, "model-a"),
+                dao.getAssignment(UiModelRole.Text.name),
+            )
+        } finally {
+            fixture.close()
+        }
+    }
+
+    @Test
     fun modelServiceUrlAndCredentialUpdatesStayAtomicAcrossSnapshotsAndDrafts() = runBlocking {
         val fixture = Fixture(context)
         val oldServer = ModelListServer()

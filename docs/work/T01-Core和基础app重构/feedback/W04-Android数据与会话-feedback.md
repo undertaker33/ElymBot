@@ -128,3 +128,17 @@ Checklist 未修改。T01.05/T01.06 的存储服务测试覆盖已更新，但�
 
 - 静态核对服务契约、Room 事务中的比较顺序和全部 Kotlin 调用点；没有发现遗漏的旧签名调用。
 - 本轮按集成安排未运行 Gradle、Android 测试或设备操作。编译及上述定向测试等待 W01/W05 统一验证；当前不据源码改动宣称构建或测试通过。
+
+## 2026-11-15 用户反馈 #2：模型 Key 与能力缓存
+
+### 原因核查与改动
+
+- `ElymBotSessionService.saveModelService` 按服务 ID 保存配置，原 DAO 使用 `@Insert(REPLACE)`。SQLite 替换父服务行会触发 `service_credentials` 和 `model_probe_results` 的 `ON DELETE CASCADE`，即使服务地址与 Key 未变也会清除凭据和探测结果；空 Key 且地址不变时保存分支又跳过凭据写入，因此无法恢复被级联删除的 Key。
+- 服务更新改用 Room `@Upsert` 保留服务行和子记录。保存入口对比已保存地址及 Key：同地址空 Key 保留原 Key；同值 Key 不重新加密；地址变化或 Key 实际变化时同事务清空探测结果；地址变化且未提供新 Key 时删除旧凭据。模型用途 assignment 继续保留。
+- 新增 `ElymBotStorageTest.savingModelServicePreservesAndInvalidatesProbeCacheWithCredentialIdentity`，检查空 Key 保存与同值 Key 保存保留凭据、密文与探测结果，Key 轮换和地址变化使探测失效，并核对地址变化时 Key 按既有规则删除、模型用途 assignment 保留。
+
+### 验证
+
+- Windows PowerShell，Gradle Wrapper 9.9.1：`.\gradlew.bat :app:assembleDebug :app:assembleDebugAndroidTest --console=plain --quiet`，通过。
+- 使用 MuMu `ElymBot-T01-Clean`（ABR-AL80，Android 15/API 35，`127.0.0.1:16416`）安装同批 debug 与 AndroidTest APK，运行 `ElymBotUiIntegrationTest#savingAnUnchangedModelServiceKeepsItsApiKey`、`ElymBotStorageTest#savingModelServicePreservesAndInvalidatesProbeCacheWithCredentialIdentity`、`ElymBotStorageTest#modelServiceUrlAndCredentialUpdatesStayAtomicAcrossSnapshotsAndDrafts`，结果 `OK (3 tests)`，耗时 3.593 秒。debug APK SHA-256 前缀 `F04499BDB9AA`。仅使用隔离 Room 数据和合成凭据；未访问已配置的真实模型服务或用户数据库。
+- W05 的界面回归与本节 W04 数据回归共用该次构建和 MuMu 测试证据，完整命令见 [W05 Feedback](W05-Android界面-feedback.md#保存模型服务后的-api-key)。
