@@ -165,3 +165,10 @@
 
 - 标签栏最右侧加号与普通标签共用胶囊边框、32 dp 高度、最小宽度和水平内边距，点击区域仍为 48 dp 高。横向滑动可到达加号，空库时加号禁用。内置筛选显示「全部」「收藏」，人格编辑显示「加入收藏」。收藏筛选仍读取已有收藏标记。
 - 在 `b312068` 基线上运行 `:app:assembleDebug :app:assembleDebugAndroidTest` 通过，debug APK 的 SHA-256 前缀为 `54224115AC40`。在 MuMu `ElymBot-T01-Clean`（index 1，Android 15/API 35，`127.0.0.1:16416`）运行 `ElymBotUiIntegrationTest#personaCreatedThroughGalleryCanBeFoundByNameAndTag`，结果 `OK (1 test)`，耗时 3.983 秒。正式人格页同屏截图显示「全部」「收藏」和加号三枚胶囊等宽等高，截图与仪器输出分别为本地 `C:\Users\93445\Documents\Codex\ElymBot-W05-2026-11-16\gallery-tag-chips.png` 和同目录的 `gallery-tag-chips-instrumentation.txt`。
+
+### 2026-11-16 外观设置与聊天指令补全
+
+- 设置页新增「外观」，提供「跟随系统」「浅色」「深色」单选及当前项提示，指令名称编辑仍可从同页进入。默认跟随系统，使用独立的本地偏好保存选择。模式切换即时更新 App 配色、主窗口和底部弹层窗口的系统栏图标。首轮截图发现系统浅色时，打开中的弹层切到深色后仍保留深色状态栏图标。共享弹层改为在配色变化后同步实际窗口的系统栏外观。
+- 聊天输入框输入 `/` 或部分指令名时，按现有指令别名提示候选。加号菜单保留添加图片和指令入口。候选按主会话与专属会话的现有可用范围显示，选择后保留已有参数和图片，等待用户发出。定向用例覆盖别名、输入替换、附件保留、指令候选切换及会话无新增回执或轮次。
+- 以 `49987ca` 加本轮改动运行 `:app:assembleDebug :app:assembleDebugAndroidTest` 通过。debug APK 与测试 APK 的 SHA-256 前缀分别为 `5AD09EB4ABC0`、`2824463D2A13`。在 MuMu `ElymBot-T01-Clean`（index 1，Android 15/API 35，`127.0.0.1:16416`）运行 `adb -s 127.0.0.1:16416 shell am instrument -w -e class 'com.elymbot.android.AppearanceSettingsTest,com.elymbot.android.ComposerAddMenuTest' com.elymbot.android.debug.test/androidx.test.runner.AndroidJUnitRunner`，结果 `OK (2 tests)`，耗时 6.071 秒。外观用例覆盖三项单选、Activity 重开后保留深色和主窗口两类系统栏标志。
+- 模拟器系统保持浅色时，在同一外观弹层从跟随系统切到深色，再切回跟随系统，截图确认页面与弹层随即更新、弹层状态栏图标相应变亮及变深。手动强制停止并冷启动也保留了已选深色。截图与测试输出保存在本地 `C:\Users\93445\Documents\Codex\ElymBot-W05-2026-11-16` 的 `appearance-dark-dialog.png`、`appearance-follow-system.png`、`appearance-after-cold-start.png` 和 `instrumentation-appearance-composer.txt`。模拟器恢复跟随系统和自由旋转。本轮使用合成附件，实体手机和 Android 26–34 未验证。

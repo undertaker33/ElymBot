@@ -66,6 +66,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewModelScope
 import com.elymbot.android.R
+import com.elymbot.android.data.AppearanceMode
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
@@ -139,7 +140,12 @@ private val FadeEasing = CubicBezierEasing(0.42f, 0f, 0.58f, 1f)
 private val SlideEasing = CubicBezierEasing(0.20f, 0.54f, 0.30f, 1f)
 
 @Composable
-fun ElymBotApp(service: ElymBotUiService) {
+internal fun ElymBotApp(
+    service: ElymBotUiService,
+    appearanceMode: AppearanceMode,
+    darkTheme: Boolean,
+    onAppearanceModeChange: (AppearanceMode) -> Unit,
+) {
     val model: ElymBotViewModel = viewModel { ElymBotViewModel(service) }
     val personas by service.personas.collectAsStateWithLifecycle(emptyList())
     val activeId by service.activePersonaId.collectAsStateWithLifecycle(null)
@@ -164,7 +170,7 @@ fun ElymBotApp(service: ElymBotUiService) {
         onStopOrDispose { model.perform { service.setViewedConversation(null) } }
     }
 
-    ElymBotTheme {
+    ElymBotTheme(darkTheme) {
         val pageBackground = Brush.verticalGradient(listOf(PaperTop, Paper, Paper), endY = 1200f)
         Box(
             Modifier.fillMaxSize()
@@ -222,7 +228,7 @@ fun ElymBotApp(service: ElymBotUiService) {
                             }
                         } }
                         Page.Models -> ModelsPage(model, config, backFromScreen.takeIf { screen.depth > 0 }, current)
-                        Page.Settings -> CommandsPage(model, commands, current)
+                        Page.Settings -> SettingsPage(model, commands, current, appearanceMode, onAppearanceModeChange)
                         Page.Sessions -> if (persona != null) SessionsPage(model, persona, backFromScreen, current) { id, title ->
                             if (destination.key == screen.key) navigate(screen.copy(page = Page.Chat, sessionId = id, title = title))
                         }

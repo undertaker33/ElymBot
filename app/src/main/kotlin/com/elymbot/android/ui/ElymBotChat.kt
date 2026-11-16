@@ -1,6 +1,7 @@
 package com.elymbot.android.ui
 
 import android.net.Uri
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -14,15 +15,18 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -31,9 +35,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextRange
@@ -48,6 +54,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.elymbot.android.R
 
 private const val MaxDraftLength = 1800
+private val SlashCommandTrigger = ComposerTrigger('/', leadingOnly = true)
 
 @Composable
 internal fun ChatPage(
@@ -200,20 +207,18 @@ internal fun ChatPage(
                     RoundAction(R.drawable.elym_close, stringResource(R.string.elym_remove_image), { image = null })
                 }
             }
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                val running = conversation.generating
-                val canSend = current && !running && !submitting && (draft.text.isNotBlank() || image != null)
-                val sendDraft = { if (canSend) submit(draft.text.trim(), image?.let(Uri::parse), fromComposer = true) }
-                ChatComposer(
-                    draft = draft,
-                    onDraftChange = { draft = it },
-                    commandNames = commandNames,
-                    main = main,
-                    enabled = current,
-                    onPickImage = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
-                    onSend = sendDraft,
-                    modifier = Modifier.weight(1f),
-                )
+            val running = conversation.generating
+            val canSend = current && !running && !submitting && (draft.text.isNotBlank() || image != null)
+            val sendDraft = { if (canSend) submit(draft.text.trim(), image?.let(Uri::parse), fromComposer = true) }
+            ChatComposer(
+                draft = draft,
+                onDraftChange = { draft = it },
+                commandNames = commandNames,
+                main = main,
+                enabled = current,
+                onPickImage = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                onSend = sendDraft,
+            ) {
                 RoundAction(
                     if (running) R.drawable.elym_stop else R.drawable.elym_send,
                     stringResource(if (running) R.string.elym_stop else R.string.elym_send),
@@ -282,34 +287,40 @@ private fun ChatComposer(
     enabled: Boolean,
     onPickImage: () -> Unit,
     onSend: () -> Unit,
-    modifier: Modifier = Modifier,
+    sendAction: @Composable () -> Unit,
 ) {
     var expanded by remember(enabled) { mutableStateOf(false) }
+    var composerHasFocus by remember { mutableStateOf(false) }
+    var dismissed by remember { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
+    val keyboard = LocalSoftwareKeyboardController.current
     val shape = RoundedCornerShape(17.dp)
     val hint = stringResource(R.string.elym_type_message)
-    Row(
-        modifier.background(PaperTop, shape).border(1.dp, Line, shape),
-        verticalAlignment = Alignment.CenterVertically,
+    val availableCommands = commandNames.filterKeys { main || it != ChatCommand.Persona }
+    val match = SlashCommandTrigger.match(draft)
+    val candidates = if (enabled && composerHasFocus && !dismissed && !expanded && match != null) {
+        availableCommands.filterValues { it.startsWith(match.query, ignoreCase = true) }
+    } else {
+        emptyMap()
+    }
+    val commandDraft = SlashCommandTrigger.prompt(draft.text, availableCommands.values)
+    BackHandler(candidates.isNotEmpty()) { dismissed = true }
+    Column(
+        Modifier.fillMaxWidth().onFocusChanged { composerHasFocus = it.hasFocus }.focusGroup(),
+        verticalArrangement = Arrangement.spacedBy(5.dp),
     ) {
-        Box {
-            RoundAction(R.drawable.elym_plus, stringResource(R.string.elym_composer_add), { expanded = true }, enabled = enabled)
-            DropdownMenu(expanded, { expanded = false }, containerColor = SurfaceColor, shape = RoundedCornerShape(16.dp)) {
-                ChatMenuItem(R.string.elym_add_image, R.drawable.elym_photo) {
-                    expanded = false
-                    onPickImage()
-                }
-                ChatCommand.entries.forEach { command ->
-                    val name = commandNames[command]
-                    if (name != null && (main || command != ChatCommand.Persona)) {
+        if (match != null && candidates.isNotEmpty()) {
+            Surface(shape = shape, color = SurfaceColor, border = androidx.compose.foundation.BorderStroke(1.dp, Line)) {
+                Column(Modifier.fillMaxWidth().heightIn(max = 200.dp).verticalScroll(rememberScrollState())) {
+                    candidates.forEach { (command, name) ->
                         val literal = "/$name"
                         val takesArgument = command == ChatCommand.Persona || command == ChatCommand.Checkpoint
-                        val selectedDraft = draftWithCommand(draft.text, literal, takesArgument, commandNames.values)
+                        val selectedDraft = match.replace(draft.text, literal, takesArgument)
                         DropdownMenuItem(
                             text = { Text(literal, fontSize = 14.sp) },
                             enabled = selectedDraft.text.length <= MaxDraftLength,
                             onClick = {
-                                expanded = false
+                                dismissed = true
                                 onDraftChange(selectedDraft)
                                 focusRequester.requestFocus()
                             },
@@ -318,48 +329,97 @@ private fun ChatComposer(
                 }
             }
         }
-        BasicTextField(
-            value = draft,
-            onValueChange = { value ->
-                if (value.text.length <= MaxDraftLength) {
-                    onDraftChange(value)
-                } else {
-                    onDraftChange(TextFieldValue(value.text.take(MaxDraftLength), value.selection))
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+            Row(
+                Modifier.weight(1f).background(PaperTop, shape).border(1.dp, Line, shape),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box {
+                    RoundAction(
+                        R.drawable.elym_plus, stringResource(R.string.elym_composer_add), { expanded = true }, enabled = enabled,
+                    )
+                    DropdownMenu(expanded, { expanded = false }, containerColor = SurfaceColor, shape = RoundedCornerShape(16.dp)) {
+                        ChatMenuItem(R.string.elym_add_image, R.drawable.elym_photo) {
+                            expanded = false
+                            dismissed = true
+                            onPickImage()
+                        }
+                        ChatMenuItem(
+                            R.string.elym_composer_commands, R.drawable.elym_chat,
+                            enabled = commandDraft.text.length <= MaxDraftLength,
+                        ) {
+                            expanded = false
+                            dismissed = false
+                            onDraftChange(commandDraft)
+                            focusRequester.requestFocus()
+                            keyboard?.show()
+                        }
+                    }
                 }
-            },
-            maxLines = 5,
-            textStyle = TextStyle(color = Ink, fontSize = 16.sp, lineHeight = 21.sp),
-            cursorBrush = SolidColor(Accent),
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-            keyboardActions = KeyboardActions(onSend = { onSend() }),
-            modifier = Modifier.weight(1f).focusRequester(focusRequester).semanticsLabel(hint),
-            decorationBox = { field ->
-                Box(Modifier.fillMaxWidth().padding(top = 11.dp, end = 11.dp, bottom = 11.dp)) {
-                    if (draft.text.isEmpty()) Text(hint, color = Muted, fontSize = 16.sp)
-                    field()
-                }
-            },
-        )
+                BasicTextField(
+                    value = draft,
+                    onValueChange = { value ->
+                        if (value.text != draft.text || value.selection != draft.selection) dismissed = false
+                        if (value.text.length <= MaxDraftLength) {
+                            onDraftChange(value)
+                        } else {
+                            onDraftChange(TextFieldValue(value.text.take(MaxDraftLength), value.selection))
+                        }
+                    },
+                    maxLines = 5,
+                    textStyle = TextStyle(color = Ink, fontSize = 16.sp, lineHeight = 21.sp),
+                    cursorBrush = SolidColor(Accent),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                    keyboardActions = KeyboardActions(onSend = {
+                        dismissed = true
+                        onSend()
+                    }),
+                    modifier = Modifier.weight(1f).focusRequester(focusRequester).semanticsLabel(hint),
+                    decorationBox = { field ->
+                        Box(Modifier.fillMaxWidth().padding(top = 11.dp, end = 11.dp, bottom = 11.dp)) {
+                            if (draft.text.isEmpty()) Text(hint, color = Muted, fontSize = 16.sp)
+                            field()
+                        }
+                    },
+                )
+            }
+            sendAction()
+        }
     }
 }
 
-private fun draftWithCommand(
-    draft: String,
-    literal: String,
-    takesArgument: Boolean,
-    names: Collection<String>,
-): TextFieldValue {
-    val command = draft.takeWhile { !it.isWhitespace() }.takeIf { it.startsWith('/') }
-    val suffix = if (command != null && command.drop(1) in names) {
-        draft.drop(command.length)
-    } else if (draft.isNotEmpty()) {
-        " $draft"
-    } else {
-        ""
+private class ComposerTrigger(private val marker: Char, private val leadingOnly: Boolean) {
+    fun match(value: TextFieldValue): ComposerTriggerMatch? {
+        val caret = value.selection.end
+        if (!value.selection.collapsed || caret == 0) return null
+        val start = value.text.take(caret).indexOfLast(Char::isWhitespace) + 1
+        if (start == caret || value.text[start] != marker) return null
+        if (leadingOnly && value.text.take(start).any { !it.isWhitespace() }) return null
+        val end = start + value.text.drop(start).takeWhile { !it.isWhitespace() }.length
+        return ComposerTriggerMatch(start, end, value.text.substring(start + 1, caret))
     }
-    val arguments = suffix.ifEmpty { if (takesArgument) " " else "" }
-    val cursor = literal.length + if (arguments.isEmpty()) 0 else 1
-    return TextFieldValue(literal + arguments, TextRange(cursor))
+
+    fun prompt(text: String, names: Collection<String>): TextFieldValue {
+        val start = text.indexOfFirst { !it.isWhitespace() }.coerceAtLeast(0)
+        val token = text.drop(start).takeWhile { !it.isWhitespace() }
+        val replace = token.startsWith(marker) && names.any { it.startsWith(token.drop(1), ignoreCase = true) }
+        val prefix = text.take(start) + marker
+        val suffix = when {
+            replace -> text.drop(start + token.length)
+            token.isEmpty() -> text.drop(start)
+            else -> " " + text.drop(start)
+        }
+        return TextFieldValue(prefix + suffix, TextRange(prefix.length))
+    }
+}
+
+private data class ComposerTriggerMatch(val start: Int, val end: Int, val query: String) {
+    fun replace(text: String, replacement: String, appendSpace: Boolean): TextFieldValue {
+        val prefix = text.take(start) + replacement
+        val suffix = text.drop(end).ifEmpty { if (appendSpace) " " else "" }
+        val cursor = prefix.length + if (suffix.isEmpty()) 0 else 1
+        return TextFieldValue(prefix + suffix, TextRange(cursor))
+    }
 }
 
 @Composable

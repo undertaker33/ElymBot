@@ -4,6 +4,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
@@ -12,11 +14,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.elymbot.android.R
+import com.elymbot.android.data.AppearanceMode
 
 @Composable
 internal fun ModelsPage(model: ElymBotViewModel, config: ModelConfiguration, back: (() -> Unit)?, current: Boolean) {
@@ -229,13 +233,46 @@ private fun Capability(label: Int, status: ProbeStatus, failure: ProbeFailure?) 
 }
 
 @Composable
-internal fun CommandsPage(model: ElymBotViewModel, names: Map<ChatCommand, String>, current: Boolean) {
+internal fun SettingsPage(
+    model: ElymBotViewModel,
+    names: Map<ChatCommand, String>,
+    current: Boolean,
+    appearanceMode: AppearanceMode,
+    onAppearanceModeChange: (AppearanceMode) -> Unit,
+) {
     var editing by remember { mutableStateOf(false) }
+    var appearanceOpen by remember { mutableStateOf(false) }
     Column {
         Header(stringResource(R.string.elym_settings))
         Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp)) {
             Group {
+                ListRow(
+                    stringResource(R.string.elym_appearance),
+                    R.drawable.elym_settings,
+                    { appearanceOpen = true },
+                    subtitle = stringResource(appearanceMode.label),
+                )
+                HorizontalDivider(color = Line)
                 ListRow(stringResource(R.string.elym_command_names), R.drawable.elym_sliders, { editing = true })
+            }
+        }
+    }
+    if (current && appearanceOpen) {
+        Sheet(stringResource(R.string.elym_appearance), { appearanceOpen = false }) {
+            Column(Modifier.fillMaxWidth().selectableGroup()) {
+                for (mode in AppearanceMode.entries) {
+                    val selected = mode == appearanceMode
+                    Row(
+                        Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                            .selectable(selected, role = Role.RadioButton, onClick = { onAppearanceModeChange(mode) })
+                            .padding(horizontal = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        RadioButton(selected = selected, onClick = null)
+                        Text(stringResource(mode.label), color = Ink, fontSize = 15.sp)
+                    }
+                }
             }
         }
     }
@@ -261,3 +298,10 @@ internal fun CommandsPage(model: ElymBotViewModel, names: Map<ChatCommand, Strin
         }
     }
 }
+
+private val AppearanceMode.label: Int
+    get() = when (this) {
+        AppearanceMode.SYSTEM -> R.string.elym_appearance_system
+        AppearanceMode.LIGHT -> R.string.elym_appearance_light
+        AppearanceMode.DARK -> R.string.elym_appearance_dark
+    }

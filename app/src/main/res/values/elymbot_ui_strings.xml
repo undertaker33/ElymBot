@@ -138,6 +138,10 @@
     <string name="elym_session_title">会话标题</string>
     <string name="elym_sessions">会话</string>
     <string name="elym_settings">设置</string>
+    <string name="elym_appearance">外观</string>
+    <string name="elym_appearance_system">跟随系统</string>
+    <string name="elym_appearance_light">浅色</string>
+    <string name="elym_appearance_dark">深色</string>
     <string name="elym_stop">停止生成</string>
     <string name="elym_stop_before_delete">请先在聊天中停止生成，再删除这个会话。</string>
     <string name="elym_stopped">已停止</string>

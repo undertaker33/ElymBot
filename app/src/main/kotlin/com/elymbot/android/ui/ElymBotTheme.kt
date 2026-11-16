@@ -1,6 +1,5 @@
 package com.elymbot.android.ui
 
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
@@ -115,8 +114,7 @@ internal val Line: Color @Composable @ReadOnlyComposable get() = ElymColors.line
 internal val Danger: Color @Composable @ReadOnlyComposable get() = ElymColors.danger
 
 @Composable
-internal fun ElymBotTheme(content: @Composable () -> Unit) {
-    val dark = isSystemInDarkTheme()
+internal fun ElymBotTheme(dark: Boolean, content: @Composable () -> Unit) {
     val colors = if (dark) DarkColors else LightColors
     val contentColor = if (dark) colors.ink else LocalContentColor.current
     CompositionLocalProvider(LocalElymBotColors provides colors, LocalContentColor provides contentColor) {

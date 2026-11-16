@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="elym_composer_add">添加</string>
+    <string name="elym_composer_commands">指令</string>
 </resources>

@@ -14,6 +14,7 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTextReplacement
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.elymbot.android.data.CommandNameEntity
@@ -81,9 +82,15 @@ class ComposerAddMenuTest {
 
             val input = description(R.string.elym_type_message)
             val add = description(R.string.elym_composer_add)
+            val commands = compose.onNodeWithText(label(R.string.elym_composer_commands))
+            val helpCandidate = compose.onNodeWithText("/$helpAlias")
+            val checkpointCandidate = compose.onNodeWithText(checkpoint)
             input.performTextInput("2")
             add.performClick()
-            compose.onNodeWithText("/$helpAlias").performClick()
+            helpCandidate.assertDoesNotExist()
+            commands.performClick()
+            input.assertTextEquals("/ 2")
+            helpCandidate.performClick()
             input.assertTextEquals("/$helpAlias 2")
             compose.runOnIdle {}
             runBlocking {
@@ -101,8 +108,23 @@ class ComposerAddMenuTest {
             input.assertTextEquals("/$helpAlias 2")
 
             add.performClick()
-            compose.onNodeWithText(checkpoint).performClick()
+            commands.performClick()
+            input.assertTextEquals("/ 2")
+            checkpointCandidate.performClick()
             input.assertTextEquals("$checkpoint 2")
+            description(R.string.elym_remove_image).assertIsDisplayed()
+
+            input.performTextReplacement("https://example.test /guide")
+            helpCandidate.assertDoesNotExist()
+            input.performTextReplacement("/")
+            helpCandidate.assertIsDisplayed()
+            compose.runOnUiThread { compose.activity.onBackPressedDispatcher.onBackPressed() }
+            helpCandidate.assertDoesNotExist()
+            input.assertTextEquals("/")
+            input.performTextInput("GUIDE")
+            checkpointCandidate.assertDoesNotExist()
+            helpCandidate.performClick()
+            input.assertTextEquals("/$helpAlias")
             description(R.string.elym_remove_image).assertIsDisplayed()
             compose.runOnIdle {}
             runBlocking {
