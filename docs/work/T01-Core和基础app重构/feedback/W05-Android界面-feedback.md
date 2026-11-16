@@ -152,3 +152,11 @@
 - `:app:assembleDebugAndroidTest` 通过。在独立 MuMu Android 15（`127.0.0.1:16416`）安装基线 `4fba0e0` 的 debug APK 和测试 APK，运行该用例。首次保存成功，重开出现已填入提示，再次保存后凭据记录存在性断言失败。生成的 Room SQL 对 `model_services` 执行 `INSERT OR REPLACE`，删除旧服务行时触发 `service_credentials` 的外键级联删除。编辑页把空 Key 交给保存入口，保存逻辑跳过写入新凭据。
 - Room 改用更新现有服务行后，`:app:assembleDebug :app:assembleDebugAndroidTest` 通过。候选 debug APK（SHA-256 前缀 `DC73D9DE794F`）在同一 MuMu 上运行上述用例，以及 `ElymBotStorageTest#savingModelServicePreservesAndInvalidatesProbeCacheWithCredentialIdentity` 和 `#modelServiceUrlAndCredentialUpdatesStayAtomicAcrossSnapshotsAndDrafts`，得到 `OK (3 tests)`，耗时 3.657 秒。再次保存后凭据记录仍在，重开仍显示原提示，覆盖 T01.07 模型配置的该反馈路径。仅使用合成凭据和隔离模拟器。
 - 同地址再次输入同一 Key 时沿用原密文。调整后重建两包，在新版 debug APK（SHA-256 前缀 `F04499BDB9AA`）上复跑同一组用例，结果 `OK (3 tests)`，耗时 3.593 秒。
+
+### 2026-11-16 聊天添加菜单、人格标签与系统深色
+
+- 聊天输入框左侧的添加菜单合并图片入口与当前指令名。用例从正式专属会话选改名后的帮助指令、附图、切换至检查点指令，核对已有参数和附件保留。对比会话服务返回的消息与 Room 轮次，指令选择期间无新增回执或模型轮次。选图结果由仪器测试模拟返回。
+- 人格库保留「全部」「常用」入口，新增标签后可选人格并保存，筛选与搜索使用保存后的标签。人格编辑取消了标签合计 60 字截断，避免继续编辑时裁掉持久化标签。底部导航选中态只保留图标胶囊，整项按压使用同一区域绘制反馈。
+- 系统深色使用原型 v0.6.3 第 35–38 行的暖色页面、表面、轮廓、强调与成功色。补充危险操作前景、弹层遮罩和缺省封面底色。已有图片继续使用固定遮罩与图上前景色。静态计算深色正文与底色的对比度为 14.55:1，次级文字与表面为 7.90:1，成功徽标为 7.62:1，危险按钮为 7.53:1。 [高保真原型](../ElymBot_高保真原型.html)
+- 以 `bf4136e` 加本轮工作区改动运行 `:app:assembleDebug :app:assembleDebugAndroidTest`，两包构建通过。debug APK 与测试 APK 的 SHA-256 前缀分别为 `8BE05EDF746A`、`8CB0CC709D0B`。在 MuMu `ElymBot-T01-Clean`（index 1，Android 15/API 35，`127.0.0.1:16416`）安装两包，使用 `adb -s 127.0.0.1:16416 shell am instrument -w -e class 'com.elymbot.android.ComposerAddMenuTest,com.elymbot.android.ElymBotUiIntegrationTest' com.elymbot.android.debug.test/androidx.test.runner.AndroidJUnitRunner`，结果 `OK (7 tests)`，耗时 21.2 秒。覆盖 T01.07 的人格新建与标签、聊天输入与添图，并复验导航、模型服务保存、专属会话、检查点和图片位置。
+- 在同一模拟器用 `cmd uimode night yes` 开启系统深色，实际打开人格、聊天添加菜单、配置与添加模型服务表单。截图核对页面和弹层层次、输入框及文字、图片区可读性和状态栏图标。从人格切至配置后只见配置图标带胶囊，静态截图未覆盖按下瞬间。截图与仪器测试输出保存于本地 `C:\Users\93445\Documents\Codex\ElymBot-W05-2026-11-16`。结束后恢复原系统浅色与自由旋转设置，另保存浅色人格页截图。本轮未在实体手机安装或观察深色效果。

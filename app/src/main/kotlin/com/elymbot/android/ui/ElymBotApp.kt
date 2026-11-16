@@ -19,6 +19,7 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.indication
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
@@ -26,6 +27,10 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -44,6 +49,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.hideFromAccessibility
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.res.stringResource
@@ -156,8 +162,8 @@ fun ElymBotApp(service: ElymBotUiService) {
         onStopOrDispose { model.perform { service.setViewedConversation(null) } }
     }
 
-    val pageBackground = Brush.verticalGradient(listOf(PaperTop, Paper, Paper), endY = 1200f)
-    MaterialTheme(colorScheme = lightColorScheme(primary = Accent, onPrimary = AccentInk, surface = SurfaceColor, onSurface = Ink, background = Paper, error = Danger)) {
+    ElymBotTheme {
+        val pageBackground = Brush.verticalGradient(listOf(PaperTop, Paper, Paper), endY = 1200f)
         Box(
             Modifier.fillMaxSize()
                 .background(pageBackground)
@@ -205,7 +211,7 @@ fun ElymBotApp(service: ElymBotUiService) {
                 ) {
                     when (screen.page) {
                         Page.Gallery -> stateHolder.SaveableStateProvider(Page.Gallery.name) { GalleryPage(
-                            personas, activeId, main?.unread == true, { if (current) personaForm = PersonaCard() },
+                            model, personas, activeId, main?.unread == true, { if (current) personaForm = PersonaCard() },
                         ) { selected ->
                             val target = main
                             if (current && target != null) model.perform {
@@ -309,20 +315,26 @@ private fun Navigation(selected: Page, modifier: Modifier, onSelect: (Page) -> U
     Row(
         modifier.padding(horizontal = 12.dp, vertical = 10.dp).fillMaxWidth().height(66.dp)
             .shadow(8.dp, shape).clip(shape).background(SurfaceColor.copy(alpha = 0.93f))
-            .border(1.dp, Color(0xFFFFFDF8), shape).padding(horizontal = 6.dp, vertical = 5.dp),
+            .border(1.dp, ElymColors.floatingBorder, shape).padding(horizontal = 6.dp, vertical = 5.dp)
+            .selectableGroup(),
         horizontalArrangement = Arrangement.spacedBy(1.dp),
     ) {
         listOf(Page.Gallery, Page.Models, Page.Platform, Page.Plugins, Page.Settings).forEach { destination ->
             val enabled = destination != Page.Platform && destination != Page.Plugins
             val current = selected == destination
+            val interaction = remember { MutableInteractionSource() }
             Column(
-                Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(19.dp))
-                    .clickable(enabled = enabled) { onSelect(destination) },
+                Modifier.weight(1f).fillMaxHeight().selectable(
+                    selected = current, enabled = enabled, role = Role.Tab,
+                    interactionSource = interaction, indication = null,
+                ) { onSelect(destination) },
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(2.dp, Alignment.CenterVertically),
             ) {
                 Box(
-                    Modifier.size(45.dp, 27.dp).background(if (current) Soft else Color.Transparent, CircleShape),
+                    Modifier.size(45.dp, 27.dp).clip(CircleShape)
+                        .background(if (current) Soft else Color.Transparent)
+                        .indication(interaction, ripple(bounded = true, color = Accent)),
                     contentAlignment = Alignment.Center,
                 ) {
                     Glyph(destination.icon, color = if (current) Accent else Ink.copy(alpha = if (enabled) 1f else 0.45f))
@@ -338,29 +350,26 @@ private fun Navigation(selected: Page, modifier: Modifier, onSelect: (Page) -> U
 
 @Composable
 private fun GalleryPage(
+    model: ElymBotViewModel,
     personas: List<PersonaCard>,
     activeId: String?,
     unread: Boolean,
     onAdd: () -> Unit,
     onOpen: (PersonaCard) -> Unit,
 ) {
-    val filters = listOf(R.string.elym_all, R.string.elym_favorites, R.string.elym_company, R.string.elym_learning, R.string.elym_creative)
-    var filter by rememberSaveable { mutableIntStateOf(0) }
+    val tags = remember(personas) { personas.flatMap { it.tags }.filter { it.isNotBlank() }.distinct() }
+    val allLabel = stringResource(R.string.elym_all)
+    val favoritesLabel = stringResource(R.string.elym_favorites)
+    var favoritesOnly by rememberSaveable { mutableStateOf(false) }
+    var customTag by rememberSaveable { mutableStateOf<String?>(null) }
+    var addingTag by rememberSaveable { mutableStateOf(false) }
     var searching by rememberSaveable { mutableStateOf(false) }
     var query by rememberSaveable { mutableStateOf("") }
-    val tag = stringResource(when (filter) {
-        2 -> R.string.elym_default_tag_company
-        3 -> R.string.elym_default_tag_learning
-        4 -> R.string.elym_default_tag_creative
-        else -> R.string.elym_all
-    })
+    val tag = customTag?.takeIf { it in tags }
+    val searchText = query.trim()
     val visible = personas.filter {
-        val filtered = when (filter) {
-            0 -> true
-            1 -> it.favorite
-            else -> tag in it.tags
-        }
-        filtered && (listOf(it.name, it.description, it.prompt) + it.tags).any { value -> value.contains(query.trim(), ignoreCase = true) }
+        (!favoritesOnly || it.favorite) && (tag == null || tag in it.tags) &&
+            (listOf(it.name, it.description, it.prompt) + it.tags).any { value -> value.contains(searchText, ignoreCase = true) }
     }
 
     Column {
@@ -372,33 +381,27 @@ private fun GalleryPage(
             Input(query, { query = it }, stringResource(R.string.elym_search_hint), Modifier.weight(1f))
             RoundAction(R.drawable.elym_close, stringResource(R.string.elym_close_search), { searching = false; query = "" })
         }
-        Row(Modifier.padding(start = 18.dp, end = 18.dp, top = 2.dp, bottom = 11.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            filters.forEachIndexed { index, label ->
-                val chosen = index == filter
-                val interaction = remember { MutableInteractionSource() }
-                val fill by animateColorAsState(if (chosen) Accent else SurfaceColor, tween(150, easing = FadeEasing), label = "Filter fill")
-                val stroke by animateColorAsState(if (chosen) Accent else Line, tween(150, easing = FadeEasing), label = "Filter outline")
-                val textColor by animateColorAsState(if (chosen) AccentInk else Ink, tween(150, easing = FadeEasing), label = "Filter text")
-                Box(
-                    Modifier.weight(1f).height(48.dp)
-                        .clickable(interactionSource = interaction, indication = null) { filter = index },
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Box(
-                        Modifier.fillMaxWidth().height(32.dp).clip(CircleShape)
-                            .background(fill)
-                            .border(1.dp, stroke, CircleShape)
-                            .indication(interaction, ripple(bounded = true, color = Ink)),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(stringResource(label), color = textColor, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
-                    }
+        Row(
+            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).selectableGroup()
+                .padding(start = 18.dp, end = 18.dp, top = 2.dp, bottom = 11.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            GalleryFilter(allLabel, !favoritesOnly && tag == null) { favoritesOnly = false; customTag = null }
+            GalleryFilter(favoritesLabel, favoritesOnly) { favoritesOnly = true; customTag = null }
+            tags.forEach { name ->
+                key(name) {
+                    val label = if (name.equals(allLabel, ignoreCase = true) || name.equals(favoritesLabel, ignoreCase = true)) {
+                        stringResource(R.string.elym_tag_with_prefix, name)
+                    } else name
+                    GalleryFilter(label, name == tag) { favoritesOnly = false; customTag = name }
                 }
             }
+            RoundAction(R.drawable.elym_plus, stringResource(R.string.elym_add_tag), { addingTag = true }, enabled = personas.isNotEmpty())
         }
         if (visible.isEmpty()) {
             EmptyMessage(stringResource(R.string.elym_no_personas), R.drawable.elym_search) {
-                Action(stringResource(R.string.elym_clear_filter), { filter = 0; query = "" })
+                Action(stringResource(R.string.elym_clear_filter), { favoritesOnly = false; customTag = null; query = "" })
             }
         } else LazyVerticalGrid(
             columns = GridCells.Fixed(2),
@@ -410,6 +413,88 @@ private fun GalleryPage(
                 GalleryCard(item, index == 0, item.id == activeId, unread && item.id == activeId) { onOpen(item) }
             }
         }
+    }
+    if (addingTag) {
+        AddPersonaTagSheet(model, personas, allLabel, favoritesLabel, { addingTag = false }) { name ->
+            favoritesOnly = false
+            customTag = name
+            query = ""
+            addingTag = false
+        }
+    }
+}
+
+@Composable
+private fun GalleryFilter(label: String, chosen: Boolean, onSelect: () -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
+    val fill by animateColorAsState(if (chosen) Accent else SurfaceColor, tween(150, easing = FadeEasing), label = "Filter fill")
+    val stroke by animateColorAsState(if (chosen) Accent else Line, tween(150, easing = FadeEasing), label = "Filter outline")
+    val textColor by animateColorAsState(if (chosen) AccentInk else Ink, tween(150, easing = FadeEasing), label = "Filter text")
+    Box(
+        Modifier.height(48.dp).widthIn(min = 48.dp, max = 220.dp)
+            .selectable(selected = chosen, interactionSource = interaction, indication = null, role = Role.Tab, onClick = onSelect),
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            Modifier.height(32.dp).clip(CircleShape).background(fill).border(1.dp, stroke, CircleShape)
+                .indication(interaction, ripple(bounded = true, color = Ink)).padding(horizontal = 13.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(label, color = textColor, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+    }
+}
+
+@Composable
+private fun AddPersonaTagSheet(
+    model: ElymBotViewModel,
+    personas: List<PersonaCard>,
+    allLabel: String,
+    favoritesLabel: String,
+    onDismiss: () -> Unit,
+    onSaved: (String) -> Unit,
+) {
+    var name by rememberSaveable { mutableStateOf("") }
+    var selectedIds by rememberSaveable { mutableStateOf(arrayListOf<String>()) }
+    var saving by remember { mutableStateOf(false) }
+    val trimmed = name.trim()
+    val reserved = trimmed.equals(allLabel, ignoreCase = true) || trimmed.equals(favoritesLabel, ignoreCase = true)
+    val hasSeparator = trimmed.any { it == '、' || it == '，' || it == ',' || it == '\u001f' }
+    val existingSelection = personas.mapNotNull { it.id.takeIf(selectedIds::contains) }.toSet()
+    Sheet(stringResource(R.string.elym_add_tag), { if (!saving) onDismiss() }) {
+        Field(stringResource(R.string.elym_tag_name), name, { name = it })
+        if (reserved) {
+            Text(stringResource(R.string.elym_tag_reserved), color = Danger, fontSize = 13.sp)
+        } else if (hasSeparator) {
+            Text(stringResource(R.string.elym_tag_separator), color = Danger, fontSize = 13.sp)
+        }
+        Group {
+            personas.forEach { persona ->
+                val selected = persona.id in selectedIds
+                Row(
+                    Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                        .toggleable(value = selected, enabled = !saving, role = Role.Checkbox) { checked ->
+                            selectedIds = ArrayList(if (checked) selectedIds + persona.id else selectedIds - persona.id)
+                        }.padding(horizontal = 12.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Checkbox(checked = selected, onCheckedChange = null, enabled = !saving)
+                    Text(persona.name, color = Ink, fontSize = 14.sp)
+                }
+            }
+        }
+        Action(stringResource(R.string.elym_save), {
+            saving = true
+            model.perform {
+                try {
+                    model.service.addPersonaTag(trimmed, existingSelection)
+                    onSaved(trimmed)
+                } finally {
+                    saving = false
+                }
+            }
+        }, primary = true, enabled = trimmed.isNotEmpty() && !reserved && !hasSeparator && existingSelection.isNotEmpty() && !saving)
     }
 }
 

@@ -43,7 +43,7 @@ internal fun PersonaForm(persona: PersonaCard, dismiss: () -> Unit, save: (Perso
     Sheet(stringResource(if (creating) R.string.elym_create_persona else R.string.elym_edit_persona), dismiss) {
         Field(stringResource(R.string.elym_name), edited.name, { edited = edited.copy(name = it.take(24)) })
         Field(stringResource(R.string.elym_description), edited.description, { edited = edited.copy(description = it.take(40)) })
-        Field(stringResource(R.string.elym_tags), tags, { tags = it.take(60) }, stringResource(R.string.elym_tags_hint))
+        Field(stringResource(R.string.elym_tags), tags, { tags = it }, stringResource(R.string.elym_tags_hint))
         Field(stringResource(R.string.elym_prompt), edited.prompt, { edited = edited.copy(prompt = it.take(1200)) }, multiline = true)
         Text(stringResource(R.string.elym_cover), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
         Action(
@@ -158,12 +158,13 @@ internal fun SessionsPage(model: ElymBotViewModel, persona: PersonaCard, back: (
                         bottomEnd = if (index == sessions.lastIndex) 18.dp else 0.dp,
                     )
                     val singleRow = sessions.size == 1
-                    val edge = if (singleRow) Modifier.border(1.dp, Line, shape) else Modifier.drawBehind {
+                    val line = Line
+                    val edge = if (singleRow) Modifier.border(1.dp, line, shape) else Modifier.drawBehind {
                         val stroke = 1.dp.toPx()
-                        drawLine(Line, Offset(stroke / 2, 0f), Offset(stroke / 2, size.height), stroke)
-                        drawLine(Line, Offset(size.width - stroke / 2, 0f), Offset(size.width - stroke / 2, size.height), stroke)
-                        if (index == 0) drawLine(Line, Offset(0f, stroke / 2), Offset(size.width, stroke / 2), stroke)
-                        drawLine(Line, Offset(0f, size.height - stroke / 2), Offset(size.width, size.height - stroke / 2), stroke)
+                        drawLine(line, Offset(stroke / 2, 0f), Offset(stroke / 2, size.height), stroke)
+                        drawLine(line, Offset(size.width - stroke / 2, 0f), Offset(size.width - stroke / 2, size.height), stroke)
+                        if (index == 0) drawLine(line, Offset(0f, stroke / 2), Offset(size.width, stroke / 2), stroke)
+                        drawLine(line, Offset(0f, size.height - stroke / 2), Offset(size.width, size.height - stroke / 2), stroke)
                     }
                     Column(Modifier.fillMaxWidth().clip(shape).background(SurfaceColor).then(edge)) {
                         val chosen = session.id in selection

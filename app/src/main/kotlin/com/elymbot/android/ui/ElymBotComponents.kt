@@ -57,16 +57,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
-internal val Paper = Color(0xFFF7F0E6)
-internal val PaperTop = Color(0xFFFCF7EF)
-internal val SurfaceColor = Color(0xFFFFFBF5)
-internal val Ink = Color(0xFF35251D)
-internal val Muted = Color(0xFF735D50)
-internal val Accent = Color(0xFF7B4733)
-internal val AccentInk = Color(0xFFFFF8F2)
-internal val Soft = Color(0xFFF1E0D1)
-internal val Line = Color(0xFFE5D7C8)
-internal val Danger = Color(0xFFA52B32)
 internal val GalleryFont = FontFamily(Font(R.font.gallery_song, FontWeight.Bold))
 
 @Composable
@@ -121,7 +111,12 @@ internal fun Action(
             .clickable(enabled = enabled, onClick = onClick).padding(horizontal = 14.dp, vertical = 8.dp),
         contentAlignment = Alignment.Center,
     ) {
-        Text(label, color = if (primary || danger) AccentInk else Accent, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+        val color = when {
+            danger -> ElymColors.onDanger
+            primary -> AccentInk
+            else -> Accent
+        }
+        Text(label, color = color, fontSize = 14.sp, fontWeight = FontWeight.Bold)
     }
 }
 
@@ -173,8 +168,8 @@ internal fun ListRow(
 internal fun Badge(label: String, success: Boolean = false) {
     Text(
         label, fontSize = 10.sp, fontWeight = FontWeight.Bold,
-        color = if (success) Color(0xFF356445) else Accent,
-        modifier = Modifier.background(if (success) Color(0xFFE9EFE2) else Soft, CircleShape)
+        color = if (success) ElymColors.success else Accent,
+        modifier = Modifier.background(if (success) ElymColors.successBackground else Soft, CircleShape)
             .padding(horizontal = 7.dp, vertical = 4.dp),
     )
 }
@@ -197,7 +192,7 @@ internal fun EmptyMessage(label: String, icon: Int, content: @Composable (() -> 
 internal fun Sheet(title: String, onDismiss: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
     ModalBottomSheet(
         onDismissRequest = onDismiss, containerColor = SurfaceColor,
-        contentColor = Ink, scrimColor = Color(0x6B261A18),
+        contentColor = Ink, scrimColor = ElymColors.scrim,
         shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         dragHandle = {
@@ -279,10 +274,10 @@ internal fun PersonaImage(
 ) {
     if (custom == null) {
         Box(
-            modifier.background(Brush.verticalGradient(listOf(Soft, Accent))),
+            modifier.background(Brush.verticalGradient(listOf(Soft, ElymColors.portraitBase))),
             contentAlignment = Alignment.Center,
         ) {
-            Glyph(R.drawable.elym_person, color = AccentInk)
+            Glyph(R.drawable.elym_person, color = ElymColors.onPortrait)
         }
         return
     }

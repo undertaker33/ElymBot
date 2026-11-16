@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="elym_add_tag">添加标签</string>
+    <string name="elym_tag_name">标签名称</string>
+    <string name="elym_tag_with_prefix">#%1$s</string>
+    <string name="elym_tag_reserved">该名称已用于内置筛选</string>
+    <string name="elym_tag_separator">标签名称不能包含分隔符</string>
+</resources>

@@ -20,22 +20,34 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.elymbot.android.R
+
+private const val MaxDraftLength = 1800
 
 @Composable
 internal fun ChatPage(
@@ -59,17 +71,20 @@ internal fun ChatPage(
         if (main) kotlinx.coroutines.flow.flowOf(emptyList()) else service.sessions(persona.id)
     }.collectAsStateWithLifecycle(emptyList())
     val displayTitle = sessionList.firstOrNull { it.id == id }?.title ?: title
+    val commandNames by service.commandNames.collectAsStateWithLifecycle(emptyMap())
     var menu by remember { mutableStateOf(false) }
     var choosePersona by remember { mutableStateOf(false) }
     var chooseSessions by remember { mutableStateOf(false) }
     var rename by remember { mutableStateOf(false) }
     var delete by remember { mutableStateOf(false) }
     var showCheckpoints by remember { mutableStateOf(false) }
-    var draft by rememberSaveable { mutableStateOf("") }
+    var draft by rememberSaveable(stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue()) }
     var image by rememberSaveable { mutableStateOf<String?>(null) }
     var submitting by remember { mutableStateOf(false) }
     var showMainModelConfig by remember { mutableStateOf(false) }
-    val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { image = it?.toString() }
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) image = uri.toString()
+    }
     val list = rememberLazyListState()
     val last = conversation.messages.lastOrNull()
     var follow by remember { mutableStateOf(true) }
@@ -90,8 +105,8 @@ internal fun ChatPage(
         model.perform {
             try {
                 service.send(id, text, attachment)
-                if (fromComposer && text == draft.trim() && attachment?.toString() == image) {
-                    draft = ""
+                if (fromComposer && text == draft.text.trim() && attachment?.toString() == image) {
+                    draft = TextFieldValue()
                     image = null
                 }
             } catch (failure: UiServiceException) {
@@ -186,10 +201,19 @@ internal fun ChatPage(
                 }
             }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                RoundAction(R.drawable.elym_photo, stringResource(R.string.elym_add_image), { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }, outlined = true)
                 val running = conversation.generating
-                val sendDraft = { if (!running && (draft.isNotBlank() || image != null)) submit(draft.trim(), image?.let(Uri::parse), fromComposer = true) }
-                Input(draft, { draft = it.take(1800) }, stringResource(R.string.elym_type_message), Modifier.weight(1f), multiline = true, compact = true, send = sendDraft)
+                val canSend = current && !running && !submitting && (draft.text.isNotBlank() || image != null)
+                val sendDraft = { if (canSend) submit(draft.text.trim(), image?.let(Uri::parse), fromComposer = true) }
+                ChatComposer(
+                    draft = draft,
+                    onDraftChange = { draft = it },
+                    commandNames = commandNames,
+                    main = main,
+                    enabled = current,
+                    onPickImage = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                    onSend = sendDraft,
+                    modifier = Modifier.weight(1f),
+                )
                 RoundAction(
                     if (running) R.drawable.elym_stop else R.drawable.elym_send,
                     stringResource(if (running) R.string.elym_stop else R.string.elym_send),
@@ -197,7 +221,7 @@ internal fun ChatPage(
                         if (current && running) model.perform { service.stop(id) }
                         else sendDraft()
                     },
-                    primary = true, enabled = running || (!submitting && (draft.isNotBlank() || image != null)), roundedSquare = true,
+                    primary = true, enabled = current && (running || canSend), roundedSquare = true,
                 )
             }
         }
@@ -247,6 +271,95 @@ internal fun ChatPage(
     if (current && delete) ConfirmSessionDelete(
         conversation.generating, stringResource(R.string.elym_confirm_session, displayTitle), { delete = false },
     ) { model.perform { service.deleteSessions(persona.id, setOf(id)); delete = false; back() } }
+}
+
+@Composable
+private fun ChatComposer(
+    draft: TextFieldValue,
+    onDraftChange: (TextFieldValue) -> Unit,
+    commandNames: Map<ChatCommand, String>,
+    main: Boolean,
+    enabled: Boolean,
+    onPickImage: () -> Unit,
+    onSend: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var expanded by remember(enabled) { mutableStateOf(false) }
+    val focusRequester = remember { FocusRequester() }
+    val shape = RoundedCornerShape(17.dp)
+    val hint = stringResource(R.string.elym_type_message)
+    Row(
+        modifier.background(PaperTop, shape).border(1.dp, Line, shape),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box {
+            RoundAction(R.drawable.elym_plus, stringResource(R.string.elym_composer_add), { expanded = true }, enabled = enabled)
+            DropdownMenu(expanded, { expanded = false }, containerColor = SurfaceColor, shape = RoundedCornerShape(16.dp)) {
+                ChatMenuItem(R.string.elym_add_image, R.drawable.elym_photo) {
+                    expanded = false
+                    onPickImage()
+                }
+                ChatCommand.entries.forEach { command ->
+                    val name = commandNames[command]
+                    if (name != null && (main || command != ChatCommand.Persona)) {
+                        val literal = "/$name"
+                        val takesArgument = command == ChatCommand.Persona || command == ChatCommand.Checkpoint
+                        val selectedDraft = draftWithCommand(draft.text, literal, takesArgument, commandNames.values)
+                        DropdownMenuItem(
+                            text = { Text(literal, fontSize = 14.sp) },
+                            enabled = selectedDraft.text.length <= MaxDraftLength,
+                            onClick = {
+                                expanded = false
+                                onDraftChange(selectedDraft)
+                                focusRequester.requestFocus()
+                            },
+                        )
+                    }
+                }
+            }
+        }
+        BasicTextField(
+            value = draft,
+            onValueChange = { value ->
+                if (value.text.length <= MaxDraftLength) {
+                    onDraftChange(value)
+                } else {
+                    onDraftChange(TextFieldValue(value.text.take(MaxDraftLength), value.selection))
+                }
+            },
+            maxLines = 5,
+            textStyle = TextStyle(color = Ink, fontSize = 16.sp, lineHeight = 21.sp),
+            cursorBrush = SolidColor(Accent),
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+            keyboardActions = KeyboardActions(onSend = { onSend() }),
+            modifier = Modifier.weight(1f).focusRequester(focusRequester).semanticsLabel(hint),
+            decorationBox = { field ->
+                Box(Modifier.fillMaxWidth().padding(top = 11.dp, end = 11.dp, bottom = 11.dp)) {
+                    if (draft.text.isEmpty()) Text(hint, color = Muted, fontSize = 16.sp)
+                    field()
+                }
+            },
+        )
+    }
+}
+
+private fun draftWithCommand(
+    draft: String,
+    literal: String,
+    takesArgument: Boolean,
+    names: Collection<String>,
+): TextFieldValue {
+    val command = draft.takeWhile { !it.isWhitespace() }.takeIf { it.startsWith('/') }
+    val suffix = if (command != null && command.drop(1) in names) {
+        draft.drop(command.length)
+    } else if (draft.isNotEmpty()) {
+        " $draft"
+    } else {
+        ""
+    }
+    val arguments = suffix.ifEmpty { if (takesArgument) " " else "" }
+    val cursor = literal.length + if (arguments.isEmpty()) 0 else 1
+    return TextFieldValue(literal + arguments, TextRange(cursor))
 }
 
 @Composable

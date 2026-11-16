@@ -157,3 +157,16 @@ Checklist 未修改。T01.05/T01.06 的存储服务测试覆盖已更新，但�
 - Windows PowerShell，Gradle Wrapper 9.9.1：`.\gradlew.bat :app:assembleDebug :app:assembleDebugAndroidTest :core:test --continue --console=plain --quiet`，App、AndroidTest APK 和 Core 测试通过；Core 模型适配测试 XML 报告 23 项、0 failures、0 errors。
 - MuMu `ElymBot-T01-Clean`（ABR-AL80，Android 15/API 35，`127.0.0.1:16416`）安装同批 APK 后运行：`adb -s 127.0.0.1:16416 shell am instrument -w -e class 'com.elymbot.android.ElymBotUiIntegrationTest#savingAnUnchangedModelServiceKeepsItsApiKey,com.elymbot.android.data.ElymBotStorageTest#nonStreamingVisionRoutesDirectAndThroughConfiguredFallback,com.elymbot.android.data.ElymBotStorageTest#transientPrimaryVisionProbeFailureDoesNotUseFallbackModel' com.elymbot.android.debug.test/androidx.test.runner.AndroidJUnitRunner`，结果 `OK (3 tests)`，耗时 3.759 秒。
 - debug APK SHA-256：`DEC51C34945EC82F48928675046BCB6522A96071928DFC4D82AE6758B912C7CC`；AndroidTest APK SHA-256：`B40529BAF8E0F68E385CE65FDEE999711E3D7A4A8AA847A501F37D2940001F61`。仪器用例只使用隔离 Room fixture、生成 PNG、合成 Key 和本机模拟端点；没有读取用户数据库或连接真实模型服务。
+
+## 2026-11-16 Gallery 自定义标签持久化
+
+### 实际改动
+
+- `ElymBotUiService` 增加 `addPersonaTag(tag, personaIds)` 契约；`ElymBotSessionService` 负责规范化标签并校验非空标签、PersonaForm 分隔符和非空所选人格 ID。
+- 在单个 Room 事务中确认所有所选 ID 仍有效后才更新。按精确标签名做幂等并集；只在需要新增标签的人格上调用 DAO `update`，通过 `PersonaEntity.copy` 保留名称、描述、提示词、封面位置、头像位置、排序及其他字段。未改 schema、目录编码或 `REPLACE` 写入。
+- 未增加 W04 测试；UI 集成回归由 W05 负责。
+
+### 验证与待验
+
+- 静态核对唯一的 `ElymBotUiService` 实现和调用签名；本次两个 Kotlin 文件的 `git diff --check` 通过。
+- 未运行 Gradle、Android 测试或设备操作。编译和 UI 集成验证交由 W05/W01 统一执行，结果待其反馈。

@@ -5,9 +5,11 @@ import android.graphics.Color
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.isToggleable
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -51,7 +53,8 @@ class ElymBotUiIntegrationTest {
     @Test
     fun personaCreatedThroughGalleryCanBeFoundByNameAndTag() {
         val name = "UI-${fixture.prefix.takeLast(12)}"
-        val tag = label(R.string.elym_default_tag_learning)
+        val originalTag = "Existing-${fixture.prefix.takeLast(8)}"
+        val newTag = "Custom-${fixture.prefix.takeLast(8)}"
         val personaCard = compose.onNode(hasText(name) and hasClickAction() and !hasSetTextAction())
         val personaDao = fixture.database.personaDao()
         val beforeIds = runBlocking { personaDao.getAll().map { it.id }.toSet() }
@@ -60,7 +63,7 @@ class ElymBotUiIntegrationTest {
             waitForText(fixture.personaName)
             description(R.string.elym_create_persona).performClick()
             description(R.string.elym_name).performTextInput(name)
-            description(R.string.elym_tags).performScrollTo().performTextInput(tag)
+            description(R.string.elym_tags).performScrollTo().performTextInput(originalTag)
             description(R.string.elym_prompt).performScrollTo().performTextInput("Gallery test prompt")
             scrollAndClick(R.string.elym_create)
             compose.waitUntil(10_000) {
@@ -78,12 +81,25 @@ class ElymBotUiIntegrationTest {
             search.performTextReplacement(name)
             personaCard.assertIsDisplayed()
             compose.onNodeWithText(fixture.personaName).assertDoesNotExist()
-            click(R.string.elym_company)
-            waitForText(label(R.string.elym_no_personas))
-            personaCard.assertDoesNotExist()
-            click(R.string.elym_learning)
-            personaCard.assertIsDisplayed()
             description(R.string.elym_close_search).performClick()
+            compose.onNode(hasText(originalTag) and hasClickAction()).performScrollTo().performClick()
+            personaCard.assertIsDisplayed()
+            compose.onNodeWithText(fixture.personaName).assertDoesNotExist()
+
+            description(R.string.elym_add_tag).performScrollTo().performClick()
+            description(R.string.elym_tag_name).performTextInput(newTag)
+            val save = compose.onNode(hasText(label(R.string.elym_save)) and hasClickAction())
+            save.assertIsNotEnabled()
+            compose.onNode(hasText(name) and isToggleable()).performScrollTo().performClick()
+            save.performScrollTo().performClick()
+            compose.waitUntil(10_000) {
+                compose.onAllNodesWithContentDescription(label(R.string.elym_tag_name)).fetchSemanticsNodes().isEmpty() && runBlocking {
+                    val personas = service.personas.first()
+                    personas.any { it.id == createdId && originalTag in it.tags && newTag in it.tags } &&
+                        personas.none { it.id != createdId && newTag in it.tags }
+                }
+            }
+            compose.onNode(hasText(newTag) and hasClickAction()).performScrollTo().performClick()
             personaCard.assertIsDisplayed()
             compose.onNodeWithText(fixture.personaName).assertDoesNotExist()
         } finally {

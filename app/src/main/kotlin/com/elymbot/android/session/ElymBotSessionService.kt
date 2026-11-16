@@ -364,6 +364,31 @@ class ElymBotSessionService(
         return id
     }
 
+    override suspend fun addPersonaTag(tag: String, personaIds: Set<String>) {
+        val normalizedTag = tag.trim()
+        val selectedIds = personaIds.toSet()
+        if (normalizedTag.isEmpty() || normalizedTag.any {
+                it == '、' || it == '，' || it == ',' || it == '\u001f'
+            } || selectedIds.isEmpty() || selectedIds.any(String::isBlank)
+        ) {
+            fail(UiIssue.InvalidInput)
+        }
+
+        repository.initialize()
+        repository.database.withTransaction {
+            val personas = repository.database.personaDao()
+            val selectedPersonas = personas.getAll().filter { it.id in selectedIds }
+            if (selectedPersonas.size != selectedIds.size) fail(UiIssue.InvalidInput)
+
+            selectedPersonas.forEach { persona ->
+                val existingTags = persona.tagsValue.split(TAG_SEPARATOR).filter(String::isNotEmpty)
+                if (normalizedTag !in existingTags) {
+                    personas.update(persona.copy(tagsValue = (existingTags + normalizedTag).joinToString(TAG_SEPARATOR)))
+                }
+            }
+        }
+    }
+
     override suspend fun deletePersona(personaId: String) {
         repository.initialize()
         val oldCover = repository.database.personaDao().get(personaId)?.coverPath

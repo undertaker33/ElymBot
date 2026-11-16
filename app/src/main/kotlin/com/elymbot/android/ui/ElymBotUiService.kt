@@ -19,6 +19,7 @@ interface ElymBotUiService {
     suspend fun newSession(personaId: String): String
     suspend fun activatePersona(personaId: String)
     suspend fun savePersona(persona: PersonaCard): String
+    suspend fun addPersonaTag(tag: String, personaIds: Set<String>)
     suspend fun deletePersona(personaId: String)
     suspend fun renameSession(sessionId: String, title: String)
     suspend fun deleteSessions(personaId: String, sessionIds: Set<String>)
