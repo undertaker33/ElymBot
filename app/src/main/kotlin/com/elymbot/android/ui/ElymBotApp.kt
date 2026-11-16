@@ -49,6 +49,8 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.hideFromAccessibility
 import androidx.compose.ui.semantics.semantics
@@ -387,17 +389,17 @@ private fun GalleryPage(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            GalleryFilter(allLabel, !favoritesOnly && tag == null) { favoritesOnly = false; customTag = null }
-            GalleryFilter(favoritesLabel, favoritesOnly) { favoritesOnly = true; customTag = null }
+            GalleryTagChip(allLabel, !favoritesOnly && tag == null) { favoritesOnly = false; customTag = null }
+            GalleryTagChip(favoritesLabel, favoritesOnly) { favoritesOnly = true; customTag = null }
             tags.forEach { name ->
                 key(name) {
                     val label = if (name.equals(allLabel, ignoreCase = true) || name.equals(favoritesLabel, ignoreCase = true)) {
                         stringResource(R.string.elym_tag_with_prefix, name)
                     } else name
-                    GalleryFilter(label, name == tag) { favoritesOnly = false; customTag = name }
+                    GalleryTagChip(label, name == tag) { favoritesOnly = false; customTag = name }
                 }
             }
-            RoundAction(R.drawable.elym_plus, stringResource(R.string.elym_add_tag), { addingTag = true }, enabled = personas.isNotEmpty())
+            GalleryTagChip(stringResource(R.string.elym_add_tag), enabled = personas.isNotEmpty()) { addingTag = true }
         }
         if (visible.isEmpty()) {
             EmptyMessage(stringResource(R.string.elym_no_personas), R.drawable.elym_search) {
@@ -425,22 +427,36 @@ private fun GalleryPage(
 }
 
 @Composable
-private fun GalleryFilter(label: String, chosen: Boolean, onSelect: () -> Unit) {
+private fun GalleryTagChip(label: String, selected: Boolean? = null, enabled: Boolean = true, onClick: () -> Unit) {
+    val chosen = selected == true
+    val textSize = 13.sp
+    val horizontalPadding = 13.dp
+    val minimumLabelWidth = with(LocalDensity.current) { (textSize.roundToPx() * 2).toDp() }
     val interaction = remember { MutableInteractionSource() }
     val fill by animateColorAsState(if (chosen) Accent else SurfaceColor, tween(150, easing = FadeEasing), label = "Filter fill")
     val stroke by animateColorAsState(if (chosen) Accent else Line, tween(150, easing = FadeEasing), label = "Filter outline")
     val textColor by animateColorAsState(if (chosen) AccentInk else Ink, tween(150, easing = FadeEasing), label = "Filter text")
+    val action = if (selected == null) {
+        Modifier.clickable(interactionSource = interaction, indication = null, enabled = enabled, role = Role.Button, onClick = onClick)
+            .semantics { contentDescription = label }
+    } else {
+        Modifier.selectable(selected, interaction, null, role = Role.Tab, onClick = onClick)
+    }
     Box(
-        Modifier.height(48.dp).widthIn(min = 48.dp, max = 220.dp)
-            .selectable(selected = chosen, interactionSource = interaction, indication = null, role = Role.Tab, onClick = onSelect),
+        Modifier.height(48.dp).widthIn(min = 48.dp, max = 220.dp).then(action),
         contentAlignment = Alignment.Center,
     ) {
         Box(
             Modifier.height(32.dp).clip(CircleShape).background(fill).border(1.dp, stroke, CircleShape)
-                .indication(interaction, ripple(bounded = true, color = Ink)).padding(horizontal = 13.dp),
+                .indication(interaction, ripple(bounded = true, color = Ink))
+                .padding(horizontal = horizontalPadding).widthIn(min = minimumLabelWidth),
             contentAlignment = Alignment.Center,
         ) {
-            Text(label, color = textColor, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (selected == null) {
+                Glyph(R.drawable.elym_plus, color = if (enabled) Accent else Muted.copy(alpha = 0.5f))
+            } else {
+                Text(label, color = textColor, fontSize = textSize, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
         }
     }
 }

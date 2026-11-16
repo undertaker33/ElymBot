@@ -160,3 +160,8 @@
 - 系统深色使用原型 v0.6.3 第 35–38 行的暖色页面、表面、轮廓、强调与成功色。补充危险操作前景、弹层遮罩和缺省封面底色。已有图片继续使用固定遮罩与图上前景色。静态计算深色正文与底色的对比度为 14.55:1，次级文字与表面为 7.90:1，成功徽标为 7.62:1，危险按钮为 7.53:1。 [高保真原型](../ElymBot_高保真原型.html)
 - 以 `bf4136e` 加本轮工作区改动运行 `:app:assembleDebug :app:assembleDebugAndroidTest`，两包构建通过。debug APK 与测试 APK 的 SHA-256 前缀分别为 `8BE05EDF746A`、`8CB0CC709D0B`。在 MuMu `ElymBot-T01-Clean`（index 1，Android 15/API 35，`127.0.0.1:16416`）安装两包，使用 `adb -s 127.0.0.1:16416 shell am instrument -w -e class 'com.elymbot.android.ComposerAddMenuTest,com.elymbot.android.ElymBotUiIntegrationTest' com.elymbot.android.debug.test/androidx.test.runner.AndroidJUnitRunner`，结果 `OK (7 tests)`，耗时 21.2 秒。覆盖 T01.07 的人格新建与标签、聊天输入与添图，并复验导航、模型服务保存、专属会话、检查点和图片位置。
 - 在同一模拟器用 `cmd uimode night yes` 开启系统深色，实际打开人格、聊天添加菜单、配置与添加模型服务表单。截图核对页面和弹层层次、输入框及文字、图片区可读性和状态栏图标。从人格切至配置后只见配置图标带胶囊，静态截图未覆盖按下瞬间。截图与仪器测试输出保存于本地 `C:\Users\93445\Documents\Codex\ElymBot-W05-2026-11-16`。结束后恢复原系统浅色与自由旋转设置，另保存浅色人格页截图。本轮未在实体手机安装或观察深色效果。
+
+### 2026-11-16 人格标签栏加号尺寸与收藏用词
+
+- 标签栏最右侧加号与普通标签共用胶囊边框、32 dp 高度、最小宽度和水平内边距，点击区域仍为 48 dp 高。横向滑动可到达加号，空库时加号禁用。内置筛选显示「全部」「收藏」，人格编辑显示「加入收藏」。收藏筛选仍读取已有收藏标记。
+- 在 `b312068` 基线上运行 `:app:assembleDebug :app:assembleDebugAndroidTest` 通过，debug APK 的 SHA-256 前缀为 `54224115AC40`。在 MuMu `ElymBot-T01-Clean`（index 1，Android 15/API 35，`127.0.0.1:16416`）运行 `ElymBotUiIntegrationTest#personaCreatedThroughGalleryCanBeFoundByNameAndTag`，结果 `OK (1 test)`，耗时 3.983 秒。正式人格页同屏截图显示「全部」「收藏」和加号三枚胶囊等宽等高，截图与仪器输出分别为本地 `C:\Users\93445\Documents\Codex\ElymBot-W05-2026-11-16\gallery-tag-chips.png` 和同目录的 `gallery-tag-chips-instrumentation.txt`。
