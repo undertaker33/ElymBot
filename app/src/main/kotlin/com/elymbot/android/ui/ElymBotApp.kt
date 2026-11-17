@@ -30,7 +30,6 @@ import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
-import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -148,6 +147,7 @@ internal fun ElymBotApp(
 ) {
     val model: ElymBotViewModel = viewModel { ElymBotViewModel(service) }
     val personas by service.personas.collectAsStateWithLifecycle(emptyList())
+    val personaTags by service.personaTags.collectAsStateWithLifecycle(emptyList())
     val activeId by service.activePersonaId.collectAsStateWithLifecycle(null)
     val main by service.mainSession.collectAsStateWithLifecycle(null)
     val config by service.models.collectAsStateWithLifecycle(ModelConfiguration())
@@ -219,7 +219,7 @@ internal fun ElymBotApp(
                 ) {
                     when (screen.page) {
                         Page.Gallery -> stateHolder.SaveableStateProvider(Page.Gallery.name) { GalleryPage(
-                            model, personas, activeId, main?.unread == true, { if (current) personaForm = PersonaCard() },
+                            model, personas, personaTags, activeId, main?.unread == true, { if (current) personaForm = PersonaCard() },
                         ) { selected ->
                             val target = main
                             if (current && target != null) model.perform {
@@ -265,7 +265,7 @@ internal fun ElymBotApp(
 
         }
         personaForm?.let { existing ->
-            PersonaForm(existing, { personaForm = null }) { edited ->
+            PersonaForm(existing, personaTags, { personaForm = null }) { edited ->
                 model.perform { service.savePersona(edited); personaForm = null }
             }
         }
@@ -360,12 +360,12 @@ private fun Navigation(selected: Page, modifier: Modifier, onSelect: (Page) -> U
 private fun GalleryPage(
     model: ElymBotViewModel,
     personas: List<PersonaCard>,
+    tags: List<String>,
     activeId: String?,
     unread: Boolean,
     onAdd: () -> Unit,
     onOpen: (PersonaCard) -> Unit,
 ) {
-    val tags = remember(personas) { personas.flatMap { it.tags }.filter { it.isNotBlank() }.distinct() }
     val allLabel = stringResource(R.string.elym_all)
     val favoritesLabel = stringResource(R.string.elym_favorites)
     var favoritesOnly by rememberSaveable { mutableStateOf(false) }
@@ -405,7 +405,7 @@ private fun GalleryPage(
                     GalleryTagChip(label, name == tag) { favoritesOnly = false; customTag = name }
                 }
             }
-            GalleryTagChip(stringResource(R.string.elym_add_tag), enabled = personas.isNotEmpty()) { addingTag = true }
+            GalleryTagChip(stringResource(R.string.elym_add_tag)) { addingTag = true }
         }
         if (visible.isEmpty()) {
             EmptyMessage(stringResource(R.string.elym_no_personas), R.drawable.elym_search) {
@@ -423,7 +423,7 @@ private fun GalleryPage(
         }
     }
     if (addingTag) {
-        AddPersonaTagSheet(model, personas, allLabel, favoritesLabel, { addingTag = false }) { name ->
+        AddPersonaTagSheet(model, allLabel, favoritesLabel, { addingTag = false }) { name ->
             favoritesOnly = false
             customTag = name
             query = ""
@@ -433,7 +433,7 @@ private fun GalleryPage(
 }
 
 @Composable
-private fun GalleryTagChip(label: String, selected: Boolean? = null, enabled: Boolean = true, onClick: () -> Unit) {
+private fun GalleryTagChip(label: String, selected: Boolean? = null, onClick: () -> Unit) {
     val chosen = selected == true
     val textSize = 13.sp
     val horizontalPadding = 13.dp
@@ -443,7 +443,7 @@ private fun GalleryTagChip(label: String, selected: Boolean? = null, enabled: Bo
     val stroke by animateColorAsState(if (chosen) Accent else Line, tween(150, easing = FadeEasing), label = "Filter outline")
     val textColor by animateColorAsState(if (chosen) AccentInk else Ink, tween(150, easing = FadeEasing), label = "Filter text")
     val action = if (selected == null) {
-        Modifier.clickable(interactionSource = interaction, indication = null, enabled = enabled, role = Role.Button, onClick = onClick)
+        Modifier.clickable(interactionSource = interaction, indication = null, role = Role.Button, onClick = onClick)
             .semantics { contentDescription = label }
     } else {
         Modifier.selectable(selected, interaction, null, role = Role.Tab, onClick = onClick)
@@ -459,7 +459,7 @@ private fun GalleryTagChip(label: String, selected: Boolean? = null, enabled: Bo
             contentAlignment = Alignment.Center,
         ) {
             if (selected == null) {
-                Glyph(R.drawable.elym_plus, color = if (enabled) Accent else Muted.copy(alpha = 0.5f))
+                Glyph(R.drawable.elym_plus, color = Accent)
             } else {
                 Text(label, color = textColor, fontSize = textSize, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
@@ -470,19 +470,16 @@ private fun GalleryTagChip(label: String, selected: Boolean? = null, enabled: Bo
 @Composable
 private fun AddPersonaTagSheet(
     model: ElymBotViewModel,
-    personas: List<PersonaCard>,
     allLabel: String,
     favoritesLabel: String,
     onDismiss: () -> Unit,
     onSaved: (String) -> Unit,
 ) {
     var name by rememberSaveable { mutableStateOf("") }
-    var selectedIds by rememberSaveable { mutableStateOf(arrayListOf<String>()) }
     var saving by remember { mutableStateOf(false) }
     val trimmed = name.trim()
     val reserved = trimmed.equals(allLabel, ignoreCase = true) || trimmed.equals(favoritesLabel, ignoreCase = true)
-    val hasSeparator = trimmed.any { it == '、' || it == '，' || it == ',' || it == '\u001f' }
-    val existingSelection = personas.mapNotNull { it.id.takeIf(selectedIds::contains) }.toSet()
+    val hasSeparator = '\u001f' in trimmed
     Sheet(stringResource(R.string.elym_add_tag), { if (!saving) onDismiss() }) {
         Field(stringResource(R.string.elym_tag_name), name, { name = it })
         if (reserved) {
@@ -490,33 +487,17 @@ private fun AddPersonaTagSheet(
         } else if (hasSeparator) {
             Text(stringResource(R.string.elym_tag_separator), color = Danger, fontSize = 13.sp)
         }
-        Group {
-            personas.forEach { persona ->
-                val selected = persona.id in selectedIds
-                Row(
-                    Modifier.fillMaxWidth().heightIn(min = 48.dp)
-                        .toggleable(value = selected, enabled = !saving, role = Role.Checkbox) { checked ->
-                            selectedIds = ArrayList(if (checked) selectedIds + persona.id else selectedIds - persona.id)
-                        }.padding(horizontal = 12.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Checkbox(checked = selected, onCheckedChange = null, enabled = !saving)
-                    Text(persona.name, color = Ink, fontSize = 14.sp)
-                }
-            }
-        }
         Action(stringResource(R.string.elym_save), {
             saving = true
             model.perform {
                 try {
-                    model.service.addPersonaTag(trimmed, existingSelection)
+                    model.service.createPersonaTag(trimmed)
                     onSaved(trimmed)
                 } finally {
                     saving = false
                 }
             }
-        }, primary = true, enabled = trimmed.isNotEmpty() && !reserved && !hasSeparator && existingSelection.isNotEmpty() && !saving)
+        }, primary = true, enabled = trimmed.isNotEmpty() && !reserved && !hasSeparator && !saving)
     }
 }
 

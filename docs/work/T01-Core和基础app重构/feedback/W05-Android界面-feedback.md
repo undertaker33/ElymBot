@@ -172,3 +172,16 @@
 - 聊天输入框输入 `/` 或部分指令名时，按现有指令别名提示候选。加号菜单保留添加图片和指令入口。候选按主会话与专属会话的现有可用范围显示，选择后保留已有参数和图片，等待用户发出。定向用例覆盖别名、输入替换、附件保留、指令候选切换及会话无新增回执或轮次。
 - 以 `49987ca` 加本轮改动运行 `:app:assembleDebug :app:assembleDebugAndroidTest` 通过。debug APK 与测试 APK 的 SHA-256 前缀分别为 `5AD09EB4ABC0`、`2824463D2A13`。在 MuMu `ElymBot-T01-Clean`（index 1，Android 15/API 35，`127.0.0.1:16416`）运行 `adb -s 127.0.0.1:16416 shell am instrument -w -e class 'com.elymbot.android.AppearanceSettingsTest,com.elymbot.android.ComposerAddMenuTest' com.elymbot.android.debug.test/androidx.test.runner.AndroidJUnitRunner`，结果 `OK (2 tests)`，耗时 6.071 秒。外观用例覆盖三项单选、Activity 重开后保留深色和主窗口两类系统栏标志。
 - 模拟器系统保持浅色时，在同一外观弹层从跟随系统切到深色，再切回跟随系统，截图确认页面与弹层随即更新、弹层状态栏图标相应变亮及变深。手动强制停止并冷启动也保留了已选深色。截图与测试输出保存在本地 `C:\Users\93445\Documents\Codex\ElymBot-W05-2026-11-16` 的 `appearance-dark-dialog.png`、`appearance-follow-system.png`、`appearance-after-cold-start.png` 和 `instrumentation-appearance-composer.txt`。模拟器恢复跟随系统和自由旋转。本轮使用合成附件，实体手机和 Android 26–34 未验证。
+
+### 2026-11-17 从人格编辑选择标签
+
+- 人格库标签栏右端的加号只创建标签。保存后可立即筛选该标签，空标签会保留。新建及编辑人格的表单从标签目录勾选，已有标签默认勾选，保存时一次提交当前选择。取消最后一个人格的关联后，标签仍可筛选。
+- 以 `03a97e1` 加工作区改动执行 `:app:assembleDebug :app:assembleDebugAndroidTest`。在 MuMu `ElymBot-T01-Clean`（index 1，Android 15/API 35，`127.0.0.1:16416`）从旧版正式入口创建 `LegacyTagPersona`，给它填入 `LegacyV1Tag`。用 `sqlite3 -readonly` 确认数据库 `user_version` 为 1。以 `adb install -r` 覆盖安装 APK（SHA-256 前缀 `7E49649E351A`），打开正式入口后再读，版本为 2，原人格及标签关联保留，`persona_tags` 中已有 `LegacyV1Tag`。选中该标签后，只显示 `LegacyTagPersona`。升级前后截图名为 `persona-tags-before.png` 和 `persona-tags-after.png`，保存在本地 `C:\Users\93445\Documents\Codex\ElymBot-W05-2026-11-16`。
+- 定向用例 `ElymBotUiIntegrationTest#personaCreatedThroughGalleryCanBeFoundByNameAndTag` 首次在全部人格下尝试直接定位未加载的卡片，测试改为先进入该人格已知的标签筛选。重建两包后（SHA-256 前缀 `E50B7DCC3F3C`、`C5C0761D8CA8`），再次运行得到 `OK (1 test)`，耗时 6.067 秒。覆盖创建空标签、创建人格时勾选、编辑时保留原有选择、新增选择在保存后生效，以及清除最后一个关联后标签仍在。输出见同目录 `persona-tags-editor-instrumentation-rerun.txt`。
+### 2026-11-17 聊天浮动输入、发送后定位与本地回执
+
+- 输入框悬浮于聊天底部。聊天列表在同一布局测量中为输入框实际高度留白，随多行草稿、图片附件和斜杠指令候选变化。短视口优先分配输入行高度，附件与候选使用剩余空间。
+- 成功发送后的定位以正式会话流出现新增的用户气泡为条件，末尾定位项目覆盖末条长消息。向上阅览时外部新增消息沿用原跟随状态。点击发送和键盘发送使用同一入口，指令回执通过实际会话流一起呈现。
+- 本地生成的简短回执显示为居中状态胶囊，多行结果显示为可选取的独立信息面板。回执样式由会话消息的 `localReceipt` 标记决定。
+- Windows PowerShell 使用 Gradle Wrapper 执行 `:app:assembleDebug :app:assembleDebugAndroidTest --console=plain --quiet`，两包构建通过。debug APK 与测试 APK 的 SHA-256 前缀分别为 `DEEE19EE9628`、`C5C0761D8CA8`。
+- 在 MuMu `ElymBot-T01-Clean`（index 1，Android 15/API 35，`127.0.0.1:16416`）运行 `adb -s 127.0.0.1:16416 shell am instrument -w -e class 'com.elymbot.android.ComposerAddMenuTest,com.elymbot.android.ElymBotUiIntegrationTest#personaCreatedThroughGalleryCanBeFoundByNameAndTag' com.elymbot.android.debug.test/androidx.test.runner.AndroidJUnitRunner`，结果 `OK (3 tests)`，耗时 11.423 秒。聊天用例覆盖上滑查历史后收到外部会话更新、再次点击发送及触发 IME 发送、末尾消息与回执的底边位于浮动输入区域之上，以及加号入口、斜杠补全、合成附件与草稿保留。完整输出保存于本地 `C:\Users\93445\Documents\Codex\ElymBot-W05-2026-11-17\composer-and-tags-round1.txt`。键盘发送通过 Compose IME 动作触发，实体设备与实体键盘未验证。

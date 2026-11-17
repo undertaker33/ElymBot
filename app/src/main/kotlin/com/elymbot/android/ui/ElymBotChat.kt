@@ -26,6 +26,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -39,6 +40,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.SubcomposeLayout
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
@@ -47,7 +49,9 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -95,6 +99,7 @@ internal fun ChatPage(
     val list = rememberLazyListState()
     val last = conversation.messages.lastOrNull()
     var follow by remember { mutableStateOf(true) }
+    var pendingSendScroll by remember(id) { mutableStateOf<SentDraft?>(null) }
     LaunchedEffect(list) {
         snapshotFlow { list.isScrollInProgress to !list.canScrollForward }.collect { (scrolling, atEnd) ->
             if (scrolling) follow = atEnd
@@ -102,17 +107,18 @@ internal fun ChatPage(
     }
     val showToolProgress = conversation.generating && conversation.toolProgressActive
     val showPendingReply = conversation.generating && (showToolProgress || last?.assistant != true)
-    val itemCount = conversation.messages.size + (if (showPendingReply) 1 else 0) + (if (conversation.issue != null) 1 else 0)
-    LaunchedEffect(last?.id, last?.text, itemCount) {
-        if (follow && itemCount > 0) list.requestScrollToItem(itemCount - 1)
-    }
-    fun submit(text: String, attachment: Uri? = null, fromComposer: Boolean = false) {
+    val showEmpty = conversation.messages.isEmpty() && !conversation.generating
+    val itemCount = conversation.messages.size + listOf(showEmpty, showPendingReply, conversation.issue != null).count { it }
+    val revealedSend = pendingSendScroll?.takeIf { it.hasNewEcho(conversation.messages) }
+    fun submit(text: String, attachment: Uri?) {
         if (!current || submitting) return
+        val sentDraft = SentDraft(text, attachment != null).watchNewEcho(conversation.messages, pendingSendScroll)
         submitting = true
         model.perform {
             try {
                 service.send(id, text, attachment)
-                if (fromComposer && text == draft.text.trim() && attachment?.toString() == image) {
+                pendingSendScroll = sentDraft
+                if (text == draft.text.trim() && attachment?.toString() == image) {
                     draft = TextFieldValue()
                     image = null
                 }
@@ -163,71 +169,89 @@ internal fun ChatPage(
             }
         }
         HorizontalDivider(color = Line)
-        LazyColumn(
-            Modifier.weight(1f).fillMaxWidth(), state = list,
-            contentPadding = PaddingValues(start = 17.dp, end = 17.dp, top = 19.dp, bottom = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(15.dp),
-        ) {
-            if (conversation.messages.isEmpty() && !conversation.generating) item {
-                EmptyMessage(stringResource(R.string.elym_no_messages), R.drawable.elym_chat)
-            }
-            items(conversation.messages, key = { it.id }) { message -> MessageBubble(message, persona.name) }
-            if (showPendingReply) item {
-                val pendingReply = if (showToolProgress) {
-                    ChatMessage("waiting", text = stringResource(R.string.elym_tool_progress), assistant = true)
-                } else {
-                    ChatMessage("waiting", assistant = true, status = MessageStatus.Waiting)
+        FloatingComposerLayout(Modifier.weight(1f).fillMaxWidth(), timeline = { bottomPadding ->
+            LaunchedEffect(current, last?.id, last?.text, itemCount, revealedSend, bottomPadding) {
+                if (!current) return@LaunchedEffect
+                if (revealedSend != null && pendingSendScroll == revealedSend) {
+                    pendingSendScroll = null
+                    follow = true
+                    list.requestScrollToItem(itemCount)
+                } else if (follow && itemCount > 0) {
+                    list.requestScrollToItem(itemCount)
                 }
-                MessageBubble(pendingReply, persona.name)
             }
-            conversation.issue?.let { issue ->
-                item {
-                    Column(
-                        Modifier.fillMaxWidth().background(Soft, RoundedCornerShape(10.dp)).padding(11.dp),
-                        verticalArrangement = Arrangement.spacedBy(5.dp),
-                    ) {
-                        Text(stringResource(R.string.elym_reply_failed), color = Accent, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                        Text(stringResource(issueLabel(issue)), color = Accent, fontSize = 13.sp)
-                        if (issue == UiIssue.MainModelMissing || issue == UiIssue.VisionModelMissing ||
-                            issue == UiIssue.VisionCapabilityUnknown
+            LazyColumn(
+                Modifier.fillMaxSize(), state = list,
+                contentPadding = PaddingValues(start = 17.dp, end = 17.dp, top = 19.dp, bottom = bottomPadding),
+                verticalArrangement = Arrangement.spacedBy(15.dp),
+            ) {
+                if (showEmpty) item {
+                    EmptyMessage(stringResource(R.string.elym_no_messages), R.drawable.elym_chat)
+                }
+                items(conversation.messages, key = { it.id }) { message ->
+                    if (message.localReceipt) LocalChatReceipt(message.text) else MessageBubble(message, persona.name)
+                }
+                if (showPendingReply) item {
+                    val pendingReply = if (showToolProgress) {
+                        ChatMessage("waiting", text = stringResource(R.string.elym_tool_progress), assistant = true)
+                    } else {
+                        ChatMessage("waiting", assistant = true, status = MessageStatus.Waiting)
+                    }
+                    MessageBubble(pendingReply, persona.name)
+                }
+                conversation.issue?.let { issue ->
+                    item {
+                        Column(
+                            Modifier.fillMaxWidth().background(Soft, RoundedCornerShape(10.dp)).padding(11.dp),
+                            verticalArrangement = Arrangement.spacedBy(5.dp),
                         ) {
-                            Action(stringResource(R.string.elym_model_config), onModelSettings)
+                            Text(stringResource(R.string.elym_reply_failed), color = Accent, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            Text(stringResource(issueLabel(issue)), color = Accent, fontSize = 13.sp)
+                            if (issue == UiIssue.MainModelMissing || issue == UiIssue.VisionModelMissing ||
+                                issue == UiIssue.VisionCapabilityUnknown
+                            ) {
+                                Action(stringResource(R.string.elym_model_config), onModelSettings)
+                            }
+                            if (conversation.canRetry) Action(stringResource(R.string.elym_retry), { model.perform { service.retry(id) } })
                         }
-                        if (conversation.canRetry) Action(stringResource(R.string.elym_retry), { model.perform { service.retry(id) } })
                     }
                 }
+                item { Spacer(Modifier.height(1.dp)) }
             }
-        }
-        HorizontalDivider(color = Line)
-        Column(Modifier.background(PaperTop).padding(start = 10.dp, end = 10.dp, top = 8.dp, bottom = 4.dp)) {
-            image?.let { uri ->
-                Row(Modifier.padding(horizontal = 3.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Photo(Uri.parse(uri), Modifier.size(40.dp).clip(RoundedCornerShape(8.dp)))
-                    Text(stringResource(R.string.elym_attachment), Modifier.weight(1f), color = Muted, fontSize = 12.sp)
-                    RoundAction(R.drawable.elym_close, stringResource(R.string.elym_remove_image), { image = null })
-                }
-            }
-            val running = conversation.generating
-            val canSend = current && !running && !submitting && (draft.text.isNotBlank() || image != null)
-            val sendDraft = { if (canSend) submit(draft.text.trim(), image?.let(Uri::parse), fromComposer = true) }
-            ChatComposer(
-                draft = draft,
-                onDraftChange = { draft = it },
-                commandNames = commandNames,
-                main = main,
-                enabled = current,
-                onPickImage = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
-                onSend = sendDraft,
+        }) {
+            Surface(
+                Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp),
+                shape = RoundedCornerShape(24.dp),
+                color = PaperTop,
+                border = androidx.compose.foundation.BorderStroke(1.dp, Line),
+                shadowElevation = 5.dp,
             ) {
-                RoundAction(
-                    if (running) R.drawable.elym_stop else R.drawable.elym_send,
-                    stringResource(if (running) R.string.elym_stop else R.string.elym_send),
-                    {
-                        if (current && running) model.perform { service.stop(id) }
-                        else sendDraft()
-                    },
-                    primary = true, enabled = current && (running || canSend), roundedSquare = true,
-                )
+                Box(Modifier.padding(7.dp)) {
+                    val running = conversation.generating
+                    val canSend = current && !running && !submitting && (draft.text.isNotBlank() || image != null)
+                    val sendDraft = { if (canSend) submit(draft.text.trim(), image?.let(Uri::parse)) }
+                    ChatComposer(
+                        draft = draft,
+                        onDraftChange = { draft = it },
+                        commandNames = commandNames,
+                        main = main,
+                        enabled = current,
+                        image = image,
+                        onRemoveImage = { image = null },
+                        onPickImage = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                        onSend = sendDraft,
+                    ) {
+                        RoundAction(
+                            if (running) R.drawable.elym_stop else R.drawable.elym_send,
+                            stringResource(if (running) R.string.elym_stop else R.string.elym_send),
+                            {
+                                if (current && running) model.perform { service.stop(id) }
+                                else sendDraft()
+                            },
+                            primary = true, enabled = current && (running || canSend), roundedSquare = true,
+                        )
+                    }
+                }
             }
         }
     }
@@ -278,6 +302,47 @@ internal fun ChatPage(
     ) { model.perform { service.deleteSessions(persona.id, setOf(id)); delete = false; back() } }
 }
 
+private enum class ChatLayer { Composer, Timeline }
+
+@Composable
+private fun FloatingComposerLayout(
+    modifier: Modifier,
+    timeline: @Composable (bottomPadding: Dp) -> Unit,
+    composer: @Composable () -> Unit,
+) {
+    SubcomposeLayout(modifier) { constraints ->
+        val footer = subcompose(ChatLayer.Composer, composer).single().measure(constraints.copy(minHeight = 0))
+        val list = subcompose(ChatLayer.Timeline) { timeline(footer.height.toDp()) }.single().measure(constraints)
+        layout(list.width, list.height) {
+            list.placeRelative(0, 0)
+            footer.placeRelative(0, list.height - footer.height)
+        }
+    }
+}
+
+private data class SentDraft(
+    val text: String,
+    val hasAttachment: Boolean,
+    val knownEchoIds: Set<String> = emptySet(),
+    val expectedEchoes: Int = 1,
+) {
+    fun watchNewEcho(messages: List<ChatMessage>, pending: SentDraft?): SentDraft {
+        val known = messages.asSequence().filter(::matches).map(ChatMessage::id).toSet()
+        val unseen = if (pending != null && text == pending.text && hasAttachment == pending.hasAttachment) {
+            (pending.expectedEchoes - known.count { it !in pending.knownEchoIds }).coerceAtLeast(0)
+        } else {
+            0
+        }
+        return copy(knownEchoIds = known, expectedEchoes = unseen + 1)
+    }
+
+    fun hasNewEcho(messages: List<ChatMessage>): Boolean =
+        messages.count { matches(it) && it.id !in knownEchoIds } >= expectedEchoes
+
+    private fun matches(message: ChatMessage): Boolean =
+        !message.assistant && message.text == text && (message.image != null) == hasAttachment
+}
+
 @Composable
 private fun ChatComposer(
     draft: TextFieldValue,
@@ -285,6 +350,8 @@ private fun ChatComposer(
     commandNames: Map<ChatCommand, String>,
     main: Boolean,
     enabled: Boolean,
+    image: String?,
+    onRemoveImage: () -> Unit,
     onPickImage: () -> Unit,
     onSend: () -> Unit,
     sendAction: @Composable () -> Unit,
@@ -309,22 +376,37 @@ private fun ChatComposer(
         Modifier.fillMaxWidth().onFocusChanged { composerHasFocus = it.hasFocus }.focusGroup(),
         verticalArrangement = Arrangement.spacedBy(5.dp),
     ) {
-        if (match != null && candidates.isNotEmpty()) {
-            Surface(shape = shape, color = SurfaceColor, border = androidx.compose.foundation.BorderStroke(1.dp, Line)) {
-                Column(Modifier.fillMaxWidth().heightIn(max = 200.dp).verticalScroll(rememberScrollState())) {
-                    candidates.forEach { (command, name) ->
-                        val literal = "/$name"
-                        val takesArgument = command == ChatCommand.Persona || command == ChatCommand.Checkpoint
-                        val selectedDraft = match.replace(draft.text, literal, takesArgument)
-                        DropdownMenuItem(
-                            text = { Text(literal, fontSize = 14.sp) },
-                            enabled = selectedDraft.text.length <= MaxDraftLength,
-                            onClick = {
-                                dismissed = true
-                                onDraftChange(selectedDraft)
-                                focusRequester.requestFocus()
-                            },
-                        )
+        if (image != null || candidates.isNotEmpty()) {
+            Column(Modifier.weight(1f, fill = false), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                if (image != null) {
+                    Row(
+                        Modifier.padding(horizontal = 3.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Photo(Uri.parse(image), Modifier.size(40.dp).clip(RoundedCornerShape(8.dp)))
+                        Text(stringResource(R.string.elym_attachment), Modifier.weight(1f), color = Muted, fontSize = 12.sp)
+                        RoundAction(R.drawable.elym_close, stringResource(R.string.elym_remove_image), onRemoveImage)
+                    }
+                }
+                if (match != null && candidates.isNotEmpty()) {
+                    Surface(shape = shape, color = SurfaceColor, border = androidx.compose.foundation.BorderStroke(1.dp, Line)) {
+                        Column(Modifier.fillMaxWidth().heightIn(max = 200.dp).verticalScroll(rememberScrollState())) {
+                            candidates.forEach { (command, name) ->
+                                val literal = "/$name"
+                                val takesArgument = command == ChatCommand.Persona || command == ChatCommand.Checkpoint
+                                val selectedDraft = match.replace(draft.text, literal, takesArgument)
+                                DropdownMenuItem(
+                                    text = { Text(literal, fontSize = 14.sp) },
+                                    enabled = selectedDraft.text.length <= MaxDraftLength,
+                                    onClick = {
+                                        dismissed = true
+                                        onDraftChange(selectedDraft)
+                                        focusRequester.requestFocus()
+                                    },
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -504,6 +586,31 @@ private fun ChatMenuItem(label: Int, icon: Int, danger: Boolean = false, enabled
         onClick = onClick,
         enabled = enabled,
     )
+}
+
+@Composable
+private fun LocalChatReceipt(text: String) {
+    val multiline = '\n' in text
+    val shape = if (multiline) RoundedCornerShape(12.dp) else CircleShape
+    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+        Surface(
+            modifier = if (multiline) Modifier.fillMaxWidth().padding(horizontal = 12.dp) else Modifier,
+            shape = shape,
+            color = SurfaceColor,
+            border = androidx.compose.foundation.BorderStroke(1.dp, Line),
+        ) {
+            SelectionContainer {
+                Text(
+                    text,
+                    Modifier.padding(horizontal = 12.dp, vertical = if (multiline) 10.dp else 6.dp),
+                    color = if (multiline) Ink else Muted,
+                    fontSize = 13.sp,
+                    lineHeight = 20.sp,
+                    textAlign = if (multiline) TextAlign.Start else TextAlign.Center,
+                )
+            }
+        }
+    }
 }
 
 @Composable

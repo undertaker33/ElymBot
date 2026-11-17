@@ -19,6 +19,7 @@ import com.elymbot.android.data.ModelAssignmentEntity
 import com.elymbot.android.data.ModelProbeEntity
 import com.elymbot.android.data.ModelServiceEntity
 import com.elymbot.android.data.PersonaEntity
+import com.elymbot.android.data.PersonaTagEntity
 import com.elymbot.android.data.RoomModelServiceConnectionProvider
 import com.elymbot.android.data.TurnEntity
 import com.elymbot.android.ui.ChatCheckpoint
@@ -114,6 +115,8 @@ class ElymBotSessionService(
 
     override val personas: Flow<List<PersonaCard>> = readyFlow { repository.database.personaDao().observeAll() }
         .map { rows -> rows.map { it.toCard() } }
+
+    override val personaTags: Flow<List<String>> = readyFlow { repository.database.personaTagDao().observeAll() }
 
     override val activePersonaId: Flow<String?> = readyFlow { repository.database.conversationDao().observeMain() }
         .map { it?.personaId }
@@ -285,6 +288,8 @@ class ElymBotSessionService(
         repository.initialize()
         val name = persona.name.trim()
         if (name.isEmpty()) fail(UiIssue.InvalidInput)
+        val tagsValue = persona.tags.map(String::trim).filter(String::isNotEmpty).distinct().joinToString(TAG_SEPARATOR)
+        val catalogTagNames = tagsValue.split(TAG_SEPARATOR).filter(String::isNotEmpty).distinct()
         val id = persona.id.ifBlank { UUID.randomUUID().toString() }
         var importedPath: String? = null
         val importedCoverPath = when (val uri = persona.cover) {
@@ -312,7 +317,7 @@ class ElymBotSessionService(
                     id = id,
                     name = name,
                     description = persona.description.trim(),
-                    tagsValue = persona.tags.map(String::trim).filter(String::isNotEmpty).distinct().joinToString(TAG_SEPARATOR),
+                    tagsValue = tagsValue,
                     prompt = persona.prompt,
                     favorite = persona.favorite,
                     coverPath = coverPath,
@@ -325,6 +330,7 @@ class ElymBotSessionService(
                 )
                 if (existing == null) personas.insert(item)
                 else personas.update(item)
+                catalogTagNames.forEach { ensurePersonaTagExists(it) }
                 savedCoverPath = coverPath
 
                 val conversations = repository.database.conversationDao()
@@ -364,28 +370,25 @@ class ElymBotSessionService(
         return id
     }
 
-    override suspend fun addPersonaTag(tag: String, personaIds: Set<String>) {
+    override suspend fun createPersonaTag(tag: String) {
         val normalizedTag = tag.trim()
-        val selectedIds = personaIds.toSet()
-        if (normalizedTag.isEmpty() || normalizedTag.any {
-                it == '、' || it == '，' || it == ',' || it == '\u001f'
-            } || selectedIds.isEmpty() || selectedIds.any(String::isBlank)
-        ) {
-            fail(UiIssue.InvalidInput)
-        }
+        if (normalizedTag.isEmpty() || '\u001f' in normalizedTag) fail(UiIssue.InvalidInput)
 
         repository.initialize()
         repository.database.withTransaction {
-            val personas = repository.database.personaDao()
-            val selectedPersonas = personas.getAll().filter { it.id in selectedIds }
-            if (selectedPersonas.size != selectedIds.size) fail(UiIssue.InvalidInput)
+            ensurePersonaTagExists(normalizedTag)
+        }
+    }
 
-            selectedPersonas.forEach { persona ->
-                val existingTags = persona.tagsValue.split(TAG_SEPARATOR).filter(String::isNotEmpty)
-                if (normalizedTag !in existingTags) {
-                    personas.update(persona.copy(tagsValue = (existingTags + normalizedTag).joinToString(TAG_SEPARATOR)))
-                }
-            }
+    private suspend fun ensurePersonaTagExists(tag: String) {
+        val tags = repository.database.personaTagDao()
+        if (tags.get(tag) == null) {
+            tags.insert(
+                PersonaTagEntity(
+                    name = tag,
+                    sortOrder = tags.nextSortOrder(),
+                ),
+            )
         }
     }
 
@@ -1387,7 +1390,15 @@ class ElymBotSessionService(
         val persona = repository.database.personaDao().get(session.personaId) ?: fail(UiIssue.InvalidInput)
         val messages = buildList {
             commandInput?.let { add(ChatMessage(UUID.randomUUID().toString(), text = it)) }
-            add(ChatMessage(UUID.randomUUID().toString(), text = receipt, assistant = true, author = persona.name))
+            add(
+                ChatMessage(
+                    UUID.randomUUID().toString(),
+                    text = receipt,
+                    assistant = true,
+                    author = persona.name,
+                    localReceipt = true,
+                ),
+            )
         }
         val group = CommandMessageGroup(session.nextTurnSequence, messages)
         commandMessages.update { current -> current + (sessionId to (current[sessionId].orEmpty() + group)) }

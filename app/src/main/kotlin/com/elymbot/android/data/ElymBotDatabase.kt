@@ -17,6 +17,8 @@ import androidx.room.RoomDatabase
 import androidx.room.Transaction
 import androidx.room.Upsert
 import androidx.room.Update
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.flow.Flow
 
 @Entity(
@@ -36,6 +38,12 @@ data class PersonaEntity(
     val coverY: Float,
     val avatarX: Float,
     val avatarY: Float,
+    val sortOrder: Int,
+)
+
+@Entity(tableName = "persona_tags")
+data class PersonaTagEntity(
+    @PrimaryKey val name: String,
     val sortOrder: Int,
 )
 
@@ -306,6 +314,21 @@ interface PersonaDao {
 
     @Query("DELETE FROM personas WHERE id = :id")
     suspend fun delete(id: String)
+}
+
+@Dao
+interface PersonaTagDao {
+    @Query("SELECT name FROM persona_tags ORDER BY sortOrder, name")
+    fun observeAll(): Flow<List<String>>
+
+    @Query("SELECT name FROM persona_tags WHERE name = :name")
+    suspend fun get(name: String): String?
+
+    @Query("SELECT COALESCE(MAX(sortOrder), -1) + 1 FROM persona_tags")
+    suspend fun nextSortOrder(): Int
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insert(item: PersonaTagEntity)
 }
 
 @Dao
@@ -667,12 +690,14 @@ interface CommandNameDao {
         ModelProbeEntity::class,
         CommandNameEntity::class,
         CredentialEntity::class,
+        PersonaTagEntity::class,
     ],
-    version = 1,
+    version = 2,
     exportSchema = false,
 )
 abstract class ElymBotDatabase : RoomDatabase() {
     abstract fun personaDao(): PersonaDao
+    abstract fun personaTagDao(): PersonaTagDao
     abstract fun conversationDao(): ConversationDao
     abstract fun turnDao(): TurnDao
     abstract fun messageDao(): MessageDao
@@ -684,8 +709,33 @@ abstract class ElymBotDatabase : RoomDatabase() {
     abstract fun commandNameDao(): CommandNameDao
 
     companion object {
+        private val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `persona_tags` (`name` TEXT NOT NULL, `sortOrder` INTEGER NOT NULL, PRIMARY KEY(`name`))",
+                )
+
+                val names = linkedSetOf<String>()
+                database.query("SELECT `tagsValue` FROM `personas` ORDER BY `sortOrder`, `id`").use { cursor ->
+                    while (cursor.moveToNext()) {
+                        cursor.getString(0).split('\u001f')
+                            .filter(String::isNotEmpty)
+                            .forEach { names.add(it) }
+                    }
+                }
+
+                names.forEachIndexed { index, name ->
+                    database.execSQL(
+                        "INSERT INTO `persona_tags` (`name`, `sortOrder`) VALUES (?, ?)",
+                        arrayOf<Any>(name, index.toLong()),
+                    )
+                }
+            }
+        }
+
         fun open(context: Context): ElymBotDatabase =
             Room.databaseBuilder(context.applicationContext, ElymBotDatabase::class.java, "elymbot.db")
+                .addMigrations(MIGRATION_1_2)
                 .build()
     }
 }

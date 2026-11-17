@@ -5,6 +5,7 @@ import kotlinx.coroutines.flow.Flow
 
 interface ElymBotUiService {
     val personas: Flow<List<PersonaCard>>
+    val personaTags: Flow<List<String>>
     val activePersonaId: Flow<String?>
     val mainSession: Flow<ConversationSummary?>
     val models: Flow<ModelConfiguration>
@@ -19,7 +20,7 @@ interface ElymBotUiService {
     suspend fun newSession(personaId: String): String
     suspend fun activatePersona(personaId: String)
     suspend fun savePersona(persona: PersonaCard): String
-    suspend fun addPersonaTag(tag: String, personaIds: Set<String>)
+    suspend fun createPersonaTag(tag: String)
     suspend fun deletePersona(personaId: String)
     suspend fun renameSession(sessionId: String, title: String)
     suspend fun deleteSessions(personaId: String, sessionIds: Set<String>)
@@ -72,6 +73,7 @@ data class ChatMessage(
     val author: String? = null,
     val image: Uri? = null,
     val status: MessageStatus? = null,
+    val localReceipt: Boolean = false,
 )
 
 data class ChatCheckpoint(

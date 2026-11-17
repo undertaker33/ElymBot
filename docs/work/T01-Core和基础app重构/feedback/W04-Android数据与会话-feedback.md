@@ -158,6 +158,42 @@ Checklist 未修改。T01.05/T01.06 的存储服务测试覆盖已更新，但�
 - MuMu `ElymBot-T01-Clean`（ABR-AL80，Android 15/API 35，`127.0.0.1:16416`）安装同批 APK 后运行：`adb -s 127.0.0.1:16416 shell am instrument -w -e class 'com.elymbot.android.ElymBotUiIntegrationTest#savingAnUnchangedModelServiceKeepsItsApiKey,com.elymbot.android.data.ElymBotStorageTest#nonStreamingVisionRoutesDirectAndThroughConfiguredFallback,com.elymbot.android.data.ElymBotStorageTest#transientPrimaryVisionProbeFailureDoesNotUseFallbackModel' com.elymbot.android.debug.test/androidx.test.runner.AndroidJUnitRunner`，结果 `OK (3 tests)`，耗时 3.759 秒。
 - debug APK SHA-256：`DEC51C34945EC82F48928675046BCB6522A96071928DFC4D82AE6758B912C7CC`；AndroidTest APK SHA-256：`B40529BAF8E0F68E385CE65FDEE999711E3D7A4A8AA847A501F37D2940001F61`。仪器用例只使用隔离 Room fixture、生成 PNG、合成 Key 和本机模拟端点；没有读取用户数据库或连接真实模型服务。
 
+## 2026-11-16 用户纠正：人格标签目录与编辑选择
+
+### 实际改动
+
+- 按“选择是在人格编辑处选”调整服务契约：`ElymBotUiService` 暴露 `personaTags: Flow<List<String>>` 与 `createPersonaTag(tag)`，删除只给旧批量添加界面使用的 `addPersonaTag(tag, personaIds)`。创建仅写标签目录，不修改人格归属。
+- Room 升至版本 2，新增 `persona_tags(name, sortOrder)` 目录表。v1→v2 迁移依次读取人格排序和原 `tagsValue` 分隔顺序，对非空精确标签名去重并种入稳定目录顺序；保留原人格成员数据。目录独立于当前成员，因此移除所有人格上的标签不会删除目录项。
+- `createPersonaTag` 去除首尾空白、拒绝空值和 U+001F 分隔符，在 Room 事务内按精确名称幂等插入；普通标点与界面保留字由新选择界面处理，不扩展数据层约束。
+
+### 验证与待验
+
+- 静态核对契约、唯一生产实现和数据库打开入口。未增加迁移测试夹具；升级验证使用现有 v1 设备数据库，在覆盖安装新版前由 UI/W01 协调执行并检查已迁移目录及人格标签归属。
+- 本轮未运行 Gradle、Android 测试或设备操作；UI 调用接线、构建与 v1→v2 实际升级结果待 UI/W01 记录。
+
+## 2026-11-17 临时指令回执标记
+
+### 实际改动
+
+- `ChatMessage` 末尾新增默认 `localReceipt = false` 字段，兼容原有构造调用。
+- `recordCommand` 仅为本地临时助手回执设置 `localReceipt = true`，并保留 `assistant = true`；命令输入、持久化历史映射和 Core 工具反馈不变。
+
+### 验证与待验
+
+- 静态搜索确认只有 `recordCommand` 显式设置 `localReceipt = true`，聊天 UI 可按该字段渲染本地回执。
+- 未运行 Gradle、Android 测试或设备操作。新 DTO 的编译与 UI 回归由 W05 使用新构建验证。
+
+## 2026-11-17 程序化人格保存与标签目录一致性
+
+### 实际改动
+
+- 保留 `savePersona` 对 `PersonaCard.tags` 的既有修剪、去空和分隔存储行为。保存事务按写入后实际可解码的标签 token 补齐目录中缺少的精确名称，顺序沿用标签 token 顺序；已有名称不产生目录写入。
+- `savePersona` 与 `createPersonaTag` 共用事务内的幂等目录插入入口。人格标签及其余保存字段仍在同一 Room 事务内提交。
+
+### 验证与待验
+
+- 静态核对两条入口均在 Room 事务中调用目录补齐；未运行构建、测试或设备操作。W05 最终构建应使用本次更新后的源码。
+
 ## 2026-11-16 Gallery 自定义标签持久化
 
 ### 实际改动

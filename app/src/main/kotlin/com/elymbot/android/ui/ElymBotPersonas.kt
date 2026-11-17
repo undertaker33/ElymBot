@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -23,6 +24,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.unit.dp
@@ -31,9 +33,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.elymbot.android.R
 
 @Composable
-internal fun PersonaForm(persona: PersonaCard, dismiss: () -> Unit, save: (PersonaCard) -> Unit) {
+internal fun PersonaForm(persona: PersonaCard, personaTags: List<String>, dismiss: () -> Unit, save: (PersonaCard) -> Unit) {
     var edited by remember(persona) { mutableStateOf(persona) }
-    var tags by remember(persona) { mutableStateOf(persona.tags.joinToString("、")) }
+    val tags = remember(personaTags, persona.tags) { (personaTags + persona.tags).distinct() }
     var cropAvatar by remember { mutableStateOf<Boolean?>(null) }
     val image = rememberBitmap(edited.cover)
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) {
@@ -43,7 +45,26 @@ internal fun PersonaForm(persona: PersonaCard, dismiss: () -> Unit, save: (Perso
     Sheet(stringResource(if (creating) R.string.elym_create_persona else R.string.elym_edit_persona), dismiss) {
         Field(stringResource(R.string.elym_name), edited.name, { edited = edited.copy(name = it.take(24)) })
         Field(stringResource(R.string.elym_description), edited.description, { edited = edited.copy(description = it.take(40)) })
-        Field(stringResource(R.string.elym_tags), tags, { tags = it }, stringResource(R.string.elym_tags_hint))
+        if (tags.isNotEmpty()) {
+            Text(stringResource(R.string.elym_tags), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            Group {
+                tags.forEach { tag ->
+                    val selected = tag in edited.tags
+                    Row(
+                        Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                            .toggleable(value = selected, role = Role.Checkbox) { checked ->
+                                val selection = if (checked) edited.tags + tag else edited.tags - tag
+                                edited = edited.copy(tags = selection)
+                            }.padding(horizontal = 12.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Checkbox(checked = selected, onCheckedChange = null)
+                        Text(tag, color = Ink, fontSize = 14.sp)
+                    }
+                }
+            }
+        }
         Field(stringResource(R.string.elym_prompt), edited.prompt, { edited = edited.copy(prompt = it.take(1200)) }, multiline = true)
         Text(stringResource(R.string.elym_cover), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
         Action(
@@ -59,7 +80,7 @@ internal fun PersonaForm(persona: PersonaCard, dismiss: () -> Unit, save: (Perso
         HorizontalDivider(color = Line)
         Action(
             stringResource(if (creating) R.string.elym_create else R.string.elym_save),
-            { save(edited.copy(name = edited.name.trim(), tags = tags.split('、', '，', ',').map(String::trim).filter(String::isNotEmpty))) },
+            { save(edited.copy(name = edited.name.trim())) },
             primary = true, enabled = edited.name.isNotBlank(),
         )
     }

@@ -5,16 +5,24 @@ import android.app.Instrumentation
 import android.content.Intent
 import android.net.Uri
 import android.provider.MediaStore
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.getUnclippedBoundsInRoot
+import androidx.compose.ui.test.hasSetTextAction
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performImeAction
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTextReplacement
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipeDown
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.elymbot.android.data.CommandNameEntity
@@ -24,6 +32,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.RuleChain
@@ -37,6 +46,56 @@ class ComposerAddMenuTest {
 
     @get:Rule
     val rules: RuleChain = RuleChain.outerRule(fixtureRule).around(compose)
+
+    @Test
+    fun sendingAfterBrowsingHistoryRevealsTheNewTailAboveTheComposer() {
+        val service = (fixture.context.applicationContext as ElymBotApplication).uiService
+        val title = "Scroll test"
+        val sessionId = runBlocking {
+            service.newSession(fixture.personaId).also { service.renameSession(it, title) }
+        }
+        val help = "/${runBlocking { service.commandNames.first().getValue(ChatCommand.Help) }}"
+        runBlocking {
+            repeat(14) { service.send(sessionId, "$help seed-$it", null) }
+        }
+        openDedicatedChat(title)
+        waitForText("$help seed-13")
+        val initialTail = compose.onNodeWithText("$help seed-13")
+        initialTail.assertIsDisplayed()
+        val timeline = compose.onNode(SemanticsMatcher.keyIsDefined(SemanticsActions.ScrollToIndex))
+        val input = description(R.string.elym_type_message)
+        val send = description(R.string.elym_send)
+        timeline.performTouchInput { swipeDown() }
+        initialTail.assertDoesNotExist()
+        runBlocking { service.send(sessionId, "$help external", null) }
+        val externalMessage = compose.onNodeWithText("$help external")
+        externalMessage.assertDoesNotExist()
+
+        input.performTextInput("$help button")
+        send.performClick()
+        val outgoingButtonMessage = hasText("$help button") and !hasSetTextAction()
+        compose.waitUntil(10_000) { compose.onAllNodes(outgoingButtonMessage).fetchSemanticsNodes().isNotEmpty() }
+        val buttonMessage = compose.onNode(outgoingButtonMessage)
+        buttonMessage.assertIsDisplayed()
+        assertTrue(buttonMessage.getUnclippedBoundsInRoot().bottom < send.getUnclippedBoundsInRoot().top)
+
+        timeline.performTouchInput { swipeDown() }
+        buttonMessage.assertDoesNotExist()
+        input.performTextInput(help)
+        input.performImeAction()
+        val receiptLead = "$help："
+        compose.waitUntil(10_000) {
+            compose.onAllNodesWithText(receiptLead, substring = true).fetchSemanticsNodes().isNotEmpty()
+        }
+        val receipt = compose.onNodeWithText(receiptLead, substring = true)
+        receipt.assertIsDisplayed()
+        assertTrue(receipt.getUnclippedBoundsInRoot().bottom < send.getUnclippedBoundsInRoot().top)
+        runBlocking {
+            val messages = service.conversation(sessionId).first().messages
+            assertTrue(messages.last().localReceipt)
+            assertTrue(!messages[messages.lastIndex - 1].localReceipt)
+        }
+    }
 
     @Test
     fun selectingAnAliasKeepsTheDraftAndImageWithoutSending() {
@@ -70,15 +129,7 @@ class ComposerAddMenuTest {
                 "/${database.commandNameDao().getAll().firstOrNull { it.behaviorId == ChatCommand.Checkpoint.name }?.name
                     ?: ChatCommand.Checkpoint.defaultName}"
             }
-            waitForText(fixture.personaName)
-            compose.onNodeWithText(fixture.personaName).performClick()
-            compose.waitUntil(10_000) {
-                compose.onAllNodesWithContentDescription(label(R.string.elym_chat_menu)).fetchSemanticsNodes().isNotEmpty()
-            }
-            description(R.string.elym_chat_menu).performClick()
-            compose.onNodeWithText(label(R.string.elym_sessions)).performClick()
-            waitForText(title)
-            compose.onNodeWithText(title).performClick()
+            openDedicatedChat(title)
 
             val input = description(R.string.elym_type_message)
             val add = description(R.string.elym_composer_add)
@@ -142,6 +193,18 @@ class ComposerAddMenuTest {
                 }
             }
         }
+    }
+
+    private fun openDedicatedChat(title: String) {
+        waitForText(fixture.personaName)
+        compose.onNodeWithText(fixture.personaName).performClick()
+        compose.waitUntil(10_000) {
+            compose.onAllNodesWithContentDescription(label(R.string.elym_chat_menu)).fetchSemanticsNodes().isNotEmpty()
+        }
+        description(R.string.elym_chat_menu).performClick()
+        compose.onNodeWithText(label(R.string.elym_sessions)).performClick()
+        waitForText(title)
+        compose.onNodeWithText(title).performClick()
     }
 
     private fun label(resource: Int): String = fixture.context.getString(resource)

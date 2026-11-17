@@ -149,7 +149,6 @@
     <string name="elym_supported">支持</string>
     <string name="elym_switch_persona">切换人格</string>
     <string name="elym_tags">标签</string>
-    <string name="elym_tags_hint">如：陪伴、学习</string>
     <string name="elym_text_model">文本对话模型</string>
     <string name="elym_text_role">文本对话</string>
     <string name="elym_type_message">输入消息</string>

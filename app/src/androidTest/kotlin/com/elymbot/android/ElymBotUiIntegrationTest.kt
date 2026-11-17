@@ -6,6 +6,8 @@ import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertIsOff
+import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasText
@@ -56,14 +58,20 @@ class ElymBotUiIntegrationTest {
         val originalTag = "Existing-${fixture.prefix.takeLast(8)}"
         val newTag = "Custom-${fixture.prefix.takeLast(8)}"
         val personaCard = compose.onNode(hasText(name) and hasClickAction() and !hasSetTextAction())
+        val originalSelection = compose.onNode(hasText(originalTag) and isToggleable())
+        val newSelection = compose.onNode(hasText(newTag) and isToggleable())
+        val originalFilter = compose.onNode(hasText(originalTag) and hasClickAction())
+        val newFilter = compose.onNode(hasText(newTag) and hasClickAction())
         val personaDao = fixture.database.personaDao()
         val beforeIds = runBlocking { personaDao.getAll().map { it.id }.toSet() }
         var createdId: String? = null
         try {
             waitForText(fixture.personaName)
+            createGalleryTag(originalTag)
+            waitForText(label(R.string.elym_no_personas))
             description(R.string.elym_create_persona).performClick()
             description(R.string.elym_name).performTextInput(name)
-            description(R.string.elym_tags).performScrollTo().performTextInput(originalTag)
+            originalSelection.performScrollTo().assertIsOff().performClick()
             description(R.string.elym_prompt).performScrollTo().performTextInput("Gallery test prompt")
             scrollAndClick(R.string.elym_create)
             compose.waitUntil(10_000) {
@@ -82,30 +90,66 @@ class ElymBotUiIntegrationTest {
             personaCard.assertIsDisplayed()
             compose.onNodeWithText(fixture.personaName).assertDoesNotExist()
             description(R.string.elym_close_search).performClick()
-            compose.onNode(hasText(originalTag) and hasClickAction()).performScrollTo().performClick()
+            originalFilter.performScrollTo().performClick()
             personaCard.assertIsDisplayed()
             compose.onNodeWithText(fixture.personaName).assertDoesNotExist()
 
-            description(R.string.elym_add_tag).performScrollTo().performClick()
-            description(R.string.elym_tag_name).performTextInput(newTag)
-            val save = compose.onNode(hasText(label(R.string.elym_save)) and hasClickAction())
-            save.assertIsNotEnabled()
-            compose.onNode(hasText(name) and isToggleable()).performScrollTo().performClick()
-            save.performScrollTo().performClick()
+            createGalleryTag(newTag)
+            waitForText(label(R.string.elym_no_personas))
+            assertTrue(runBlocking { service.personas.first().none { newTag in it.tags } })
+            originalFilter.performScrollTo().performClick()
+            personaCard.performClick()
+            openChatMenu()
+            click(R.string.elym_edit_persona)
+            originalSelection.performScrollTo().assertIsOn()
+            newSelection.performScrollTo().assertIsOff().performClick()
+            assertTrue(runBlocking { service.personas.first().none { newTag in it.tags } })
+            saveGalleryPersonaEdits()
             compose.waitUntil(10_000) {
-                compose.onAllNodesWithContentDescription(label(R.string.elym_tag_name)).fetchSemanticsNodes().isEmpty() && runBlocking {
+                runBlocking {
                     val personas = service.personas.first()
                     personas.any { it.id == createdId && originalTag in it.tags && newTag in it.tags } &&
                         personas.none { it.id != createdId && newTag in it.tags }
                 }
             }
-            compose.onNode(hasText(newTag) and hasClickAction()).performScrollTo().performClick()
+            description(R.string.elym_back).performClick()
+            newFilter.performScrollTo().performClick()
             personaCard.assertIsDisplayed()
             compose.onNodeWithText(fixture.personaName).assertDoesNotExist()
+
+            personaCard.performClick()
+            openChatMenu()
+            click(R.string.elym_edit_persona)
+            newSelection.performScrollTo().assertIsOn().performClick()
+            saveGalleryPersonaEdits()
+            description(R.string.elym_back).performClick()
+            newFilter.performScrollTo().performClick()
+            waitForText(label(R.string.elym_no_personas))
+            assertTrue(runBlocking { newTag in service.personaTags.first() })
         } finally {
             runBlocking {
                 createdId?.let { service.deletePersona(it) }
+                fixture.database.openHelper.writableDatabase.delete("persona_tags", "name IN (?, ?)", arrayOf(originalTag, newTag))
             }
+        }
+    }
+
+    private fun createGalleryTag(tag: String) {
+        description(R.string.elym_add_tag).performScrollTo().performClick()
+        val save = compose.onNode(hasText(label(R.string.elym_save)) and hasClickAction())
+        save.assertIsNotEnabled()
+        description(R.string.elym_tag_name).performTextInput(tag)
+        save.performScrollTo().performClick()
+        compose.waitUntil(10_000) {
+            compose.onAllNodesWithContentDescription(label(R.string.elym_tag_name)).fetchSemanticsNodes().isEmpty() &&
+                runBlocking { tag in service.personaTags.first() }
+        }
+    }
+
+    private fun saveGalleryPersonaEdits() {
+        scrollAndClick(R.string.elym_save)
+        compose.waitUntil(10_000) {
+            compose.onAllNodesWithContentDescription(label(R.string.elym_name)).fetchSemanticsNodes().isEmpty()
         }
     }
 
