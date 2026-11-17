@@ -211,3 +211,11 @@
 - 在 `bd1e021` 加工作区改动的基线上执行 `gradlew.bat :app:assembleDebug :app:assembleDebugAndroidTest '-Pkotlin.compiler.execution.strategy=in-process' --console=plain --quiet`，两包通过。最终 debug APK 与测试 APK 的 SHA-256 前缀为 `DA500C6F950E`、`866ACF9BFA12`。
 - 在 MuMu `ElymBot-T01-Clean`（index 1，Android 15/API 35，`127.0.0.1:16416`）安装两包。首轮改用等待键盘退场后定位底栏、只定位实际设置操作行、返回已填充的人格库后重新搜索目标。加入随手势进度和悬浮层后，运行 `PrimaryPageSearchTest` 及 `ElymBotUiIntegrationTest` 的人格名称与标签、设置与配置导航、专属会话配置返回用例，结果 `OK (6 tests)`，耗时 19.459 秒。修正竖屏页首背景后以最终产物复跑 `adb -s 127.0.0.1:16416 shell am instrument -w -e class com.elymbot.android.PrimaryPageSearchTest com.elymbot.android.debug.test/androidx.test.runner.AndroidJUnitRunner`，得到 `OK (3 tests)`，耗时 6.008 秒。覆盖抬手前的中间进度和反向、搜索位置和宽高、关闭后的相同滚动位置、空平台和插件、设置短内容零滚动范围、设置筛选及返回优先级。
 - 从正式入口查看同一已填充的人格库。1600×900 横屏收起态的搜索控件边界为 `[15,45][1585,138]`，两个悬浮面板均可见下方内容。900×1600 竖屏旋转后，已滚动卡片在标题和标签区域的下沿通过，标题与标签完整且状态栏区域保留。最终截图、界面结构和仪器日志位于本地 `C:\Users\93445\Documents\Codex\ElymBot-W05-2026-11-17`，文件含 `interactive-gallery-overlay-final.png`、`interactive-gallery-portrait-final.png` 和 `interactive-floating-search-underlay-instrumentation.txt`。已恢复模拟器自由旋转。实体设备及用户验收待完成。
+
+### 2026-11-17 应用图标和原生启动动效
+
+- 桌面图标和系统启动页共用用户提供的 `app/src/main/res/mipmap-nodpi/icon.png`。资源与原图的 SHA-256 均为 `927914835C604DE3E6BB742ED503B5E9F66B6C6395213CA419DA6B67CC3079A3`。启动页为图标留出系统遮罩范围，底色跟随系统的浅色或深色模式。
+- 主 Activity 在创建时安装 AndroidX SplashScreen，系统交出启动页后，图标轻微放大并随覆盖层在 440 ms 内淡出到实际页面。系统关闭动画时直接移除覆盖层。App 内切换外观和导航沿用现有入口。
+- 从 `4aee483` 加工作区改动运行 `gradlew.bat :app:assembleDebug :app:assembleDebugAndroidTest --console=plain`。两包通过，debug APK 与测试 APK 的 SHA-256 前缀分别为 `A08CCA0CB5BC`、`602F8BB40C02`。`aapt dump badging` 的应用图标均指向 `res/mipmap-nodpi-v4/icon.png`，`aapt dump resources` 可定位两种启动底色和共享图标。
+- 在 MuMu `ElymBot-T01-Clean`（index 1，Android 15/API 35，`127.0.0.1:16416`）覆盖安装两包。使用 `am force-stop` 后从 Launcher Intent 启动并录屏，浅色且动画倍率为 1 时可见完整图标和淡出，深色且动画倍率为 0 时显示深色系统启动页并直接进入应用。桌面可见新图标。以关闭动画的设置运行 `AppearanceSettingsTest` 和 `MainActivityIntegrationTest`，结果为 `OK (2 tests)`，耗时 2.977 秒。复验后恢复模拟器系统浅色与动画倍率 0.5。
+- 两轮录屏 `elymbot-splash-light.mp4`、`elymbot-splash-dark-reduced.mp4` 和仪器输出 `splash-appearance-instrumentation.txt` 保存于本地 `C:\Users\93445\Documents\Codex\ElymBot-W05-2026-11-17`。覆盖 T01.07 启动入口、外观和资源回归。实体设备、Android API 26–34 及用户验收待完成。

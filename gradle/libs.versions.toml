@@ -3,6 +3,7 @@ agp = "9.5.1"
 kotlin = "2.4.21"
 compose-bom = "2026.09.00"
 activity = "1.13.0"
+core-splashscreen = "1.2.0"
 android-compileSdk = "37"
 android-targetSdk = "37"
 android-minSdk = "26"
@@ -20,6 +21,7 @@ junit = "4.13.2"
 
 [libraries]
 androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "activity" }
+androidx-core-splashscreen = { module = "androidx.core:core-splashscreen", version.ref = "core-splashscreen" }
 androidx-compose-bom = { module = "androidx.compose:compose-bom", version.ref = "compose-bom" }
 androidx-compose-foundation-layout = { module = "androidx.compose.foundation:foundation-layout" }
 androidx-compose-material3 = { module = "androidx.compose.material3:material3" }
