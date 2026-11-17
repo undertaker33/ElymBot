@@ -185,3 +185,11 @@
 - 本地生成的简短回执显示为居中状态胶囊，多行结果显示为可选取的独立信息面板。回执样式由会话消息的 `localReceipt` 标记决定。
 - Windows PowerShell 使用 Gradle Wrapper 执行 `:app:assembleDebug :app:assembleDebugAndroidTest --console=plain --quiet`，两包构建通过。debug APK 与测试 APK 的 SHA-256 前缀分别为 `DEEE19EE9628`、`C5C0761D8CA8`。
 - 在 MuMu `ElymBot-T01-Clean`（index 1，Android 15/API 35，`127.0.0.1:16416`）运行 `adb -s 127.0.0.1:16416 shell am instrument -w -e class 'com.elymbot.android.ComposerAddMenuTest,com.elymbot.android.ElymBotUiIntegrationTest#personaCreatedThroughGalleryCanBeFoundByNameAndTag' com.elymbot.android.debug.test/androidx.test.runner.AndroidJUnitRunner`，结果 `OK (3 tests)`，耗时 11.423 秒。聊天用例覆盖上滑查历史后收到外部会话更新、再次点击发送及触发 IME 发送、末尾消息与回执的底边位于浮动输入区域之上，以及加号入口、斜杠补全、合成附件与草稿保留。完整输出保存于本地 `C:\Users\93445\Documents\Codex\ElymBot-W05-2026-11-17\composer-and-tags-round1.txt`。键盘发送通过 Compose IME 动作触发，实体设备与实体键盘未验证。
+
+### 2026-11-17 人格卡片导航与全局人格设置
+
+- 人格库使用主会话所属人格判断入口。全局人格打开同一主会话，其余人格直接进入该人格的专属会话列表。两类卡片都只导航。专属会话从模型配置返回聊天，再按原路径返回列表与人格库或主聊天。
+- 从非全局人格的会话列表右上角「人格菜单」可编辑或删除该人格。编辑页勾选「设为全局人格」后保存才会替换主会话所属人格，当前全局人格显示为已勾选。普通编辑和关闭表单保留当前全局人格。聊天头像不再提供设置入口，显式 `/persona` 指令仍可切换主会话所属人格。
+- 聊天补全的触发条件、匹配范围及斜杠配置集中到 `ElymBotComposerCompletion.kt`，保留现有补全行为。
+- 以 `18ae52c` 加本轮工作区改动执行 `:app:assembleDebug :app:assembleDebugAndroidTest`，首次遇到 Kotlin 编译守护进程启动失败。临时加 `-Pkotlin.compiler.execution.strategy=in-process` 后两包通过，debug APK 与测试 APK 的 SHA-256 前缀为 `9D47DEAF2433`、`D072FF0A4AFD`。
+- 在 MuMu `ElymBot-T01-Clean`（index 1，Android 15/API 35，`127.0.0.1:16416`）以两包运行 `ElymBotUiIntegrationTest#openingOtherPersonaKeepsMainOwnerUntilGlobalEditIsSaved`、`#personaCreatedThroughGalleryCanBeFoundByNameAndTag`、`#renamedPersonaCommandSwitchesMainAndDedicatedSessionsRetainTheirOwner` 和 `ComposerAddMenuTest`，得到 `OK (5 tests)`，耗时 17.468 秒。覆盖专属会话及模型配置返回路径、点击人格保持主会话所有者、编辑勾选与取消、保存后沿用同一主会话 ID、专属会话保留所属人格、标签编辑、指令别名和斜杠补全。完整输出见本地 `C:\Users\93445\Documents\Codex\ElymBot-W05-2026-11-17\global-persona-tests.txt`。

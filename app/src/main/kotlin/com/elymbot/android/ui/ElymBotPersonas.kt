@@ -33,8 +33,15 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.elymbot.android.R
 
 @Composable
-internal fun PersonaForm(persona: PersonaCard, personaTags: List<String>, dismiss: () -> Unit, save: (PersonaCard) -> Unit) {
+internal fun PersonaForm(
+    persona: PersonaCard,
+    personaTags: List<String>,
+    isGlobal: Boolean,
+    dismiss: () -> Unit,
+    save: (PersonaCard, Boolean) -> Unit,
+) {
     var edited by remember(persona) { mutableStateOf(persona) }
+    var makeGlobal by remember(persona.id) { mutableStateOf(false) }
     val tags = remember(personaTags, persona.tags) { (personaTags + persona.tags).distinct() }
     var cropAvatar by remember { mutableStateOf<Boolean?>(null) }
     val image = rememberBitmap(edited.cover)
@@ -77,10 +84,21 @@ internal fun PersonaForm(persona: PersonaCard, personaTags: List<String>, dismis
             Text(stringResource(R.string.elym_add_favorite), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
             Checkbox(edited.favorite, { edited = edited.copy(favorite = it) }, modifier = Modifier.semanticsLabel(stringResource(R.string.elym_add_favorite)))
         }
+        if (!creating) {
+            Row(
+                Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                    .toggleable(value = isGlobal || makeGlobal, enabled = !isGlobal, role = Role.Checkbox) { makeGlobal = it },
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(stringResource(R.string.elym_set_global_persona), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                Checkbox(checked = isGlobal || makeGlobal, onCheckedChange = null, enabled = !isGlobal)
+            }
+        }
         HorizontalDivider(color = Line)
         Action(
             stringResource(if (creating) R.string.elym_create else R.string.elym_save),
-            { save(edited.copy(name = edited.name.trim())) },
+            { save(edited.copy(name = edited.name.trim()), makeGlobal && !isGlobal) },
             primary = true, enabled = edited.name.isNotBlank(),
         )
     }
@@ -134,10 +152,20 @@ private fun CropDialog(image: ImageBitmap?, initial: ImagePosition, avatar: Bool
 }
 
 @Composable
-internal fun SessionsPage(model: ElymBotViewModel, persona: PersonaCard, back: () -> Unit, current: Boolean, open: (String, String) -> Unit) {
+internal fun SessionsPage(
+    model: ElymBotViewModel,
+    persona: PersonaCard,
+    back: () -> Unit,
+    current: Boolean,
+    managePersona: Boolean,
+    onEditPersona: () -> Unit,
+    onDeletePersona: () -> Unit,
+    open: (String, String) -> Unit,
+) {
     val service = model.service
     val sessions by remember(persona.id) { service.sessions(persona.id) }.collectAsStateWithLifecycle(emptyList())
     var editing by remember(persona.id) { mutableStateOf(false) }
+    var personaMenu by remember(persona.id) { mutableStateOf(false) }
     var selection by remember(persona.id) { mutableStateOf(emptySet<String>()) }
     var options by remember { mutableStateOf<ConversationSummary?>(null) }
     var rename by remember { mutableStateOf<ConversationSummary?>(null) }
@@ -160,6 +188,23 @@ internal fun SessionsPage(model: ElymBotViewModel, persona: PersonaCard, back: (
                     selection = emptySet()
                 }) { Text(stringResource(if (editing) R.string.elym_cancel else R.string.elym_select)) }
                 if (!editing) RoundAction(R.drawable.elym_plus, stringResource(R.string.elym_new_session), create, primary = true)
+            }
+            if (managePersona && !editing) {
+                Box {
+                    RoundAction(R.drawable.elym_more, stringResource(R.string.elym_persona_menu), { personaMenu = true })
+                    DropdownMenu(current && personaMenu, { personaMenu = false }, containerColor = SurfaceColor) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.elym_edit_persona)) },
+                            leadingIcon = { Glyph(R.drawable.elym_sliders) },
+                            onClick = { personaMenu = false; onEditPersona() },
+                        )
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.elym_delete_persona), color = Danger) },
+                            leadingIcon = { Glyph(R.drawable.elym_close, color = Danger) },
+                            onClick = { personaMenu = false; onDeletePersona() },
+                        )
+                    }
+                }
             }
         }
         if (sessions.isEmpty()) {

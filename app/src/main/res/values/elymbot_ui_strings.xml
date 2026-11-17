@@ -147,6 +147,8 @@
     <string name="elym_stopped">已停止</string>
     <string name="elym_streaming_support">原生流式</string>
     <string name="elym_supported">支持</string>
+    <string name="elym_set_global_persona">设为全局人格</string>
+    <string name="elym_persona_menu">人格菜单</string>
     <string name="elym_switch_persona">切换人格</string>
     <string name="elym_tags">标签</string>
     <string name="elym_text_model">文本对话模型</string>

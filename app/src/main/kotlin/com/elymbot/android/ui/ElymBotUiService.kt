@@ -19,7 +19,7 @@ interface ElymBotUiService {
     suspend fun setViewedConversation(sessionId: String?)
     suspend fun newSession(personaId: String): String
     suspend fun activatePersona(personaId: String)
-    suspend fun savePersona(persona: PersonaCard): String
+    suspend fun savePersona(persona: PersonaCard, makeGlobal: Boolean = false): String
     suspend fun createPersonaTag(tag: String)
     suspend fun deletePersona(personaId: String)
     suspend fun renameSession(sessionId: String, title: String)

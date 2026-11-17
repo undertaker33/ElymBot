@@ -109,11 +109,18 @@ private data class Destination(
     val title: String = "",
 ) {
     val depth: Int
-        get() = when (page) {
-            Page.Chat -> if (sessionId == null) 1 else 3
-            Page.Sessions -> 2
-            Page.Models -> if (mainId == null) 0 else if (sessionId == null) 2 else 4
-            else -> 0
+        get() {
+            val sessionsDepth = if (mainId == null) 1 else 2
+            return when (page) {
+                Page.Chat -> if (sessionId == null) 1 else sessionsDepth + 1
+                Page.Sessions -> sessionsDepth
+                Page.Models -> when {
+                    sessionId != null -> sessionsDepth + 2
+                    mainId != null -> 2
+                    else -> 0
+                }
+                else -> 0
+            }
         }
     val displayedChatId: String? get() = if (page == Page.Chat) sessionId ?: mainId else null
     val key: String get() = "${page.name}:$mainId:$ownerId:$sessionId"
@@ -121,7 +128,7 @@ private data class Destination(
     fun back(): Destination = when (page) {
         Page.Models -> if (depth == 0) Destination() else copy(page = Page.Chat)
         Page.Chat -> if (sessionId == null) Destination() else copy(page = Page.Sessions, sessionId = null, title = "")
-        Page.Sessions -> copy(page = Page.Chat, ownerId = null)
+        Page.Sessions -> if (mainId == null) Destination() else copy(page = Page.Chat, ownerId = null)
         else -> Destination()
     }
 
@@ -148,7 +155,6 @@ internal fun ElymBotApp(
     val model: ElymBotViewModel = viewModel { ElymBotViewModel(service) }
     val personas by service.personas.collectAsStateWithLifecycle(emptyList())
     val personaTags by service.personaTags.collectAsStateWithLifecycle(emptyList())
-    val activeId by service.activePersonaId.collectAsStateWithLifecycle(null)
     val main by service.mainSession.collectAsStateWithLifecycle(null)
     val config by service.models.collectAsStateWithLifecycle(ModelConfiguration())
     val commands by service.commandNames.collectAsStateWithLifecycle(emptyMap())
@@ -157,7 +163,7 @@ internal fun ElymBotApp(
     val focusManager = LocalFocusManager.current
     var personaForm by remember { mutableStateOf<PersonaCard?>(null) }
     var deletePersona by remember { mutableStateOf<PersonaCard?>(null) }
-    val active = personas.firstOrNull { it.id == activeId }
+    val active = personas.firstOrNull { it.id == main?.personaId }
     fun navigate(next: Destination) {
         if (destination.key != next.key) focusManager.clearFocus(force = true)
         destination = next
@@ -219,17 +225,21 @@ internal fun ElymBotApp(
                 ) {
                     when (screen.page) {
                         Page.Gallery -> stateHolder.SaveableStateProvider(Page.Gallery.name) { GalleryPage(
-                            model, personas, personaTags, activeId, main?.unread == true, { if (current) personaForm = PersonaCard() },
+                            model, personas, personaTags, main?.personaId, main?.unread == true, { if (current) personaForm = PersonaCard() },
                         ) { selected ->
                             val target = main
-                            if (current && target != null) model.perform {
-                                if (!target.running && selected.id != activeId) service.activatePersona(selected.id)
-                                if (destination.key == screen.key) navigate(Destination(Page.Chat, mainId = target.id))
+                            if (current && target != null) {
+                                if (selected.id == target.personaId) navigate(Destination(Page.Chat, mainId = target.id))
+                                else navigate(Destination(Page.Sessions, ownerId = selected.id))
                             }
                         } }
                         Page.Models -> ModelsPage(model, config, backFromScreen.takeIf { screen.depth > 0 }, current)
                         Page.Settings -> SettingsPage(model, commands, current, appearanceMode, onAppearanceModeChange)
-                        Page.Sessions -> if (persona != null) SessionsPage(model, persona, backFromScreen, current) { id, title ->
+                        Page.Sessions -> if (persona != null) SessionsPage(
+                            model, persona, backFromScreen, current, managePersona = screen.mainId == null,
+                            onEditPersona = { if (current) personaForm = persona },
+                            onDeletePersona = { if (current) deletePersona = persona },
+                        ) { id, title ->
                             if (destination.key == screen.key) navigate(screen.copy(page = Page.Chat, sessionId = id, title = title))
                         }
                         Page.Chat -> screen.displayedChatId?.let { id ->
@@ -265,8 +275,8 @@ internal fun ElymBotApp(
 
         }
         personaForm?.let { existing ->
-            PersonaForm(existing, personaTags, { personaForm = null }) { edited ->
-                model.perform { service.savePersona(edited); personaForm = null }
+            PersonaForm(existing, personaTags, existing.id == main?.personaId, { personaForm = null }) { edited, makeGlobal ->
+                model.perform { service.savePersona(edited, makeGlobal); personaForm = null }
             }
         }
         deletePersona?.let { target ->

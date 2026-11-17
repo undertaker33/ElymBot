@@ -284,7 +284,7 @@ class ElymBotSessionService(
         }
     }
 
-    override suspend fun savePersona(persona: PersonaCard): String {
+    override suspend fun savePersona(persona: PersonaCard, makeGlobal: Boolean): String {
         repository.initialize()
         val name = persona.name.trim()
         if (name.isEmpty()) fail(UiIssue.InvalidInput)
@@ -307,62 +307,79 @@ class ElymBotSessionService(
         var previousCoverPath: String? = null
         var savedCoverPath: String? = null
         try {
-            repository.database.withTransaction {
-                val personas = repository.database.personaDao()
-                val existing = personas.get(id)
-                previousCoverPath = existing?.coverPath
-                val coverPath = if (persona.cover == null) existing?.coverPath else importedCoverPath
-                val order = existing?.sortOrder ?: personas.nextSortOrder()
-                val item = PersonaEntity(
-                    id = id,
-                    name = name,
-                    description = persona.description.trim(),
-                    tagsValue = tagsValue,
-                    prompt = persona.prompt,
-                    favorite = persona.favorite,
-                    coverPath = coverPath,
-                    atlasTile = 0,
-                    coverX = persona.coverPosition.x.coerceIn(0f, 1f),
-                    coverY = persona.coverPosition.y.coerceIn(0f, 1f),
-                    avatarX = persona.avatarPosition.x.coerceIn(0f, 1f),
-                    avatarY = persona.avatarPosition.y.coerceIn(0f, 1f),
-                    sortOrder = order,
-                )
-                if (existing == null) personas.insert(item)
-                else personas.update(item)
-                catalogTagNames.forEach { ensurePersonaTagExists(it) }
-                savedCoverPath = coverPath
+            sessionLock(MAIN_SESSION_ID).withLock {
+                repository.database.withTransaction {
+                    val personas = repository.database.personaDao()
+                    val conversations = repository.database.conversationDao()
+                    val main = conversations.getMain()
+                    if (makeGlobal && main != null && repository.database.turnDao().isRunning(main.id)) {
+                        fail(UiIssue.Busy)
+                    }
 
-                val conversations = repository.database.conversationDao()
-                val main = conversations.getMain()
-                val mainPersona = main?.let { personas.get(it.personaId) }
-                val activePersonaId = mainPersona?.id ?: personas.getAll().firstOrNull()?.id
-                if (main == null && activePersonaId != null) {
-                    val timestamp = System.currentTimeMillis()
-                    val checkpointId = emptyCheckpointId(MAIN_SESSION_ID)
-                    conversations.insert(
-                        ConversationEntity(
-                            id = MAIN_SESSION_ID,
-                            kind = SESSION_KIND_MAIN,
-                            personaId = activePersonaId,
-                            title = null,
-                            mainKey = MAIN_SESSION_ID,
-                            currentCheckpointId = checkpointId,
-                            nextTurnSequence = 1,
-                            unread = false,
-                            createdAt = timestamp,
-                            lastActivityAt = timestamp,
-                        ),
+                    val existing = personas.get(id)
+                    previousCoverPath = existing?.coverPath
+                    val coverPath = if (persona.cover == null) existing?.coverPath else importedCoverPath
+                    val order = existing?.sortOrder ?: personas.nextSortOrder()
+                    val item = PersonaEntity(
+                        id = id,
+                        name = name,
+                        description = persona.description.trim(),
+                        tagsValue = tagsValue,
+                        prompt = persona.prompt,
+                        favorite = persona.favorite,
+                        coverPath = coverPath,
+                        atlasTile = 0,
+                        coverX = persona.coverPosition.x.coerceIn(0f, 1f),
+                        coverY = persona.coverPosition.y.coerceIn(0f, 1f),
+                        avatarX = persona.avatarPosition.x.coerceIn(0f, 1f),
+                        avatarY = persona.avatarPosition.y.coerceIn(0f, 1f),
+                        sortOrder = order,
                     )
-                    repository.database.checkpointDao().insert(
-                        CheckpointEntity(checkpointId, MAIN_SESSION_ID, 1, 0, 1, timestamp),
-                    )
-                } else if (main != null && activePersonaId != null && main.personaId != activePersonaId) {
-                    conversations.setActivePersona(activePersonaId)
+                    if (existing == null) personas.insert(item)
+                    else personas.update(item)
+                    catalogTagNames.forEach { ensurePersonaTagExists(it) }
+                    savedCoverPath = coverPath
+
+                    val activePersonaId = if (makeGlobal) {
+                        id
+                    } else {
+                        main?.let { personas.get(it.personaId) }?.id ?: personas.getAll().firstOrNull()?.id
+                    }
+                    if (main == null && activePersonaId != null) {
+                        val timestamp = System.currentTimeMillis()
+                        val checkpointId = emptyCheckpointId(MAIN_SESSION_ID)
+                        conversations.insert(
+                            ConversationEntity(
+                                id = MAIN_SESSION_ID,
+                                kind = SESSION_KIND_MAIN,
+                                personaId = activePersonaId,
+                                title = null,
+                                mainKey = MAIN_SESSION_ID,
+                                currentCheckpointId = checkpointId,
+                                nextTurnSequence = 1,
+                                unread = false,
+                                createdAt = timestamp,
+                                lastActivityAt = timestamp,
+                            ),
+                        )
+                        repository.database.checkpointDao().insert(
+                            CheckpointEntity(checkpointId, MAIN_SESSION_ID, 1, 0, 1, timestamp),
+                        )
+                    } else if (main != null && activePersonaId != null && main.personaId != activePersonaId) {
+                        conversations.setActivePersona(activePersonaId)
+                    }
                 }
             }
         } catch (failure: Throwable) {
-            repository.assets.delete(importedPath)
+            importedPath?.let { candidate ->
+                try {
+                    withContext(NonCancellable) {
+                        repository.cleanupUnreferencedAssets(listOf(candidate))
+                    }
+                } catch (cleanupFailure: Throwable) {
+                    if (cleanupFailure !== failure) failure.addSuppressed(cleanupFailure)
+                }
+            }
             throw failure
         }
         val replacedCoverPath = previousCoverPath?.takeIf { it != savedCoverPath }

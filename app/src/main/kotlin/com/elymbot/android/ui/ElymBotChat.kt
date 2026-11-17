@@ -14,7 +14,6 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -44,7 +43,6 @@ import androidx.compose.ui.layout.SubcomposeLayout
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -58,7 +56,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.elymbot.android.R
 
 private const val MaxDraftLength = 1800
-private val SlashCommandTrigger = ComposerTrigger('/', leadingOnly = true)
 
 @Composable
 internal fun ChatPage(
@@ -84,7 +81,6 @@ internal fun ChatPage(
     val displayTitle = sessionList.firstOrNull { it.id == id }?.title ?: title
     val commandNames by service.commandNames.collectAsStateWithLifecycle(emptyMap())
     var menu by remember { mutableStateOf(false) }
-    var choosePersona by remember { mutableStateOf(false) }
     var chooseSessions by remember { mutableStateOf(false) }
     var rename by remember { mutableStateOf(false) }
     var delete by remember { mutableStateOf(false) }
@@ -135,10 +131,7 @@ internal fun ChatPage(
         Row(Modifier.fillMaxWidth().padding(start = 5.dp, end = 10.dp, top = 3.dp, bottom = 9.dp), verticalAlignment = Alignment.CenterVertically) {
             RoundAction(R.drawable.elym_back, stringResource(R.string.elym_back), back)
             Box(
-                Modifier.size(48.dp).then(
-                    if (main) Modifier.clickable(enabled = !conversation.generating, onClickLabel = stringResource(R.string.elym_switch_persona)) { choosePersona = true }
-                    else Modifier
-                ),
+                Modifier.size(48.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 PersonaImage(persona, Modifier.size(42.dp).clip(RoundedCornerShape(16.dp)), avatar = true)
@@ -270,19 +263,6 @@ internal fun ChatPage(
         },
     )
 
-    if (current && choosePersona) Sheet(stringResource(R.string.elym_switch_persona), { choosePersona = false }) {
-        Group {
-            personas.forEachIndexed { index, item ->
-                if (index > 0) HorizontalDivider(color = Line)
-                ListRow(
-                    item.name, R.drawable.elym_person,
-                    { model.perform { service.activatePersona(item.id); choosePersona = false } },
-                    subtitle = item.description, badge = if (item.id == persona.id) stringResource(R.string.elym_active) else null,
-                    selected = item.id == persona.id,
-                )
-            }
-        }
-    }
     if (current && chooseSessions) Sheet(stringResource(R.string.elym_choose_persona), { chooseSessions = false }) {
         Group {
             personas.filter { it.id != persona.id }.forEachIndexed { index, item ->
@@ -467,40 +447,6 @@ private fun ChatComposer(
             }
             sendAction()
         }
-    }
-}
-
-private class ComposerTrigger(private val marker: Char, private val leadingOnly: Boolean) {
-    fun match(value: TextFieldValue): ComposerTriggerMatch? {
-        val caret = value.selection.end
-        if (!value.selection.collapsed || caret == 0) return null
-        val start = value.text.take(caret).indexOfLast(Char::isWhitespace) + 1
-        if (start == caret || value.text[start] != marker) return null
-        if (leadingOnly && value.text.take(start).any { !it.isWhitespace() }) return null
-        val end = start + value.text.drop(start).takeWhile { !it.isWhitespace() }.length
-        return ComposerTriggerMatch(start, end, value.text.substring(start + 1, caret))
-    }
-
-    fun prompt(text: String, names: Collection<String>): TextFieldValue {
-        val start = text.indexOfFirst { !it.isWhitespace() }.coerceAtLeast(0)
-        val token = text.drop(start).takeWhile { !it.isWhitespace() }
-        val replace = token.startsWith(marker) && names.any { it.startsWith(token.drop(1), ignoreCase = true) }
-        val prefix = text.take(start) + marker
-        val suffix = when {
-            replace -> text.drop(start + token.length)
-            token.isEmpty() -> text.drop(start)
-            else -> " " + text.drop(start)
-        }
-        return TextFieldValue(prefix + suffix, TextRange(prefix.length))
-    }
-}
-
-private data class ComposerTriggerMatch(val start: Int, val end: Int, val query: String) {
-    fun replace(text: String, replacement: String, appendSpace: Boolean): TextFieldValue {
-        val prefix = text.take(start) + replacement
-        val suffix = text.drop(end).ifEmpty { if (appendSpace) " " else "" }
-        val cursor = prefix.length + if (suffix.isEmpty()) 0 else 1
-        return TextFieldValue(prefix + suffix, TextRange(cursor))
     }
 }
 

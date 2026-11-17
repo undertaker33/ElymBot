@@ -99,7 +99,7 @@ class ElymBotUiIntegrationTest {
             assertTrue(runBlocking { service.personas.first().none { newTag in it.tags } })
             originalFilter.performScrollTo().performClick()
             personaCard.performClick()
-            openChatMenu()
+            description(R.string.elym_persona_menu).performClick()
             click(R.string.elym_edit_persona)
             originalSelection.performScrollTo().assertIsOn()
             newSelection.performScrollTo().assertIsOff().performClick()
@@ -118,7 +118,7 @@ class ElymBotUiIntegrationTest {
             compose.onNodeWithText(fixture.personaName).assertDoesNotExist()
 
             personaCard.performClick()
-            openChatMenu()
+            description(R.string.elym_persona_menu).performClick()
             click(R.string.elym_edit_persona)
             newSelection.performScrollTo().assertIsOn().performClick()
             saveGalleryPersonaEdits()
@@ -150,6 +150,68 @@ class ElymBotUiIntegrationTest {
         scrollAndClick(R.string.elym_save)
         compose.waitUntil(10_000) {
             compose.onAllNodesWithContentDescription(label(R.string.elym_name)).fetchSemanticsNodes().isEmpty()
+        }
+    }
+
+    @Test
+    fun openingOtherPersonaKeepsMainOwnerUntilGlobalEditIsSaved() {
+        val otherName = "P-${fixture.prefix.takeLast(12)}"
+        val sessionTitle = "Owned-${fixture.prefix.takeLast(8)}"
+        val otherId = runBlocking { service.savePersona(PersonaCard(name = otherName)) }
+        var sessionId: String? = null
+        val dao = fixture.database.conversationDao()
+        val main = runBlocking { requireNotNull(dao.getMain()) }
+        val globalOption = compose.onNode(hasText(label(R.string.elym_set_global_persona)) and isToggleable())
+        try {
+            sessionId = runBlocking {
+                val id = service.newSession(otherId)
+                service.renameSession(id, sessionTitle)
+                id
+            }
+            waitForText(fixture.personaName)
+            description(R.string.elym_search).performClick()
+            description(R.string.elym_search_hint).performTextInput(otherName)
+            waitForText(otherName)
+            compose.onNode(hasText(otherName) and hasClickAction() and !hasSetTextAction()).performClick()
+            waitForText(sessionTitle)
+            assertEquals(main.personaId, runBlocking { dao.getMain()?.personaId })
+            compose.onNodeWithText(sessionTitle).performClick()
+            openChatMenu()
+            click(R.string.elym_model_config)
+            description(R.string.elym_back).performClick()
+            description(R.string.elym_chat_menu).assertIsDisplayed()
+            description(R.string.elym_back).performClick()
+            waitForText(sessionTitle)
+
+            description(R.string.elym_persona_menu).performClick()
+            compose.onNode(hasText(label(R.string.elym_delete_persona)) and hasClickAction()).assertIsDisplayed()
+            click(R.string.elym_edit_persona)
+            globalOption.performScrollTo().assertIsOff().performClick()
+            globalOption.assertIsOn().performClick()
+            globalOption.assertIsOff().performClick()
+            description(R.string.elym_close).performClick()
+            assertEquals(main.personaId, runBlocking { dao.getMain()?.personaId })
+
+            description(R.string.elym_persona_menu).performClick()
+            click(R.string.elym_edit_persona)
+            globalOption.performScrollTo().performClick()
+            saveGalleryPersonaEdits()
+            assertEquals(main.id, runBlocking { dao.getMain()?.id })
+            assertEquals(otherId, runBlocking { dao.getMain()?.personaId })
+            assertEquals(otherId, runBlocking { dao.get(requireNotNull(sessionId))?.personaId })
+            description(R.string.elym_back).performClick()
+            description(R.string.elym_create_persona).assertIsDisplayed()
+            compose.onNode(hasText(otherName) and hasClickAction() and !hasSetTextAction()).performClick()
+            description(R.string.elym_chat_menu).assertIsDisplayed()
+            openChatMenu()
+            click(R.string.elym_edit_persona)
+            globalOption.performScrollTo().assertIsOn().assertIsNotEnabled()
+        } finally {
+            runBlocking {
+                service.activatePersona(fixture.personaId)
+                sessionId?.let { service.deleteSessions(otherId, setOf(it)) }
+                service.deletePersona(otherId)
+            }
         }
     }
 
