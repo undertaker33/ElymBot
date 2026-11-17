@@ -54,3 +54,8 @@
 - Windows PowerShell，Gradle Wrapper 9.9.1：`.\gradlew.bat :app:assembleDebug :app:assembleDebugAndroidTest :core:test --continue --console=plain --quiet`，构建和 Core 测试通过。
 - `core/build/test-results/test/TEST-com.elymbot.core.model.OpenAiCompatibleModelGatewayTest.xml` 报告 23 项、0 failures、0 errors；覆盖本次新增 targeted Vision 用例。使用 MockWebServer 与合成输入，未连接真实模型服务。
 - 组合仪器运行结果及设备 APK 信息记在 [W04 首次图片发送视觉路由复验](W04-Android数据与会话-feedback.md#2026-11-15-首次图片发送的视觉路由复验)。
+
+## 2026-11-17 OpenAI 兼容协议职责拆分
+
+- 将请求序列化、普通响应与错误解码、SSE 解析和增量状态分别移入 `OpenAiCompatibleRequestEncoder.kt`、`OpenAiCompatibleResponseDecoder.kt` 和 `OpenAiCompatibleSseDecoder.kt`，并更新 Gateway 内部调用。只调整文件边界与内部引用；模型服务接口及执行语义不变。
+- 集成验证：`:core:test` 最终 `BUILD SUCCESSFUL`，Core JVM 测试 50/50 通过，其中 `OpenAiCompatibleModelGatewayTest` 23/23。App 构建及 MuMu Android 15 仪器测试 8/8 的证据见 [W05 配置分类、设置分组与界面拆分](W05-Android界面-feedback.md#2026-11-17-配置分类设置分组与界面拆分)。未连接实际模型服务或实体 Android 设备。

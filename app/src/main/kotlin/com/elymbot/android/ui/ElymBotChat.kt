@@ -1,61 +1,30 @@
 package com.elymbot.android.ui
 
 import android.net.Uri
-import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.core.CubicBezierEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.StartOffset
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.text.selection.SelectionContainer
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.layout.SubcomposeLayout
-import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.elymbot.android.R
-
-private const val MaxDraftLength = 1800
 
 @Composable
 internal fun ChatPage(
@@ -282,24 +251,6 @@ internal fun ChatPage(
     ) { model.perform { service.deleteSessions(persona.id, setOf(id)); delete = false; back() } }
 }
 
-private enum class ChatLayer { Composer, Timeline }
-
-@Composable
-private fun FloatingComposerLayout(
-    modifier: Modifier,
-    timeline: @Composable (bottomPadding: Dp) -> Unit,
-    composer: @Composable () -> Unit,
-) {
-    SubcomposeLayout(modifier) { constraints ->
-        val footer = subcompose(ChatLayer.Composer, composer).single().measure(constraints.copy(minHeight = 0))
-        val list = subcompose(ChatLayer.Timeline) { timeline(footer.height.toDp()) }.single().measure(constraints)
-        layout(list.width, list.height) {
-            list.placeRelative(0, 0)
-            footer.placeRelative(0, list.height - footer.height)
-        }
-    }
-}
-
 private data class SentDraft(
     val text: String,
     val hasAttachment: Boolean,
@@ -324,207 +275,7 @@ private data class SentDraft(
 }
 
 @Composable
-private fun ChatComposer(
-    draft: TextFieldValue,
-    onDraftChange: (TextFieldValue) -> Unit,
-    commandNames: Map<ChatCommand, String>,
-    main: Boolean,
-    enabled: Boolean,
-    image: String?,
-    onRemoveImage: () -> Unit,
-    onPickImage: () -> Unit,
-    onSend: () -> Unit,
-    sendAction: @Composable () -> Unit,
-) {
-    var expanded by remember(enabled) { mutableStateOf(false) }
-    var composerHasFocus by remember { mutableStateOf(false) }
-    var dismissed by remember { mutableStateOf(false) }
-    val focusRequester = remember { FocusRequester() }
-    val keyboard = LocalSoftwareKeyboardController.current
-    val shape = RoundedCornerShape(17.dp)
-    val hint = stringResource(R.string.elym_type_message)
-    val availableCommands = commandNames.filterKeys { main || it != ChatCommand.Persona }
-    val match = SlashCommandTrigger.match(draft)
-    val candidates = if (enabled && composerHasFocus && !dismissed && !expanded && match != null) {
-        availableCommands.filterValues { it.startsWith(match.query, ignoreCase = true) }
-    } else {
-        emptyMap()
-    }
-    val commandDraft = SlashCommandTrigger.prompt(draft.text, availableCommands.values)
-    BackHandler(candidates.isNotEmpty()) { dismissed = true }
-    Column(
-        Modifier.fillMaxWidth().onFocusChanged { composerHasFocus = it.hasFocus }.focusGroup(),
-        verticalArrangement = Arrangement.spacedBy(5.dp),
-    ) {
-        if (image != null || candidates.isNotEmpty()) {
-            Column(Modifier.weight(1f, fill = false), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                if (image != null) {
-                    Row(
-                        Modifier.padding(horizontal = 3.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        Photo(Uri.parse(image), Modifier.size(40.dp).clip(RoundedCornerShape(8.dp)))
-                        Text(stringResource(R.string.elym_attachment), Modifier.weight(1f), color = Muted, fontSize = 12.sp)
-                        RoundAction(R.drawable.elym_close, stringResource(R.string.elym_remove_image), onRemoveImage)
-                    }
-                }
-                if (match != null && candidates.isNotEmpty()) {
-                    Surface(shape = shape, color = SurfaceColor, border = androidx.compose.foundation.BorderStroke(1.dp, Line)) {
-                        Column(Modifier.fillMaxWidth().heightIn(max = 200.dp).verticalScroll(rememberScrollState())) {
-                            candidates.forEach { (command, name) ->
-                                val literal = "/$name"
-                                val takesArgument = command == ChatCommand.Persona || command == ChatCommand.Checkpoint
-                                val selectedDraft = match.replace(draft.text, literal, takesArgument)
-                                DropdownMenuItem(
-                                    text = { Text(literal, fontSize = 14.sp) },
-                                    enabled = selectedDraft.text.length <= MaxDraftLength,
-                                    onClick = {
-                                        dismissed = true
-                                        onDraftChange(selectedDraft)
-                                        focusRequester.requestFocus()
-                                    },
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-            Row(
-                Modifier.weight(1f).background(PaperTop, shape).border(1.dp, Line, shape),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Box {
-                    RoundAction(
-                        R.drawable.elym_plus, stringResource(R.string.elym_composer_add), { expanded = true }, enabled = enabled,
-                    )
-                    DropdownMenu(expanded, { expanded = false }, containerColor = SurfaceColor, shape = RoundedCornerShape(16.dp)) {
-                        ChatMenuItem(R.string.elym_add_image, R.drawable.elym_photo) {
-                            expanded = false
-                            dismissed = true
-                            onPickImage()
-                        }
-                        ChatMenuItem(
-                            R.string.elym_composer_commands, R.drawable.elym_chat,
-                            enabled = commandDraft.text.length <= MaxDraftLength,
-                        ) {
-                            expanded = false
-                            dismissed = false
-                            onDraftChange(commandDraft)
-                            focusRequester.requestFocus()
-                            keyboard?.show()
-                        }
-                    }
-                }
-                BasicTextField(
-                    value = draft,
-                    onValueChange = { value ->
-                        if (value.text != draft.text || value.selection != draft.selection) dismissed = false
-                        if (value.text.length <= MaxDraftLength) {
-                            onDraftChange(value)
-                        } else {
-                            onDraftChange(TextFieldValue(value.text.take(MaxDraftLength), value.selection))
-                        }
-                    },
-                    maxLines = 5,
-                    textStyle = TextStyle(color = Ink, fontSize = 16.sp, lineHeight = 21.sp),
-                    cursorBrush = SolidColor(Accent),
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                    keyboardActions = KeyboardActions(onSend = {
-                        dismissed = true
-                        onSend()
-                    }),
-                    modifier = Modifier.weight(1f).focusRequester(focusRequester).semanticsLabel(hint),
-                    decorationBox = { field ->
-                        Box(Modifier.fillMaxWidth().padding(top = 11.dp, end = 11.dp, bottom = 11.dp)) {
-                            if (draft.text.isEmpty()) Text(hint, color = Muted, fontSize = 16.sp)
-                            field()
-                        }
-                    },
-                )
-            }
-            sendAction()
-        }
-    }
-}
-
-@Composable
-private fun CheckpointsSheet(model: ElymBotViewModel, sessionId: String, running: Boolean, dismiss: () -> Unit) {
-    val service = model.service
-    val checkpoints by remember(sessionId) { service.checkpoints(sessionId) }
-        .collectAsStateWithLifecycle(emptyList())
-    var pending by remember { mutableStateOf(false) }
-    var selected by remember { mutableStateOf<ChatCheckpoint?>(null) }
-    val enabled = !running && !pending && checkpoints.isNotEmpty()
-    fun runCheckpointAction(action: suspend () -> Unit) {
-        if (!enabled || pending) return
-        pending = true
-        model.perform {
-            try {
-                action()
-            } finally {
-                pending = false
-            }
-        }
-    }
-
-    Sheet(stringResource(R.string.elym_checkpoints), dismiss) {
-        Action(
-            stringResource(R.string.elym_save_checkpoint),
-            { runCheckpointAction { service.saveCheckpoint(sessionId) } },
-            primary = true,
-            enabled = enabled,
-        )
-        if (checkpoints.isNotEmpty()) Group {
-            checkpoints.sortedByDescending(ChatCheckpoint::displayNumber).forEachIndexed { index, point ->
-                if (index > 0) HorizontalDivider(color = Line)
-                ListRow(
-                    stringResource(R.string.elym_checkpoint_title, point.displayNumber),
-                    R.drawable.elym_clock,
-                    { selected = point },
-                    subtitle = pluralStringResource(
-                        R.plurals.elym_checkpoint_retained_messages, point.retainedMessageCount, point.retainedMessageCount,
-                    ),
-                    badge = if (point.current) stringResource(R.string.elym_checkpoint_current) else null,
-                    selected = point.current,
-                    enabled = enabled,
-                )
-            }
-        }
-    }
-    selected?.let { point ->
-        val warning = if (point.displayNumber == 1) {
-            R.string.elym_restore_empty_checkpoint_message
-        } else {
-            R.string.elym_restore_checkpoint_message
-        }
-        AlertDialog(
-            onDismissRequest = { selected = null },
-            title = { Text(stringResource(R.string.elym_restore_checkpoint_title, point.displayNumber)) },
-            text = { Text(stringResource(warning)) },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        selected = null
-                        runCheckpointAction {
-                            service.restoreCheckpoint(sessionId, point.displayNumber, point.id)
-                            dismiss()
-                        }
-                    },
-                    enabled = enabled,
-                ) { Text(stringResource(R.string.elym_restore_checkpoint), color = if (enabled) Danger else Color.Unspecified) }
-            },
-            dismissButton = {
-                TextButton(onClick = { selected = null }) { Text(stringResource(R.string.elym_cancel)) }
-            },
-        )
-    }
-}
-
-@Composable
-private fun ChatMenuItem(label: Int, icon: Int, danger: Boolean = false, enabled: Boolean = true, onClick: () -> Unit) {
+internal fun ChatMenuItem(label: Int, icon: Int, danger: Boolean = false, enabled: Boolean = true, onClick: () -> Unit) {
     val tint = if (danger) Danger else Ink
     DropdownMenuItem(
         text = { Text(stringResource(label), color = tint, fontSize = 14.sp) },
@@ -532,80 +283,4 @@ private fun ChatMenuItem(label: Int, icon: Int, danger: Boolean = false, enabled
         onClick = onClick,
         enabled = enabled,
     )
-}
-
-@Composable
-private fun LocalChatReceipt(text: String) {
-    val multiline = '\n' in text
-    val shape = if (multiline) RoundedCornerShape(12.dp) else CircleShape
-    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-        Surface(
-            modifier = if (multiline) Modifier.fillMaxWidth().padding(horizontal = 12.dp) else Modifier,
-            shape = shape,
-            color = SurfaceColor,
-            border = androidx.compose.foundation.BorderStroke(1.dp, Line),
-        ) {
-            SelectionContainer {
-                Text(
-                    text,
-                    Modifier.padding(horizontal = 12.dp, vertical = if (multiline) 10.dp else 6.dp),
-                    color = if (multiline) Ink else Muted,
-                    fontSize = 13.sp,
-                    lineHeight = 20.sp,
-                    textAlign = if (multiline) TextAlign.Start else TextAlign.Center,
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun MessageBubble(message: ChatMessage, persona: String) {
-    val shape = if (message.assistant) RoundedCornerShape(6.dp, 16.dp, 16.dp, 16.dp) else RoundedCornerShape(16.dp, 6.dp, 16.dp, 16.dp)
-    Column(
-        Modifier.fillMaxWidth(),
-        horizontalAlignment = if (message.assistant) Alignment.Start else Alignment.End,
-    ) {
-        if (message.assistant) Text(message.author ?: persona, Modifier.padding(start = 4.dp, bottom = 4.dp), color = Muted, fontSize = 11.sp)
-        Column(
-            Modifier.widthIn(max = 345.dp).background(if (message.assistant) SurfaceColor else Soft, shape)
-                .then(if (message.assistant) Modifier.border(1.dp, Line, shape) else Modifier)
-                .padding(horizontal = 13.dp, vertical = 10.dp),
-        ) {
-            message.image?.let { Photo(it, Modifier.widthIn(max = 210.dp).heightIn(max = 175.dp).clip(RoundedCornerShape(8.dp))) }
-            if (message.text.isNotEmpty()) Text(message.text, color = Ink, fontSize = 15.sp, lineHeight = 24.sp)
-            else if (message.status == MessageStatus.Waiting) {
-                WaitingDots()
-            }
-        }
-        val status = when (message.status) {
-            MessageStatus.Stopped -> R.string.elym_stopped
-            MessageStatus.Interrupted -> R.string.elym_interrupted
-            else -> null
-        }
-        if (status != null) Text(stringResource(status), Modifier.padding(horizontal = 4.dp, vertical = 5.dp), color = Muted, fontSize = 11.sp)
-    }
-}
-
-@Composable
-private fun WaitingDots() {
-    val pulse = rememberInfiniteTransition(label = "Waiting dots")
-    Row(
-        Modifier.semanticsLabel(stringResource(R.string.elym_waiting)),
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        repeat(3) { index ->
-            val opacity = pulse.animateFloat(
-                initialValue = 0.32f,
-                targetValue = 1f,
-                animationSpec = infiniteRepeatable(
-                    animation = tween(1200, easing = CubicBezierEasing(0.42f, 0f, 0.58f, 1f)),
-                    repeatMode = RepeatMode.Reverse,
-                    initialStartOffset = StartOffset(index * 150),
-                ),
-                label = "Waiting dot ${index + 1}",
-            )
-            Box(Modifier.size(5.dp).graphicsLayer { alpha = opacity.value }.background(Accent, CircleShape))
-        }
-    }
 }

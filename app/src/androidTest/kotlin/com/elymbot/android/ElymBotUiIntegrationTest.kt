@@ -6,6 +6,7 @@ import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.hasClickAction
@@ -237,10 +238,24 @@ class ElymBotUiIntegrationTest {
                 runBlocking { fixture.database.commandNameDao().getAll().any { it.name == helpName } }
             }
 
+            click(R.string.elym_config)
+            compose.onNodeWithText(label(R.string.elym_config_models)).assertIsSelected()
+            click(R.string.elym_config_context)
+            compose.onNodeWithText(label(R.string.elym_config_context)).assertIsSelected()
+            compose.onNodeWithText(label(R.string.elym_config_empty)).assertIsDisplayed()
+            compose.onNodeWithText(label(R.string.elym_model_services)).assertDoesNotExist()
+            click(R.string.elym_config_tools)
+            compose.onNodeWithText(label(R.string.elym_config_tools)).assertIsSelected()
+            compose.onNodeWithText(label(R.string.elym_config_empty)).assertIsDisplayed()
+
             click(R.string.elym_persona)
             openPersonaChat()
             openChatMenu()
             click(R.string.elym_model_config)
+            compose.onNodeWithText(label(R.string.elym_config_models)).assertIsSelected()
+            click(R.string.elym_config_context)
+            compose.onNodeWithText(label(R.string.elym_config_empty)).assertIsDisplayed()
+            click(R.string.elym_config_models)
             scrollAndClick(R.string.elym_add_service)
             click(R.string.elym_select_provider)
             click(R.string.elym_provider_custom)

@@ -87,8 +87,8 @@ class OpenAiCompatibleModelGateway(
         val request = requestBuilder.build()
 
         return execute(probeClient, request) { response ->
-            if (!response.isSuccessful) throw OpenAiCompatibleProtocol.responseFailure(response, connection)
-            OpenAiCompatibleProtocol.parseModels(response.body.string())
+            if (!response.isSuccessful) throw OpenAiCompatibleResponseDecoder.responseFailure(response, connection)
+            OpenAiCompatibleResponseDecoder.parseModels(response.body.string())
         }
     }
 
@@ -190,7 +190,7 @@ class OpenAiCompatibleModelGateway(
             return@callbackFlow
         }
         val body = try {
-            OpenAiCompatibleProtocol.buildRequest(request, request.useNativeStreaming)
+            OpenAiCompatibleRequestEncoder.buildRequest(request, request.useNativeStreaming)
         } catch (failure: ModelRequestException) {
             close(failure)
             return@callbackFlow
@@ -205,11 +205,11 @@ class OpenAiCompatibleModelGateway(
             override fun onResponse(call: Call, response: Response) {
                 try {
                     response.use {
-                        if (!it.isSuccessful) throw OpenAiCompatibleProtocol.responseFailure(it, connection)
+                        if (!it.isSuccessful) throw OpenAiCompatibleResponseDecoder.responseFailure(it, connection)
                         if (request.useNativeStreaming) {
-                            OpenAiCompatibleProtocol.streamResponse(it, connection) { event -> sendEvent(event) }
+                            OpenAiCompatibleSseDecoder.streamResponse(it, connection) { event -> sendEvent(event) }
                         } else {
-                            val completion = OpenAiCompatibleProtocol.parseCompletion(it.body.string(), connection)
+                            val completion = OpenAiCompatibleResponseDecoder.parseCompletion(it.body.string(), connection)
                             if (completion.text.isNotEmpty()) sendEvent(ModelStreamEvent.TextDelta(completion.text))
                             sendEvent(ModelStreamEvent.Completed(completion.finishReason, completion.toolCalls))
                         }
@@ -244,7 +244,7 @@ class OpenAiCompatibleModelGateway(
                     role = ModelRole.USER,
                     content = listOf(
                         ModelContentPart.Text(VISION_PROMPT),
-                        ModelContentPart.Image(OpenAiCompatibleProtocol.visionProbeImageBytes(), "image/png"),
+                        ModelContentPart.Image(OpenAiCompatibleRequestEncoder.visionProbeImageBytes(), "image/png"),
                     ),
                 ),
             ),
@@ -297,7 +297,7 @@ class OpenAiCompatibleModelGateway(
         if (result.finishReason != ModelFinishReason.TOOL_CALLS || call.name != PROBE_TOOL_NAME) {
             return CapabilityStatus.UNKNOWN
         }
-        val arguments = OpenAiCompatibleProtocol.parseObject(call.argumentsJson, "tool probe arguments")
+        val arguments = OpenAiCompatibleResponseDecoder.parseObject(call.argumentsJson, "tool probe arguments")
         return if (arguments.stringValue("probe") == PROBE_TOOL_VALUE) CapabilityStatus.SUPPORTED else CapabilityStatus.UNKNOWN
     }
 
@@ -314,15 +314,15 @@ class OpenAiCompatibleModelGateway(
             tools = tools,
             useNativeStreaming = false,
         )
-        val requestBody = OpenAiCompatibleProtocol.buildRequest(
+        val requestBody = OpenAiCompatibleRequestEncoder.buildRequest(
             request = request,
             streaming = false,
             forcedToolChoice = forcedToolChoice,
         )
         val httpRequest = postRequest(connection, requestBody, streaming = false)
         return execute(probeClient, httpRequest) { response ->
-            if (!response.isSuccessful) throw OpenAiCompatibleProtocol.responseFailure(response, connection)
-            OpenAiCompatibleProtocol.parseCompletion(response.body.string(), connection)
+            if (!response.isSuccessful) throw OpenAiCompatibleResponseDecoder.responseFailure(response, connection)
+            OpenAiCompatibleResponseDecoder.parseCompletion(response.body.string(), connection)
         }
     }
 
@@ -388,7 +388,7 @@ class OpenAiCompatibleModelGateway(
             .url(endpoint(connection, "/chat/completions"))
             .header("Content-Type", "application/json")
             .header("Accept", if (streaming) "text/event-stream, application/json" else "application/json")
-            .post(body.toRequestBody(OpenAiCompatibleProtocol.JSON_MEDIA_TYPE))
+            .post(body.toRequestBody(OpenAiCompatibleRequestEncoder.JSON_MEDIA_TYPE))
         connection.applyAuthentication(builder)
         return builder.build()
     }

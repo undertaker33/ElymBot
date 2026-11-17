@@ -193,3 +193,13 @@
 - 聊天补全的触发条件、匹配范围及斜杠配置集中到 `ElymBotComposerCompletion.kt`，保留现有补全行为。
 - 以 `18ae52c` 加本轮工作区改动执行 `:app:assembleDebug :app:assembleDebugAndroidTest`，首次遇到 Kotlin 编译守护进程启动失败。临时加 `-Pkotlin.compiler.execution.strategy=in-process` 后两包通过，debug APK 与测试 APK 的 SHA-256 前缀为 `9D47DEAF2433`、`D072FF0A4AFD`。
 - 在 MuMu `ElymBot-T01-Clean`（index 1，Android 15/API 35，`127.0.0.1:16416`）以两包运行 `ElymBotUiIntegrationTest#openingOtherPersonaKeepsMainOwnerUntilGlobalEditIsSaved`、`#personaCreatedThroughGalleryCanBeFoundByNameAndTag`、`#renamedPersonaCommandSwitchesMainAndDedicatedSessionsRetainTheirOwner` 和 `ComposerAddMenuTest`，得到 `OK (5 tests)`，耗时 17.468 秒。覆盖专属会话及模型配置返回路径、点击人格保持主会话所有者、编辑勾选与取消、保存后沿用同一主会话 ID、专属会话保留所属人格、标签编辑、指令别名和斜杠补全。完整输出见本地 `C:\Users\93445\Documents\Codex\ElymBot-W05-2026-11-17\global-persona-tests.txt`。
+
+### 2026-11-17 配置分类、设置分组与界面拆分
+
+- 配置页从底栏和聊天菜单使用同一入口。页首与人格库共用横向可滚动的标签栏及选中样式，固定显示「模型」「上下文」「工具」。模型服务、用途分配和能力探测保留在「模型」；「上下文」和「工具」当前显示「暂无配置项」。分类是页面界面状态，模型内容滚动位置在本页切换分类时保留。
+- 设置页将「外观」「指令名称」分为各自的圆角卡片，整行可点，使用统一高度和图标、文字、箭头顺序。两组当前各一行，组内多行分隔线按标题起点内缩。外观选项和指令名称仍由既有弹层与保存入口处理。
+- 从应用导航分离人格库与共用标签栏，从人格编辑分离专属会话列表，从模型配置分离设置页。聊天按页面编排、输入框、检查点和消息渲染分文件，发送、回退和消息渲染沿用原调用链。
+- 在 `a5bfbc4` 基线上集成 App 和 Core 文件拆分后，Windows PowerShell 以 Android SDK 37.0 运行 `gradlew.bat :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest -Pkotlin.compiler.execution.strategy=in-process --console=plain`，两包构建通过，App JVM 测试任务为 `NO-SOURCE`。debug APK 和测试 APK 的 SHA-256 前缀分别为 `71AE9C7DE403`、`FA768040488F`。
+- 在 MuMu `ElymBot-T01-Clean`（index 1，Android 15/API 35，`127.0.0.1:16416`）使用 `adb install -r` 覆盖安装两包，保留已有测试 App 数据。用 `adb -s 127.0.0.1:16416 shell am instrument -w -e class <定向选择器> com.elymbot.android.debug.test/androidx.test.runner.AndroidJUnitRunner` 得到 `OK (8 tests)`，耗时 19.656 秒。覆盖 `AppearanceSettingsTest`、`ElymBotUiIntegrationTest` 的设置与配置导航、人格标签和检查点用例、`ComposerAddMenuTest`，以及 `ElymBotStorageTest` 的模型连接凭据原子性与非流式视觉两路用例。设置与导航用例覆盖底栏分类切换、聊天配置默认分类、回到原聊天、指令改名后执行及会话操作。
+- 在同一模拟器浅色横屏从正式入口查看两页。配置顶端三枚标签的选中态和空状态可见，设置两行同高且各自置于圆角卡片，保留既有主题配色。日志及 `settings-grouped-cards.png`、`configuration-category-strip.png` 保存于本地 `C:\Users\93445\Documents\Codex\ElymBot-W05-2026-11-17`。本轮未在实体设备验证，T01.07 用户验收保持待完成。
+- 在同一模拟器补查浅色竖屏，配置三枚分类标签完整显示，设置两组卡片左右留白一致且标签和箭头可见，截图为 `configuration-category-strip-portrait.png` 与 `settings-grouped-cards-portrait.png`，完成后恢复原横屏显示和自由旋转。

@@ -217,3 +217,16 @@ Checklist 未修改。T01.05/T01.06 的存储服务测试覆盖已更新，但�
 
 - 静态核对唯一的 `ElymBotUiService` 实现和调用签名；本次两个 Kotlin 文件的 `git diff --check` 通过。
 - 未运行 Gradle、Android 测试或设备操作。编译和 UI 集成验证交由 W05/W01 统一执行，结果待其反馈。
+
+## 2026-11-17 App 数据与会话大文件拆分
+
+### 实际改动
+
+- 将 `ElymBotDatabase.kt` 中实体、投影和 DAO 按人格、会话、历史、模型配置/凭据、指令名称分组到五个同包文件；数据库版本、全部实体字段和索引、DAO 查询与方法、Migration 1→2、数据库打开入口保持原样。
+- 将模型配置观察流、服务保存/删除、模型列表和能力探测、模型用途分配及探测结果映射移入 `ElymBotModelConfigurationService`。`ElymBotSessionService` 保留既有 UI 服务入口并委托配置操作；本轮模型快照、凭据与连接身份事务、视觉路由、执行 lease、活动执行和会话锁仍由原会话服务持有。
+
+### 验证
+
+- 静态比对基线与拆分后的 Room 声明：29 项声明全部一一对应且文本一致。
+- Windows PowerShell，`ANDROID_HOME=C:\Users\93445\AppData\Local\Android\Sdk`，Gradle Wrapper 9.9.1：`gradlew.bat :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest -Pkotlin.compiler.execution.strategy=in-process --console=plain`。App 与 androidTest APK 构建成功；`testDebugUnitTest` 为 `NO-SOURCE`。APK 指纹前缀分别为 `71AE9C7DE403` 和 `FA768040488F`。
+- 在 MuMu index 1（Android 15/API 35，`127.0.0.1:16416`）安装对应 debug 与 androidTest APK 后，定向 Android instrumentation 共 8 项全部通过，耗时 19.656 秒。覆盖模型服务 URL 与凭据快照原子性、视觉直达与配置回退路由。终端证据：`C:\Users\93445\Documents\Codex\ElymBot-W05-2026-11-17\config-settings-instrumentation.txt`。

@@ -1,4 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">ElymBot</string>
+    <string name="elym_config_models">模型</string>
+    <string name="elym_config_context">上下文</string>
+    <string name="elym_config_tools">工具</string>
+    <string name="elym_config_empty">暂无配置项</string>
 </resources>

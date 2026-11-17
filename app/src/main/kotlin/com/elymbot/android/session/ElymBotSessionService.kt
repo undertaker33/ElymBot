@@ -15,7 +15,6 @@ import com.elymbot.android.data.ElymBotDataRepository
 import com.elymbot.android.data.HistorySummaryEntity
 import com.elymbot.android.data.MessageEntity
 import com.elymbot.android.data.MessageWithAttachments
-import com.elymbot.android.data.ModelAssignmentEntity
 import com.elymbot.android.data.ModelProbeEntity
 import com.elymbot.android.data.ModelServiceEntity
 import com.elymbot.android.data.PersonaEntity
@@ -34,12 +33,8 @@ import com.elymbot.android.ui.ModelConfiguration
 import com.elymbot.android.ui.ModelProbe
 import com.elymbot.android.ui.ModelRole as UiModelRole
 import com.elymbot.android.ui.ModelServiceDraft
-import com.elymbot.android.ui.ModelServiceItem
 import com.elymbot.android.ui.MessageStatus
 import com.elymbot.android.ui.PersonaCard
-import com.elymbot.android.ui.ProbeFailure
-import com.elymbot.android.ui.ProbeStatus
-import com.elymbot.android.ui.ProbeTarget
 import com.elymbot.android.ui.UiIssue
 import com.elymbot.android.ui.UiServiceException
 import com.elymbot.core.contract.AgentEvent
@@ -107,6 +102,7 @@ class ElymBotSessionService(
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
 ) : ElymBotUiService {
     private val appContext = context.applicationContext
+    private val modelConfigurationService = ElymBotModelConfigurationService(repository, connectionProvider, modelGateway)
     private val viewedSessionId = MutableStateFlow<String?>(null)
     private val liveExecutions = MutableStateFlow<Map<String, LiveExecutionState>>(emptyMap())
     private val commandMessages = MutableStateFlow<Map<String, List<CommandMessageGroup>>>(emptyMap())
@@ -128,29 +124,7 @@ class ElymBotSessionService(
         row?.toMainSummary(personaRows.firstOrNull { it.id == row.personaId }?.name.orEmpty())
     }
 
-    override val models: Flow<ModelConfiguration> = combine(
-        readyFlow { repository.database.modelConfigurationDao().observeServices() },
-        readyFlow { repository.database.modelConfigurationDao().observeAssignments() },
-        readyFlow { repository.database.credentialDao().observeServiceIds() },
-    ) { services, assignments, credentialIds ->
-        val items = services.map { service ->
-            ModelServiceItem(
-                id = service.id,
-                provider = service.provider,
-                name = service.name,
-                baseUrl = service.baseUrl,
-                modelId = service.modelId,
-                hasKey = service.id in credentialIds,
-                catalog = decodeCatalog(service.catalogValue),
-            )
-        }
-        val choices = assignments.associate { it.role to ModelChoice(it.serviceId, it.modelId) }
-        ModelConfiguration(
-            services = items,
-            text = choices[UiModelRole.Text.name],
-            vision = choices[UiModelRole.Vision.name],
-        )
-    }
+    override val models: Flow<ModelConfiguration> = modelConfigurationService.models
 
     override val commandNames: Flow<Map<ChatCommand, String>> = readyFlow {
         repository.database.commandNameDao().observeAll()
@@ -550,95 +524,20 @@ class ElymBotSessionService(
         }
     }
 
-    override suspend fun saveModelService(service: ModelServiceDraft) {
-        repository.initialize()
-        val baseUrl = service.baseUrl.trim()
-        val modelId = service.modelId.trim()
-        val providerName = service.provider.trim()
-        val name = service.name.trim().ifEmpty { providerName }
-        if (baseUrl.isEmpty() || modelId.isEmpty() || providerName.isEmpty() || name.isEmpty()) fail(UiIssue.InvalidInput)
-        val id = service.id ?: UUID.randomUUID().toString()
-        val newRecord = ModelServiceEntity(
-            id = id,
-            provider = providerName,
-            name = name,
-            baseUrl = baseUrl,
-            modelId = modelId,
-            catalogValue = encodeCatalog(service.catalog),
-        )
-        repository.database.withTransaction {
-            val serviceDao = repository.database.modelConfigurationDao()
-            val existing = serviceDao.getService(id)
-            val baseUrlChanged = existing != null && existing.baseUrl != baseUrl
-            val apiKeyChanged = if (existing != null && service.apiKey.isNotBlank()) {
-                val storedKey = try {
-                    repository.credentials.resolve(id)
-                } catch (_: CredentialVault.CredentialUnavailableException) {
-                    null
-                }
-                storedKey != service.apiKey
-            } else {
-                false
-            }
-            serviceDao.upsertService(newRecord)
-            if (service.apiKey.isNotBlank() && (existing == null || baseUrlChanged || apiKeyChanged)) {
-                repository.credentials.store(id, service.apiKey)
-            } else if (baseUrlChanged) {
-                repository.credentials.delete(id)
-            }
-            if (baseUrlChanged || apiKeyChanged) {
-                serviceDao.deleteProbes(id)
-            }
-        }
-    }
+    override suspend fun saveModelService(service: ModelServiceDraft) =
+        modelConfigurationService.saveModelService(service)
 
-    override suspend fun deleteModelService(serviceId: String) {
-        repository.initialize()
-        repository.database.withTransaction {
-            repository.database.modelConfigurationDao().deleteAssignmentsForService(serviceId)
-            repository.database.modelConfigurationDao().deleteService(serviceId)
-        }
-    }
+    override suspend fun deleteModelService(serviceId: String) =
+        modelConfigurationService.deleteModelService(serviceId)
 
-    override suspend fun fetchModels(service: ModelServiceDraft): List<String> = withContext(Dispatchers.IO) {
-        connectionProvider.withDraftConnection(service) { temporaryId ->
-            modelGateway.listModels(temporaryId).distinct()
-        }
-    }
+    override suspend fun fetchModels(service: ModelServiceDraft): List<String> =
+        modelConfigurationService.fetchModels(service)
 
-    override fun probeModel(service: ModelServiceDraft): Flow<ModelProbe> = flow {
-        repository.initialize()
-        emit(ModelProbe())
-        val result = try {
-            connectionProvider.withDraftConnection(service) { temporaryId ->
-                val report = modelGateway.probe(ModelReference(temporaryId, service.modelId.trim()))
-                saveProbeIfPersisted(service, temporaryId, report)
-                report.toUiProbe()
-            }
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (failure: Throwable) {
-            ModelProbe(issue = failure.toUiIssue())
-        }
-        emit(result)
-    }.flowOn(Dispatchers.IO)
+    override fun probeModel(service: ModelServiceDraft): Flow<ModelProbe> =
+        modelConfigurationService.probeModel(service)
 
-    override suspend fun setModel(role: UiModelRole, model: ModelChoice?) {
-        repository.initialize()
-        if (model == null) {
-            repository.database.modelConfigurationDao().deleteAssignment(role.name)
-            return
-        }
-        val service = repository.database.modelConfigurationDao().getService(model.serviceId)
-        if (model.modelId.isBlank() || service == null ||
-            (service.modelId != model.modelId && model.modelId !in decodeCatalog(service.catalogValue))
-        ) {
-            fail(UiIssue.InvalidInput)
-        }
-        repository.database.modelConfigurationDao().upsertAssignment(
-            ModelAssignmentEntity(role.name, model.serviceId, model.modelId),
-        )
-    }
+    override suspend fun setModel(role: UiModelRole, model: ModelChoice?) =
+        modelConfigurationService.setModel(role, model)
 
     override suspend fun saveCommandNames(names: Map<ChatCommand, String>) {
         repository.initialize()
@@ -1269,40 +1168,6 @@ class ElymBotSessionService(
         }
     }
 
-    private suspend fun saveProbeIfPersisted(
-        draft: ModelServiceDraft,
-        temporaryServiceId: String,
-        report: ModelCapabilityReport,
-    ) {
-        val serviceId = draft.id ?: return
-        connectionProvider.withSavedIdentity(temporaryServiceId, serviceId) { service ->
-            if (service.baseUrl != draft.baseUrl.trim()) return@withSavedIdentity
-            val modelId = draft.modelId.trim()
-            val dao = repository.database.modelConfigurationDao()
-            dao.deleteProbesForModel(serviceId, modelId, service.baseUrl)
-            ModelProbeTarget.entries.forEach { target ->
-                val status = when (target) {
-                    ModelProbeTarget.AVAILABILITY -> report.availability
-                    ModelProbeTarget.VISION -> report.vision
-                    ModelProbeTarget.NATIVE_STREAMING -> report.nativeStreaming
-                    ModelProbeTarget.STRUCTURED_TOOL_CALLS -> report.structuredToolCalls
-                }
-                val failure = report.failuresByTarget[target]
-                dao.upsertProbe(
-                    ModelProbeEntity(
-                        serviceId = serviceId,
-                        modelId = modelId,
-                        baseUrl = service.baseUrl,
-                        target = target.name,
-                        status = status.name,
-                        failureKind = failure?.kind?.name,
-                        httpStatusCode = failure?.httpStatusCode,
-                    ),
-                )
-            }
-        }
-    }
-
     private suspend fun executeCommand(sessionId: String, commandInput: String, action: CommandAction) {
         val session = repository.database.conversationDao().get(sessionId) ?: fail(UiIssue.InvalidInput)
         val names = commandNamesForSession()
@@ -1500,40 +1365,6 @@ class ElymBotSessionService(
     private fun Map<String, String>.status(target: ModelProbeTarget): CapabilityStatus =
         this[target.name]?.let { runCatching { CapabilityStatus.valueOf(it) }.getOrNull() } ?: CapabilityStatus.UNKNOWN
 
-    private fun ModelCapabilityReport.toUiProbe(): ModelProbe {
-        val failures = failuresByTarget.mapNotNull { (target, failure) ->
-            val uiTarget = when (target) {
-                ModelProbeTarget.AVAILABILITY -> ProbeTarget.Availability
-                ModelProbeTarget.VISION -> ProbeTarget.Vision
-                ModelProbeTarget.NATIVE_STREAMING -> ProbeTarget.Streaming
-                ModelProbeTarget.STRUCTURED_TOOL_CALLS -> null
-            } ?: return@mapNotNull null
-            uiTarget to ProbeFailure(failure.kind.toUiIssue(), failure.httpStatusCode)
-        }.toMap()
-        return ModelProbe(
-            availability = availability.toUiStatus(),
-            vision = vision.toUiStatus(),
-            streaming = nativeStreaming.toUiStatus(),
-            issue = failures.values.firstOrNull()?.issue,
-            failuresByTarget = failures,
-        )
-    }
-
-    private fun CapabilityStatus.toUiStatus(): ProbeStatus = when (this) {
-        CapabilityStatus.SUPPORTED -> ProbeStatus.Supported
-        CapabilityStatus.UNSUPPORTED -> ProbeStatus.Unsupported
-        CapabilityStatus.UNKNOWN -> ProbeStatus.Unknown
-    }
-
-    private fun ModelProbeFailureKind.toUiIssue(): UiIssue = when (this) {
-        ModelProbeFailureKind.NETWORK -> UiIssue.Connection
-        ModelProbeFailureKind.AUTHENTICATION -> UiIssue.Authentication
-        ModelProbeFailureKind.HTTP -> UiIssue.ServiceResponse
-        ModelProbeFailureKind.API_REJECTED -> UiIssue.ServiceRejected
-        ModelProbeFailureKind.PROTOCOL -> UiIssue.ServiceProtocol
-        ModelProbeFailureKind.TIMED_OUT -> UiIssue.TimedOut
-    }
-
     private fun ModelProbeFailure.toModelRequestException(): ModelRequestException = when (kind) {
         ModelProbeFailureKind.NETWORK -> ModelRequestException.Network("The model service could not be reached.")
         ModelProbeFailureKind.AUTHENTICATION -> ModelRequestException.HttpStatus(
@@ -1563,22 +1394,6 @@ class ElymBotSessionService(
         AgentFailureKind.VISION_CAPABILITY_UNKNOWN -> UiIssue.VisionCapabilityUnknown
         AgentFailureKind.CONTEXT_LIMIT, AgentFailureKind.OUTPUT_LIMIT -> UiIssue.InvalidInput
         AgentFailureKind.TOOL_LIMIT, AgentFailureKind.EXECUTION_LIMIT, AgentFailureKind.INTERNAL -> UiIssue.Failed
-    }
-
-    private fun Throwable.toUiIssue(): UiIssue = when (this) {
-        is UiServiceException -> issue
-        is CredentialVault.CredentialUnavailableException -> UiIssue.Authentication
-        is ModelRequestException.Network -> UiIssue.Connection
-        is ModelRequestException.HttpStatus -> if (statusCode == HttpURLConnection.HTTP_UNAUTHORIZED || statusCode == HttpURLConnection.HTTP_FORBIDDEN) UiIssue.Authentication else UiIssue.ServiceResponse
-        is ModelRequestException.ApiRejected -> if (
-            httpStatusCode == HttpURLConnection.HTTP_UNAUTHORIZED || httpStatusCode == HttpURLConnection.HTTP_FORBIDDEN
-        ) UiIssue.Authentication else UiIssue.ServiceRejected
-        is ModelRequestException.Protocol -> UiIssue.ServiceProtocol
-        is ModelRequestException.StreamInterrupted -> UiIssue.Connection
-        is ModelRequestException.ContextLimit -> UiIssue.InvalidInput
-        is ModelRequestException.TimedOut -> UiIssue.TimedOut
-        is FileNotFoundException -> UiIssue.InvalidInput
-        else -> UiIssue.Failed
     }
 
     private fun Throwable.toAgentFailureKind(): AgentFailureKind = when (this) {
@@ -1684,10 +1499,6 @@ class ElymBotSessionService(
 
     private fun RunSnapshot.close() = leases.forEach { it.close() }
 
-    private fun decodeCatalog(value: String): List<String> = value.split(CATALOG_SEPARATOR).filter(String::isNotEmpty)
-
-    private fun encodeCatalog(items: List<String>): String = items.distinct().joinToString(CATALOG_SEPARATOR)
-
     private fun fail(issue: UiIssue): Nothing = throw UiServiceException(issue)
 
     private data class ConfiguredModel(
@@ -1773,7 +1584,6 @@ class ElymBotSessionService(
         const val MESSAGE_CATEGORY_FEEDBACK = "FEEDBACK"
         const val MESSAGE_CATEGORY_COMMAND = "COMMAND"
         const val TAG_SEPARATOR = "\u001f"
-        const val CATALOG_SEPARATOR = "\u001f"
 
         fun emptyCheckpointId(sessionId: String) = "empty:$sessionId"
     }
