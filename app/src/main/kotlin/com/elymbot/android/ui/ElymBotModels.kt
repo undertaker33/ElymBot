@@ -25,16 +25,37 @@ internal fun ModelConfigurationContent(
     config: ModelConfiguration,
     scrollState: ScrollState,
     current: Boolean,
+    query: String?,
+    clearance: PaddingValues,
 ) {
     var editor by remember { mutableStateOf<ModelServiceDraft?>(null) }
     var hasKey by remember { mutableStateOf(false) }
     var role by remember { mutableStateOf<ModelRole?>(null) }
-    Column(
+    val servicesTitle = stringResource(R.string.elym_model_services)
+    val rolesTitle = stringResource(R.string.elym_model_roles)
+    val addTitle = stringResource(R.string.elym_add_service)
+    val addSubtitle = stringResource(R.string.elym_openai_compatible)
+    val category = stringResource(R.string.elym_config_models)
+    val services = config.services.filter { query.matchesPageSearch(category, servicesTitle, it.name, it.modelId) }
+    val showAdd = query.matchesPageSearch(category, servicesTitle, addTitle, addSubtitle)
+    val roles = listOf(
+        Triple(ModelRole.Text, stringResource(R.string.elym_text_role), R.drawable.elym_chat),
+        Triple(ModelRole.Vision, stringResource(R.string.elym_vision_role), R.drawable.elym_photo),
+    ).map { (type, label, icon) ->
+        val summary = roleSummary(if (type == ModelRole.Text) config.text else config.vision, config.services)
+        ModelRoleRow(type, label, icon, summary)
+    }.filter { query.matchesPageSearch(category, rolesTitle, it.label, it.summary) }
+    if (services.isEmpty() && !showAdd && roles.isEmpty()) {
+        Box(Modifier.padding(clearance)) {
+            EmptyMessage(stringResource(R.string.elym_no_search_results), R.drawable.elym_search)
+        }
+    } else Column(
         Modifier.fillMaxWidth().verticalScroll(scrollState).padding(horizontal = 18.dp)
-            .padding(top = 7.dp, bottom = 100.dp),
+            .padding(top = clearance.calculateTopPadding() + 7.dp, bottom = clearance.calculateBottomPadding() + 12.dp),
     ) {
-        Section(stringResource(R.string.elym_model_services)) {
-            config.services.forEach { item ->
+        if (services.isNotEmpty() || showAdd) Section(servicesTitle) {
+            services.forEachIndexed { index, item ->
+                if (index > 0) HorizontalDivider(color = Line)
                 ListRow(
                     item.name, R.drawable.elym_box,
                     {
@@ -43,14 +64,17 @@ internal fun ModelConfigurationContent(
                     },
                     subtitle = item.modelId, badge = if (!item.hasKey) stringResource(R.string.elym_key_missing) else null,
                 )
-                HorizontalDivider(color = Line)
             }
-            ListRow(stringResource(R.string.elym_add_service), R.drawable.elym_plus, { editor = ModelServiceDraft(); hasKey = false }, subtitle = stringResource(R.string.elym_openai_compatible))
+            if (showAdd) {
+                if (services.isNotEmpty()) HorizontalDivider(color = Line)
+                ListRow(addTitle, R.drawable.elym_plus, { editor = ModelServiceDraft(); hasKey = false }, subtitle = addSubtitle)
+            }
         }
-        Section(stringResource(R.string.elym_model_roles)) {
-            ListRow(stringResource(R.string.elym_text_role), R.drawable.elym_chat, { role = ModelRole.Text }, subtitle = roleSummary(config.text, config.services))
-            HorizontalDivider(color = Line)
-            ListRow(stringResource(R.string.elym_vision_role), R.drawable.elym_photo, { role = ModelRole.Vision }, subtitle = roleSummary(config.vision, config.services))
+        if (roles.isNotEmpty()) Section(rolesTitle) {
+            roles.forEachIndexed { index, item ->
+                if (index > 0) HorizontalDivider(color = Line)
+                ListRow(item.label, item.icon, { role = item.role }, subtitle = item.summary)
+            }
         }
     }
     editor?.takeIf { current }?.let { initial -> ModelEditor(model, initial, hasKey, { editor = null }) }
@@ -72,6 +96,8 @@ internal fun ModelConfigurationContent(
         }
     }
 }
+
+private data class ModelRoleRow(val role: ModelRole, val label: String, val icon: Int, val summary: String)
 
 @Composable
 private fun roleSummary(choice: ModelChoice?, services: List<ModelServiceItem>): String {

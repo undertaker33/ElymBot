@@ -7,6 +7,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -21,6 +22,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.elymbot.android.R
@@ -32,6 +34,8 @@ internal fun GalleryPage(
     tags: List<String>,
     activeId: String?,
     unread: Boolean,
+    current: Boolean,
+    footerClearance: Dp,
     onAdd: () -> Unit,
     onOpen: (PersonaCard) -> Unit,
 ) {
@@ -40,25 +44,21 @@ internal fun GalleryPage(
     var favoritesOnly by rememberSaveable { mutableStateOf(false) }
     var customTag by rememberSaveable { mutableStateOf<String?>(null) }
     var addingTag by rememberSaveable { mutableStateOf(false) }
-    var searching by rememberSaveable { mutableStateOf(false) }
-    var query by rememberSaveable { mutableStateOf("") }
     val tag = customTag?.takeIf { it in tags }
-    val searchText = query.trim()
-    val visible = personas.filter {
-        (!favoritesOnly || it.favorite) && (tag == null || tag in it.tags) &&
-            (listOf(it.name, it.description, it.prompt) + it.tags).any { value -> value.contains(searchText, ignoreCase = true) }
-    }
+    val gridState = rememberLazyGridState()
 
-    Column {
-        Header(stringResource(R.string.elym_persona), serif = true) {
-            RoundAction(R.drawable.elym_search, stringResource(R.string.elym_search), { searching = !searching; if (!searching) query = "" }, outlined = true)
+    PrimaryPage(
+        title = R.string.elym_persona,
+        current = current,
+        footerClearance = footerClearance,
+        hint = R.string.elym_search_hint,
+        section = favoritesOnly to tag,
+        canScrollBackward = { gridState.canScrollBackward },
+        isScrollInProgress = { gridState.isScrollInProgress },
+        action = {
             RoundAction(R.drawable.elym_plus, stringResource(R.string.elym_create_persona), onAdd, primary = true)
-        }
-        if (searching) Row(Modifier.padding(horizontal = 18.dp), verticalAlignment = Alignment.CenterVertically) {
-            Input(query, { query = it }, stringResource(R.string.elym_search_hint), Modifier.weight(1f))
-            RoundAction(R.drawable.elym_close, stringResource(R.string.elym_close_search), { searching = false; query = "" })
-        }
-        TagStrip {
+        },
+        tags = {
             TagChip(allLabel, !favoritesOnly && tag == null) { favoritesOnly = false; customTag = null }
             TagChip(favoritesLabel, favoritesOnly) { favoritesOnly = true; customTag = null }
             tags.forEach { name ->
@@ -70,27 +70,41 @@ internal fun GalleryPage(
                 }
             }
             TagChip(stringResource(R.string.elym_add_tag)) { addingTag = true }
+        },
+    ) { query, clearance ->
+        val visible = personas.filter {
+            (!favoritesOnly || it.favorite) && (tag == null || tag in it.tags) &&
+                (query.matchesPageSearch(it.name, it.description, it.prompt) ||
+                    it.tags.any { value -> query.matchesPageSearch(value) })
         }
         if (visible.isEmpty()) {
-            EmptyMessage(stringResource(R.string.elym_no_personas), R.drawable.elym_search) {
-                Action(stringResource(R.string.elym_clear_filter), { favoritesOnly = false; customTag = null; query = "" })
+            val clearFilter: (@Composable () -> Unit)? = if (query == null) {
+                { Action(stringResource(R.string.elym_clear_filter), { favoritesOnly = false; customTag = null }) }
+            } else null
+            Box(Modifier.padding(clearance)) {
+                EmptyMessage(stringResource(R.string.elym_no_personas), R.drawable.elym_search, clearFilter)
             }
-        } else LazyVerticalGrid(
-            columns = GridCells.Fixed(2),
-            contentPadding = PaddingValues(start = 18.dp, end = 18.dp, bottom = 100.dp),
-            horizontalArrangement = Arrangement.spacedBy(11.dp),
-            verticalArrangement = Arrangement.spacedBy(11.dp),
-        ) {
-            itemsIndexed(visible, key = { _, item -> item.id }, span = { index, _ -> GridItemSpan(if (index == 0) maxLineSpan else 1) }) { index, item ->
-                GalleryCard(item, index == 0, item.id == activeId, unread && item.id == activeId) { onOpen(item) }
+        } else key(query) {
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(2),
+                state = if (query == null) gridState else rememberLazyGridState(),
+                contentPadding = PaddingValues(
+                    start = 18.dp, end = 18.dp, top = clearance.calculateTopPadding(),
+                    bottom = clearance.calculateBottomPadding() + 12.dp,
+                ),
+                horizontalArrangement = Arrangement.spacedBy(11.dp),
+                verticalArrangement = Arrangement.spacedBy(11.dp),
+            ) {
+                itemsIndexed(visible, key = { _, item -> item.id }, span = { index, _ -> GridItemSpan(if (index == 0) maxLineSpan else 1) }) { index, item ->
+                    GalleryCard(item, index == 0, item.id == activeId, unread && item.id == activeId) { onOpen(item) }
+                }
             }
         }
     }
-    if (addingTag) {
+    if (current && addingTag) {
         AddPersonaTagSheet(model, allLabel, favoritesLabel, { addingTag = false }) { name ->
             favoritesOnly = false
             customTag = name
-            query = ""
             addingTag = false
         }
     }

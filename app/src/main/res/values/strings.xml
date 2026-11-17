@@ -5,4 +5,7 @@
     <string name="elym_config_context">上下文</string>
     <string name="elym_config_tools">工具</string>
     <string name="elym_config_empty">暂无配置项</string>
+    <string name="elym_no_search_results">未找到匹配项</string>
+    <string name="elym_no_platforms">暂无平台</string>
+    <string name="elym_no_plugins">暂无插件</string>
 </resources>

@@ -182,13 +182,13 @@ internal fun ChatPage(
             }
         }) {
             Surface(
-                Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp),
+                Modifier.fillMaxWidth().padding(horizontal = FloatingComposerHorizontalMargin, vertical = 8.dp),
                 shape = RoundedCornerShape(24.dp),
                 color = PaperTop,
                 border = androidx.compose.foundation.BorderStroke(1.dp, Line),
                 shadowElevation = 5.dp,
             ) {
-                Box(Modifier.padding(7.dp)) {
+                Box(Modifier.padding(FloatingComposerInnerPadding)) {
                     val running = conversation.generating
                     val canSend = current && !running && !submitting && (draft.text.isNotBlank() || image != null)
                     val sendDraft = { if (canSend) submit(draft.text.trim(), image?.let(Uri::parse)) }

@@ -33,6 +33,9 @@ import androidx.compose.ui.unit.sp
 import com.elymbot.android.R
 
 private const val MaxDraftLength = 1800
+internal val FloatingComposerHorizontalMargin = 10.dp
+internal val FloatingComposerInnerPadding = 7.dp
+internal val FloatingComposerSingleLineHeight = 48.dp + FloatingComposerInnerPadding * 2
 
 private enum class ChatLayer { Composer, Timeline }
 

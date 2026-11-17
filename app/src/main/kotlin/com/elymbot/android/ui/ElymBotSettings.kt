@@ -13,6 +13,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.elymbot.android.R
@@ -25,18 +26,31 @@ internal fun SettingsPage(
     current: Boolean,
     appearanceMode: AppearanceMode,
     onAppearanceModeChange: (AppearanceMode) -> Unit,
+    footerClearance: Dp,
 ) {
     var editing by remember { mutableStateOf(false) }
     var appearanceOpen by remember { mutableStateOf(false) }
-    Column {
-        Header(stringResource(R.string.elym_settings))
-        Column(
-            Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 18.dp)
-                .padding(top = 7.dp, bottom = 100.dp),
+    val browseScroll = rememberScrollState()
+    PrimaryPage(
+        R.string.elym_settings, current, footerClearance,
+        canScrollBackward = { browseScroll.canScrollBackward },
+        isScrollInProgress = { browseScroll.isScrollInProgress },
+    ) { query, clearance ->
+        val entries = listOf(
+            SettingsEntry(stringResource(R.string.elym_appearance), R.drawable.elym_settings) { appearanceOpen = true },
+            SettingsEntry(stringResource(R.string.elym_command_names), R.drawable.elym_sliders) { editing = true },
+        ).filter { query.matchesPageSearch(it.title) }
+        val scroll = if (query == null) browseScroll else key(query) { rememberScrollState() }
+        if (entries.isEmpty()) {
+            Box(Modifier.padding(clearance)) {
+                EmptyMessage(stringResource(R.string.elym_no_search_results), R.drawable.elym_search)
+            }
+        } else Column(
+            Modifier.fillMaxWidth().verticalScroll(scroll).padding(horizontal = 18.dp)
+                .padding(top = clearance.calculateTopPadding() + 7.dp, bottom = clearance.calculateBottomPadding() + 12.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            SettingsGroup(SettingsEntry(R.string.elym_appearance, R.drawable.elym_settings) { appearanceOpen = true })
-            SettingsGroup(SettingsEntry(R.string.elym_command_names, R.drawable.elym_sliders) { editing = true })
+            entries.forEach { SettingsGroup(it) }
         }
     }
     if (current && appearanceOpen) {
@@ -88,7 +102,7 @@ private val AppearanceMode.label: Int
         AppearanceMode.DARK -> R.string.elym_appearance_dark
     }
 
-private data class SettingsEntry(val title: Int, val icon: Int, val onClick: () -> Unit)
+private data class SettingsEntry(val title: String, val icon: Int, val onClick: () -> Unit)
 
 @Composable
 private fun SettingsGroup(vararg entries: SettingsEntry) {
@@ -103,7 +117,7 @@ private fun SettingsGroup(vararg entries: SettingsEntry) {
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(painterResource(entry.icon), null, Modifier.size(24.dp), tint = Accent)
-                Text(stringResource(entry.title), Modifier.weight(1f), color = Ink, fontSize = 16.sp)
+                Text(entry.title, Modifier.weight(1f), color = Ink, fontSize = 16.sp)
                 Icon(painterResource(R.drawable.elym_chevron), null, Modifier.size(16.dp), tint = Muted)
             }
         }

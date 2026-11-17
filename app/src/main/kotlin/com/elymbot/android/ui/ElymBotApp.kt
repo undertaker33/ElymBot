@@ -4,7 +4,6 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterExitState
-import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.updateTransition
@@ -34,7 +33,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
@@ -45,7 +43,6 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.hideFromAccessibility
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -132,9 +129,10 @@ private data class Destination(
     }
 }
 
-private val FadeEasing = CubicBezierEasing(0.42f, 0f, 0.58f, 1f)
-private val SlideEasing = CubicBezierEasing(0.20f, 0.54f, 0.30f, 1f)
+private val NavigationHeight = 66.dp
+private val NavigationVerticalMargin = 10.dp
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun ElymBotApp(
     service: ElymBotUiService,
@@ -167,7 +165,8 @@ internal fun ElymBotApp(
     }
 
     ElymBotTheme(darkTheme) {
-        val pageBackground = Brush.verticalGradient(listOf(PaperTop, Paper, Paper), endY = 1200f)
+        val pageBackground = pageBackgroundBrush()
+        val imeVisible = WindowInsets.isImeVisible
         Box(
             Modifier.fillMaxSize()
                 .background(pageBackground)
@@ -178,8 +177,8 @@ internal fun ElymBotApp(
                 modifier = Modifier.fillMaxSize().clipToBounds(),
                 contentKey = { it.key },
                 transitionSpec = {
-                    val offset = tween<IntOffset>(300, easing = SlideEasing)
-                    val fade = tween<Float>(220, easing = FadeEasing)
+                    val offset = tween<IntOffset>(PrimaryMotion.FullMillis, easing = PrimaryMotion.Movement)
+                    val fade = tween<Float>(PrimaryMotion.FadeMillis, easing = PrimaryMotion.Fade)
                     when {
                         initialState.depth < targetState.depth ->
                             slideInHorizontally(offset) { it } togetherWith slideOutHorizontally(offset) { -(it * 0.3f).roundToInt() }
@@ -191,7 +190,7 @@ internal fun ElymBotApp(
             ) { screen ->
                 val current = screen.key == destination.key
                 val scrim = transition.animateFloat(
-                    transitionSpec = { tween(300, easing = SlideEasing) },
+                    transitionSpec = { tween(PrimaryMotion.FullMillis, easing = PrimaryMotion.Movement) },
                     label = "Covered page scrim",
                 ) { state ->
                     when (state) {
@@ -203,6 +202,9 @@ internal fun ElymBotApp(
                 val backFromScreen = { if (destination.key == screen.key) back() }
                 val persona = if (screen.sessionId == null && screen.page == Page.Chat) active
                     else personas.firstOrNull { it.id == screen.ownerId }
+                val footerClearance = if (screen.depth == 0 && !imeVisible) {
+                    NavigationHeight + NavigationVerticalMargin * 2
+                } else 0.dp
                 Box(
                     Modifier.fillMaxSize().background(pageBackground).then(
                         if (current) Modifier else Modifier.semantics { hideFromAccessibility() }
@@ -214,8 +216,9 @@ internal fun ElymBotApp(
                     ),
                 ) {
                     when (screen.page) {
-                        Page.Gallery -> stateHolder.SaveableStateProvider(Page.Gallery.name) { GalleryPage(
-                            model, personas, personaTags, main?.personaId, main?.unread == true, { if (current) personaForm = PersonaCard() },
+                        Page.Gallery -> stateHolder.SaveableStateProvider(screen.key) { GalleryPage(
+                            model, personas, personaTags, main?.personaId, main?.unread == true, current, footerClearance,
+                            { if (current) personaForm = PersonaCard() },
                         ) { selected ->
                             val target = main
                             if (current && target != null) {
@@ -223,8 +226,24 @@ internal fun ElymBotApp(
                                 else navigate(Destination(Page.Sessions, ownerId = selected.id))
                             }
                         } }
-                        Page.Models -> ConfigurationPage(model, config, backFromScreen.takeIf { screen.depth > 0 }, current)
-                        Page.Settings -> SettingsPage(model, commands, current, appearanceMode, onAppearanceModeChange)
+                        Page.Models -> stateHolder.SaveableStateProvider(screen.key) {
+                            ConfigurationPage(model, config, backFromScreen.takeIf { screen.depth > 0 }, current, footerClearance)
+                        }
+                        Page.Settings -> stateHolder.SaveableStateProvider(screen.key) {
+                            SettingsPage(model, commands, current, appearanceMode, onAppearanceModeChange, footerClearance)
+                        }
+                        Page.Platform, Page.Plugins -> stateHolder.SaveableStateProvider(screen.key) {
+                            PrimaryPage(screen.page.title, current, footerClearance) { query, clearance ->
+                                Box(Modifier.padding(clearance)) {
+                                    EmptyMessage(
+                                        stringResource(if (!query.isNullOrEmpty()) R.string.elym_no_search_results
+                                            else if (screen.page == Page.Platform) R.string.elym_no_platforms
+                                            else R.string.elym_no_plugins),
+                                        screen.page.icon,
+                                    )
+                                }
+                            }
+                        }
                         Page.Sessions -> if (persona != null) SessionsPage(
                             model, persona, backFromScreen, current, managePersona = screen.mainId == null,
                             onEditPersona = { if (current) personaForm = persona },
@@ -244,7 +263,6 @@ internal fun ElymBotApp(
                                 )
                             }
                         }
-                        else -> Unit
                     }
                     Box(Modifier.matchParentSize().graphicsLayer { alpha = scrim.value }.background(Color.Black))
                 }
@@ -252,10 +270,12 @@ internal fun ElymBotApp(
             var selectedRoot by remember { mutableStateOf(destination.page.takeIf { destination.depth == 0 } ?: Page.Gallery) }
             SideEffect { if (destination.depth == 0) selectedRoot = destination.page }
             AnimatedVisibility(
-                visible = destination.depth == 0,
+                visible = destination.depth == 0 && !imeVisible,
                 modifier = Modifier.align(Alignment.BottomCenter),
-                enter = slideInVertically(tween(300, easing = SlideEasing)) { it } + fadeIn(tween(300, easing = SlideEasing)),
-                exit = slideOutVertically(tween(300, easing = SlideEasing)) { it } + fadeOut(tween(300, easing = SlideEasing)),
+                enter = slideInVertically(tween(PrimaryMotion.FullMillis, easing = PrimaryMotion.Movement)) { it } +
+                    fadeIn(tween(PrimaryMotion.FadeMillis, easing = PrimaryMotion.Fade)),
+                exit = slideOutVertically(tween(PrimaryMotion.FullMillis, easing = PrimaryMotion.Movement)) { it } +
+                    fadeOut(tween(PrimaryMotion.FadeMillis, easing = PrimaryMotion.Fade)),
                 label = "Root navigation",
             ) {
                 Navigation(selectedRoot, Modifier) { page ->
@@ -295,45 +315,21 @@ internal fun ElymBotApp(
 }
 
 @Composable
-internal fun Header(
-    title: String,
-    onBack: (() -> Unit)? = null,
-    serif: Boolean = false,
-    actions: @Composable RowScope.() -> Unit = {},
-) {
-    Row(
-        Modifier.fillMaxWidth().heightIn(min = 65.dp)
-            .padding(start = if (onBack != null) 5.dp else 18.dp, end = 18.dp, top = 6.dp, bottom = 9.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        if (onBack != null) RoundAction(R.drawable.elym_back, stringResource(R.string.elym_back), onBack)
-        Text(
-            title, Modifier.weight(1f), color = Ink, fontSize = if (serif) 40.sp else 26.sp,
-            fontWeight = FontWeight.Bold, fontFamily = if (serif) GalleryFont else null,
-            maxLines = 1, overflow = TextOverflow.Ellipsis,
-        )
-        actions()
-    }
-}
-
-@Composable
 private fun Navigation(selected: Page, modifier: Modifier, onSelect: (Page) -> Unit) {
     val shape = RoundedCornerShape(28.dp)
     Row(
-        modifier.padding(horizontal = 12.dp, vertical = 10.dp).fillMaxWidth().height(66.dp)
-            .shadow(8.dp, shape).clip(shape).background(SurfaceColor.copy(alpha = 0.93f))
+        modifier.padding(horizontal = 12.dp, vertical = NavigationVerticalMargin).fillMaxWidth().height(NavigationHeight)
+            .shadow(8.dp, shape).clip(shape).background(SurfaceColor.copy(alpha = 0.86f))
             .border(1.dp, ElymColors.floatingBorder, shape).padding(horizontal = 6.dp, vertical = 5.dp)
             .selectableGroup(),
         horizontalArrangement = Arrangement.spacedBy(1.dp),
     ) {
         listOf(Page.Gallery, Page.Models, Page.Platform, Page.Plugins, Page.Settings).forEach { destination ->
-            val enabled = destination != Page.Platform && destination != Page.Plugins
             val current = selected == destination
             val interaction = remember { MutableInteractionSource() }
             Column(
                 Modifier.weight(1f).fillMaxHeight().selectable(
-                    selected = current, enabled = enabled, role = Role.Tab,
+                    selected = current, role = Role.Tab,
                     interactionSource = interaction, indication = null,
                 ) { onSelect(destination) },
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -345,10 +341,10 @@ private fun Navigation(selected: Page, modifier: Modifier, onSelect: (Page) -> U
                         .indication(interaction, ripple(bounded = true, color = Accent)),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Glyph(destination.icon, color = if (current) Accent else Ink.copy(alpha = if (enabled) 1f else 0.45f))
+                    Glyph(destination.icon, color = if (current) Accent else Ink)
                 }
                 Text(
-                    stringResource(destination.title), color = Ink.copy(alpha = if (enabled) 1f else 0.45f),
+                    stringResource(destination.title), color = Ink,
                     fontWeight = if (current) FontWeight.Bold else FontWeight.SemiBold, fontSize = 11.sp,
                 )
             }

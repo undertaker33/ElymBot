@@ -203,3 +203,11 @@
 - 在 MuMu `ElymBot-T01-Clean`（index 1，Android 15/API 35，`127.0.0.1:16416`）使用 `adb install -r` 覆盖安装两包，保留已有测试 App 数据。用 `adb -s 127.0.0.1:16416 shell am instrument -w -e class <定向选择器> com.elymbot.android.debug.test/androidx.test.runner.AndroidJUnitRunner` 得到 `OK (8 tests)`，耗时 19.656 秒。覆盖 `AppearanceSettingsTest`、`ElymBotUiIntegrationTest` 的设置与配置导航、人格标签和检查点用例、`ComposerAddMenuTest`，以及 `ElymBotStorageTest` 的模型连接凭据原子性与非流式视觉两路用例。设置与导航用例覆盖底栏分类切换、聊天配置默认分类、回到原聊天、指令改名后执行及会话操作。
 - 在同一模拟器浅色横屏从正式入口查看两页。配置顶端三枚标签的选中态和空状态可见，设置两行同高且各自置于圆角卡片，保留既有主题配色。日志及 `settings-grouped-cards.png`、`configuration-category-strip.png` 保存于本地 `C:\Users\93445\Documents\Codex\ElymBot-W05-2026-11-17`。本轮未在实体设备验证，T01.07 用户验收保持待完成。
 - 在同一模拟器补查浅色竖屏，配置三枚分类标签完整显示，设置两组卡片左右留白一致且标签和箭头可见，截图为 `configuration-category-strip-portrait.png` 与 `settings-grouped-cards-portrait.png`，完成后恢复原横屏显示和自由旋转。
+
+### 2026-11-17 主页面随手势变化的悬浮搜索
+
+- 人格、配置、平台、插件和设置共用默认字体的 28 sp 粗体标题与搜索框。聊天内打开的配置使用同一标题和组件。平台和插件可从底栏进入，显示各自的空状态。搜索匹配当前页面及分类的真实内容，关闭后恢复浏览位置和选中标签。系统返回优先关闭搜索。
+- 收起和展开按内容实际消耗的纵向拖动距离逐帧变化，手指反向时立即反转，松手后以 440 ms 的 App 动效收尾。点击放大镜使用同一形变，导航和标签淡变使用 300 ms。列表首尾为控件保留可达空间，滚动范围不随标题动效变化。悬浮搜索与聊天单行输入外框同为 62 dp 高、左右各留 10 dp。搜索和底栏以半透明面板覆盖内容。竖屏旋转保留已有列表位置时，单层页首背景保护展开的标题和标签区域，收起时与标签同步淡出。
+- 在 `bd1e021` 加工作区改动的基线上执行 `gradlew.bat :app:assembleDebug :app:assembleDebugAndroidTest '-Pkotlin.compiler.execution.strategy=in-process' --console=plain --quiet`，两包通过。最终 debug APK 与测试 APK 的 SHA-256 前缀为 `DA500C6F950E`、`866ACF9BFA12`。
+- 在 MuMu `ElymBot-T01-Clean`（index 1，Android 15/API 35，`127.0.0.1:16416`）安装两包。首轮改用等待键盘退场后定位底栏、只定位实际设置操作行、返回已填充的人格库后重新搜索目标。加入随手势进度和悬浮层后，运行 `PrimaryPageSearchTest` 及 `ElymBotUiIntegrationTest` 的人格名称与标签、设置与配置导航、专属会话配置返回用例，结果 `OK (6 tests)`，耗时 19.459 秒。修正竖屏页首背景后以最终产物复跑 `adb -s 127.0.0.1:16416 shell am instrument -w -e class com.elymbot.android.PrimaryPageSearchTest com.elymbot.android.debug.test/androidx.test.runner.AndroidJUnitRunner`，得到 `OK (3 tests)`，耗时 6.008 秒。覆盖抬手前的中间进度和反向、搜索位置和宽高、关闭后的相同滚动位置、空平台和插件、设置短内容零滚动范围、设置筛选及返回优先级。
+- 从正式入口查看同一已填充的人格库。1600×900 横屏收起态的搜索控件边界为 `[15,45][1585,138]`，两个悬浮面板均可见下方内容。900×1600 竖屏旋转后，已滚动卡片在标题和标签区域的下沿通过，标题与标签完整且状态栏区域保留。最终截图、界面结构和仪器日志位于本地 `C:\Users\93445\Documents\Codex\ElymBot-W05-2026-11-17`，文件含 `interactive-gallery-overlay-final.png`、`interactive-gallery-portrait-final.png` 和 `interactive-floating-search-underlay-instrumentation.txt`。已恢复模拟器自由旋转。实体设备及用户验收待完成。

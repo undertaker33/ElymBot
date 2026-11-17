@@ -1,16 +1,15 @@
 package com.elymbot.android.ui
 
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.indication
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
@@ -29,12 +28,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.elymbot.android.R
 
-private val TagFadeEasing = CubicBezierEasing(0.42f, 0f, 0.58f, 1f)
+internal val TagStripHeight = 61.dp
 
 @Composable
-internal fun TagStrip(content: @Composable RowScope.() -> Unit) {
+internal fun TagStrip(scrollState: ScrollState, content: @Composable RowScope.() -> Unit) {
     Row(
-        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).selectableGroup()
+        Modifier.fillMaxWidth().height(TagStripHeight).horizontalScroll(scrollState).selectableGroup()
             .padding(start = 18.dp, end = 18.dp, top = 2.dp, bottom = 11.dp),
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -49,9 +48,9 @@ internal fun TagChip(label: String, selected: Boolean? = null, onClick: () -> Un
     val horizontalPadding = 13.dp
     val minimumLabelWidth = with(LocalDensity.current) { (textSize.roundToPx() * 2).toDp() }
     val interaction = remember { MutableInteractionSource() }
-    val fill by animateColorAsState(if (chosen) Accent else SurfaceColor, tween(150, easing = TagFadeEasing), label = "Filter fill")
-    val stroke by animateColorAsState(if (chosen) Accent else Line, tween(150, easing = TagFadeEasing), label = "Filter outline")
-    val textColor by animateColorAsState(if (chosen) AccentInk else Ink, tween(150, easing = TagFadeEasing), label = "Filter text")
+    val fill by animateColorAsState(if (chosen) Accent else SurfaceColor, tween(PrimaryMotion.FadeMillis, easing = PrimaryMotion.Fade), label = "Filter fill")
+    val stroke by animateColorAsState(if (chosen) Accent else Line, tween(PrimaryMotion.FadeMillis, easing = PrimaryMotion.Fade), label = "Filter outline")
+    val textColor by animateColorAsState(if (chosen) AccentInk else Ink, tween(PrimaryMotion.FadeMillis, easing = PrimaryMotion.Fade), label = "Filter text")
     val action = if (selected == null) {
         Modifier.clickable(interactionSource = interaction, indication = null, role = Role.Button, onClick = onClick)
             .semantics { contentDescription = label }
