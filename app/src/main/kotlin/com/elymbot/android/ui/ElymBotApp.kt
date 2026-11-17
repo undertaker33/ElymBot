@@ -15,14 +15,7 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.indication
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.selection.selectable
-import androidx.compose.foundation.selection.selectableGroup
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.listSaver
@@ -30,22 +23,17 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.hideFromAccessibility
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -77,13 +65,13 @@ internal class ElymBotViewModel(val service: ElymBotUiService) : ViewModel() {
         }
     }
 }
-
 private enum class Page(val title: Int, val icon: Int) {
     Gallery(R.string.elym_persona, R.drawable.elym_person),
     Models(R.string.elym_config, R.drawable.elym_sliders),
     Platform(R.string.elym_platform, R.drawable.elym_platform),
     Plugins(R.string.elym_plugins, R.drawable.elym_plugin),
     Settings(R.string.elym_settings, R.drawable.elym_settings),
+    About(R.string.elym_about, R.drawable.elym_settings),
     Chat(R.string.elym_chat, R.drawable.elym_chat),
     Sessions(R.string.elym_sessions, R.drawable.elym_chat),
 }
@@ -101,6 +89,7 @@ private data class Destination(
             return when (page) {
                 Page.Chat -> if (sessionId == null) 1 else sessionsDepth + 1
                 Page.Sessions -> sessionsDepth
+                Page.About -> 1
                 Page.Models -> when {
                     sessionId != null -> sessionsDepth + 2
                     mainId != null -> 2
@@ -116,6 +105,7 @@ private data class Destination(
         Page.Models -> if (depth == 0) Destination() else copy(page = Page.Chat)
         Page.Chat -> if (sessionId == null) Destination() else copy(page = Page.Sessions, sessionId = null, title = "")
         Page.Sessions -> if (mainId == null) Destination() else copy(page = Page.Chat, ownerId = null)
+        Page.About -> Destination(Page.Settings)
         else -> Destination()
     }
 
@@ -129,8 +119,8 @@ private data class Destination(
     }
 }
 
-private val NavigationHeight = 66.dp
-private val NavigationVerticalMargin = 10.dp
+private val RootPages = listOf(Page.Gallery, Page.Models, Page.Platform, Page.Plugins, Page.Settings)
+private val RootDestinations = RootPages.map { DockDestination(it.title, it.icon) }
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -203,7 +193,7 @@ internal fun ElymBotApp(
                 val persona = if (screen.sessionId == null && screen.page == Page.Chat) active
                     else personas.firstOrNull { it.id == screen.ownerId }
                 val footerClearance = if (screen.depth == 0 && !imeVisible) {
-                    NavigationHeight + NavigationVerticalMargin * 2
+                    FloatingNavigationClearance
                 } else 0.dp
                 Box(
                     Modifier.fillMaxSize().background(pageBackground).then(
@@ -230,8 +220,10 @@ internal fun ElymBotApp(
                             ConfigurationPage(model, config, backFromScreen.takeIf { screen.depth > 0 }, current, footerClearance)
                         }
                         Page.Settings -> stateHolder.SaveableStateProvider(screen.key) {
-                            SettingsPage(model, commands, current, appearanceMode, onAppearanceModeChange, footerClearance)
+                            SettingsPage(model, commands, current, appearanceMode, onAppearanceModeChange, footerClearance,
+                                onAbout = { if (current) navigate(Destination(Page.About)) })
                         }
+                        Page.About -> AboutPage(backFromScreen)
                         Page.Platform, Page.Plugins -> stateHolder.SaveableStateProvider(screen.key) {
                             PrimaryPage(screen.page.title, current, footerClearance) { query, clearance ->
                                 Box(Modifier.padding(clearance)) {
@@ -267,7 +259,12 @@ internal fun ElymBotApp(
                     Box(Modifier.matchParentSize().graphicsLayer { alpha = scrim.value }.background(Color.Black))
                 }
             }
-            var selectedRoot by remember { mutableStateOf(destination.page.takeIf { destination.depth == 0 } ?: Page.Gallery) }
+            var selectedRoot by remember {
+                mutableStateOf(destination.page.takeIf { destination.depth == 0 } ?: when (destination.page) {
+                    Page.About -> Page.Settings
+                    else -> Page.Gallery
+                })
+            }
             SideEffect { if (destination.depth == 0) selectedRoot = destination.page }
             AnimatedVisibility(
                 visible = destination.depth == 0 && !imeVisible,
@@ -278,9 +275,10 @@ internal fun ElymBotApp(
                     fadeOut(tween(PrimaryMotion.FadeMillis, easing = PrimaryMotion.Fade)),
                 label = "Root navigation",
             ) {
-                Navigation(selectedRoot, Modifier) { page ->
-                    if (destination.depth == 0) navigate(Destination(page))
-                }
+                val selected = if (destination.depth == 0) destination.page else selectedRoot
+                FloatingNavigationDock(RootDestinations, RootPages.indexOf(selected), onSelect = { index ->
+                    if (destination.depth == 0) navigate(Destination(RootPages[index]))
+                })
             }
 
         }
@@ -310,44 +308,6 @@ internal fun ElymBotApp(
                 text = { Text(stringResource(issueLabel(issue))) },
                 confirmButton = { TextButton(model::clearIssue) { Text(stringResource(R.string.elym_close)) } },
             )
-        }
-    }
-}
-
-@Composable
-private fun Navigation(selected: Page, modifier: Modifier, onSelect: (Page) -> Unit) {
-    val shape = RoundedCornerShape(28.dp)
-    Row(
-        modifier.padding(horizontal = 12.dp, vertical = NavigationVerticalMargin).fillMaxWidth().height(NavigationHeight)
-            .shadow(8.dp, shape).clip(shape).background(SurfaceColor.copy(alpha = 0.86f))
-            .border(1.dp, ElymColors.floatingBorder, shape).padding(horizontal = 6.dp, vertical = 5.dp)
-            .selectableGroup(),
-        horizontalArrangement = Arrangement.spacedBy(1.dp),
-    ) {
-        listOf(Page.Gallery, Page.Models, Page.Platform, Page.Plugins, Page.Settings).forEach { destination ->
-            val current = selected == destination
-            val interaction = remember { MutableInteractionSource() }
-            Column(
-                Modifier.weight(1f).fillMaxHeight().selectable(
-                    selected = current, role = Role.Tab,
-                    interactionSource = interaction, indication = null,
-                ) { onSelect(destination) },
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(2.dp, Alignment.CenterVertically),
-            ) {
-                Box(
-                    Modifier.size(45.dp, 27.dp).clip(CircleShape)
-                        .background(if (current) Soft else Color.Transparent)
-                        .indication(interaction, ripple(bounded = true, color = Accent)),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Glyph(destination.icon, color = if (current) Accent else Ink)
-                }
-                Text(
-                    stringResource(destination.title), color = Ink,
-                    fontWeight = if (current) FontWeight.Bold else FontWeight.SemiBold, fontSize = 11.sp,
-                )
-            }
         }
     }
 }

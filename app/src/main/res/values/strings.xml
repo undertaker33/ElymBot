@@ -8,4 +8,12 @@
     <string name="elym_no_search_results">未找到匹配项</string>
     <string name="elym_no_platforms">暂无平台</string>
     <string name="elym_no_plugins">暂无插件</string>
+    <string name="elym_about">关于</string>
+    <string name="elym_about_version">v%1$s</string>
+    <string name="elym_about_mit" translatable="false">MIT</string>
+    <string name="elym_about_links">项目资料</string>
+    <string name="elym_about_repository">源代码</string>
+    <string name="elym_about_releases">发布记录</string>
+    <string name="elym_about_license">开源许可</string>
+    <string name="elym_about_browser_unavailable">没有可打开此链接的应用</string>
 </resources>

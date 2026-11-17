@@ -21,10 +21,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
@@ -63,8 +65,10 @@ internal object PrimaryMotion {
 
 private enum class PrimaryLayer { Header, Tags, Underlay, Content }
 
+private const val PagePaperGradientEnd = 600f
+
 @Composable
-internal fun pageBackgroundBrush() = Brush.verticalGradient(listOf(PaperTop, Paper, Paper), endY = 1200f)
+internal fun pageBackgroundBrush() = Brush.verticalGradient(listOf(PaperTop, Paper), endY = PagePaperGradientEnd)
 
 @Composable
 internal fun PrimaryPage(
@@ -167,10 +171,22 @@ internal fun PrimaryPage(
         } else null
         val expandedChromeHeight = (header.height + (tagStrip?.height ?: 0)).toDp()
         val underlay = subcompose(PrimaryLayer.Underlay) {
+            val background = pageBackgroundBrush()
+            val paperTop = PaperTop
+            val paper = Paper
             Box(
                 Modifier.fillMaxWidth().height(expandedChromeHeight)
                     .graphicsLayer { alpha = (1f - morph * 1.8f).coerceAtLeast(0f) }
-                    .background(pageBackgroundBrush())
+                    .drawWithCache {
+                        val edgeHeight = minOf(10.dp.toPx(), size.height)
+                        val edgeTop = size.height - edgeHeight
+                        val edgeColor = lerp(paperTop, paper, (edgeTop / PagePaperGradientEnd).coerceIn(0f, 1f))
+                        val fade = Brush.verticalGradient(listOf(edgeColor, edgeColor.copy(alpha = 0f)), edgeTop, size.height)
+                        onDrawBehind {
+                            drawRect(background, size = Size(size.width, edgeTop))
+                            drawRect(fade, topLeft = Offset(0f, edgeTop), size = Size(size.width, edgeHeight))
+                        }
+                    }
                     .then(if (tagAlpha > 0f) Modifier.pointerInput(Unit) {
                         awaitPointerEventScope { while (true) awaitPointerEvent() }
                     } else Modifier),

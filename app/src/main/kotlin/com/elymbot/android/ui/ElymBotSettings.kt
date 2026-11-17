@@ -27,6 +27,7 @@ internal fun SettingsPage(
     appearanceMode: AppearanceMode,
     onAppearanceModeChange: (AppearanceMode) -> Unit,
     footerClearance: Dp,
+    onAbout: () -> Unit,
 ) {
     var editing by remember { mutableStateOf(false) }
     var appearanceOpen by remember { mutableStateOf(false) }
@@ -39,6 +40,7 @@ internal fun SettingsPage(
         val entries = listOf(
             SettingsEntry(stringResource(R.string.elym_appearance), R.drawable.elym_settings) { appearanceOpen = true },
             SettingsEntry(stringResource(R.string.elym_command_names), R.drawable.elym_sliders) { editing = true },
+            SettingsEntry(stringResource(R.string.elym_about), R.drawable.elym_info, onAbout),
         ).filter { query.matchesPageSearch(it.title) }
         val scroll = if (query == null) browseScroll else key(query) { rememberScrollState() }
         if (entries.isEmpty()) {
