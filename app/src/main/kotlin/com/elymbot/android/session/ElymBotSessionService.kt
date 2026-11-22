@@ -258,11 +258,12 @@ class ElymBotSessionService(
         }
     }
 
-    override suspend fun savePersona(persona: PersonaCard, makeGlobal: Boolean): String {
+    override suspend fun savePersona(persona: PersonaCard, makeGlobal: Boolean, createMissingTags: Boolean): String {
         repository.initialize()
         val name = persona.name.trim()
         if (name.isEmpty()) fail(UiIssue.InvalidInput)
-        val tagsValue = persona.tags.map(String::trim).filter(String::isNotEmpty).distinct().joinToString(TAG_SEPARATOR)
+        val tagNames = if (createMissingTags) persona.tags.map(String::trim) else persona.tags
+        val tagsValue = tagNames.filter(String::isNotEmpty).distinct().joinToString(TAG_SEPARATOR)
         val catalogTagNames = tagsValue.split(TAG_SEPARATOR).filter(String::isNotEmpty).distinct()
         val id = persona.id.ifBlank { UUID.randomUUID().toString() }
         var importedPath: String? = null
@@ -294,11 +295,17 @@ class ElymBotSessionService(
                     previousCoverPath = existing?.coverPath
                     val coverPath = if (persona.cover == null) existing?.coverPath else importedCoverPath
                     val order = existing?.sortOrder ?: personas.nextSortOrder()
+                    val savedTags = if (createMissingTags || catalogTagNames.isEmpty()) {
+                        tagsValue
+                    } else {
+                        val availableTags = repository.database.personaTagDao().getAll().toSet()
+                        catalogTagNames.filter { it in availableTags }.joinToString(TAG_SEPARATOR)
+                    }
                     val item = PersonaEntity(
                         id = id,
                         name = name,
                         description = persona.description.trim(),
-                        tagsValue = tagsValue,
+                        tagsValue = savedTags,
                         prompt = persona.prompt,
                         favorite = persona.favorite,
                         coverPath = coverPath,
@@ -311,7 +318,7 @@ class ElymBotSessionService(
                     )
                     if (existing == null) personas.insert(item)
                     else personas.update(item)
-                    catalogTagNames.forEach { ensurePersonaTagExists(it) }
+                    if (createMissingTags) catalogTagNames.forEach { ensurePersonaTagExists(it) }
                     savedCoverPath = coverPath
 
                     val activePersonaId = if (makeGlobal) {
@@ -368,6 +375,21 @@ class ElymBotSessionService(
         repository.initialize()
         repository.database.withTransaction {
             ensurePersonaTagExists(normalizedTag)
+        }
+    }
+
+    override suspend fun deletePersonaTag(tag: String) {
+        if (tag.isEmpty() || TAG_SEPARATOR in tag) fail(UiIssue.InvalidInput)
+
+        repository.initialize()
+        val database = repository.database
+        database.withTransaction {
+            val personas = database.personaDao()
+            personas.getWithTag(tag, TAG_SEPARATOR).forEach { persona ->
+                val remaining = persona.tagsValue.split(TAG_SEPARATOR).filterNot { it == tag }
+                personas.update(persona.copy(tagsValue = remaining.joinToString(TAG_SEPARATOR)))
+            }
+            database.personaTagDao().delete(tag)
         }
     }
 

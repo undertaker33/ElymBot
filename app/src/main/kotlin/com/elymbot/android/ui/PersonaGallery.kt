@@ -44,6 +44,7 @@ internal fun GalleryPage(
     var favoritesOnly by rememberSaveable { mutableStateOf(false) }
     var customTag by rememberSaveable { mutableStateOf<String?>(null) }
     var addingTag by rememberSaveable { mutableStateOf(false) }
+    var tagToDelete by remember { mutableStateOf<String?>(null) }
     val tag = customTag?.takeIf { it in tags }
     val gridState = rememberLazyGridState()
 
@@ -66,7 +67,11 @@ internal fun GalleryPage(
                     val label = if (name.equals(allLabel, ignoreCase = true) || name.equals(favoritesLabel, ignoreCase = true)) {
                         stringResource(R.string.elym_tag_with_prefix, name)
                     } else name
-                    TagChip(label, name == tag) { favoritesOnly = false; customTag = name }
+                    TagChip(
+                        label, name == tag,
+                        onLongClickLabel = stringResource(R.string.elym_delete_tag),
+                        onLongClick = { tagToDelete = name },
+                    ) { favoritesOnly = false; customTag = name }
                 }
             }
             TagChip(stringResource(R.string.elym_add_tag)) { addingTag = true }
@@ -102,11 +107,41 @@ internal fun GalleryPage(
         }
     }
     if (current && addingTag) {
-        AddPersonaTagSheet(model, allLabel, favoritesLabel, { addingTag = false }) { name ->
-            favoritesOnly = false
-            customTag = name
-            addingTag = false
-        }
+        AddPersonaTagSheet(model, allLabel, favoritesLabel) { addingTag = false }
+    }
+    tagToDelete?.takeIf { current }?.let { name ->
+        var deleting by remember(name) { mutableStateOf(false) }
+        AlertDialog(
+            onDismissRequest = { if (!deleting) tagToDelete = null },
+            title = {
+                Text(
+                    stringResource(R.string.elym_confirm_delete_tag, name),
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            },
+            text = { Text(stringResource(R.string.elym_delete_tag_effect)) },
+            confirmButton = {
+                TextButton(
+                    enabled = !deleting,
+                    onClick = {
+                        deleting = true
+                        model.perform {
+                            try {
+                                model.service.deletePersonaTag(name)
+                                if (customTag == name) customTag = null
+                                tagToDelete = null
+                            } finally {
+                                deleting = false
+                            }
+                        }
+                    },
+                ) { Text(stringResource(R.string.elym_delete_tag), color = Danger) }
+            },
+            dismissButton = {
+                TextButton(onClick = { tagToDelete = null }, enabled = !deleting) { Text(stringResource(R.string.elym_cancel)) }
+            },
+        )
     }
 }
 
@@ -116,7 +151,6 @@ private fun AddPersonaTagSheet(
     allLabel: String,
     favoritesLabel: String,
     onDismiss: () -> Unit,
-    onSaved: (String) -> Unit,
 ) {
     var name by rememberSaveable { mutableStateOf("") }
     var saving by remember { mutableStateOf(false) }
@@ -135,7 +169,7 @@ private fun AddPersonaTagSheet(
             model.perform {
                 try {
                     model.service.createPersonaTag(trimmed)
-                    onSaved(trimmed)
+                    onDismiss()
                 } finally {
                     saving = false
                 }

@@ -6,6 +6,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.indication
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -21,6 +22,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -42,7 +44,13 @@ internal fun TagStrip(scrollState: ScrollState, content: @Composable RowScope.()
 }
 
 @Composable
-internal fun TagChip(label: String, selected: Boolean? = null, onClick: () -> Unit) {
+internal fun TagChip(
+    label: String,
+    selected: Boolean? = null,
+    onLongClickLabel: String? = null,
+    onLongClick: (() -> Unit)? = null,
+    onClick: () -> Unit,
+) {
     val chosen = selected == true
     val textSize = 13.sp
     val horizontalPadding = 13.dp
@@ -51,11 +59,14 @@ internal fun TagChip(label: String, selected: Boolean? = null, onClick: () -> Un
     val fill by animateColorAsState(if (chosen) Accent else SurfaceColor, tween(PrimaryMotion.FadeMillis, easing = PrimaryMotion.Fade), label = "Filter fill")
     val stroke by animateColorAsState(if (chosen) Accent else Line, tween(PrimaryMotion.FadeMillis, easing = PrimaryMotion.Fade), label = "Filter outline")
     val textColor by animateColorAsState(if (chosen) AccentInk else Ink, tween(PrimaryMotion.FadeMillis, easing = PrimaryMotion.Fade), label = "Filter text")
-    val action = if (selected == null) {
-        Modifier.clickable(interactionSource = interaction, indication = null, role = Role.Button, onClick = onClick)
+    val action = when {
+        selected == null -> Modifier.clickable(interactionSource = interaction, indication = null, role = Role.Button, onClick = onClick)
             .semantics { contentDescription = label }
-    } else {
-        Modifier.selectable(selected, interaction, null, role = Role.Tab, onClick = onClick)
+        onLongClick != null -> Modifier.combinedClickable(
+            interactionSource = interaction, indication = null, role = Role.Tab, onClick = onClick,
+            onLongClick = onLongClick, onLongClickLabel = onLongClickLabel,
+        ).semantics { this.selected = chosen }
+        else -> Modifier.selectable(selected, interaction, null, role = Role.Tab, onClick = onClick)
     }
     Box(
         Modifier.height(48.dp).widthIn(min = 48.dp, max = 220.dp).then(action),

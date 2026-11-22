@@ -1,9 +1,11 @@
 package com.elymbot.android
 
+import androidx.compose.ui.MotionDurationScale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.click
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasSetTextAction
@@ -14,14 +16,16 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipe
 import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.elymbot.android.ui.PersonaCard
+import com.elymbot.android.ui.TagStripHeight
 import kotlinx.coroutines.runBlocking
-import org.junit.Assert.assertTrue
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.RuleChain
@@ -30,12 +34,55 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class PrimaryPageSearchTest {
     private val fixtureRule = AndroidTestAppFixtureRule()
-    private val compose = createAndroidComposeRule<MainActivity>()
+    private val compose = createAndroidComposeRule<MainActivity>(effectContext = object : MotionDurationScale {
+        override val scaleFactor = 1f
+    })
     private val fixture get() = fixtureRule.fixture
     private val service get() = (fixture.context.applicationContext as ElymBotApplication).uiService
 
     @get:Rule
     val rules: RuleChain = RuleChain.outerRule(fixtureRule).around(compose)
+
+    @Test
+    fun tappingSearchLiftsTheSameCardWithTheHeadingAndTags() {
+        val title = heading(R.string.elym_persona)
+        val tag = compose.onNodeWithText(label(R.string.elym_favorites))
+        val card = compose.onNode(hasText(fixture.personaName) and hasClickAction() and !hasSetTextAction())
+        val search = compose.onNode(hasContentDescription(label(R.string.elym_search_hint)) and hasSetTextAction())
+        val startTitle = title.fetchSemanticsNode().boundsInRoot.top
+        val startTag = tag.fetchSemanticsNode().boundsInRoot.top
+        val startCard = card.assertIsDisplayed().fetchSemanticsNode()
+        val startCardTop = startCard.boundsInRoot.top
+        val openCardTop = startCardTop - with(compose.density) { TagStripHeight.roundToPx() }
+
+        compose.mainClock.autoAdvance = false
+        try {
+            description(R.string.elym_search).performTouchInput { click() }
+            compose.mainClock.advanceTimeBy(192)
+            assertTrue(title.assertIsDisplayed().fetchSemanticsNode().boundsInRoot.top < startTitle)
+            assertTrue(tag.assertIsDisplayed().fetchSemanticsNode().boundsInRoot.top < startTag)
+            val movingCard = card.assertIsDisplayed().fetchSemanticsNode()
+            assertEquals(startCard.id, movingCard.id)
+            assertTrue(movingCard.boundsInRoot.top > openCardTop && movingCard.boundsInRoot.top < startCardTop)
+
+            compose.mainClock.advanceTimeBy(440)
+            title.assertDoesNotExist()
+            tag.assertDoesNotExist()
+            search.assertIsDisplayed()
+            val openCard = card.assertIsDisplayed().fetchSemanticsNode()
+            assertEquals(startCard.id, openCard.id)
+            assertEquals(openCardTop, openCard.boundsInRoot.top, 1f)
+        } finally {
+            compose.mainClock.autoAdvance = true
+        }
+
+        search.performTextReplacement(fixture.personaName)
+        card.assertIsDisplayed()
+        search.performTextReplacement("   ")
+        assertEquals(openCardTop, card.fetchSemanticsNode().boundsInRoot.top, 1f)
+        description(R.string.elym_close_search).performClick()
+        assertEquals(startCardTop, card.fetchSemanticsNode().boundsInRoot.top, 1f)
+    }
 
     @Test
     fun consumedGalleryScrollFoldsHeaderAndSearchReturnsToBrowsingPosition() {
@@ -77,13 +124,22 @@ class PrimaryPageSearchTest {
             assertTrue(draggedWidth < folded.width)
             assertTrue(grid.fetchSemanticsNode().boundsInRoot.top < folded.bottom)
 
-            val scroll = grid.fetchSemanticsNode().config[SemanticsProperties.VerticalScrollAxisRange].value()
+            val scrolledGrid = grid.fetchSemanticsNode()
+            val scroll = scrolledGrid.config[SemanticsProperties.VerticalScrollAxisRange].value()
+            val cards = compose.onAllNodes(hasText("$prefix-", substring = true) and hasClickAction() and !hasSetTextAction())
+            val visibleCard = cards.fetchSemanticsNodes().first { it.boundsInRoot.height > 0f }
+            val scrolledCardTop = visibleCard.positionInRoot.y
             trigger.performClick()
             val search = description(R.string.elym_search_hint)
+            val openGrid = grid.fetchSemanticsNode()
+            assertEquals(scroll, openGrid.config[SemanticsProperties.VerticalScrollAxisRange].value(), 0.01f)
+            assertEquals(scrolledCardTop, cards.fetchSemanticsNodes().single { it.id == visibleCard.id }.positionInRoot.y, 1f)
             search.performTextInput("$prefix-13")
             val result = compose.onNode(hasText("$prefix-13") and !hasSetTextAction()).assertIsDisplayed()
             assertTrue(result.fetchSemanticsNode().boundsInRoot.top >= search.fetchSemanticsNode().boundsInRoot.bottom)
             compose.onNode(hasText("$prefix-14") and !hasSetTextAction()).assertDoesNotExist()
+            search.performTextReplacement("   ")
+            assertEquals(scroll, grid.fetchSemanticsNode().config[SemanticsProperties.VerticalScrollAxisRange].value(), 0.01f)
             description(R.string.elym_close_search).performClick()
             assertEquals(scroll, grid.fetchSemanticsNode().config[SemanticsProperties.VerticalScrollAxisRange].value(), 0.01f)
 

@@ -3,16 +3,26 @@ package com.elymbot.android
 import android.graphics.Bitmap
 import android.graphics.Color
 import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.SemanticsNodeInteraction
+import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertIsNotSelected
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.isSelectable
 import androidx.compose.ui.test.isToggleable
+import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -20,18 +30,23 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performImeAction
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipe
 import androidx.compose.ui.test.swipeLeft
 import androidx.compose.ui.test.swipeRight
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.unit.dp
 import androidx.room.withTransaction
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.elymbot.android.data.CheckpointEntity
 import com.elymbot.android.data.MessageEntity
 import com.elymbot.android.data.PrivateAssetStore
 import com.elymbot.android.data.TurnEntity
 import com.elymbot.android.ui.ChatCommand
+import com.elymbot.android.ui.ModelRole
 import com.elymbot.android.ui.PersonaCard
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -58,9 +73,11 @@ class ElymBotUiIntegrationTest {
         val name = "UI-${fixture.prefix.takeLast(12)}"
         val originalTag = "Existing-${fixture.prefix.takeLast(8)}"
         val newTag = "Custom-${fixture.prefix.takeLast(8)}"
+        val favoritesTag = "Favorite-${fixture.prefix.takeLast(8)}"
         val personaCard = compose.onNode(hasText(name) and hasClickAction() and !hasSetTextAction())
-        val originalSelection = compose.onNode(hasText(originalTag) and isToggleable())
-        val newSelection = compose.onNode(hasText(newTag) and isToggleable())
+        val galleryFilterRole = SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Tab)
+        val originalSelection = compose.onNode(hasText(originalTag) and isSelectable() and !galleryFilterRole)
+        val newSelection = compose.onNode(hasText(newTag) and isSelectable() and !galleryFilterRole)
         val originalFilter = compose.onNode(hasText(originalTag) and hasClickAction())
         val newFilter = compose.onNode(hasText(newTag) and hasClickAction())
         val personaDao = fixture.database.personaDao()
@@ -69,10 +86,16 @@ class ElymBotUiIntegrationTest {
         try {
             waitForText(fixture.personaName)
             createGalleryTag(originalTag)
-            waitForText(label(R.string.elym_no_personas))
+            val allFilter = compose.onNode(hasText(label(R.string.elym_all)) and galleryFilterRole)
+            val favoritesFilter = compose.onNode(hasText(label(R.string.elym_favorites)) and galleryFilterRole)
+            allFilter.assertIsSelected()
+            favoritesFilter.performScrollTo().performClick()
+            createGalleryTag(favoritesTag)
+            favoritesFilter.assertIsSelected()
+            allFilter.performScrollTo().performClick()
             description(R.string.elym_create_persona).performClick()
             description(R.string.elym_name).performTextInput(name)
-            originalSelection.performScrollTo().assertIsOff().performClick()
+            originalSelection.performScrollTo().assertIsNotSelected().performClick()
             description(R.string.elym_prompt).performScrollTo().performTextInput("Gallery test prompt")
             scrollAndClick(R.string.elym_create)
             compose.waitUntil(10_000) {
@@ -96,14 +119,15 @@ class ElymBotUiIntegrationTest {
             compose.onNodeWithText(fixture.personaName).assertDoesNotExist()
 
             createGalleryTag(newTag)
-            waitForText(label(R.string.elym_no_personas))
+            originalFilter.assertIsSelected()
+            newFilter.assertIsNotSelected()
+            personaCard.assertIsDisplayed()
             assertTrue(runBlocking { service.personas.first().none { newTag in it.tags } })
-            originalFilter.performScrollTo().performClick()
             personaCard.performClick()
             description(R.string.elym_persona_menu).performClick()
             click(R.string.elym_edit_persona)
-            originalSelection.performScrollTo().assertIsOn()
-            newSelection.performScrollTo().assertIsOff().performClick()
+            originalSelection.performScrollTo().assertIsSelected()
+            newSelection.performScrollTo().assertIsNotSelected().performClick()
             assertTrue(runBlocking { service.personas.first().none { newTag in it.tags } })
             saveGalleryPersonaEdits()
             compose.waitUntil(10_000) {
@@ -121,7 +145,7 @@ class ElymBotUiIntegrationTest {
             personaCard.performClick()
             description(R.string.elym_persona_menu).performClick()
             click(R.string.elym_edit_persona)
-            newSelection.performScrollTo().assertIsOn().performClick()
+            newSelection.performScrollTo().assertIsSelected().performClick()
             saveGalleryPersonaEdits()
             description(R.string.elym_back).performClick()
             newFilter.performScrollTo().performClick()
@@ -130,7 +154,175 @@ class ElymBotUiIntegrationTest {
         } finally {
             runBlocking {
                 createdId?.let { service.deletePersona(it) }
-                fixture.database.openHelper.writableDatabase.delete("persona_tags", "name IN (?, ?)", arrayOf(originalTag, newTag))
+                fixture.database.openHelper.writableDatabase.delete(
+                    "persona_tags", "name IN (?, ?, ?)", arrayOf(originalTag, newTag, favoritesTag),
+                )
+            }
+        }
+    }
+
+    @Test
+    fun deletingGalleryTagsRemovesOnlyTheirAssignmentsAndKeepsTheAppropriateFilter() {
+        val suffix = fixture.prefix.takeLast(8)
+        val removed = "Remove-$suffix"
+        val kept = "$removed-extra"
+        val unassigned = "Unused-$suffix-${"Long tag ".repeat(80).trimEnd()}"
+        val firstId = runBlocking {
+            service.savePersona(PersonaCard(name = "First-$suffix", tags = listOf(removed, kept), favorite = true, prompt = "Keep this"))
+        }
+        val secondId = runBlocking {
+            service.savePersona(PersonaCard(name = "Second-$suffix", tags = listOf(kept, removed), description = "Keep this too"))
+        }
+        val personas = fixture.database.personaDao()
+        val before = runBlocking { listOf(firstId, secondId).map { requireNotNull(personas.get(it)) } }
+        val staleEditor = runBlocking { service.personas.first().single { it.id == firstId } }
+        val tabRole = SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Tab)
+        fun tag(name: String) = compose.onNode(hasText(name) and tabRole)
+        fun askToDelete(name: String) {
+            tag(name).performScrollTo().performTouchInput { longClick() }
+            compose.onNodeWithText(fixture.context.getString(R.string.elym_confirm_delete_tag, name)).assertIsDisplayed()
+        }
+        fun delete(name: String) {
+            askToDelete(name)
+            click(R.string.elym_delete_tag)
+            compose.waitUntil(10_000) { runBlocking { fixture.database.personaTagDao().get(name) == null } }
+            compose.waitUntil(10_000) { compose.onAllNodesWithText(name).fetchSemanticsNodes().isEmpty() }
+        }
+        try {
+            runBlocking { service.createPersonaTag(unassigned) }
+            waitForText(kept)
+            val all = tag(label(R.string.elym_all))
+            val favorites = tag(label(R.string.elym_favorites))
+            val noLongPress = SemanticsMatcher.keyNotDefined(SemanticsActions.OnLongClick)
+            all.assert(noLongPress)
+            favorites.assert(noLongPress)
+            tag(kept).performScrollTo().performClick()
+            tag(kept).assertIsSelected()
+
+            askToDelete(removed)
+            click(R.string.elym_cancel)
+            tag(kept).assertIsSelected()
+            assertEquals(removed, runBlocking { fixture.database.personaTagDao().get(removed) })
+
+            delete(unassigned)
+            tag(kept).assertIsSelected()
+            tag(removed).performScrollTo().performClick()
+            tag(removed).assertIsSelected()
+            delete(removed)
+            all.assertIsSelected()
+            assertEquals(before.map { it.copy(tagsValue = kept) }, runBlocking { before.map { personas.get(it.id) } })
+            assertEquals(kept, runBlocking { fixture.database.personaTagDao().get(kept) })
+
+            runBlocking { service.savePersona(staleEditor.copy(description = "Saved another field"), createMissingTags = false) }
+            assertEquals(null, runBlocking { fixture.database.personaTagDao().get(removed) })
+            assertEquals(
+                before.first().copy(tagsValue = kept, description = "Saved another field"),
+                runBlocking { personas.get(firstId) },
+            )
+            createGalleryTag(removed)
+            all.assertIsSelected()
+            tag(removed).assertIsNotSelected().performScrollTo().performClick()
+            waitForText(label(R.string.elym_no_personas))
+        } finally {
+            runBlocking {
+                service.deletePersona(firstId)
+                service.deletePersona(secondId)
+                listOf(removed, kept, unassigned).forEach { service.deletePersonaTag(it) }
+            }
+        }
+    }
+
+    @Test
+    fun manyPersonaTagsCanBeSearchedScrolledAndSaved() {
+        val prefix = "Tag-${fixture.prefix.takeLast(8)}"
+        val tags = (1..24).map { "$prefix-${it.toString().padStart(2, '0')}" }
+        val name = "Many-${fixture.prefix.takeLast(8)}"
+        val rowRole = SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Button)
+        val firstTag = hasText(tags.first()) and isSelectable() and rowRole
+        val lastTag = hasText(tags.last()) and isSelectable() and rowRole
+        val pickerList = description(R.string.elym_tags)
+        val search = description(R.string.elym_search_tags)
+        fun count(size: Int) = compose.onNodeWithText(fixture.context.resources.getQuantityString(R.plurals.elym_tags_selected, size, size))
+        try {
+            runBlocking { tags.forEach { service.createPersonaTag(it) } }
+            waitForText(fixture.personaName)
+            description(R.string.elym_create_persona).performClick()
+            description(R.string.elym_name).performTextInput(name)
+            scrollAndClick(R.string.elym_choose_tags)
+
+            search.performTextReplacement("absent-$prefix")
+            compose.onNodeWithText(label(R.string.elym_no_matching_tags)).assertIsDisplayed()
+            search.performTextReplacement(tags.first().uppercase())
+            compose.onNode(firstTag).assertIsNotSelected().performClick()
+            count(1).assertIsDisplayed()
+            click(R.string.elym_cancel)
+            count(0).assertIsDisplayed()
+
+            click(R.string.elym_choose_tags)
+            pickerList.performScrollToNode(firstTag)
+            compose.onNode(firstTag).assertIsNotSelected()
+            compose.onNode(firstTag).performClick()
+            pickerList.performScrollToNode(lastTag)
+            compose.onNode(lastTag).assertIsNotSelected().performClick()
+            click(R.string.elym_tags_selected_only)
+            pickerList.performScrollToNode(firstTag)
+            compose.onNode(firstTag).assertIsSelected()
+            compose.onNode(lastTag).assertIsSelected()
+            click(R.string.elym_done)
+            count(2).assertIsDisplayed()
+            assertTrue(runBlocking { service.personas.first().none { it.name == name } })
+
+            scrollAndClick(R.string.elym_create)
+            compose.waitUntil(10_000) { runBlocking { service.personas.first().any { it.name == name } } }
+            assertEquals(listOf(tags.first(), tags.last()), runBlocking { service.personas.first().single { it.name == name }.tags })
+        } finally {
+            runBlocking {
+                service.personas.first().firstOrNull { it.name == name }?.let { service.deletePersona(it.id) }
+                fixture.database.openHelper.writableDatabase.delete("persona_tags", "name LIKE ?", arrayOf("$prefix-%"))
+            }
+        }
+    }
+
+    @Test
+    fun personaPromptGrowsToItsLimitAndSavesWithFavorite() {
+        val name = "Prompt-${fixture.prefix.takeLast(8)}"
+        val favorite = compose.onNode(hasText(label(R.string.elym_add_favorite)) and isToggleable())
+        val prompt = description(R.string.elym_prompt)
+        val promptText = (1..32).joinToString("\n") { "Prompt line $it" }
+        try {
+            waitForText(fixture.personaName)
+            description(R.string.elym_create_persona).performClick()
+            val close = description(R.string.elym_close)
+            val closeTop = close.fetchSemanticsNode().boundsInRoot.top
+            assertTrue("The sheet leaves part of the gallery visible", closeTop >= fixture.context.resources.displayMetrics.heightPixels * 0.08f)
+            description(R.string.elym_name).performTextInput(name)
+
+            prompt.performScrollTo()
+            val initialHeight = prompt.fetchSemanticsNode().size.height
+            prompt.performTextReplacement((1..6).joinToString("\n") { "Draft line $it" })
+            val expandedHeight = prompt.fetchSemanticsNode().size.height
+            assertTrue("The prompt grows with its text", expandedHeight > initialHeight)
+
+            prompt.performTextReplacement(promptText)
+            prompt.performScrollTo().assertIsDisplayed()
+            val maximumHeight = prompt.fetchSemanticsNode().size.height
+            assertTrue("The prompt grows until it reaches its limit", maximumHeight > expandedHeight)
+            val extendedPrompt = "$promptText\n" + "Another line. ".repeat(100)
+            prompt.performTextReplacement(extendedPrompt)
+            assertEquals(maximumHeight, prompt.fetchSemanticsNode().size.height)
+            favorite.performScrollTo().assertIsOff().performClick()
+            favorite.assertIsOn()
+            close.assertIsDisplayed()
+            scrollAndClick(R.string.elym_create)
+            compose.waitUntil(10_000) {
+                runBlocking { service.personas.first().any { it.name == name } }
+            }
+            val saved = runBlocking { service.personas.first().single { it.name == name } }
+            assertEquals(extendedPrompt.take(1200), saved.prompt)
+            assertTrue(saved.favorite)
+        } finally {
+            runBlocking {
+                service.personas.first().firstOrNull { it.name == name }?.let { service.deletePersona(it.id) }
             }
         }
     }
@@ -177,9 +369,6 @@ class ElymBotUiIntegrationTest {
             waitForText(sessionTitle)
             assertEquals(main.personaId, runBlocking { dao.getMain()?.personaId })
             compose.onNodeWithText(sessionTitle).performClick()
-            openChatMenu()
-            click(R.string.elym_model_config)
-            description(R.string.elym_back).performClick()
             description(R.string.elym_chat_menu).assertIsDisplayed()
             description(R.string.elym_back).performClick()
             waitForText(sessionTitle)
@@ -220,7 +409,7 @@ class ElymBotUiIntegrationTest {
     }
 
     @Test
-    fun settingsAndModelNavigationLeadBackToChatThenOpeningClearsUnreadAndAllowsBatchDelete() {
+    fun settingsAndModelConfigurationRemainReachableAndChatSessionsCanBeBatchDeleted() {
         val previousNames = runBlocking { fixture.database.commandNameDao().getAll() }
         val helpName = "help-${fixture.prefix}"
         val firstTitle = "First UI session"
@@ -251,13 +440,6 @@ class ElymBotUiIntegrationTest {
             compose.onNodeWithText(label(R.string.elym_config_tools)).assertIsSelected()
             compose.onNodeWithText(label(R.string.elym_config_empty)).assertIsDisplayed()
 
-            click(R.string.elym_persona)
-            openPersonaChat()
-            openChatMenu()
-            click(R.string.elym_model_config)
-            compose.onNodeWithText(label(R.string.elym_config_models)).assertIsSelected()
-            click(R.string.elym_config_context)
-            compose.onNodeWithText(label(R.string.elym_config_empty)).assertIsDisplayed()
             click(R.string.elym_config_models)
             scrollAndClick(R.string.elym_add_service)
             click(R.string.elym_select_provider)
@@ -267,9 +449,11 @@ class ElymBotUiIntegrationTest {
             scrollAndClick(R.string.elym_text_role)
             compose.onNodeWithText(label(R.string.elym_text_model)).assertIsDisplayed()
             description(R.string.elym_close).performClick()
-            description(R.string.elym_back).performClick()
 
+            click(R.string.elym_persona)
+            openPersonaChat()
             openChatMenu()
+            compose.onNodeWithText("模型配置").assertDoesNotExist()
             click(R.string.elym_sessions)
             waitForText(firstTitle)
             compose.onNode(hasText(firstTitle) and hasText(label(R.string.elym_unread))).assertIsDisplayed()
@@ -302,16 +486,23 @@ class ElymBotUiIntegrationTest {
     }
 
     @Test
-    fun savingAnUnchangedModelServiceKeepsItsApiKey() {
+    fun missingChatModelPointsToConfigurationAndSavingAnUnchangedServiceKeepsItsKey() {
         val serviceName = "Key retention ${fixture.prefix.takeLast(12)}"
         val serviceDao = fixture.database.modelConfigurationDao()
         val row = compose.onNode(hasText(serviceName) and hasClickAction())
         val savedKey = label(R.string.elym_saved_key)
         val editTitle = label(R.string.elym_edit_service)
+        val previousAssignment = runBlocking { serviceDao.getAssignment(ModelRole.Text.name) }
         try {
+            runBlocking { service.setModel(ModelRole.Text, null) }
             openPersonaChat()
-            openChatMenu()
-            click(R.string.elym_model_config)
+            sendWithIme("Model configuration test")
+            waitForText(label(R.string.elym_main_missing))
+            compose.onNodeWithText(label(R.string.elym_main_missing)).assertIsDisplayed()
+            click(R.string.elym_close)
+            description(R.string.elym_back).performClick()
+            waitForText(label(R.string.elym_config))
+            click(R.string.elym_config)
             scrollAndClick(R.string.elym_add_service)
             click(R.string.elym_select_provider)
             click(R.string.elym_provider_openai)
@@ -336,6 +527,7 @@ class ElymBotUiIntegrationTest {
             waitForText(savedKey)
         } finally {
             runBlocking {
+                previousAssignment?.let { serviceDao.upsertAssignment(it) }
                 serviceDao.getServices().singleOrNull { it.name == serviceName }?.let {
                     service.deleteModelService(it.id)
                 }
@@ -412,6 +604,73 @@ class ElymBotUiIntegrationTest {
                 service.deletePersona(otherId)
             }
         }
+    }
+
+    @Test
+    fun checkpointSheetCapsOverflowAndRequiresADeliberateSwipe() {
+        val title = "Overflow checkpoint session"
+        runBlocking {
+            val id = service.newSession(fixture.personaId)
+            service.renameSession(id, title)
+            fixture.database.withTransaction {
+                val timestamp = System.currentTimeMillis()
+                (2..28).forEach { number ->
+                    fixture.database.checkpointDao().insert(
+                        CheckpointEntity("${fixture.prefix}-point-$number", id, number, 0, number.toLong(), timestamp),
+                    )
+                }
+            }
+        }
+        openPersonaChat()
+        openChatMenu()
+        click(R.string.elym_sessions)
+        waitForText(title)
+        compose.onNodeWithText(title).performClick()
+        openChatMenu()
+        click(R.string.elym_checkpoints)
+
+        val heading = compose.onNode(hasText(label(R.string.elym_checkpoints)) and !hasClickAction())
+        val newest = fixture.context.getString(R.string.elym_checkpoint_title, 28)
+        val oldest = fixture.context.getString(R.string.elym_checkpoint_title, 1)
+        waitForText(newest)
+        val headingTop = heading.fetchSemanticsNode().boundsInRoot.top
+        assertTrue(headingTop >= fixture.context.resources.displayMetrics.heightPixels * 0.08f)
+        compose.onNodeWithText(newest).assertIsDisplayed()
+        compose.onNodeWithText(oldest).assertIsNotDisplayed()
+        compose.onNodeWithText(oldest).performScrollTo().assertIsDisplayed()
+        assertEquals(headingTop, heading.assertIsDisplayed().fetchSemanticsNode().boundsInRoot.top, 1f)
+
+        verifyDeliberateSheetSwipe(heading)
+
+        openChatMenu()
+        click(R.string.elym_checkpoints)
+        heading.assertIsDisplayed()
+        androidx.test.platform.app.InstrumentationRegistry.getInstrumentation()
+            .sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK)
+        heading.assertDoesNotExist()
+    }
+
+    @Test
+    fun personaEditorRequiresADeliberateSwipe() {
+        openPersonaChat()
+        openChatMenu()
+        click(R.string.elym_edit_persona)
+        val heading = compose.onNode(hasText(label(R.string.elym_edit_persona)) and !hasClickAction())
+        verifyDeliberateSheetSwipe(heading)
+    }
+
+    private fun verifyDeliberateSheetSwipe(heading: SemanticsNodeInteraction) {
+        val initialY = heading.fetchSemanticsNode().boundsInRoot.top
+        heading.performTouchInput {
+            swipe(center, center - Offset(0f, 72.dp.toPx()), durationMillis = 52)
+        }
+        assertEquals(initialY, heading.fetchSemanticsNode().boundsInRoot.top, 1f)
+        heading.performTouchInput { swipe(center, center + Offset(0f, 80.dp.toPx()), durationMillis = 450) }
+        heading.assertIsDisplayed()
+        heading.performTouchInput { swipe(center, center + Offset(0f, 65.dp.toPx()), durationMillis = 130) }
+        heading.assertIsDisplayed()
+        heading.performTouchInput { swipe(center, center + Offset(0f, 180.dp.toPx()), durationMillis = 450) }
+        heading.assertDoesNotExist()
     }
 
     @Test

@@ -20,7 +20,6 @@ private enum class ConfigurationCategory(val label: Int) {
 internal fun ConfigurationPage(
     model: ElymBotViewModel,
     config: ModelConfiguration,
-    back: (() -> Unit)?,
     current: Boolean,
     footerClearance: Dp,
 ) {
@@ -30,7 +29,6 @@ internal fun ConfigurationPage(
         title = R.string.elym_config,
         current = current,
         footerClearance = footerClearance,
-        back = back,
         section = category,
         canScrollBackward = { category == ConfigurationCategory.Models && modelScroll.canScrollBackward },
         isScrollInProgress = { category == ConfigurationCategory.Models && modelScroll.isScrollInProgress },

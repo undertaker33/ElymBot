@@ -39,7 +39,6 @@ internal fun ChatPage(
     onSessions: (String) -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
-    onModelSettings: () -> Unit,
     onRename: (String) -> Unit,
 ) {
     val service = model.service
@@ -57,7 +56,7 @@ internal fun ChatPage(
     var draft by rememberSaveable(stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue()) }
     var image by rememberSaveable { mutableStateOf<String?>(null) }
     var submitting by remember { mutableStateOf(false) }
-    var showMainModelConfig by remember { mutableStateOf(false) }
+    var showMissingMainModel by remember { mutableStateOf(false) }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) image = uri.toString()
     }
@@ -89,7 +88,7 @@ internal fun ChatPage(
                 }
             } catch (failure: UiServiceException) {
                 if (failure.issue != UiIssue.MainModelMissing) throw failure
-                showMainModelConfig = true
+                showMissingMainModel = true
             } finally {
                 submitting = false
             }
@@ -124,7 +123,6 @@ internal fun ChatPage(
                         menu = false
                         showCheckpoints = true
                     }
-                    ChatMenuItem(R.string.elym_model_config, R.drawable.elym_sliders) { menu = false; onModelSettings() }
                     if (main) ChatMenuItem(R.string.elym_delete_persona, R.drawable.elym_close, danger = true) { menu = false; onDelete() }
                     else if (displayTitle.isNotBlank()) ChatMenuItem(R.string.elym_delete_session, R.drawable.elym_close, danger = true) { menu = false; delete = true }
                 }
@@ -169,11 +167,6 @@ internal fun ChatPage(
                         ) {
                             Text(stringResource(R.string.elym_reply_failed), color = Accent, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                             Text(stringResource(issueLabel(issue)), color = Accent, fontSize = 13.sp)
-                            if (issue == UiIssue.MainModelMissing || issue == UiIssue.VisionModelMissing ||
-                                issue == UiIssue.VisionCapabilityUnknown
-                            ) {
-                                Action(stringResource(R.string.elym_model_config), onModelSettings)
-                            }
                             if (conversation.canRetry) Action(stringResource(R.string.elym_retry), { model.perform { service.retry(id) } })
                         }
                     }
@@ -218,17 +211,11 @@ internal fun ChatPage(
         }
     }
 
-    if (current && showMainModelConfig) AlertDialog(
-        onDismissRequest = { showMainModelConfig = false },
+    if (current && showMissingMainModel) AlertDialog(
+        onDismissRequest = { showMissingMainModel = false },
         text = { Text(stringResource(R.string.elym_main_missing)) },
         confirmButton = {
-            TextButton(onClick = {
-                showMainModelConfig = false
-                onModelSettings()
-            }) { Text(stringResource(R.string.elym_model_config)) }
-        },
-        dismissButton = {
-            TextButton(onClick = { showMainModelConfig = false }) { Text(stringResource(R.string.elym_close)) }
+            TextButton(onClick = { showMissingMainModel = false }) { Text(stringResource(R.string.elym_close)) }
         },
     )
 

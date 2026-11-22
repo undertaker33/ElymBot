@@ -47,6 +47,9 @@ interface PersonaDao {
     @Query("SELECT * FROM personas WHERE id = :id")
     suspend fun get(id: String): PersonaEntity?
 
+    @Query("SELECT * FROM personas WHERE instr(:separator || tagsValue || :separator, :separator || :tag || :separator) > 0")
+    suspend fun getWithTag(tag: String, separator: String): List<PersonaEntity>
+
     @Query("SELECT COUNT(*) FROM personas")
     suspend fun count(): Int
 
@@ -71,6 +74,9 @@ interface PersonaTagDao {
     @Query("SELECT name FROM persona_tags ORDER BY sortOrder, name")
     fun observeAll(): Flow<List<String>>
 
+    @Query("SELECT name FROM persona_tags")
+    suspend fun getAll(): List<String>
+
     @Query("SELECT name FROM persona_tags WHERE name = :name")
     suspend fun get(name: String): String?
 
@@ -79,4 +85,7 @@ interface PersonaTagDao {
 
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insert(item: PersonaTagEntity)
+
+    @Query("DELETE FROM persona_tags WHERE name = :name")
+    suspend fun delete(name: String)
 }

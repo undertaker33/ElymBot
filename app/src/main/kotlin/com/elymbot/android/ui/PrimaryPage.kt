@@ -29,6 +29,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
@@ -50,11 +51,13 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp
 import androidx.compose.ui.unit.sp
 import com.elymbot.android.R
+import kotlin.math.roundToInt
 
 internal object PrimaryMotion {
     const val FullMillis = 440
@@ -75,7 +78,6 @@ internal fun PrimaryPage(
     title: Int,
     current: Boolean,
     footerClearance: Dp = 0.dp,
-    back: (() -> Unit)? = null,
     hint: Int = R.string.elym_search,
     section: Any? = null,
     canScrollBackward: () -> Boolean = { false },
@@ -87,6 +89,7 @@ internal fun PrimaryPage(
     var scrollFraction by rememberSaveable(section) { mutableFloatStateOf(0f) }
     var dragging by remember(section) { mutableStateOf(false) }
     var searching by rememberSaveable { mutableStateOf(false) }
+    var searchLiftTarget by rememberSaveable { mutableFloatStateOf(0f) }
     var draft by rememberSaveable(stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue()) }
     val focusManager = LocalFocusManager.current
     val keyboard = LocalSoftwareKeyboardController.current
@@ -111,10 +114,16 @@ internal fun PrimaryPage(
 
     val collapseDistance = with(LocalDensity.current) { (if (tags != null) 104.dp else 70.dp).toPx() }
     val foldTarget = if (searching) 1f else scrollFraction
+    val foldAnimation = tween<Float>(PrimaryMotion.FullMillis, easing = PrimaryMotion.Movement)
     val morph by animateFloatAsState(
         targetValue = foldTarget,
-        animationSpec = if (dragging && !searching) snap() else tween(PrimaryMotion.FullMillis, easing = PrimaryMotion.Movement),
+        animationSpec = if (dragging && !searching) snap() else foldAnimation,
         label = "Primary search position",
+    )
+    val searchLift by animateFloatAsState(
+        targetValue = if (searching) searchLiftTarget else 0f,
+        animationSpec = foldAnimation,
+        label = "Primary search content lift",
     )
     val visibleProgress by rememberUpdatedState(morph)
     val canReveal by rememberUpdatedState(canScrollBackward)
@@ -150,19 +159,23 @@ internal fun PrimaryPage(
 
     SubcomposeLayout(Modifier.fillMaxSize()) { constraints ->
         val chromeConstraints = constraints.copy(minHeight = 0)
+        val chromeAlpha = 1f - morph
         val header = subcompose(PrimaryLayer.Header) {
             PrimaryPageHeader(
-                title, back, hint, morph, searching, draft, { draft = it }, action, focusRequester,
-                onSearch = { searching = true }, onClose = closeSearch, onKeyboardSearch = { keyboard?.hide() },
+                title, hint, morph, chromeAlpha, searching, draft, { draft = it }, action, focusRequester,
+                onSearch = {
+                    if (searchLift == 0f) searchLiftTarget = chromeAlpha
+                    searching = true
+                },
+                onClose = closeSearch, onKeyboardSearch = { keyboard?.hide() },
                 onFocusSearch = { if (current) { focusRequester.requestFocus(); keyboard?.show() } },
             )
         }.single().measure(chromeConstraints)
-        val tagAlpha = (1f - morph * 1.8f).coerceAtLeast(0f)
         val tagStrip = if (tags != null && tagScroll != null) {
             subcompose(PrimaryLayer.Tags) {
                 Box(Modifier.fillMaxWidth().height(TagStripHeight)) {
-                    if (tagAlpha > 0f) {
-                        Box(Modifier.graphicsLayer { alpha = tagAlpha; translationY = -20.dp.toPx() * morph }) {
+                    if (chromeAlpha > 0f) {
+                        Box(Modifier.graphicsLayer { alpha = chromeAlpha; translationY = -20.dp.toPx() * morph }) {
                             TagStrip(tagScroll, tags)
                         }
                     }
@@ -176,7 +189,7 @@ internal fun PrimaryPage(
             val paper = Paper
             Box(
                 Modifier.fillMaxWidth().height(expandedChromeHeight)
-                    .graphicsLayer { alpha = (1f - morph * 1.8f).coerceAtLeast(0f) }
+                    .graphicsLayer { alpha = chromeAlpha }
                     .drawWithCache {
                         val edgeHeight = minOf(10.dp.toPx(), size.height)
                         val edgeTop = size.height - edgeHeight
@@ -187,19 +200,22 @@ internal fun PrimaryPage(
                             drawRect(fade, topLeft = Offset(0f, edgeTop), size = Size(size.width, edgeHeight))
                         }
                     }
-                    .then(if (tagAlpha > 0f) Modifier.pointerInput(Unit) {
+                    .then(if (chromeAlpha > 0f) Modifier.pointerInput(Unit) {
                         awaitPointerEventScope { while (true) awaitPointerEvent() }
                     } else Modifier),
             )
         }.single().measure(chromeConstraints)
-        // Reserve the same browsing endpoints through the whole gesture so moving
-        // chrome never changes the scrollable range. Query results own their offset.
-        val results = draft.text.trim().takeIf { searching }
-        val tagClearance = if (results == null || tagAlpha > 0f) tagStrip?.height ?: 0 else 0
-        val topClearance = (header.height + tagClearance).toDp()
+        // Keep the browsing content mounted while the search field is blank.
+        // Only a real query takes over the page with a separate scroll offset.
+        val results = draft.text.trim().takeIf { searching && it.isNotEmpty() }
+        val tagHeight = (tagStrip?.height ?: 0).toDp()
+        // Move the unused tag space to the footer so the browsing scroll range stays fixed.
+        val lift = ((tagStrip?.height ?: 0) * searchLift).roundToInt().toDp()
+        val topClearance = header.height.toDp() + if (results == null) tagHeight - lift else tagHeight * chromeAlpha
+        val bottomClearance = if (results == null) footerClearance + lift else footerClearance
         val body = subcompose(PrimaryLayer.Content) {
             Box(Modifier.fillMaxSize().clipToBounds().nestedScroll(scroll)) {
-                content(results, PaddingValues(top = topClearance, bottom = footerClearance))
+                content(results, PaddingValues(top = topClearance, bottom = bottomClearance))
             }
         }.single().measure(constraints)
         layout(body.width, body.height) {
@@ -214,9 +230,9 @@ internal fun PrimaryPage(
 @Composable
 private fun PrimaryPageHeader(
     title: Int,
-    back: (() -> Unit)?,
     hint: Int,
     morph: Float,
+    chromeAlpha: Float,
     searching: Boolean,
     draft: TextFieldValue,
     onDraftChange: (TextFieldValue) -> Unit,
@@ -232,25 +248,31 @@ private fun PrimaryPageHeader(
         tween(PrimaryMotion.FadeMillis, easing = PrimaryMotion.Fade),
         label = "Page search input",
     )
-    val titleAlpha = (1f - morph * 2.4f).coerceAtLeast(0f)
     val titleActionAlpha = (1f - morph * 7f).coerceAtLeast(0f)
     val searchLabel = stringResource(R.string.elym_search)
     val placeholder = stringResource(hint)
-    val titleInset = if (back == null) 18.dp else 5.dp
     val buttonInset = if (action == null) 18.dp else 70.dp
+    val compactBarWidth = 48.dp
     val headerHeight = with(LocalDensity.current) { maxOf(FloatingComposerSingleLineHeight + 12.dp, 42.sp.toDp()) }
     BoxWithConstraints(Modifier.fillMaxWidth().height(headerHeight).clipToBounds()) {
         val rightInset = lerp(buttonInset, FloatingComposerHorizontalMargin, morph)
-        val barWidth = lerp(48.dp, maxWidth - FloatingComposerHorizontalMargin * 2, morph)
-        if (titleAlpha > 0f) {
+        val barWidth = lerp(compactBarWidth, maxWidth - FloatingComposerHorizontalMargin * 2, morph)
+        if (chromeAlpha > 0f) {
+            val titleClearance = rightInset + barWidth + 4.dp
             Row(
                 Modifier.align(Alignment.CenterStart).fillMaxWidth()
-                    .graphicsLayer { alpha = titleAlpha; translationY = -14.dp.toPx() * morph }
-                    .padding(start = titleInset, end = rightInset + barWidth + 4.dp)
+                    .graphicsLayer { alpha = chromeAlpha; translationY = -14.dp.toPx() * morph }
+                    .drawWithCache {
+                        val visibleWidth = (size.width - titleClearance.toPx()).coerceAtLeast(0f)
+                        onDrawWithContent {
+                            val left = if (layoutDirection == LayoutDirection.Ltr) 0f else size.width - visibleWidth
+                            clipRect(left = left, right = left + visibleWidth) { this@onDrawWithContent.drawContent() }
+                        }
+                    }
+                    .padding(start = 18.dp, end = buttonInset + compactBarWidth + 4.dp)
                     .then(if (searching) Modifier.semantics { hideFromAccessibility() } else Modifier),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                if (back != null) RoundAction(R.drawable.elym_back, stringResource(R.string.elym_back), back)
                 Text(
                     stringResource(title), Modifier.weight(1f).semantics { heading() }, color = Ink,
                     fontSize = 28.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis,
@@ -276,7 +298,7 @@ private fun PrimaryPageHeader(
             frame.then(if (searching) Modifier else Modifier.clickable(role = Role.Button, onClick = onSearch).semanticsLabel(searchLabel)),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Box(Modifier.width(48.dp).fillMaxHeight(), contentAlignment = Alignment.Center) {
+            Box(Modifier.width(compactBarWidth).fillMaxHeight(), contentAlignment = Alignment.Center) {
                 Glyph(R.drawable.elym_search, color = Accent)
             }
             if (searching) {

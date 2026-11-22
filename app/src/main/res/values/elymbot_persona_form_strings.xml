@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="elym_persona_basic_information">基本信息</string>
+    <string name="elym_persona_images">图片</string>
+    <string name="elym_persona_usage">使用方式</string>
+</resources>

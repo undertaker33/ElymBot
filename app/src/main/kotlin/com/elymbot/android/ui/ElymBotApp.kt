@@ -90,11 +90,6 @@ private data class Destination(
                 Page.Chat -> if (sessionId == null) 1 else sessionsDepth + 1
                 Page.Sessions -> sessionsDepth
                 Page.About -> 1
-                Page.Models -> when {
-                    sessionId != null -> sessionsDepth + 2
-                    mainId != null -> 2
-                    else -> 0
-                }
                 else -> 0
             }
         }
@@ -102,7 +97,6 @@ private data class Destination(
     val key: String get() = "${page.name}:$mainId:$ownerId:$sessionId"
 
     fun back(): Destination = when (page) {
-        Page.Models -> if (depth == 0) Destination() else copy(page = Page.Chat)
         Page.Chat -> if (sessionId == null) Destination() else copy(page = Page.Sessions, sessionId = null, title = "")
         Page.Sessions -> if (mainId == null) Destination() else copy(page = Page.Chat, ownerId = null)
         Page.About -> Destination(Page.Settings)
@@ -113,7 +107,10 @@ private data class Destination(
         val Saver = listSaver<Destination, String>(
             save = { listOf(it.page.name, it.mainId.orEmpty(), it.ownerId.orEmpty(), it.sessionId.orEmpty(), it.title) },
             restore = { (page, main, owner, session, title) ->
-                Destination(Page.valueOf(page), main.ifEmpty { null }, owner.ifEmpty { null }, session.ifEmpty { null }, title)
+                val restoredPage = Page.valueOf(page)
+                // Earlier versions opened configuration over the current chat.
+                val target = if (restoredPage == Page.Models && (main.isNotEmpty() || session.isNotEmpty())) Page.Chat else restoredPage
+                Destination(target, main.ifEmpty { null }, owner.ifEmpty { null }, session.ifEmpty { null }, title)
             },
         )
     }
@@ -217,7 +214,7 @@ internal fun ElymBotApp(
                             }
                         } }
                         Page.Models -> stateHolder.SaveableStateProvider(screen.key) {
-                            ConfigurationPage(model, config, backFromScreen.takeIf { screen.depth > 0 }, current, footerClearance)
+                            ConfigurationPage(model, config, current, footerClearance)
                         }
                         Page.Settings -> stateHolder.SaveableStateProvider(screen.key) {
                             SettingsPage(model, commands, current, appearanceMode, onAppearanceModeChange, footerClearance,
@@ -250,7 +247,6 @@ internal fun ElymBotApp(
                                     onSessions = { ownerId -> if (current) navigate(screen.copy(page = Page.Sessions, ownerId = ownerId)) },
                                     onEdit = { if (current) personaForm = persona },
                                     onDelete = { if (current) deletePersona = persona },
-                                    onModelSettings = { if (current) navigate(screen.copy(page = Page.Models)) },
                                     onRename = { if (destination.key == screen.key) destination = screen.copy(title = it) },
                                 )
                             }
@@ -284,7 +280,10 @@ internal fun ElymBotApp(
         }
         personaForm?.let { existing ->
             PersonaForm(existing, personaTags, existing.id == main?.personaId, { personaForm = null }) { edited, makeGlobal ->
-                model.perform { service.savePersona(edited, makeGlobal); personaForm = null }
+                model.perform {
+                    service.savePersona(edited, makeGlobal, createMissingTags = false)
+                    personaForm = null
+                }
             }
         }
         deletePersona?.let { target ->

@@ -6,7 +6,11 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitVerticalTouchSlopOrCancellation
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.verticalDrag
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -15,9 +19,12 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
@@ -30,8 +37,10 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
@@ -48,6 +57,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.DialogWindowProvider
@@ -193,14 +203,24 @@ internal fun EmptyMessage(label: String, icon: Int, content: @Composable (() -> 
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun Sheet(title: String, onDismiss: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
+internal fun Sheet(
+    title: String,
+    onDismiss: () -> Unit,
+    maxContentHeightFraction: Float = 1f,
+    deliberateSwipe: Boolean = false,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    val sheetState = if (deliberateSwipe) rememberDeliberateSwipeSheetState()
+        else rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val headerDrag = if (deliberateSwipe) Modifier.ignoreUpwardDragWhenExpanded(sheetState) else Modifier
+    val scrollBoundary = if (deliberateSwipe) Modifier.nestedScroll(SheetContentFlingBoundary) else Modifier
     ModalBottomSheet(
         onDismissRequest = onDismiss, containerColor = SurfaceColor,
         contentColor = Ink, scrimColor = ElymColors.scrim,
         shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        sheetState = sheetState,
         dragHandle = {
-            Box(Modifier.padding(top = 12.dp).size(34.dp, 4.dp).background(Line, CircleShape))
+            Box(headerDrag.padding(top = 12.dp).size(34.dp, 4.dp).background(Line, CircleShape))
         },
     ) {
         val view = LocalView.current
@@ -214,13 +234,80 @@ internal fun Sheet(title: String, onDismiss: () -> Unit, content: @Composable Co
                 controller.isAppearanceLightNavigationBars = lightBars
             }
         }
-        Column(Modifier.padding(horizontal = 18.dp).padding(bottom = 18.dp).imePadding()) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Column(
+            Modifier.limitSheetContentHeight(maxContentHeightFraction)
+                .padding(horizontal = 18.dp).padding(bottom = 18.dp).imePadding(),
+        ) {
+            Row(Modifier.fillMaxWidth().then(headerDrag), verticalAlignment = Alignment.CenterVertically) {
                 Text(title, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
                 RoundAction(R.drawable.elym_close, stringResource(R.string.elym_close), onDismiss)
             }
-            Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp), content = content)
+            Column(
+                Modifier.weight(1f, fill = false).then(scrollBoundary).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                content = content,
+            )
         }
+    }
+}
+
+private object SheetContentFlingBoundary : NestedScrollConnection {
+    override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
+        // Material's settling spring can overshoot the expanded anchor with a child's leftover upward velocity.
+        return Velocity(0f, available.y.coerceAtMost(0f))
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+private fun Modifier.ignoreUpwardDragWhenExpanded(sheetState: SheetState): Modifier = pointerInput(sheetState) {
+    awaitEachGesture {
+        val down = awaitFirstDown(requireUnconsumed = false)
+        if (sheetState.currentValue == SheetValue.Expanded && !sheetState.isAnimationRunning) {
+            val drag = awaitVerticalTouchSlopOrCancellation(down.id) { change, overSlop ->
+                if (overSlop < 0f) change.consume()
+            }
+            if (drag != null) verticalDrag(drag.id) { it.consume() }
+        }
+    }
+}
+
+private fun Modifier.limitSheetContentHeight(fraction: Float): Modifier {
+    if (fraction == 1f) return this
+    // The height limit belongs inside the sheet. Material positions its swipe anchors using the full window.
+    return layout { measurable, constraints ->
+        val maxHeight = if (constraints.hasBoundedHeight) {
+            (constraints.maxHeight * fraction).toInt().coerceAtLeast(constraints.minHeight)
+        } else {
+            constraints.maxHeight
+        }
+        val content = measurable.measure(constraints.copy(maxHeight = maxHeight))
+        layout(content.width, content.height) { content.placeRelative(0, 0) }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun rememberDeliberateSwipeSheetState(): SheetState {
+    val density = LocalDensity.current
+    val positionalThreshold = { with(density) { 112.dp.toPx() } }
+    val velocityThreshold = { with(density) { 900.dp.toPx() } }
+    val confirmValueChange: (SheetValue) -> Boolean = { true }
+    return rememberSaveable(
+        density,
+        saver = SheetState.Saver(
+            skipPartiallyExpanded = true,
+            positionalThreshold = positionalThreshold,
+            velocityThreshold = velocityThreshold,
+            confirmValueChange = confirmValueChange,
+            skipHiddenState = false,
+        ),
+    ) {
+        SheetState(
+            skipPartiallyExpanded = true,
+            positionalThreshold = positionalThreshold,
+            velocityThreshold = velocityThreshold,
+            confirmValueChange = confirmValueChange,
+        )
     }
 }
 

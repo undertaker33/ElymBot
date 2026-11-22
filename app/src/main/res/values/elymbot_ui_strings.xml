@@ -82,9 +82,8 @@
     <string name="elym_key_hint">输入对应厂商的 API Key</string>
     <string name="elym_key_missing">待填 Key</string>
     <string name="elym_learning">学习</string>
-    <string name="elym_main_missing">请配置可用的文本对话模型</string>
+    <string name="elym_main_missing">返回首页后，请在底部「配置」中设置可用的文本对话模型。</string>
     <string name="elym_model_available">模型可用性</string>
-    <string name="elym_model_config">模型配置</string>
     <string name="elym_model_hint">选择厂商预设或通过探测获取</string>
     <string name="elym_model_roles">模型用途</string>
     <string name="elym_model_services">模型服务</string>
@@ -162,8 +161,8 @@
     <string name="elym_url_hint">https://api.example.com/v1</string>
     <string name="elym_use_model">使用所选模型</string>
     <string name="elym_view_sessions">查看会话</string>
-    <string name="elym_vision_missing">请配置可用的视觉理解模型</string>
-    <string name="elym_vision_unknown">请在模型配置中探测文本对话模型的视觉支持。</string>
+    <string name="elym_vision_missing">返回首页后，请在底部「配置」中设置可用的视觉理解模型。</string>
+    <string name="elym_vision_unknown">返回首页后，请在底部「配置」中探测文本对话模型的视觉支持。</string>
     <string name="elym_service_response_error">模型服务响应失败</string>
     <string name="elym_service_rejected">模型服务拒绝请求</string>
     <string name="elym_service_protocol_error">模型服务响应格式异常</string>

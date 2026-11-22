@@ -29,7 +29,12 @@ internal fun CheckpointsSheet(model: ElymBotViewModel, sessionId: String, runnin
         }
     }
 
-    Sheet(stringResource(R.string.elym_checkpoints), dismiss) {
+    Sheet(
+        stringResource(R.string.elym_checkpoints),
+        dismiss,
+        maxContentHeightFraction = 0.88f,
+        deliberateSwipe = true,
+    ) {
         Action(
             stringResource(R.string.elym_save_checkpoint),
             { runCheckpointAction { service.saveCheckpoint(sessionId) } },
