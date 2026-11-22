@@ -1,6 +1,6 @@
 # ElymBot 代码组织
 
-已确定的约束是 Core 和各插件物理隔离，`探索/` 与 `验证/` 留在本地。当前 Gradle 骨架包含 `:app`、`:core`、`:plugins:qq` 和 `:plugins:scheduled-tasks`。其余目录随实际功能建立。
+Core 与各插件保持物理隔离；临时探针和设备日志不纳入仓库文档。当前 Gradle 骨架包含 `:app`、`:core`、`:plugins:qq` 和 `:plugins:scheduled-tasks`。其余目录随实际功能建立。
 
 ## 先按职责定位，再看职责内部的分层
 

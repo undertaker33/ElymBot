@@ -1,0 +1,505 @@
+package com.elymbot.android.ui
+
+import android.graphics.BitmapFactory
+import android.net.Uri
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitVerticalTouchSlopOrCancellation
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.verticalDrag
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.vector.rememberVectorPainter
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.Velocity
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.DialogWindowProvider
+import androidx.core.view.WindowCompat
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.ImeAction
+import com.elymbot.android.R
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlin.math.roundToInt
+
+internal val GalleryFont = FontFamily(Font(R.font.gallery_song, FontWeight.Bold))
+
+@Composable
+internal fun Glyph(id: Int, modifier: Modifier = Modifier, color: Color = Ink) {
+    Icon(painterResource(id), null, modifier.size(22.dp), tint = color)
+}
+
+@Composable
+internal fun RoundAction(
+    icon: Int,
+    label: String,
+    onClick: () -> Unit,
+    primary: Boolean = false,
+    outlined: Boolean = false,
+    enabled: Boolean = true,
+    roundedSquare: Boolean = false,
+) {
+    val shape = if (roundedSquare) RoundedCornerShape(16.dp) else CircleShape
+    Box(
+        Modifier.size(48.dp).clip(shape)
+            .then(if (primary) Modifier.background(Accent) else Modifier)
+            .then(if (outlined) Modifier.background(SurfaceColor).border(1.dp, Line, shape) else Modifier)
+            .clickable(enabled = enabled, onClickLabel = label, onClick = onClick)
+            .semanticsLabel(label),
+        contentAlignment = Alignment.Center,
+    ) {
+        Glyph(icon, color = when {
+            !enabled -> if (primary) AccentInk.copy(alpha = 0.5f) else Muted.copy(alpha = 0.5f)
+            primary -> AccentInk
+            outlined -> Accent
+            else -> Ink
+        })
+    }
+}
+
+@Composable
+internal fun Action(
+    label: String,
+    onClick: () -> Unit,
+    primary: Boolean = false,
+    danger: Boolean = false,
+    enabled: Boolean = true,
+) {
+    val shape = RoundedCornerShape(13.dp)
+    val background = when {
+        danger -> Danger
+        primary -> Accent
+        else -> Soft
+    }
+    Box(
+        Modifier.heightIn(min = 48.dp).clip(shape).background(background.copy(alpha = if (enabled) 1f else 0.55f))
+            .clickable(enabled = enabled, onClick = onClick).padding(horizontal = 14.dp, vertical = 8.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        val color = when {
+            danger -> ElymColors.onDanger
+            primary -> AccentInk
+            else -> Accent
+        }
+        Text(label, color = color, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+    }
+}
+
+@Composable
+internal fun Group(content: @Composable ColumnScope.() -> Unit) {
+    val shape = RoundedCornerShape(18.dp)
+    Column(Modifier.fillMaxWidth().clip(shape).background(SurfaceColor).border(1.dp, Line, shape), content = content)
+}
+
+@Composable
+internal fun Section(title: String, content: @Composable ColumnScope.() -> Unit) {
+    Column(Modifier.padding(bottom = 19.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+        Text(title, color = Muted, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 3.dp))
+        Group(content)
+    }
+}
+
+@Composable
+internal fun ListRow(
+    title: String,
+    icon: Int,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    subtitle: String? = null,
+    badge: String? = null,
+    selected: Boolean = false,
+    trailing: Boolean = true,
+    enabled: Boolean = true,
+) {
+    Row(
+        modifier.fillMaxWidth().heightIn(min = 63.dp).clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        horizontalArrangement = Arrangement.spacedBy(11.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.size(34.dp).background(Soft, RoundedCornerShape(11.dp)), contentAlignment = Alignment.Center) {
+            Icon(painterResource(icon), null, Modifier.size(18.dp), tint = Accent)
+        }
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text(title, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Ink, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            if (!subtitle.isNullOrEmpty()) Text(subtitle, fontSize = 12.sp, color = Muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        if (badge != null) Badge(badge, selected)
+        if (trailing) Icon(painterResource(R.drawable.elym_chevron), null, Modifier.size(15.dp), tint = Muted)
+    }
+}
+
+@Composable
+internal fun Badge(label: String, success: Boolean = false) {
+    Text(
+        label, fontSize = 10.sp, fontWeight = FontWeight.Bold,
+        color = if (success) ElymColors.success else Accent,
+        modifier = Modifier.background(if (success) ElymColors.successBackground else Soft, CircleShape)
+            .padding(horizontal = 7.dp, vertical = 4.dp),
+    )
+}
+
+@Composable
+internal fun EmptyMessage(label: String, icon: Int, content: @Composable (() -> Unit)? = null) {
+    Column(
+        Modifier.fillMaxWidth().padding(vertical = 28.dp, horizontal = 9.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Icon(painterResource(icon), null, Modifier.size(28.dp), tint = Accent)
+        Text(label, color = Muted, fontSize = 13.sp)
+        content?.invoke()
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun Sheet(
+    title: String,
+    onDismiss: () -> Unit,
+    maxContentHeightFraction: Float = 1f,
+    deliberateSwipe: Boolean = false,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    val sheetState = if (deliberateSwipe) rememberDeliberateSwipeSheetState()
+        else rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val headerDrag = if (deliberateSwipe) Modifier.ignoreUpwardDragWhenExpanded(sheetState) else Modifier
+    val scrollBoundary = if (deliberateSwipe) Modifier.nestedScroll(SheetContentFlingBoundary) else Modifier
+    ModalBottomSheet(
+        onDismissRequest = onDismiss, containerColor = SurfaceColor,
+        contentColor = Ink, scrimColor = ElymColors.scrim,
+        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+        sheetState = sheetState,
+        dragHandle = {
+            Box(headerDrag.padding(top = 12.dp).size(34.dp, 4.dp).background(Line, CircleShape))
+        },
+    ) {
+        val view = LocalView.current
+        val lightBars = SurfaceColor.luminance() > 0.5f
+        // Material applies its system-bar flags when it creates the sheet's window.
+        SideEffect {
+            val window = (view.parent as? DialogWindowProvider)?.window
+            if (window != null) {
+                val controller = WindowCompat.getInsetsController(window, window.decorView)
+                controller.isAppearanceLightStatusBars = lightBars
+                controller.isAppearanceLightNavigationBars = lightBars
+            }
+        }
+        Column(
+            Modifier.limitSheetContentHeight(maxContentHeightFraction)
+                .padding(horizontal = 18.dp).padding(bottom = 18.dp).imePadding(),
+        ) {
+            Row(Modifier.fillMaxWidth().then(headerDrag), verticalAlignment = Alignment.CenterVertically) {
+                Text(title, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                RoundAction(R.drawable.elym_close, stringResource(R.string.elym_close), onDismiss)
+            }
+            Column(
+                Modifier.weight(1f, fill = false).then(scrollBoundary).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                content = content,
+            )
+        }
+    }
+}
+
+private object SheetContentFlingBoundary : NestedScrollConnection {
+    override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
+        // Material's settling spring can overshoot the expanded anchor with a child's leftover upward velocity.
+        return Velocity(0f, available.y.coerceAtMost(0f))
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+private fun Modifier.ignoreUpwardDragWhenExpanded(sheetState: SheetState): Modifier = pointerInput(sheetState) {
+    awaitEachGesture {
+        val down = awaitFirstDown(requireUnconsumed = false)
+        if (sheetState.currentValue == SheetValue.Expanded && !sheetState.isAnimationRunning) {
+            val drag = awaitVerticalTouchSlopOrCancellation(down.id) { change, overSlop ->
+                if (overSlop < 0f) change.consume()
+            }
+            if (drag != null) verticalDrag(drag.id) { it.consume() }
+        }
+    }
+}
+
+private fun Modifier.limitSheetContentHeight(fraction: Float): Modifier {
+    if (fraction == 1f) return this
+    // The height limit belongs inside the sheet. Material positions its swipe anchors using the full window.
+    return layout { measurable, constraints ->
+        val maxHeight = if (constraints.hasBoundedHeight) {
+            (constraints.maxHeight * fraction).toInt().coerceAtLeast(constraints.minHeight)
+        } else {
+            constraints.maxHeight
+        }
+        val content = measurable.measure(constraints.copy(maxHeight = maxHeight))
+        layout(content.width, content.height) { content.placeRelative(0, 0) }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun rememberDeliberateSwipeSheetState(): SheetState {
+    val density = LocalDensity.current
+    val positionalThreshold = { with(density) { 112.dp.toPx() } }
+    val velocityThreshold = { with(density) { 900.dp.toPx() } }
+    val confirmValueChange: (SheetValue) -> Boolean = { true }
+    return rememberSaveable(
+        density,
+        saver = SheetState.Saver(
+            skipPartiallyExpanded = true,
+            positionalThreshold = positionalThreshold,
+            velocityThreshold = velocityThreshold,
+            confirmValueChange = confirmValueChange,
+            skipHiddenState = false,
+        ),
+    ) {
+        SheetState(
+            skipPartiallyExpanded = true,
+            positionalThreshold = positionalThreshold,
+            velocityThreshold = velocityThreshold,
+            confirmValueChange = confirmValueChange,
+        )
+    }
+}
+
+@Composable
+internal fun Field(
+    label: String,
+    value: String,
+    onChange: (String) -> Unit,
+    hint: String = "",
+    multiline: Boolean = false,
+    password: Boolean = false,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+        Text(label, color = Ink, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+        Input(value, onChange, hint, Modifier.fillMaxWidth(), multiline, password, label)
+    }
+}
+
+@Composable
+internal fun Input(
+    value: String,
+    onChange: (String) -> Unit,
+    hint: String,
+    modifier: Modifier = Modifier,
+    multiline: Boolean = false,
+    password: Boolean = false,
+    label: String = hint,
+    compact: Boolean = false,
+    send: (() -> Unit)? = null,
+) {
+    val shape = RoundedCornerShape(if (compact) 17.dp else 11.dp)
+    BasicTextField(
+        value = value, onValueChange = onChange, singleLine = !multiline, maxLines = if (compact) 5 else Int.MAX_VALUE,
+        textStyle = TextStyle(color = Ink, fontSize = 16.sp, lineHeight = 21.sp),
+        visualTransformation = if (password) PasswordVisualTransformation() else VisualTransformation.None,
+        cursorBrush = SolidColor(Accent),
+        keyboardOptions = if (send != null) KeyboardOptions(imeAction = ImeAction.Send) else KeyboardOptions.Default,
+        keyboardActions = if (send != null) KeyboardActions(onSend = { send() }) else KeyboardActions.Default,
+        modifier = modifier.semanticsLabel(label),
+        decorationBox = { field ->
+            Box(
+                Modifier.fillMaxWidth().heightIn(min = if (multiline && !compact) 75.dp else 48.dp)
+                    .background(PaperTop, shape).border(1.dp, Line, shape).padding(11.dp),
+                contentAlignment = if (multiline) Alignment.TopStart else Alignment.CenterStart,
+            ) {
+                if (value.isEmpty()) Text(hint, color = Muted, fontSize = 16.sp)
+                field()
+            }
+        },
+    )
+}
+
+@Composable
+internal fun PersonaImage(
+    persona: PersonaCard,
+    modifier: Modifier,
+    avatar: Boolean = false,
+) = PersonaImage(rememberBitmap(persona.cover), if (avatar) persona.avatarPosition else persona.coverPosition, modifier)
+
+@Composable
+internal fun PersonaImage(
+    custom: ImageBitmap?,
+    position: ImagePosition,
+    modifier: Modifier,
+    onPositionChange: ((ImagePosition) -> Unit)? = null,
+) {
+    if (custom == null) {
+        Box(
+            modifier.background(Brush.verticalGradient(listOf(Soft, ElymColors.portraitBase))),
+            contentAlignment = Alignment.Center,
+        ) {
+            Glyph(R.drawable.elym_person, color = ElymColors.onPortrait)
+        }
+        return
+    }
+    val sourceSize = IntSize(custom.width, custom.height)
+    val latestPosition by rememberUpdatedState(position)
+    val latestChange by rememberUpdatedState(onPositionChange)
+    val drag = if (onPositionChange == null) Modifier else {
+        var frame by remember { mutableStateOf(IntSize.Zero) }
+        val fitted = fittedImageSize(sourceSize, Size(frame.width.toFloat(), frame.height.toFloat()))
+        val overflowX = if (frame == IntSize.Zero) 0 else fitted.width - frame.width
+        val overflowY = if (frame == IntSize.Zero) 0 else fitted.height - frame.height
+        val left = stringResource(R.string.elym_crop_move_left)
+        val right = stringResource(R.string.elym_crop_move_right)
+        val up = stringResource(R.string.elym_crop_move_up)
+        val down = stringResource(R.string.elym_crop_move_down)
+        fun moveBy(x: Float, y: Float): Boolean {
+            val before = latestPosition
+            val after = before.moveCrop(x, y)
+            if (before == after) return false
+            latestChange?.invoke(after)
+            return true
+        }
+        Modifier.onSizeChanged { frame = it }.semantics {
+            customActions = buildList {
+                if (overflowX > 0) {
+                    add(CustomAccessibilityAction(left) { moveBy(0.1f, 0f) })
+                    add(CustomAccessibilityAction(right) { moveBy(-0.1f, 0f) })
+                }
+                if (overflowY > 0) {
+                    add(CustomAccessibilityAction(up) { moveBy(0f, 0.1f) })
+                    add(CustomAccessibilityAction(down) { moveBy(0f, -0.1f) })
+                }
+            }
+        }.then(if (overflowX > 0 || overflowY > 0) Modifier.pointerInput(overflowX, overflowY) {
+            var dragged = latestPosition
+            detectDragGestures(onDragStart = { dragged = latestPosition }) { change, amount ->
+                change.consume()
+                dragged = dragged.moveCrop(
+                    if (overflowX > 0) -amount.x / overflowX else 0f,
+                    if (overflowY > 0) -amount.y / overflowY else 0f,
+                )
+                latestChange?.invoke(dragged)
+            }
+        } else Modifier)
+    }
+    Canvas(modifier.then(drag).background(Soft)) {
+        val fitted = fittedImageSize(sourceSize, size)
+        drawImage(
+            custom, srcSize = sourceSize,
+            dstOffset = IntOffset(
+                ((size.width - fitted.width) * position.x).roundToInt(),
+                ((size.height - fitted.height) * position.y).roundToInt(),
+            ),
+            dstSize = fitted,
+        )
+    }
+}
+
+private fun ImagePosition.moveCrop(x: Float, y: Float) =
+    ImagePosition((this.x + x).coerceIn(0f, 1f), (this.y + y).coerceIn(0f, 1f))
+
+private fun fittedImageSize(source: IntSize, frame: Size): IntSize {
+    val scale = maxOf(frame.width / source.width, frame.height / source.height)
+    return IntSize(
+        (source.width * scale).roundToInt().coerceAtLeast(1),
+        (source.height * scale).roundToInt().coerceAtLeast(1),
+    )
+}
+
+@Composable
+internal fun Photo(uri: Uri, modifier: Modifier = Modifier) {
+    val bitmap = rememberBitmap(uri)
+    if (bitmap != null) Image(bitmap, stringResource(R.string.elym_attachment), modifier, contentScale = ContentScale.Fit)
+}
+
+@Composable
+internal fun rememberBitmap(uri: Uri?): ImageBitmap? {
+    val context = LocalContext.current
+    return key(uri, context) {
+        val bitmap by produceState<ImageBitmap?>(null) {
+            value = withContext(Dispatchers.IO) {
+                uri?.let {
+                    try {
+                        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                        context.contentResolver.openInputStream(it)?.use { stream -> BitmapFactory.decodeStream(stream, null, bounds) }
+                        val options = BitmapFactory.Options().apply {
+                            while (maxOf(bounds.outWidth, bounds.outHeight) / inSampleSize.coerceAtLeast(1) > 2048) {
+                                inSampleSize = inSampleSize.coerceAtLeast(1) * 2
+                            }
+                        }
+                        context.contentResolver.openInputStream(it)?.use { stream ->
+                            BitmapFactory.decodeStream(stream, null, options)?.asImageBitmap()
+                        }
+                    } catch (_: java.io.IOException) {
+                        null
+                    } catch (_: SecurityException) {
+                        null
+                    }
+                }
+            }
+        }
+        bitmap
+    }
+}
+
+internal fun issueLabel(issue: UiIssue): Int = when (issue) {
+    UiIssue.MainModelMissing -> R.string.elym_main_missing
+    UiIssue.VisionModelMissing -> R.string.elym_vision_missing
+    UiIssue.VisionCapabilityUnknown -> R.string.elym_vision_unknown
+    UiIssue.Authentication -> R.string.elym_auth_error
+    UiIssue.Connection -> R.string.elym_connection_error
+    UiIssue.ServiceResponse -> R.string.elym_service_response_error
+    UiIssue.ServiceRejected -> R.string.elym_service_rejected
+    UiIssue.ServiceProtocol -> R.string.elym_service_protocol_error
+    UiIssue.TimedOut -> R.string.elym_timed_out
+    UiIssue.Busy -> R.string.elym_busy
+    UiIssue.OwnedSessions -> R.string.elym_owned_sessions
+    UiIssue.InvalidInput -> R.string.elym_invalid_input
+    UiIssue.NoCheckpointBoundary -> R.string.elym_command_no_mark_boundary
+    UiIssue.Failed -> R.string.elym_failed
+}
+
+internal fun Modifier.semanticsLabel(label: String): Modifier = semantics { contentDescription = label }

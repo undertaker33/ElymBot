@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="elym_add_tag">添加标签</string>
+    <string name="elym_tag_name">标签名称</string>
+    <string name="elym_tag_with_prefix">#%1$s</string>
+    <string name="elym_tag_reserved">该名称已用于内置筛选</string>
+    <string name="elym_tag_separator">标签名称不能包含分隔符</string>
+    <string name="elym_delete_tag">删除标签</string>
+    <string name="elym_confirm_delete_tag">删除「%1$s」？</string>
+    <string name="elym_delete_tag_effect">该标签将从所有人格移除。</string>
+    <string name="elym_choose_tags">选择标签</string>
+    <string name="elym_search_tags">搜索标签</string>
+    <string name="elym_tags_selected_only">仅看已选</string>
+    <string name="elym_no_matching_tags">没有匹配的标签</string>
+    <plurals name="elym_tags_selected">
+        <item quantity="other">已选 %1$d 个标签</item>
+    </plurals>
+</resources>
