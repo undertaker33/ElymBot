@@ -5,6 +5,9 @@
 | [product/](product/) | 产品范围、功能盘点与用户决策 |
 | [architecture/](architecture/) | Minimal Core、插件边界与代码组织 |
 | [任务书模板](templates/任务书模板.md) | 用户确认目标、范围、行为和验收条件 |
+| [更新日志模板](templates/更新日志模板.md) | GitHub Release 说明 |
+| [PR 说明模板](templates/PR说明模板.md) | 改动摘要、验证结果与兼容性 |
+| [Feedback 模板](templates/Feedback模板.md) | 工作包实际结果与验收证据 |
 | `docs/work/` | 工作包目录。每项任务单独建目录，存放原任务书、Spec、Tasks、Checklist、Worker Prompt 和 Feedback。待归档的工作包仍放在这里，已归档的工作包放在 `docs/work/archive/`。 |
 | [工作包规则](rules/WorkPackageRules.md) | 拆包、实施、验证和归档规则 |
 | [当前上下文与工作包状态](Context-Index.md) | 当前源码入口、工作包状态和验收证据 |

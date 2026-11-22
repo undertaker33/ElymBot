@@ -1,18 +1,18 @@
 # ElymBot Minimal Core 设计
 
-ElymBot 在 Android 上独立运行。App 对话直接进入宿主，QQ 接入和定时任务分别由插件提交给同一个宿主 Agent。人格决定助手如何交流，应用确定会话归属并装配上下文，宿主 Agent 负责模型调用和工具执行。QQ 插件采用 D06 选定的组合。 [功能盘点及产品决策](../product/ElymBot-重构前功能盘点.md) · [本地 QQ 安装验证记录](C:/Users/93445/Desktop/ElymBot/验证/记录.md:68)
+ElymBot 在 Android 上独立运行。App 对话直接进入宿主，QQ 接入和定时任务分别由插件提交给同一个宿主 Agent。人格决定助手如何交流，应用确定会话归属并装配上下文，宿主 Agent 负责模型调用和工具执行。QQ 插件采用 D06 选定的组合。 [功能盘点及产品决策](../product/ElymBot-重构前功能盘点.md)
 
 ## 参考 Re-UthCode 的实现
 
 | 已核对的实现 | ElymBot 采用的部分 |
 | --- | --- |
-| `AgentTurnExecution.run_segment` 明确控制模型调用、工具批次和终止，工具批次有顺序与结果对应关系。 [循环实现](D:/project/Re-UthCode/src/uthcode/core/agent.py:1457)、[顺序及错误回填测试](D:/project/Re-UthCode/tests/test_agent_loop.py:975) | 一个顺序循环。根据模型的结构化输出回答或执行工具，每个工具调用都对应一条结果。保留取消、超时和轮次上限。 |
-| `ContextCompiler` 按预算选择内容，应用层把选取结果转换为消息和指令。 [上下文编译](D:/project/Re-UthCode/src/uthcode/core/context.py:1326)、[请求投影](D:/project/Re-UthCode/src/uthcode/application/context.py:1875) | 应用先选定会话、人格和模型，再按 Token 预算装配历史。消息越短，同一预算内可保留的完整对话轮次越多。 |
-| Re-UthCode 按上下文压力触发压缩，对已完成的历史分批摘要，每批提交后重建并重新估算请求。普通自动压缩在一次 Turn 中启动一次，单次可处理多个批次。 [触发与批次](D:/project/Re-UthCode/src/uthcode/application/generation.py:4455)、[重建与计量](D:/project/Re-UthCode/src/uthcode/application/generation.py:4391) | 沿用预算触发、分批摘要、校验后提交和重建请求。ElymBot 允许在同一用户轮次中的不同工具批次后再次触发，并可压缩本轮已完成的较早工具批次。 |
-| Re-UthCode 将原始对话和压缩后的 Timeline 分开，使用 `ActiveCheckpoint` 记录活跃轮次，并以检查点作为提交边界。 [检查点](D:/project/Re-UthCode/src/uthcode/core/history.py:391)、[提交边界](D:/project/Re-UthCode/src/uthcode/core/history.py:499) | 借用原始历史与模型上下文分离的思路。ElymBot 的用户检查点锚定会话内的完整轮次，回退时删除后续记录。 |
-| `ProviderPort` 定义模型调用边界，工具执行器负责工具参数，General 有自己的助手提示词。 [模型接口](D:/project/Re-UthCode/src/uthcode/core/provider.py:1355)、[工具执行](D:/project/Re-UthCode/src/uthcode/core/tool.py:472)、[General 提示词](D:/project/Re-UthCode/src/uthcode/prompt_assets/general_assistant.md) | Core 统一模型配置、文本与视觉协议及消息格式。默认人格面向日常助手，回应风格由当前人格定义。插件接口从实际插件所需能力逐步开放。 |
+| `AgentTurnExecution.run_segment` 明确控制模型调用、工具批次和终止，工具批次有顺序与结果对应关系。 循环实现、顺序及错误回填测试 | 一个顺序循环。根据模型的结构化输出回答或执行工具，每个工具调用都对应一条结果。保留取消、超时和轮次上限。 |
+| `ContextCompiler` 按预算选择内容，应用层把选取结果转换为消息和指令。 上下文编译、请求投影 | 应用先选定会话、人格和模型，再按 Token 预算装配历史。消息越短，同一预算内可保留的完整对话轮次越多。 |
+| Re-UthCode 按上下文压力触发压缩，对已完成的历史分批摘要，每批提交后重建并重新估算请求。普通自动压缩在一次 Turn 中启动一次，单次可处理多个批次。 触发与批次、重建与计量 | 沿用预算触发、分批摘要、校验后提交和重建请求。ElymBot 允许在同一用户轮次中的不同工具批次后再次触发，并可压缩本轮已完成的较早工具批次。 |
+| Re-UthCode 将原始对话和压缩后的 Timeline 分开，使用 `ActiveCheckpoint` 记录活跃轮次，并以检查点作为提交边界。 检查点、提交边界 | 借用原始历史与模型上下文分离的思路。ElymBot 的用户检查点锚定会话内的完整轮次，回退时删除后续记录。 |
+| `ProviderPort` 定义模型调用边界，工具执行器负责工具参数，General 有自己的助手提示词。 模型接口、工具执行、General 提示词 | Core 统一模型配置、文本与视觉协议及消息格式。默认人格面向日常助手，回应风格由当前人格定义。插件接口从实际插件所需能力逐步开放。 |
 
-旧版 ElymBot 已有模型调用和结果回填，App、QQ、定时任务也分别进入共用编排。这些链路用于核对新版的行为覆盖。ElymBot 的执行状态包含本轮输入、工具结果、压缩后的上下文、交付结果和结束原因。 [ElymBot 旧编排入口](C:/Users/93445/Desktop/Astrbot/ElymBot-Android-Native/feature/plugin/runtime/src/main/java/com/elymbot/android/feature/plugin/runtime/DefaultRuntimeLlmOrchestrator.kt:16)
+旧版 ElymBot 已有模型调用和结果回填，App、QQ、定时任务也分别进入共用编排。这些链路用于核对新版的行为覆盖。ElymBot 的执行状态包含本轮输入、工具结果、压缩后的上下文、交付结果和结束原因。 ElymBot 旧编排入口
 
 ## 运行边界
 
@@ -58,9 +58,9 @@ Core 管理服务连接、模型和能力。文本和视觉共用会话、人格
 ## 上下文压缩
 
 1. **每次调用前检查。** 宿主在首次请求前以及工具结果回填后重新计算 Token 占用。接近有效输入上限时开始压缩，目标是为接下来的一批工具结果和最终回复留出空间。若模型服务实际报上下文超限，重新装配并进行一次有界恢复。
-2. **先压缩已完成的历史。** 应用选出同一会话较早的完整轮次，只把这些材料发给摘要模型。有效摘要带上覆盖的消息范围，后续请求用摘要代替该范围的原文，最近的完整对话及原始会话记录继续保留。 [Re-UthCode 的完整历史选取](D:/project/Re-UthCode/src/uthcode/core/compaction.py:1107)
+2. **先压缩已完成的历史。** 应用选出同一会话较早的完整轮次，只把这些材料发给摘要模型。有效摘要带上覆盖的消息范围，后续请求用摘要代替该范围的原文，最近的完整对话及原始会话记录继续保留。 Re-UthCode 的完整历史选取
 3. **本轮工具结果也能压缩。** 本轮较早、调用和结果均已完成的工具批次可整体转换为观察摘要。保留已确认事实、来源链接或附件引用、视频时间戳、失败状态和待核对事项。最新结果和仍在处理的调用保留对应关系。将来接入论坛或视频平台时，每次读取可以带回新材料，累计达到预算后再次压缩并继续当前轮次。
-4. **用新请求验证压缩。** 应用提交摘要前检查覆盖范围，并用候选摘要装配一次请求，确认 Token 占用有实际下降。提交后使用新请求继续执行。每轮可多次压缩，受次数、用时与预算限制，同一批未变化的材料只尝试一次。失败或无降幅时保留上次有效摘要，从较旧的可选历史裁剪。若当前必要材料仍放不下，结束本次执行并说明限制。 [Re-UthCode 的降幅校验](D:/project/Re-UthCode/src/uthcode/application/context.py:608)
+4. **用新请求验证压缩。** 应用提交摘要前检查覆盖范围，并用候选摘要装配一次请求，确认 Token 占用有实际下降。提交后使用新请求继续执行。每轮可多次压缩，受次数、用时与预算限制，同一批未变化的材料只尝试一次。失败或无降幅时保留上次有效摘要，从较旧的可选历史裁剪。若当前必要材料仍放不下，结束本次执行并说明限制。 Re-UthCode 的降幅校验
 
 ## 定时任务插件
 

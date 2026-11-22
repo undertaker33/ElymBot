@@ -14,12 +14,12 @@
 
 ### 验证
 
-- 环境：Windows PowerShell，Gradle Wrapper 9.9.1；Android SDK 位于 `C:\Users\93445\AppData\Local\Android\Sdk`。只为命令设置临时 `ANDROID_HOME`，未创建或修改 `local.properties`。
+- 环境：Windows PowerShell，Gradle Wrapper 9.9.1，Android SDK Platform 37。
 - `.\gradlew.bat :app:compileDebugKotlin :app:compileDebugAndroidTestKotlin`：通过。Core 主源码、App Kotlin、Room KSP 及 Android 测试 Kotlin 均编译成功。
-- 首次设备定向运行：`.\gradlew.bat :app:connectedDebugAndroidTest '-Pandroid.testInstrumentationRunnerArguments.class=com.elymbot.android.data.ElymBotStorageTest'`。设备为 MEIZU 20 Pro / Android 16，序列号 `391QYGCM225VG`。共运行 13 项，11 项通过、2 项断言失败，报告为 `app/build/outputs/androidTest-results/connected/debug/TEST-MEIZU 20 Pro - 16.xml`。
+- 首次设备定向运行：`.\gradlew.bat :app:connectedDebugAndroidTest '-Pandroid.testInstrumentationRunnerArguments.class=com.elymbot.android.data.ElymBotStorageTest'`。设备为 MEIZU 20 Pro / Android 16。共运行 13 项，11 项通过、2 项断言失败。
 - 通过的 11 项：重试复用用户消息及未读状态、认证错误映射、迟到 attempt 过滤、目标清理及路径往返、HistoryRead 范围/游标/分页、双会话并行与取消隔离、摘要覆盖校验、回退删尾与历史不可读、初始化种子、会话上界和反馈过滤、人格图位置与凭据重启持久化。
 - 首次失败的两处均为测试预期：批量删除测试在尚未删除人格时错误断言人格数为 8（种子数为 9）；空专属会话在首条消息前不进入列表，符合设计中的“首条消息入列”。已把计数断言更正为 9，并调整会话归属测试为先经会话服务完成首条消息再核对按人格列出；这两项修正尚未获得设备复验。
-- 更新后的最新 APK 已由 `:app:connectedDebugAndroidTest` 构建和打包，但 Gradle runner 使用 streamed install 时收到 `INSTALL_FAILED_USER_RESTRICTED`，未运行测试。随后普通安装方式成功安装目标 `app-debug.apk`；对最新 `app-debug-androidTest.apk` 执行 `adb -s 391QYGCM225VG install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk` 仍收到 `INSTALL_FAILED_USER_RESTRICTED`。设备需用户放行安装限制后再执行定向测试。未卸载或清除数据，未绕过设备授权。
+- 更新后的最新 APK 已由 `:app:connectedDebugAndroidTest` 构建和打包，但 Gradle runner 使用 streamed install 时收到 `INSTALL_FAILED_USER_RESTRICTED`，未运行测试。随后普通安装方式成功安装目标 `app-debug.apk`；对最新 `app-debug-androidTest.apk` 执行 `adb install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk` 仍收到 `INSTALL_FAILED_USER_RESTRICTED`。设备安装限制阻止定向测试；未卸载或清除数据，也未绕过设备授权。
 
 Checklist 的 T01.05 项目仍待更新后设备测试复验。
 
@@ -56,8 +56,8 @@ Checklist 的 T01.05 项目仍待更新后设备测试复验。
 ### 复验
 
 - `:app:assembleAcceptance :app:assembleAcceptanceAndroidTest :app:assembleDebug` 构建通过。中间构建的 acceptance 测试包安装曾被设备拒绝 `INSTALL_FAILED_USER_RESTRICTED`；没有重试或修改设备设置。随后恢复标准 debug 测试入口。
-- 标准 debug 产物命令 `:app:assembleDebug :app:assembleDebugAndroidTest` 通过。MEIZU 20 Pro / Android 16（序列号 `391QYGCM225VG`）用普通 `adb install -r` 安装 `app/build/outputs/apk/debug/app-debug.apk` 和 `app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk` 均返回 `Success`。
-- 设备操作：`adb -s 391QYGCM225VG shell am instrument -w -e class 'com.elymbot.android.MainActivityIntegrationTest,com.elymbot.android.AppSessionIntegrationTest,com.elymbot.android.data.ElymBotStorageTest' com.elymbot.android.debug.test/androidx.test.runner.AndroidJUnitRunner`。instrumentation 总计 25 项、2 项 Compose 层级发现失败；`ElymBotStorageTest` 全部 23/23 通过，包含本轮新增的空库、凭据快照、停止竞态和最新人格测试。此前凭据用例失败来自测试把临时连接 ID 交给另一个 Provider 实例；现已让服务和 Gateway 共用同一 Provider 并通过设备复验。
+- 标准 debug 产物命令 `:app:assembleDebug :app:assembleDebugAndroidTest` 通过。MEIZU 20 Pro / Android 16 用普通 `adb install -r` 安装 `app/build/outputs/apk/debug/app-debug.apk` 和 `app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk` 均返回 `Success`。
+- 设备操作：`adb shell am instrument -w -e class 'com.elymbot.android.MainActivityIntegrationTest,com.elymbot.android.AppSessionIntegrationTest,com.elymbot.android.data.ElymBotStorageTest' com.elymbot.android.debug.test/androidx.test.runner.AndroidJUnitRunner`。instrumentation 总计 25 项、2 项 Compose 层级发现失败；`ElymBotStorageTest` 全部 23/23 通过，包含本轮新增的空库、凭据快照、停止竞态和最新人格测试。此前凭据用例失败来自测试把临时连接 ID 交给另一个 Provider 实例；现已让服务和 Gateway 共用同一 Provider 并通过设备复验。
 - 本轮结果由 instrumentation 终端输出记录，未生成匹配的 XML。当前工作区的 `app/build/outputs/androidTest-results/connected/debug/TEST-MEIZU 20 Pro - 16.xml` 是旧的空报告（0 项），不作为本轮证据引用。中间 acceptance 测试包安装曾被设备拒绝 `INSTALL_FAILED_USER_RESTRICTED`；随后标准 debug APK 与测试 APK 安装、定向运行均成功。
 - 同窗口另外两项 Compose 入口测试失败为 `No compose hierarchies found`，不属于 `ElymBotStorageTest`；交 W01 继续诊断。本轮不据此勾选正式入口或 UI 项。
 
@@ -73,8 +73,8 @@ Checklist 未修改。T01.05/T01.06 的存储服务测试覆盖已更新，但�
 
 ### 真机定向复验
 
-- W01 在 W04 源码冻结后通过 `:app:assembleDebug :app:assembleDebugAndroidTest` 构建并将两个 APK 更新至 MEIZU 20 Pro（Android 16，`391QYGCM225VG`），详见 [W01 无内置预设 APK 与最终合成复验](W01-总控与集成-feedback.md#无内置预设-apk-与最终合成复验)。
-- 在该设备运行 `adb -s 391QYGCM225VG shell am instrument -w -e class 'com.elymbot.android.data.ElymBotStorageTest#diskRestartPreservesSessionHistoryModelsCommandsAndPersonaImagesThenReusesCheckpointNumber' com.elymbot.android.debug.test/androidx.test.runner.AndroidJUnitRunner`，返回 `OK (1 test)`，耗时 0.424 秒。该结果覆盖扩展后的磁盘重开、主会话回退和重新建点。早前同机 23/23 执行后，W04 对存储测试只扩展了这一用例。
+- W01 在 W04 源码冻结后通过 `:app:assembleDebug :app:assembleDebugAndroidTest` 构建并将两个 APK 更新至 MEIZU 20 Pro（Android 16），详见 [W01 无内置预设 APK 与最终合成复验](W01-总控与集成-feedback.md#无内置预设-apk-与最终合成复验)。
+- 在该设备运行 `adb shell am instrument -w -e class 'com.elymbot.android.data.ElymBotStorageTest#diskRestartPreservesSessionHistoryModelsCommandsAndPersonaImagesThenReusesCheckpointNumber' com.elymbot.android.debug.test/androidx.test.runner.AndroidJUnitRunner`，返回 `OK (1 test)`，耗时 0.424 秒。该结果覆盖扩展后的磁盘重开、主会话回退和重新建点。早前同机 23/23 执行后，W04 对存储测试只扩展了这一用例。
 
 ## 2026-11-14 检查点界面服务接线
 
@@ -87,33 +87,33 @@ Checklist 未修改。T01.05/T01.06 的存储服务测试覆盖已更新，但�
 
 ### 验证
 
-- 静态核对本次差异；`git diff --check` 通过，Feedback 严格 UTF-8 读取通过，本地链接 1/1 可达，代码围栏配对（0 组）。Git 仅提示工作区 LF 将在后续操作时转为 CRLF。
+- 静态核对本次差异；`git diff --check` 通过，Feedback 严格 UTF-8 读取通过，仓库内链接 1/1 可达，代码围栏配对（0 组）。Git 仅提示工作区 LF 将在后续操作时转为 CRLF。
 - 本轮未运行 Gradle、仪器测试或设备操作；新测试待 W01 统一构建并由验收负责人执行。编译及运行结果以该次统一验收记录为准。
 
 #### 真机定向复验
 
-- 2026-11-14（北京时间），在 MEIZU 20 Pro（Android 16，序列号 `391QYGCM225VG`）已安装的 `com.elymbot.android.debug.test` 上运行 `adb -s 391QYGCM225VG shell am instrument -w -e class 'com.elymbot.android.data.ElymBotStorageTest#typedCheckpointApiListsRetainedHistoryRestoresAndBlocksMutationsWhileGenerating' com.elymbot.android.debug.test/androidx.test.runner.AndroidJUnitRunner`，返回 `OK (1 test)`，耗时 0.297 秒。
+- 2026-11-14（北京时间），在 MEIZU 20 Pro（Android 16）已安装的 `com.elymbot.android.debug.test` 上运行 `adb shell am instrument -w -e class 'com.elymbot.android.data.ElymBotStorageTest#typedCheckpointApiListsRetainedHistoryRestoresAndBlocksMutationsWhileGenerating' com.elymbot.android.debug.test/androidx.test.runner.AndroidJUnitRunner`，返回 `OK (1 test)`，耗时 0.297 秒。
 - 用例使用 Android 仪器环境和内存型 Room fixture，覆盖 API 检查点的固定空点、保留消息计数、当前点、回退回执、编号复用及生成中拒绝变更；没有访问 `.debug` 用户数据库、模型配置或凭据。此次运行未重建 APK，也未改设备设置。
 
 ## 2026-11-14 非流式视觉与 HistoryRead 组合增量
 
 ### 实际改动
 
-- `ElymBotStorageTest.nonStreamingVisionRoutesDirectAndThroughConfiguredFallback` 使用内存型 Room、独立的临时模型分配和本机合成 OpenAI 兼容端点。第一轮配置主 Text 模型视觉支持并验证图片直达；第二轮将主模型视觉状态改为不支持，沿已配置 Vision 模型转述，再将描述送回主 Text 模型。请求断言覆盖模型顺序、`stream=false`、图片数据 URI 和转述请求不再附带图片。
+- `ElymBotStorageTest.nonStreamingVisionRoutesDirectAndThroughConfiguredFallback` 使用内存型 Room、独立的临时模型分配和进程内合成 OpenAI 兼容端点。第一轮配置主 Text 模型视觉支持并验证图片直达；第二轮将主模型视觉状态改为不支持，沿已配置 Vision 模型转述，再将描述送回主 Text 模型。请求断言覆盖模型顺序、`stream=false`、图片数据 URI 和转述请求不再附带图片。
 - `ElymBotStorageTest.historyReadCanReachCompressedTurnsPersistsFeedbackAndRollbackRemovesLaterHistory` 在内存型 Room 写入八轮合成历史及检查点后的哨兵，以 ReAct 与 RoomHistoryStore 编译并持久化压缩摘要。同一模型响应批次请求合法和缺少 `toTurn` 的 HistoryRead，断言工具结果按原 `call_id` 回填、压缩前历史仍可回读、失败文本持久化为 `FEEDBACK`，且后续助手答复保存为 `HISTORY`。回退后再次执行 HistoryRead，断言检查点后的哨兵不可见。
 - 两个用例不读取或修改 `.debug` 的用户模型分配、会话或凭据；视觉用例仅使用生成并在 `finally` 删除的 2×2 PNG。HistoryRead 用例仅使用内存型 Room 和脚本化 `ModelGateway`。
 
 ### 构建与设备状态
 
-- 环境：Windows PowerShell、Gradle Wrapper 9.9.1。只为 Gradle 命令临时设置 `ANDROID_HOME` 和 `ANDROID_SDK_ROOT`。MEIZU 20 Pro / Android 16 序列号 `391QYGCM225VG` 用于安装限制诊断；最终仪器测试在总控交接的隔离 MuMu Android 15 实例（型号 `ABR-AL80`，序列号 `127.0.0.1:16416`）执行。
+- 环境：Windows PowerShell、Gradle Wrapper 9.9.1。MEIZU 20 Pro / Android 16 用于安装限制诊断；最终仪器测试在隔离 MuMu Android 15 实例执行。
 - 最终视觉能力状态已核对为主模型 `model-text` 首轮 `VISION=SUPPORTED`、`NATIVE_STREAMING=UNSUPPORTED`；切换后主模型 `VISION=UNSUPPORTED`，Vision assignment 指向 `model-vision`，其 `VISION=SUPPORTED`、`NATIVE_STREAMING=UNSUPPORTED`。最终代码断言端点请求依次为 `model-text`、`model-vision`、`model-text`。
 - Gradle `connectedDebugAndroidTest` 在 MEIZU 上试图自动卸载 `.debug` 和 `.debug.test`，日志分别返回 `DELETE_FAILED_INTERNAL_ERROR`；随后只读包列表未发现这两个包，基础 `com.elymbot.android` 仍在。未运行 `pm clear`、未改系统限制。总控授权恢复 `.debug` 后，MEIZU 上普通 `adb install -r app-debug.apk` 返回 `Success`；恢复前包路径缺失，因此不能确认该包原私有数据是否保留。基础包未触碰。
 - MEIZU 上测试 APK 普通 `adb install -r app-debug-androidTest.apk` 与一次 `adb install -r -t app-debug-androidTest.apk` 均返回 `INSTALL_FAILED_USER_RESTRICTED`。`aapt` 未在测试 APK Manifest 发现 `android:testOnly` 标记；未发现 PackageInstaller 确认 Activity，包管理器筛选日志没有可脱敏的拒绝原因。MEIZU 最终保留 `.debug`、没有 `.debug.test`；后续仪器测试全部改在隔离 MuMu 序列上进行。
-- 只读 MuMuManager 6.8.8.0 帮助和 `info --vmindex all` 显示现存用户实例为 index 0、Android 15 且未启动；总控另行交接的测试实例为 `127.0.0.1:16416`。安装前该测试序列没有 `.debug` 和 `.debug.test` 包。仅在此序列用普通 `adb install -r` 安装 debug 与 androidTest APK，均返回 `Success`；之后只更新测试 APK，不接触 MEIZU 或 MuMu index 0。
+- 隔离 MuMu Android 15 测试实例安装前没有 `.debug` 和 `.debug.test` 包。普通 `adb install -r` 安装 debug 与 androidTest APK 均返回 `Success`；之后只更新测试 APK。
 - 最终 `:app:assembleDebugAndroidTest` 通过，AndroidTest Kotlin、Dex 与 APK 打包成功；包含本节两个 W04 用例及当时冻结的 W05 测试源码。最后一次该构建也成功编译 W05 新增的 stop 测试；该 stop 测试本轮没有执行。
 - 初次视觉试跑使用 `Fixture.service()` 默认假 `AgentRuntime`，断言得到 `reply`，未证明模型适配器。修正为 `ReActAgentRuntime + ContextCompiler + OpenAiCompatibleModelGateway` 后，在 MuMu 定向运行 `nonStreamingVisionRoutesDirectAndThroughConfiguredFallback`，通过；同批的早期 HistoryRead 方法失败，不能把该批总体记为通过。
 - HistoryRead 首次有诊断的 MuMu 运行得到终态 `CONTEXT_LIMIT`，`responseRequests=1`、`summaryRequests=3`、`summaryRows=1`，已写入 `HISTORY,FEEDBACK,HISTORY`。缩短 turn 1 合成文本后该终态问题消失；随后检查发现编译器为满足请求上限移除了已持久化摘要。最终将测试上下文窗口调至 3000、压缩触发比例调至 0.4，并保留其他较长历史轮次，使摘要出现在模型请求中。
-- 最终执行 `adb -s 127.0.0.1:16416 shell am instrument -w -e class 'com.elymbot.android.data.ElymBotStorageTest#historyReadCanReachCompressedTurnsPersistsFeedbackAndRollbackRemovesLaterHistory' com.elymbot.android.debug.test/androidx.test.runner.AndroidJUnitRunner`，返回 `OK (1 test)`，耗时 0.396 秒。用例证明模型请求拿到压缩摘要；同批合法 HistoryRead 读取摘要覆盖范围中的原始 marker，缺少 `toTurn` 的调用按原 call ID 回填拒绝结果，`FEEDBACK` 文本先于最终 assistant `HISTORY` 保存。回退后第二次真实 App service 请求仍读到保留 turn 1；读取被删的 turn 9 返回空记录且无哨兵。
+- 最终执行 `adb shell am instrument -w -e class 'com.elymbot.android.data.ElymBotStorageTest#historyReadCanReachCompressedTurnsPersistsFeedbackAndRollbackRemovesLaterHistory' com.elymbot.android.debug.test/androidx.test.runner.AndroidJUnitRunner`，返回 `OK (1 test)`，耗时 0.396 秒。用例证明模型请求拿到压缩摘要；同批合法 HistoryRead 读取摘要覆盖范围中的原始 marker，缺少 `toTurn` 的调用按原 call ID 回填拒绝结果，`FEEDBACK` 文本先于最终 assistant `HISTORY` 保存。回退后第二次真实 App service 请求仍读到保留 turn 1；读取被删的 turn 9 返回空记录且无哨兵。
 - 本轮没有从用户配置的 MEIZU App 模型设置页读取模型 ID 或既有探测状态；未触发真实服务网络请求，也未打开密钥编辑界面。Checklist 的 T01.08 保持未勾选。
 
 ## 2026-11-15 检查点确认防陈旧状态
@@ -140,7 +140,7 @@ Checklist 未修改。T01.05/T01.06 的存储服务测试覆盖已更新，但�
 ### 验证
 
 - Windows PowerShell，Gradle Wrapper 9.9.1：`.\gradlew.bat :app:assembleDebug :app:assembleDebugAndroidTest --console=plain --quiet`，通过。
-- 使用 MuMu `ElymBot-T01-Clean`（ABR-AL80，Android 15/API 35，`127.0.0.1:16416`）安装同批 debug 与 AndroidTest APK，运行 `ElymBotUiIntegrationTest#savingAnUnchangedModelServiceKeepsItsApiKey`、`ElymBotStorageTest#savingModelServicePreservesAndInvalidatesProbeCacheWithCredentialIdentity`、`ElymBotStorageTest#modelServiceUrlAndCredentialUpdatesStayAtomicAcrossSnapshotsAndDrafts`，结果 `OK (3 tests)`，耗时 3.593 秒。debug APK SHA-256 前缀 `F04499BDB9AA`。仅使用隔离 Room 数据和合成凭据；未访问已配置的真实模型服务或用户数据库。
+- 在 MuMu（Android 15/API 35）安装同批 debug 与 AndroidTest APK，运行 `ElymBotUiIntegrationTest#savingAnUnchangedModelServiceKeepsItsApiKey`、`ElymBotStorageTest#savingModelServicePreservesAndInvalidatesProbeCacheWithCredentialIdentity`、`ElymBotStorageTest#modelServiceUrlAndCredentialUpdatesStayAtomicAcrossSnapshotsAndDrafts`，结果 `OK (3 tests)`，耗时 3.593 秒。debug APK SHA-256 前缀 `F04499BDB9AA`。仅使用隔离 Room 数据和合成凭据；未访问已配置的真实模型服务或用户数据库。
 - W05 的界面回归与本节 W04 数据回归共用该次构建和 MuMu 测试证据，完整命令见 [W05 Feedback](W05-Android界面-feedback.md#保存模型服务后的-api-key)。
 
 ## 2026-11-15 首次图片发送的视觉路由复验
@@ -155,8 +155,8 @@ Checklist 未修改。T01.05/T01.06 的存储服务测试覆盖已更新，但�
 ### 构建与定向设备验证
 
 - Windows PowerShell，Gradle Wrapper 9.9.1：`.\gradlew.bat :app:assembleDebug :app:assembleDebugAndroidTest :core:test --continue --console=plain --quiet`，App、AndroidTest APK 和 Core 测试通过；Core 模型适配测试 XML 报告 23 项、0 failures、0 errors。
-- MuMu `ElymBot-T01-Clean`（ABR-AL80，Android 15/API 35，`127.0.0.1:16416`）安装同批 APK 后运行：`adb -s 127.0.0.1:16416 shell am instrument -w -e class 'com.elymbot.android.ElymBotUiIntegrationTest#savingAnUnchangedModelServiceKeepsItsApiKey,com.elymbot.android.data.ElymBotStorageTest#nonStreamingVisionRoutesDirectAndThroughConfiguredFallback,com.elymbot.android.data.ElymBotStorageTest#transientPrimaryVisionProbeFailureDoesNotUseFallbackModel' com.elymbot.android.debug.test/androidx.test.runner.AndroidJUnitRunner`，结果 `OK (3 tests)`，耗时 3.759 秒。
-- debug APK SHA-256：`DEC51C34945EC82F48928675046BCB6522A96071928DFC4D82AE6758B912C7CC`；AndroidTest APK SHA-256：`B40529BAF8E0F68E385CE65FDEE999711E3D7A4A8AA847A501F37D2940001F61`。仪器用例只使用隔离 Room fixture、生成 PNG、合成 Key 和本机模拟端点；没有读取用户数据库或连接真实模型服务。
+- MuMu（Android 15/API 35）安装同批 APK 后运行：`adb shell am instrument -w -e class 'com.elymbot.android.ElymBotUiIntegrationTest#savingAnUnchangedModelServiceKeepsItsApiKey,com.elymbot.android.data.ElymBotStorageTest#nonStreamingVisionRoutesDirectAndThroughConfiguredFallback,com.elymbot.android.data.ElymBotStorageTest#transientPrimaryVisionProbeFailureDoesNotUseFallbackModel' com.elymbot.android.debug.test/androidx.test.runner.AndroidJUnitRunner`，结果 `OK (3 tests)`，耗时 3.759 秒。
+- debug APK SHA-256：`DEC51C34945EC82F48928675046BCB6522A96071928DFC4D82AE6758B912C7CC`；AndroidTest APK SHA-256：`B40529BAF8E0F68E385CE65FDEE999711E3D7A4A8AA847A501F37D2940001F61`。仪器用例只使用隔离 Room fixture、生成 PNG、合成 Key 和进程内模拟端点；没有读取用户数据库或连接真实模型服务。
 
 ## 2026-11-16 用户纠正：人格标签目录与编辑选择
 
@@ -228,5 +228,5 @@ Checklist 未修改。T01.05/T01.06 的存储服务测试覆盖已更新，但�
 ### 验证
 
 - 静态比对基线与拆分后的 Room 声明：29 项声明全部一一对应且文本一致。
-- Windows PowerShell，`ANDROID_HOME=C:\Users\93445\AppData\Local\Android\Sdk`，Gradle Wrapper 9.9.1：`gradlew.bat :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest -Pkotlin.compiler.execution.strategy=in-process --console=plain`。App 与 androidTest APK 构建成功；`testDebugUnitTest` 为 `NO-SOURCE`。APK 指纹前缀分别为 `71AE9C7DE403` 和 `FA768040488F`。
-- 在 MuMu index 1（Android 15/API 35，`127.0.0.1:16416`）安装对应 debug 与 androidTest APK 后，定向 Android instrumentation 共 8 项全部通过，耗时 19.656 秒。覆盖模型服务 URL 与凭据快照原子性、视觉直达与配置回退路由。终端证据：`C:\Users\93445\Documents\Codex\ElymBot-W05-2026-11-17\config-settings-instrumentation.txt`。
+- Windows PowerShell，Gradle Wrapper 9.9.1：`gradlew.bat :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest -Pkotlin.compiler.execution.strategy=in-process --console=plain`。App 与 androidTest APK 构建成功；`testDebugUnitTest` 为 `NO-SOURCE`。APK 指纹前缀分别为 `71AE9C7DE403` 和 `FA768040488F`。
+- 在 MuMu（Android 15/API 35）安装对应 debug 与 androidTest APK 后，定向 Android instrumentation 共 8 项全部通过，耗时 19.656 秒。覆盖模型服务 URL 与凭据快照原子性、视觉直达与配置回退路由。

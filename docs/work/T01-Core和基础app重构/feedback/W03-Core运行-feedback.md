@@ -14,7 +14,7 @@
 
 ### 验证
 
-- 环境：Windows 11，PowerShell，JDK 17.0.17，Gradle Wrapper 9.9.1，Kotlin 2.4.21；工作区 `C:\Users\93445\Desktop\ElymBot`。未组装 APK、未使用设备。
+- 环境：Windows 11，PowerShell，JDK 17.0.17，Gradle Wrapper 9.9.1，Kotlin 2.4.21。未组装 APK、未使用设备。
 - `.\gradlew.bat :core:compileKotlin`：通过。
 - `.\gradlew.bat :core:test --tests com.elymbot.core.context.ContextCompilerTest`：通过。5 项覆盖完整轮次与上界过滤、旧轮次摘要和覆盖范围、已有摘要 ID 替换、摘要失败保留已存摘要、完整材料超出硬预算受控失败，以及新增工具批次造成后续上下文重新触发压缩。
 - 合成摘要模型与内存 HistoryReader/HistorySummaryStore 用于验证；未连接实际模型服务或 Room。

@@ -45,7 +45,7 @@
 
 导入文件先写入 App 私有目录，数据库提交引用后才成为有效附件。回退事务先删引用，提交后清理无引用私有文件；清理中断时可从有效引用重算孤儿文件。用户相册原件由系统相册管理。文件访问和历史读取均以有效记录为入口。
 
-参考旧 ElymBot 的 [消息实体与顺序](C:/Users/93445/Desktop/Astrbot/ElymBot-Android-Native/core/db/src/main/java/com/elymbot/android/data/db/conversation/ConversationMessageEntity.kt#L23)、[聚合写入](C:/Users/93445/Desktop/Astrbot/ElymBot-Android-Native/core/db/src/main/java/com/elymbot/android/data/db/conversation/ConversationAggregateDao.kt#L40)、[会话仓储](C:/Users/93445/Desktop/Astrbot/ElymBot-Android-Native/feature/conversation/data/src/main/java/com/elymbot/android/feature/conversation/data/FeatureConversationRepository.kt#L227)和[封面保存顺序](C:/Users/93445/Desktop/Astrbot/ElymBot-Android-Native/feature/persona/data/src/main/java/com/elymbot/android/feature/persona/data/PersonaCoverAssetManager.kt#L53)。T01 使用按轮增写和按边界删尾。 [Room 官方指南](https://developer.android.com/training/data-storage/room) · [Android Keystore](https://developer.android.com/privacy-and-security/keystore)
+旧 ElymBot 参考实现：消息实体与顺序（`core/db/src/main/java/com/elymbot/android/data/db/conversation/ConversationMessageEntity.kt#L23`）、聚合写入（`core/db/src/main/java/com/elymbot/android/data/db/conversation/ConversationAggregateDao.kt#L40`）、会话仓储（`feature/conversation/data/src/main/java/com/elymbot/android/feature/conversation/data/FeatureConversationRepository.kt#L227`）和封面保存顺序（`feature/persona/data/src/main/java/com/elymbot/android/feature/persona/data/PersonaCoverAssetManager.kt#L53`）。T01 使用按轮增写和按边界删尾。 [Room 官方指南](https://developer.android.com/training/data-storage/room) · [Android Keystore](https://developer.android.com/privacy-and-security/keystore)
 
 ## 4. 指令与检查点事务
 
@@ -55,7 +55,7 @@
 - 回到 1 后当前会话、人格及模型设置继续可用，其他会话保持各自的历史、摘要和检查点。删除结果提交后再显示简短回执。下一次建点可复用显示编号，内部 ID 和轮次序号继续使用稳定标识。
 - 例子。点 2 锚定 A、B，点 3 锚定 A、B、C、D。回到 2 后，C、D、旧点 3 和覆盖 C 或 D 的摘要一起移除。聊 E、F 后建的新点 3 对应 A、B、E、F。选择空点 1 删除其后的全部对话。
 
-参考 Re-UthCode 的 [稳定 transcript 范围](D:/project/Re-UthCode/src/uthcode/core/history.py#L302)、[提交边界](D:/project/Re-UthCode/src/uthcode/core/history.py#L499)和[指令解析](D:/project/Re-UthCode/src/uthcode/application/commands/parser.py#L32)。其 ActiveCheckpoint 用于摘要提交。T01 的检查点是用户可选的会话删除边界，删除由 App 落盘。
+参考 Re-UthCode `src/uthcode/core/history.py#L302` 的稳定 transcript 范围、`src/uthcode/core/history.py#L499` 的提交边界及 `src/uthcode/application/commands/parser.py#L32` 的指令解析。其 ActiveCheckpoint 用于摘要提交。T01 的检查点是用户可选的会话删除边界，删除由 App 落盘。
 
 ## 5. 上下文、压缩和 HistoryRead
 
@@ -75,7 +75,7 @@
 4. 重装并再次检查预算。不同工具批次后允许再触发，同一份未变化材料只尝试一次，整轮受时间与压缩次数上限控制。摘要失败或没有降幅时保留之前的有效摘要，先从最旧的可选历史裁剪。必要材料仍超限则结束并提示。原始历史由 Room 保留，裁剪和摘要只改变模型请求。
 5. 初始调参建议集中在 Core，使用可注入预算做验收。建议以输入预算约八成触发压缩，保留最近两个完整轮次，每轮最多三次摘要，压缩与模型续轮共用轮次总时限。实现阶段按定向测试确定具体值。
 
-参考 Re-UthCode 的 [预算解析](D:/project/Re-UthCode/src/uthcode/core/context.py#L795)、[ContextCompiler](D:/project/Re-UthCode/src/uthcode/core/context.py#L1326)、[完整轮次选取](D:/project/Re-UthCode/src/uthcode/core/compaction.py#L1107)、[压缩后重装请求](D:/project/Re-UthCode/src/uthcode/application/generation.py#L4391)和[候选降幅校验](D:/project/Re-UthCode/src/uthcode/application/context.py#L608)。旧 ElymBot 的 [历史窗口](C:/Users/93445/Desktop/Astrbot/ElymBot-Android-Native/core/runtime-context/src/main/java/com/elymbot/android/core/runtime/context/RuntimeContextResolver.kt#L161)可用来核对现状。T01 预算按本次输入计量。
+参考 Re-UthCode `src/uthcode/core/context.py#L795` 的预算解析、`src/uthcode/core/context.py#L1326` 的 ContextCompiler、`src/uthcode/core/compaction.py#L1107` 的完整轮次选取、`src/uthcode/application/generation.py#L4391` 的压缩后重装请求和 `src/uthcode/application/context.py#L608` 的候选降幅校验。旧 ElymBot `core/runtime-context/src/main/java/com/elymbot/android/core/runtime/context/RuntimeContextResolver.kt#L161` 的历史窗口可用来核对现状。T01 预算按本次输入计量。
 
 ### 5.3 HistoryRead
 
@@ -100,21 +100,21 @@
 
 轮次内只有 Agent 写执行状态。模型适配器负责读取协议，工具返回值和 App 动作通过事件传递。工具批次只有完整接收并确认响应终止后才可运行。未知工具、无权限、参数不合法和普通执行失败分别返回受控结果。仍有后续调用时保留原顺序，取消停止后续执行。失败和拒绝也回填一个与调用对应的结果。首版可先按最多 8 次主模型调用、16 次工具调用、单次工具读取 10 秒和整轮 180 秒作为定向验收的建议默认值，测试通过注入较小上限验证退出。工具阶段的简短反馈由助手身份显示在原型气泡里。最终回复、执行失败、取消和超时都有可观测状态。
 
-参考 Re-UthCode 的 [即时文本投影](D:/project/Re-UthCode/src/uthcode/core/agent.py#L2257)、[顺序工具执行](D:/project/Re-UthCode/src/uthcode/core/agent.py#L2834)、[工具反馈](D:/project/Re-UthCode/src/uthcode/core/agent.py#L3207)和[结果回填](D:/project/Re-UthCode/src/uthcode/core/agent.py#L3276)。
+参考 Re-UthCode `src/uthcode/core/agent.py#L2257` 的即时文本投影、`src/uthcode/core/agent.py#L2834` 的顺序工具执行、`src/uthcode/core/agent.py#L3207` 的工具反馈和 `src/uthcode/core/agent.py#L3276` 的结果回填。
 
 ### 6.2 适配、探测与图片
 
 - 使用同一个 OpenAI 兼容适配器调用 `GET /models` 和 `POST /chat/completions`。模型 ID 可手填。连接、认证和接口响应错误分别映射为可展示状态。主模型、视觉模型各引用具体服务和模型。
 - 三项探测分别用简短文本、带已知内容的测试图片、开启流式的短文本。流式成功需要有效 SSE 文本增量与有效终止。普通 JSON 或服务明确报告不支持时记录对应能力；认证、限额、网络、异常响应和截断记作未确认。内部保留结构化工具能力状态，以所选模型的已知能力或可控的结构化调用探针确定，界面验收仍是三项。普通对话在工具能力未确认时可用，HistoryRead 验收用已验证支持结构化工具的模型。
 - 主模型支持图片就将用户文字和图片交给它。明确不支持时才调用所配视觉模型，带当前图片和用于转述的简短指令，生成描述后同本轮用户问题交主模型。转述走有限时的独立请求，显示最终答复的仍是主模型。模型能力未知时提示完成视觉探测或根据实际的明确能力拒绝判断，认证及普通网络错误保持原错误。缺少视觉路由时给配置提示。
-- 模型配置与视觉转述的参考实现见原型、旧 ElymBot 和 Re-UthCode。 [原型模型配置和探测](ElymBot_高保真原型.html#L1223) · [旧 ElymBot 视觉转述](C:/Users/93445/Desktop/Astrbot/ElymBot-Android-Native/app/src/main/java/com/elymbot/android/core/runtime/llm/ChatCompletionService.kt#L510) · [Re-UthCode 兼容适配器](D:/project/Re-UthCode/src/uthcode/integrations/providers/openai_compat.py#L428)
+- 模型配置与视觉转述的参考实现见原型、旧 ElymBot 和 Re-UthCode：原型 `ElymBot_高保真原型.html#L1223`，旧 ElymBot `app/src/main/java/com/elymbot/android/core/runtime/llm/ChatCompletionService.kt#L510`，Re-UthCode `src/uthcode/integrations/providers/openai_compat.py#L428`。
 
 ### 6.3 SSE 与 Compose
 
 - 已支持的模型发送 `stream: true`。适配器从响应体逐帧解码 UTF-8，根据空行切分 SSE 事件，合并同一帧的多个 `data:` 行。忽略注释和仅计费事件。正文增量保持原空格和换行，收到即可交给 Core。分别处理正文、工具增量和终止原因。 [SSE 解析规范](https://html.spec.whatwg.org/multipage/server-sent-events.html#parsing-an-event-stream) · [Chat Completions 流式事件](https://developers.openai.com/api/reference/resources/chat/subresources/completions/streaming-events)
 - 工具增量按调用 `index` 累积，关联收到的 ID，按片拼接参数字符串。响应终止后校验调用结构。缺失 ID、重复 ID 或截断的批次作为协议错误处理。可定位到调用 ID 的参数错误返回对应工具结果。提前 EOF 或有错误事件时将当前请求标为中断。允许正常结束事件加 `[DONE]`，或已经收到明确结束事件后正常 EOF。输出达到模型上限时保留文字并标明截断，截断的工具批次不执行。已知不支持流式的模型用 `stream: false`，按普通完整响应解析，仍可按能力处理结构化工具。
 - 链路为适配器增量 → Core 文本事件 → App 会话状态 → Compose 当前气泡。App 追加到同一气泡，可按帧合并刷新，首段无需等最终结果。停止向上传播取消并关闭响应体，晚到事件按执行 ID 丢弃。半截保留，正常结束后提交完整文本。普通 JSON 回包或中途断开已有流式输出时，按对应状态反馈。探测未确认时先用普通回复，并允许用户复测。
-- 参考原型的 SSE 读取、Re-UthCode 的增量交付与终止校验，以及旧 ElymBot 的网络层读取。旧 ElymBot App 交付层等待完整结果后切段。T01 按会话将网络增量交给当前气泡。 [原型 SSE 读取](ElymBot_高保真原型.html#L1466) · [Re-UthCode 增量发出](D:/project/Re-UthCode/src/uthcode/integrations/providers/openai_compat.py#L509) · [流终止校验](D:/project/Re-UthCode/src/uthcode/core/provider.py#L1304) · [旧 ElymBot 网络层](C:/Users/93445/Desktop/Astrbot/ElymBot-Android-Native/app/src/main/java/com/elymbot/android/core/runtime/llm/ChatCompletionService.kt#L2705) · [旧 App 交付层](C:/Users/93445/Desktop/Astrbot/ElymBot-Android-Native/feature/chat/runtime/src/main/java/com/elymbot/android/feature/chat/runtime/AppChatRuntimeService.kt#L171)
+- 参考原型 `ElymBot_高保真原型.html#L1466` 的 SSE 读取、Re-UthCode `src/uthcode/integrations/providers/openai_compat.py#L509` 的增量交付与 `src/uthcode/core/provider.py#L1304` 的终止校验，以及旧 ElymBot `app/src/main/java/com/elymbot/android/core/runtime/llm/ChatCompletionService.kt#L2705` 的网络层读取。旧 ElymBot `feature/chat/runtime/src/main/java/com/elymbot/android/feature/chat/runtime/AppChatRuntimeService.kt#L171` 的 App 交付层等待完整结果后切段。T01 按会话将网络增量交给当前气泡。
 
 ## 7. 界面实现基准
 
@@ -145,18 +145,18 @@ T01 的建议交付线是 **宿主侧可扩展、工具来源可替换、基础 
 | --- | --- |
 | JVM 与合成模型 | 可控预算覆盖压缩触发、跨边界摘要失效、无降幅、超限退出和工具批次再次触发。覆盖文本、分帧工具参数、拒绝及失败回填、顺序、取消与上限。 |
 | Android 本地数据 | 建点、回退、空点、重启持久化、编号复用、事务中途失败。核对数据库查询和聊天历史同步。原文压缩后仍可读，回退后任何正式读取入口都无法读回。 |
-| App 正式入口 | 按各自适用的原型对照人格、会话、聊天与模型配置，验证从所属人格入口创建和打开专属会话。用延迟发送的本地 SSE 证明首段先于结束出现，另测停止、提前 EOF 与非流式。两条图片路由以服务端捕获的合成请求验证。 |
+| App 正式入口 | 按各自适用的原型对照人格、会话、聊天与模型配置，验证从所属人格入口创建和打开专属会话。用延迟发送的合成 SSE 证明首段先于结束出现，另测停止、提前 EOF 与非流式。两条图片路由以服务端捕获的合成请求验证。 |
 | 实际服务和产物 | 使用用户用于验收的 OpenAI 兼容服务走模型配置、探测及对话。检查基础 APK 和依赖图。实机条件与实际覆盖写入验证记录。 |
 
-现有证据来自浏览器原型与本地合成 HTTP/SSE、SQLite 事务探针，以及 Re-UthCode `0a478e8` 的 20 项定向测试。旧 ElymBot 参考基线为 `4b19ba4`，人格文件包含当时的工作区改动。Android 成品验证在实施阶段完成。专属会话的创建、归属和跨会话隔离需要在新版 App 中验证。
+现有证据来自浏览器原型与合成 HTTP/SSE、SQLite 事务探针，以及 Re-UthCode `0a478e8` 的 20 项定向测试。旧 ElymBot 参考基线为 `4b19ba4`，人格文件包含当时的工作区改动。Android 成品验证在实施阶段完成。专属会话的创建、归属和跨会话隔离需要在新版 App 中验证。
 
-### 本地探索与可复用用例
+### 探索与可复用用例
 
-Core 探针使用替身模型和内存状态。本机 JVM 与魅族 20 Pro（Android 16、API 36、ARM64）各通过 9 项。以下材料保存在 Git 忽略的 `探索/` 目录，具备本地目录的工作区可以打开。 [探索记录](<../../../探索/Core 与插件探索记录.md#观察结果>) · [用例源码](../../../探索/core-probe/src/host/Harness.kt) · [JVM 输出](../../../探索/core-probe/out/jvm-results.log) · [真机输出](../../../探索/core-probe/out/android-device-results.log)
+Core 探针使用替身模型和内存状态；JVM 与魅族 20 Pro（Android 16、API 36、ARM64）各完成 9 项。该探索阶段的探针结果不替代 T01 实施后的测试和设备验收。
 
 | 对应任务 | 可复用证据与样本 | 正式验证仍需覆盖 |
 | --- | --- | --- |
-| T01.04 顺序 ReAct 与工具底座 | 探针第 3、4 项检验真实调用独立工具后，成功结果和参数错误都按原调用 ID 回填，替身模型继续回答。重构前准备还定位了旧版工具调用转换样本。 [准备记录](../../../探索/重构前准备.md#可复用的验证材料) | 结构化工具批次、SSE 参数分片、有界执行和 HistoryRead 的真实仓储链路。 |
+| T01.04 顺序 ReAct 与工具底座 | 探针第 3、4 项检验真实调用独立工具后，成功结果和参数错误都按原调用 ID 回填，替身模型继续回答。重构前探索还定位了旧版工具调用转换样本。 | 结构化工具批次、SSE 参数分片、有界执行和 HistoryRead 的真实仓储链路。 |
 | T01.05、T01.06 检查点与会话服务 | 探针第 6 项用并发触发验证生成期间拒绝人格切换和上下文操作，完成后恢复。可复用其等待与释放时序。 | 按任务书确认的检查点事务验证实际删尾、重启恢复及 HistoryRead 不可读回。准备记录中的旧切片示例保留历史，属于历史方案。 |
 | T01.08 基础 APK 隔离 | 探针第 1 项检查宿主类路径没有三个插件类时仍可对话。用这个场景作为隔离回归的输入。 | 正式 APK 内容与 Gradle 运行时依赖图。探针使用独立 D8 构建流程，T01 使用项目 Gradle Wrapper。 |
-| 后续插件装卸 | 试验 APK 在上述真机上加载三份经 ADB 投放的自建 DEX。第 5、8、9 项覆盖工具、任务和渠道的旧工作在删除或重装后被拒绝。后续可复用删除时序和安装实例身份用例。 [复现说明](../../../探索/core-probe/README.md#本地复现) | 正式制品、安装装载、来源验证和插件权限隔离。QQ 样例使用合成事件，真实收发与原生组件独立交付另验。 |
+| 后续插件装卸 | 试验 APK 在上述真机上加载三份经 ADB 投放的自建 DEX。第 5、8、9 项覆盖工具、任务和渠道的旧工作在删除或重装后被拒绝。后续正式插件装卸可复用删除时序和安装实例身份用例。 | 正式制品、安装装载、来源验证和插件权限隔离。QQ 样例使用合成事件，真实收发与原生组件独立交付另验。 |
