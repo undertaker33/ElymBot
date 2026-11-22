@@ -24,6 +24,9 @@ keystore.properties
 # 本地验证和设备日志
 /探索/
 /验证/
+/updates/**
+!/updates/*/
+!/updates/*/CHANGELOG.md
 *.log
 Thumbs.db
 .DS_Store

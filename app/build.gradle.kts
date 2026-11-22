@@ -1,7 +1,34 @@
+import java.util.Properties
+import org.gradle.api.GradleException
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
+}
+
+val localReleaseSigningPropertiesFile = rootProject.file("keystore.properties")
+val localReleaseSigningProperties = localReleaseSigningPropertiesFile.takeIf { it.isFile }?.let { file ->
+    runCatching {
+        Properties().apply {
+            file.inputStream().use { input -> load(input) }
+        }
+    }.getOrNull()
+}
+val localReleaseSigning = localReleaseSigningProperties?.let { properties ->
+    val keystoreFile = properties.getProperty("storeFile")
+        ?.trim()
+        ?.takeIf { it.isNotEmpty() }
+        ?.let { rootProject.file(it) }
+    val requiredProperties = listOf("storeFile", "storePassword", "keyAlias", "keyPassword")
+    if (
+        requiredProperties.all { propertyName -> properties.getProperty(propertyName)?.isNotBlank() == true } &&
+        keystoreFile?.isFile == true
+    ) {
+        properties to keystoreFile
+    } else {
+        null
+    }
 }
 
 android {
@@ -18,9 +45,25 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        localReleaseSigning?.let { (properties, keystoreFile) ->
+            create("localRelease") {
+                storeFile = keystoreFile
+                storePassword = properties.getProperty("storePassword")
+                keyAlias = properties.getProperty("keyAlias")
+                keyPassword = properties.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         debug {
             applicationIdSuffix = ".debug"
+        }
+        if (localReleaseSigning != null) {
+            getByName("release") {
+                signingConfig = signingConfigs.getByName("localRelease")
+            }
         }
     }
 
@@ -31,6 +74,19 @@ android {
 
     buildFeatures {
         compose = true
+    }
+}
+
+if (localReleaseSigningPropertiesFile.isFile) {
+    tasks.matching { it.name == "preReleaseBuild" }.configureEach {
+        if (localReleaseSigning == null) {
+            doFirst {
+                throw GradleException(
+                    "Release signing configuration is incomplete or its keystore file is unavailable. " +
+                        "Check local keystore.properties; credential values are not shown."
+                )
+            }
+        }
     }
 }
 
