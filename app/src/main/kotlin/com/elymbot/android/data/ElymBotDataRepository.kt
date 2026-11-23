@@ -12,6 +12,7 @@ class ElymBotDataRepository(
     val assets: PrivateAssetStore = PrivateAssetStore(context.applicationContext),
     val credentials: CredentialVault = CredentialVault(database.credentialDao()),
     private val now: () -> Long = System::currentTimeMillis,
+    private val beforeInitialize: suspend () -> Unit = {},
 ) {
     private val initializationMutex = Mutex()
     @Volatile private var initialized = false
@@ -20,7 +21,9 @@ class ElymBotDataRepository(
         if (initialized) return
         initializationMutex.withLock {
             if (initialized) return
+            beforeInitialize()
             database.withTransaction {
+                database.replyDeliveryDao().recoverSendingAsUnknown(now())
                 val personas = database.personaDao()
                 val availablePersonas = personas.getAll()
                 val activePersona = availablePersonas.firstOrNull()
@@ -64,6 +67,12 @@ class ElymBotDataRepository(
 
                 val turns = database.turnDao()
                 turns.running().forEach { turn ->
+                    database.replyDeliveryDao().cancelPendingForAttempt(
+                        sessionId = turn.sessionId,
+                        executionId = turn.executionId,
+                        attemptId = turn.attemptId,
+                        now = now(),
+                    )
                     turns.update(
                         turn.copy(
                             status = TURN_STATUS_INTERRUPTED,

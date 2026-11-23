@@ -5,6 +5,7 @@ import android.net.Uri
 import androidx.room.withTransaction
 import com.elymbot.android.R
 import com.elymbot.android.data.AttachmentEntity
+import com.elymbot.android.data.AppGuidePreferences
 import com.elymbot.android.data.CheckpointEntity
 import com.elymbot.android.data.CommandNameEntity
 import com.elymbot.android.data.ConversationEntity
@@ -15,6 +16,16 @@ import com.elymbot.android.data.ElymBotDataRepository
 import com.elymbot.android.data.HistorySummaryEntity
 import com.elymbot.android.data.MessageEntity
 import com.elymbot.android.data.MessageWithAttachments
+import com.elymbot.android.data.PendingAppTranscriptDelivery
+import com.elymbot.android.data.ReplyDeliveryEntity
+import com.elymbot.android.data.ReplyDeliveryStatus
+import com.elymbot.android.data.ReplyDeliveryTargetKind
+import com.elymbot.android.data.ReplyDeliveryWithSubmission
+import com.elymbot.android.data.ReplyExecutionIdentity
+import com.elymbot.android.data.RetiredReplyExecutionEntity
+import com.elymbot.android.data.RetiredReplyReceiptEntity
+import com.elymbot.android.data.RetirableReplyDelivery
+import com.elymbot.android.data.ScheduledTaskRunInboxEntity
 import com.elymbot.android.data.ModelProbeEntity
 import com.elymbot.android.data.ModelServiceEntity
 import com.elymbot.android.data.PersonaEntity
@@ -23,10 +34,16 @@ import com.elymbot.android.data.RoomModelServiceConnectionProvider
 import com.elymbot.android.data.TurnEntity
 import com.elymbot.android.ui.ChatCheckpoint
 import com.elymbot.android.ui.ChatCommand
+import com.elymbot.android.ui.ChatDeliveryStatus
+import com.elymbot.android.ui.ChatDeliveryTarget
+import com.elymbot.android.ui.ChatDetachedDeliveryReceipt
+import com.elymbot.android.ui.ChatPendingDelivery
 import com.elymbot.android.ui.ChatMessage
 import com.elymbot.android.ui.Conversation
 import com.elymbot.android.ui.ConversationSummary
 import com.elymbot.android.ui.ElymBotUiService
+import com.elymbot.android.ui.AppGuideState
+import com.elymbot.android.ui.AppGuideStatus
 import com.elymbot.android.ui.ImagePosition
 import com.elymbot.android.ui.ModelChoice
 import com.elymbot.android.ui.ModelConfiguration
@@ -35,11 +52,14 @@ import com.elymbot.android.ui.ModelRole as UiModelRole
 import com.elymbot.android.ui.ModelServiceDraft
 import com.elymbot.android.ui.MessageStatus
 import com.elymbot.android.ui.PersonaCard
+import com.elymbot.android.ui.ProbeStatus
 import com.elymbot.android.ui.UiIssue
 import com.elymbot.android.ui.UiServiceException
 import com.elymbot.core.contract.AgentEvent
 import com.elymbot.core.contract.AgentFailure
 import com.elymbot.core.contract.AgentFailureKind
+import com.elymbot.core.contract.AgentMessage
+import com.elymbot.core.contract.AgentMessageSegment
 import com.elymbot.core.contract.AgentRequest
 import com.elymbot.core.contract.AgentRuntime
 import com.elymbot.core.contract.AgentTerminalStatus
@@ -59,16 +79,35 @@ import com.elymbot.core.contract.ModelReference
 import com.elymbot.core.contract.ModelRequestException
 import com.elymbot.core.contract.ModelRole
 import com.elymbot.core.contract.ModelSelection
+import com.elymbot.core.contract.MessageRoute
+import com.elymbot.core.contract.MediaResourceReference
 import com.elymbot.core.contract.PersonaPrompt
 import com.elymbot.core.contract.SlashCommandParser
 import com.elymbot.core.contract.ToolScope
+import com.elymbot.core.contract.ScheduledTaskRunRecord
 import com.elymbot.core.contract.ToolSource
+import com.elymbot.core.contract.ReplySubmissionContext
+import com.elymbot.core.contract.ReplySubmitter
+import com.elymbot.core.contract.ScheduledTaskAction
+import com.elymbot.core.contract.ScheduledTaskActionResult
+import com.elymbot.core.contract.ScheduledTaskRejection
+import com.elymbot.core.contract.ScheduledTaskSnapshotResult
+import com.elymbot.core.contract.ScheduledTaskRunFailureKind
+import com.elymbot.core.contract.ScheduledTaskRunOrigin
+import com.elymbot.core.contract.ScheduledTaskRunRequest
+import com.elymbot.core.contract.ScheduledTaskRunStatus
+import com.elymbot.core.contract.ToolInstallationIdentity
+import com.elymbot.core.contract.ToolRegistration
+import com.elymbot.core.contract.ToolAccessPolicy
+import com.elymbot.core.contract.BuiltInOnlyToolAccessPolicy
 import java.io.FileNotFoundException
 import java.net.HttpURLConnection
+import java.time.Instant
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
@@ -78,19 +117,23 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.takeWhile
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
-class ElymBotSessionService(
+class ElymBotSessionService internal constructor(
     context: Context,
     private val repository: ElymBotDataRepository,
     private val connectionProvider: RoomModelServiceConnectionProvider,
@@ -100,14 +143,69 @@ class ElymBotSessionService(
     private val toolSources: () -> List<ToolSource> = { emptyList() },
     private val commandText: CommandTextProvider = AndroidCommandTextProvider(context),
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
+    private val replyTargetSnapshotProvider: ReplyTargetSnapshotProvider = ReplyTargetSnapshotProvider {
+        ReplyTargetSnapshot(
+            targets = listOf(
+                ReplyDeliveryTarget(
+                    targetKey = APP_TRANSCRIPT_TARGET_KEY,
+                    kind = ReplyDeliveryTargetKind.APP_TRANSCRIPT,
+                ),
+            ),
+            historyVisibilityTargetKey = APP_TRANSCRIPT_TARGET_KEY,
+        )
+    },
+    private val scheduledTaskHost: ScheduledTaskHost? = null,
+    private val toolRegistrations: () -> List<ToolRegistration> = { emptyList() },
+    private val toolAccessPolicy: ToolAccessPolicy = BuiltInOnlyToolAccessPolicy,
 ) : ElymBotUiService {
     private val appContext = context.applicationContext
+    private val appGuidePreferences = AppGuidePreferences(appContext)
     private val modelConfigurationService = ElymBotModelConfigurationService(repository, connectionProvider, modelGateway)
     private val viewedSessionId = MutableStateFlow<String?>(null)
     private val liveExecutions = MutableStateFlow<Map<String, LiveExecutionState>>(emptyMap())
     private val commandMessages = MutableStateFlow<Map<String, List<CommandMessageGroup>>>(emptyMap())
     private val activeExecutions = ConcurrentHashMap<String, ActiveExecution>()
     private val sessionLocks = ConcurrentHashMap<String, Mutex>()
+    private val scheduledServiceReady = CompletableDeferred<Unit>()
+    internal val replySubmitter: ReplySubmitter = RoomReplySubmitter(
+        database = repository.database,
+        targetSnapshotProvider = replyTargetSnapshotProvider,
+    )
+
+    init {
+        scope.launch {
+            try {
+                repository.initialize()
+                recoverScheduledTaskRuns()
+                scheduledServiceReady.complete(Unit)
+                val initialRuns = when (val collection = scheduledTaskHost?.onProcessReady()) {
+                    is ScheduledRunCollection.Ready -> collection.requests
+                    else -> emptyList()
+                }
+                enqueueScheduledTaskRuns(initialRuns)
+                val deliveries = repository.database.replyDeliveryDao()
+                deliveries.observePendingAppTranscript().collectLatest {
+                    while (true) {
+                        val pending = deliveries.pendingAppTranscriptSnapshot()
+                        val sessionHeads = pending.distinctBy(PendingAppTranscriptDelivery::sessionId)
+                        if (sessionHeads.isEmpty()) return@collectLatest
+
+                        val now = System.currentTimeMillis()
+                        val due = sessionHeads.filter { it.delivery.availableAtEpochMillis <= now }
+                        if (due.isNotEmpty()) {
+                            due.forEach { item -> releaseDueAppTranscript(item) }
+                        } else {
+                            val nextDueAt = sessionHeads.minOf { it.delivery.availableAtEpochMillis }
+                            delay((nextDueAt - now).coerceAtLeast(1L))
+                        }
+                    }
+                }
+            } catch (failure: Throwable) {
+                scheduledServiceReady.completeExceptionally(failure)
+                throw failure
+            }
+        }
+    }
 
     override val personas: Flow<List<PersonaCard>> = readyFlow { repository.database.personaDao().observeAll() }
         .map { rows -> rows.map { it.toCard() } }
@@ -126,6 +224,51 @@ class ElymBotSessionService(
 
     override val models: Flow<ModelConfiguration> = modelConfigurationService.models
 
+    override val appGuide: Flow<AppGuideState> = flow {
+        repository.initialize()
+        emit(AppGuideState(AppGuideStatus.Unknown, ProbeStatus.Unknown))
+        emitAll(
+            combine(models, mainSession, appGuidePreferences.skipped) { configuration, main, skipped ->
+                Triple(configuration, main, skipped)
+            }.flatMapLatest { (configuration, main, skipped) ->
+                val choice = configuration.text
+                val service = choice?.let { selected ->
+                    configuration.services.firstOrNull { it.id == selected.serviceId }
+                }
+                val noProbe = flowOf(AppGuideState(
+                    status = if (skipped) AppGuideStatus.Skipped else AppGuideStatus.NeedsSetup,
+                    structuredToolCalls = ProbeStatus.Unknown,
+                ))
+                if (choice == null || service == null || choice.modelId.isBlank()) {
+                    noProbe
+                } else {
+                    repository.database.modelConfigurationDao()
+                        .observeProbes(service.id, choice.modelId, service.baseUrl)
+                        .map { probes ->
+                            val capability = probes.firstOrNull {
+                                it.target == ModelProbeTarget.STRUCTURED_TOOL_CALLS.name
+                            }?.status?.let { status ->
+                                when (status) {
+                                    CapabilityStatus.SUPPORTED.name -> ProbeStatus.Supported
+                                    CapabilityStatus.UNSUPPORTED.name -> ProbeStatus.Unsupported
+                                    else -> ProbeStatus.Unknown
+                                }
+                            } ?: ProbeStatus.Unknown
+                            val ready = main != null && capability == ProbeStatus.Supported
+                            AppGuideState(
+                                status = when {
+                                    ready -> AppGuideStatus.Ready
+                                    skipped -> AppGuideStatus.Skipped
+                                    else -> AppGuideStatus.NeedsSetup
+                                },
+                                structuredToolCalls = capability,
+                            )
+                        }
+                }
+            },
+        )
+    }.flowOn(Dispatchers.IO)
+
     override val commandNames: Flow<Map<ChatCommand, String>> = readyFlow {
         repository.database.commandNameDao().observeAll()
     }.map { rows ->
@@ -141,29 +284,41 @@ class ElymBotSessionService(
 
     override fun conversation(sessionId: String): Flow<Conversation> = flow {
         repository.initialize()
+        val deliveryState = combine(
+            repository.database.replyDeliveryDao().observeForSession(sessionId),
+            repository.database.retiredReplyDao().observeReceiptsForSession(sessionId),
+        ) { deliveries, receipts -> SessionDeliveryState(deliveries, receipts) }
         emitAll(
             combine(
                 repository.database.messageDao().observeForSession(sessionId),
                 repository.database.turnDao().observeForSession(sessionId),
+                deliveryState,
                 liveExecutions,
                 commandMessages,
-            ) { messages, turns, live, commands ->
+            ) { messages, turns, delivery, live, commands ->
                 val latestTurn = turns.lastOrNull()
                 val active = live[sessionId]
-                val displayed = mergeCommandMessages(messages, commands[sessionId].orEmpty())
-                if (active?.text?.isNotEmpty() == true) {
-                    displayed += ChatMessage(
-                        id = "${active.executionId}:draft",
-                        text = active.text,
-                        assistant = true,
+                val deliveriesByMessage = delivery.deliveries.groupBy { it.delivery.messageId }
+                val displayed = mergeCommandMessages(messages, commands[sessionId].orEmpty()).map { message ->
+                    message.copy(
+                        deliveryTargets = deliveriesByMessage[message.id].orEmpty().map { it.delivery.toChatDeliveryTarget() },
                     )
-                }
+                }.toMutableList()
+                val displayedIds = displayed.map(ChatMessage::id).toSet()
                 Conversation(
                     messages = displayed,
                     generating = active?.running == true || latestTurn?.status == TURN_STATUS_RUNNING,
                     issue = active?.issue ?: latestTurn?.let(::turnIssue),
-                    canRetry = latestTurn?.let { it.retryable && it.status != TURN_STATUS_RUNNING } == true,
+                    canRetry = latestTurn?.let { turn ->
+                        turn.retryable && turn.status != TURN_STATUS_RUNNING &&
+                            delivery.deliveries.none { it.turnSequence == turn.sequence && it.blocksWholeTurnRetry() }
+                    } == true,
                     toolProgressActive = active?.toolProgressActive == true,
+                    detachedDeliveryReceipts = delivery.receipts.map { it.toChatDetachedDeliveryReceipt() },
+                    pendingDeliveries = delivery.deliveries.asSequence()
+                        .filter { it.delivery.messageId !in displayedIds && it.delivery.status != ReplyDeliveryStatus.DELIVERED.name }
+                        .map { it.delivery.toChatPendingDelivery() }
+                        .toList(),
                 )
             },
         )
@@ -453,6 +608,8 @@ class ElymBotSessionService(
             removedAssetPaths = repository.database.attachmentDao().pathsForSessions(ids)
             ids.forEach { repository.database.checkpointDao().deleteForSession(it) }
             repository.database.conversationDao().delete(ids)
+            repository.database.retiredReplyDao().deleteExecutionsForSessions(ids)
+            repository.database.retiredReplyDao().deleteReceiptsForSessions(ids)
         }
         if (viewedSessionId.value in sessionIds) viewedSessionId.value = null
         commandMessages.update { current -> current - sessionIds }
@@ -484,7 +641,19 @@ class ElymBotSessionService(
     override suspend fun stop(sessionId: String) {
         repository.initialize()
         val execution = activeExecutions[sessionId]
-            ?: sessionLock(sessionId).withLock { activeExecutions[sessionId] }
+            ?: sessionLock(sessionId).withLock {
+                val current = activeExecutions[sessionId]
+                if (current == null) {
+                    withContext(NonCancellable) {
+                        repository.database.withTransaction {
+                            val now = System.currentTimeMillis()
+                            repository.database.replyDeliveryDao().cancelPendingForSession(sessionId, now)
+                            repository.database.replyDeliveryDao().markSendingUnknownForSession(sessionId, now)
+                        }
+                    }
+                }
+                current
+            }
             ?: return
         val notEntered = synchronized(execution.startupLock) {
             execution.stopRequested = true
@@ -504,6 +673,22 @@ class ElymBotSessionService(
             }
         }
         job?.join()
+        withContext(NonCancellable) {
+            repository.database.withTransaction {
+                repository.database.replyDeliveryDao().cancelPendingForAttempt(
+                    sessionId = execution.sessionId,
+                    executionId = execution.executionId,
+                    attemptId = execution.attemptId,
+                    now = System.currentTimeMillis(),
+                )
+                repository.database.replyDeliveryDao().markSendingUnknownForAttempt(
+                    sessionId = execution.sessionId,
+                    executionId = execution.executionId,
+                    attemptId = execution.attemptId,
+                    now = System.currentTimeMillis(),
+                )
+            }
+        }
     }
 
     override suspend fun retry(sessionId: String) {
@@ -513,6 +698,9 @@ class ElymBotSessionService(
             if (repository.database.turnDao().isRunning(sessionId)) fail(UiIssue.Busy)
             val previous = repository.database.turnDao().latest(sessionId) ?: fail(UiIssue.InvalidInput)
             if (!previous.retryable || previous.status == TURN_STATUS_RUNNING) fail(UiIssue.InvalidInput)
+            if (repository.database.replyDeliveryDao().hasVisibleOrPossibleEffectInTurn(sessionId, previous.sequence)) {
+                fail(UiIssue.InvalidInput)
+            }
             val snapshot = runSnapshot(session, previous)
             val executionId = UUID.randomUUID().toString()
             val attemptId = UUID.randomUUID().toString()
@@ -523,9 +711,16 @@ class ElymBotSessionService(
                     if (latest?.sequence != turn.sequence || !turn.retryable || turn.status == TURN_STATUS_RUNNING) {
                         fail(UiIssue.InvalidInput)
                     }
+                    val deliveries = repository.database.replyDeliveryDao()
+                    if (deliveries.hasVisibleOrPossibleEffectInTurn(sessionId, turn.sequence)) {
+                        fail(UiIssue.InvalidInput)
+                    }
                     val userMessage = repository.database.messageDao().userMessage(sessionId, turn.sequence)
                         ?: fail(UiIssue.InvalidInput)
-                    repository.database.messageDao().deleteAssistantMessages(sessionId, turn.sequence)
+                    val now = System.currentTimeMillis()
+                    deliveries.cancelPendingForTurn(sessionId, turn.sequence, now)
+                    deliveries.markSendingUnknownForTurn(sessionId, turn.sequence, now)
+                    repository.database.messageDao().deleteNonReplyAssistantMessages(sessionId, turn.sequence)
                     val retryTurn = turn.copy(
                         executionId = executionId,
                         attemptId = attemptId,
@@ -534,6 +729,7 @@ class ElymBotSessionService(
                         finishedAt = null,
                         failureKind = null,
                         retryable = false,
+                        successfulSilence = false,
                     )
                     repository.database.turnDao().update(retryTurn)
                     Pair(retryTurn, userMessage.id)
@@ -544,6 +740,284 @@ class ElymBotSessionService(
             }
             launchExecution(session, updated.first, updated.second, snapshot)
         }
+    }
+
+    override suspend fun retryDelivery(messageId: String, deliveryId: String) {
+        repository.initialize()
+        val changed = repository.database.replyDeliveryDao().retryConfirmedFailure(
+            messageId = messageId,
+            deliveryId = deliveryId,
+            now = System.currentTimeMillis(),
+        )
+        if (changed != 1) fail(UiIssue.InvalidInput)
+    }
+
+    override suspend fun skipAppGuide() {
+        appGuidePreferences.skip()
+    }
+
+    override suspend fun scheduledTasksSnapshot(
+        sessionId: String,
+        taskId: String?,
+    ): ScheduledTaskSnapshotResult {
+        awaitScheduledServiceReady()
+        return scheduledTaskHost?.snapshotMain(sessionId, taskId)
+            ?: ScheduledTaskSnapshotResult.Rejected(ScheduledTaskRejection.INACTIVE_INSTALLATION)
+    }
+
+    override suspend fun requestScheduledTaskAction(
+        sessionId: String,
+        requestId: String,
+        action: ScheduledTaskAction,
+    ): ScheduledTaskActionResult {
+        awaitScheduledServiceReady()
+        val result = scheduledTaskHost?.requestMainAction(sessionId, requestId, action)
+            ?: return ScheduledTaskActionResult.Rejected(ScheduledTaskRejection.INACTIVE_INSTALLATION)
+        if (result is ScheduledTaskActionResult.RunQueued) enqueueScheduledTaskRuns(listOf(result.run))
+        return result
+    }
+
+    override suspend fun confirmScheduledTaskAction(
+        sessionId: String,
+        confirmationId: String,
+        initiatingExecutionId: String,
+        approved: Boolean,
+    ): ScheduledTaskActionResult {
+        awaitScheduledServiceReady()
+        val result = scheduledTaskHost?.confirmMainAction(
+            sessionId = sessionId,
+            confirmationId = confirmationId,
+            initiatingExecutionId = initiatingExecutionId,
+            approved = approved,
+        ) ?: return ScheduledTaskActionResult.Rejected(ScheduledTaskRejection.INACTIVE_INSTALLATION)
+        if (result is ScheduledTaskActionResult.RunQueued) enqueueScheduledTaskRuns(listOf(result.run))
+        return result
+    }
+
+    internal suspend fun processScheduledTaskWake(): Boolean {
+        awaitScheduledServiceReady()
+        val host = scheduledTaskHost ?: return false
+        return when (val collection = host.collectPendingRuns(fromWorker = true)) {
+            ScheduledRunCollection.Deferred -> false
+            is ScheduledRunCollection.Ready -> {
+                flushPendingScheduledTaskReceipts()
+                enqueueScheduledTaskRuns(collection.requests)
+                true
+            }
+        }
+    }
+
+    private suspend fun enqueueScheduledTaskRuns(requests: List<ScheduledTaskRunRequest>) {
+        if (requests.isEmpty()) {
+            drainScheduledTaskRuns()
+            return
+        }
+        repository.database.withTransaction {
+            val dao = repository.database.scheduledTaskRunInboxDao()
+            for (request in requests) {
+                require(request.taskId.isNotBlank() && request.runId.isNotBlank())
+                require(request.installationIdentity.pluginId == SCHEDULED_TASKS_PLUGIN_ID)
+                val item = request.toInboxEntity(System.currentTimeMillis())
+                val inserted = dao.insertIfAbsent(item)
+                if (inserted == -1L) {
+                    val existing = dao.get(request.runId) ?: error("Scheduled run disappeared")
+                    val contentMatches = existing.title.isEmpty() && existing.prompt.isEmpty() ||
+                        existing.title == request.title && existing.prompt == request.prompt
+                    check(
+                        existing.taskId == request.taskId && existing.occurrenceId == request.occurrenceId &&
+                            existing.scheduleRevision == request.scheduleRevision &&
+                            existing.installationPluginId == request.installationIdentity.pluginId &&
+                            existing.installationInstanceId == request.installationIdentity.instanceId &&
+                            existing.origin == request.origin.name && contentMatches,
+                    ) { "Scheduled run identity conflicts with a persisted inbox row" }
+                }
+            }
+        }
+        drainScheduledTaskRuns()
+    }
+
+    private suspend fun recoverScheduledTaskRuns() {
+        if (scheduledTaskHost == null) return
+        repository.database.withTransaction {
+            val dao = repository.database.scheduledTaskRunInboxDao()
+            val now = System.currentTimeMillis()
+            for (item in dao.running()) {
+                dao.finish(
+                    runId = item.runId,
+                    status = SCHEDULED_RUN_STATUS_FAILED,
+                    failureKind = ScheduledTaskRunFailureKind.UNKNOWN.name,
+                    receiptPending = true,
+                    now = now,
+                )
+            }
+            for (item in dao.claimPending().filter { it.status == SCHEDULED_RUN_STATUS_CLAIMING }) {
+                dao.finishBeforeStart(
+                    runId = item.runId,
+                    status = SCHEDULED_RUN_STATUS_FAILED,
+                    failureKind = ScheduledTaskRunFailureKind.UNKNOWN.name,
+                    receiptPending = true,
+                    now = now,
+                )
+            }
+        }
+        flushPendingScheduledTaskReceipts()
+    }
+
+    private suspend fun flushPendingScheduledTaskReceipts() {
+        val host = scheduledTaskHost ?: return
+        val dao = repository.database.scheduledTaskRunInboxDao()
+        for (item in dao.pendingReceipts()) {
+            val status = runCatching { ScheduledTaskRunStatus.valueOf(item.status) }.getOrNull()
+                ?: ScheduledTaskRunStatus.FAILED
+            val failure = item.failureKind?.let { runCatching { ScheduledTaskRunFailureKind.valueOf(it) }.getOrNull() }
+            if (host.recordRunReceipt(item.toRunRequest(), status, failure)) {
+                dao.acknowledgeReceipt(item.runId, System.currentTimeMillis())
+            }
+        }
+    }
+
+    private suspend fun drainScheduledTaskRuns() {
+        awaitScheduledServiceReady()
+        val host = scheduledTaskHost ?: return
+        sessionLock(MAIN_SESSION_ID).withLock {
+            val session = repository.database.conversationDao().getMain() ?: return
+            if (repository.database.turnDao().isRunning(session.id)) return
+            val dao = repository.database.scheduledTaskRunInboxDao()
+            val pending = dao.queued() + dao.claimPending().filter { it.status == SCHEDULED_RUN_STATUS_CLAIMED }
+            for (item in pending.distinctBy(ScheduledTaskRunInboxEntity::runId)) {
+                if (repository.database.turnDao().isRunning(session.id)) return
+                val request = item.toRunRequest()
+                val snapshot = try {
+                    runSnapshot(session)
+                } catch (_: Exception) {
+                    return
+                }
+                val newlyClaiming = item.status == SCHEDULED_RUN_STATUS_QUEUED
+                if (newlyClaiming && dao.markClaiming(item.runId, System.currentTimeMillis()) != 1) {
+                    snapshot.close()
+                    continue
+                }
+                val claim = if (newlyClaiming) host.claimRun(request) else host.resumeClaimedRun(request)
+                when (claim) {
+                    ScheduledRunClaimResult.Deferred -> {
+                        if (newlyClaiming) dao.requeueClaiming(item.runId, System.currentTimeMillis())
+                        snapshot.close()
+                        return
+                    }
+                    ScheduledRunClaimResult.Stale -> {
+                        dao.finishBeforeStart(
+                            item.runId,
+                            SCHEDULED_RUN_STATUS_STALE,
+                            ScheduledTaskRunFailureKind.TASK_CHANGED.name,
+                            receiptPending = false,
+                            now = System.currentTimeMillis(),
+                        )
+                        snapshot.close()
+                        continue
+                    }
+                    ScheduledRunClaimResult.Lost -> {
+                        dao.finishBeforeStart(
+                            item.runId,
+                            SCHEDULED_RUN_STATUS_FAILED,
+                            ScheduledTaskRunFailureKind.UNKNOWN.name,
+                            receiptPending = true,
+                            now = System.currentTimeMillis(),
+                        )
+                        snapshot.close()
+                        if (host.recordRunReceipt(request, ScheduledTaskRunStatus.FAILED, ScheduledTaskRunFailureKind.UNKNOWN)) {
+                            dao.acknowledgeReceipt(item.runId, System.currentTimeMillis())
+                        }
+                        continue
+                    }
+                    ScheduledRunClaimResult.Claimed -> Unit
+                }
+
+                val prepared = try {
+                    repository.database.withTransaction {
+                        val current = repository.database.conversationDao().getMain() ?: return@withTransaction null
+                        if (repository.database.turnDao().isRunning(current.id)) return@withTransaction null
+                        if (newlyClaiming && dao.finishClaim(item.runId, System.currentTimeMillis()) != 1) {
+                            return@withTransaction null
+                        }
+                        val persona = repository.database.personaDao().get(current.personaId)
+                            ?: return@withTransaction null
+                        val sequence = current.nextTurnSequence
+                        val executionId = UUID.randomUUID().toString()
+                        val attemptId = UUID.randomUUID().toString()
+                        val userMessageId = UUID.randomUUID().toString()
+                        val now = System.currentTimeMillis()
+                        val turn = TurnEntity(
+                            sessionId = current.id,
+                            sequence = sequence,
+                            executionId = executionId,
+                            attemptId = attemptId,
+                            status = TURN_STATUS_RUNNING,
+                            startedAt = now,
+                            finishedAt = null,
+                            personaId = persona.id,
+                            personaName = persona.name,
+                            personaPrompt = persona.prompt,
+                            primaryServiceId = snapshot.primary.persistedServiceId,
+                            primaryModelId = snapshot.primary.modelId,
+                            visionServiceId = snapshot.vision?.persistedServiceId,
+                            visionModelId = snapshot.vision?.modelId,
+                            failureKind = null,
+                            retryable = false,
+                        )
+                        repository.database.turnDao().insert(turn)
+                        repository.database.messageDao().insert(
+                            MessageEntity(
+                                id = userMessageId,
+                                sessionId = current.id,
+                                turnSequence = sequence,
+                                messageIndex = 0,
+                                role = MESSAGE_ROLE_USER,
+                                text = request.prompt,
+                                category = MESSAGE_CATEGORY_HISTORY,
+                                status = null,
+                                author = null,
+                            ),
+                        )
+                        repository.database.conversationDao().update(
+                            current.copy(nextTurnSequence = sequence + 1, lastActivityAt = now),
+                        )
+                        check(dao.markRunning(item.runId, current.id, sequence, now) == 1)
+                        StartTurn(turn, userMessageId, PersonaPrompt(persona.id, persona.name, persona.prompt), current.kind)
+                    }
+                } catch (failure: Throwable) {
+                    snapshot.close()
+                    dao.finishBeforeStart(
+                        item.runId,
+                        SCHEDULED_RUN_STATUS_FAILED,
+                        ScheduledTaskRunFailureKind.HOST_REJECTED.name,
+                        receiptPending = true,
+                        now = System.currentTimeMillis(),
+                    )
+                    if (host.recordRunReceipt(request, ScheduledTaskRunStatus.FAILED, ScheduledTaskRunFailureKind.HOST_REJECTED)) {
+                        dao.acknowledgeReceipt(item.runId, System.currentTimeMillis())
+                    }
+                    throw failure
+                }
+                if (prepared == null) {
+                    snapshot.close()
+                    return
+                }
+                launchExecution(
+                    session = session,
+                    turn = prepared.turn,
+                    userMessageId = prepared.userMessageId,
+                    snapshot = snapshot,
+                    persona = prepared.persona,
+                    sessionKind = prepared.kind,
+                    scheduledRun = request,
+                )
+                return
+            }
+        }
+    }
+
+    private suspend fun awaitScheduledServiceReady() {
+        scheduledServiceReady.await()
     }
 
     override suspend fun saveModelService(service: ModelServiceDraft) =
@@ -558,8 +1032,10 @@ class ElymBotSessionService(
     override fun probeModel(service: ModelServiceDraft): Flow<ModelProbe> =
         modelConfigurationService.probeModel(service)
 
-    override suspend fun setModel(role: UiModelRole, model: ModelChoice?) =
+    override suspend fun setModel(role: UiModelRole, model: ModelChoice?) {
         modelConfigurationService.setModel(role, model)
+        if (role == UiModelRole.Text) drainScheduledTaskRuns()
+    }
 
     override suspend fun saveCommandNames(names: Map<ChatCommand, String>) {
         repository.initialize()
@@ -591,6 +1067,9 @@ class ElymBotSessionService(
                     val current = repository.database.conversationDao().get(sessionId) ?: fail(UiIssue.InvalidInput)
                     if (repository.database.turnDao().isRunning(sessionId)) fail(UiIssue.Busy)
                     val persona = repository.database.personaDao().get(current.personaId) ?: fail(UiIssue.InvalidInput)
+                    val now = System.currentTimeMillis()
+                    repository.database.replyDeliveryDao().cancelPendingForSession(sessionId, now)
+                    repository.database.replyDeliveryDao().markSendingUnknownForSession(sessionId, now)
                     val sequence = current.nextTurnSequence
                     val userMessageId = UUID.randomUUID().toString()
                     val turn = TurnEntity(
@@ -667,6 +1146,7 @@ class ElymBotSessionService(
         snapshot: RunSnapshot,
         persona: PersonaPrompt = PersonaPrompt(turn.personaId, turn.personaName, turn.personaPrompt),
         sessionKind: String = session.kind,
+        scheduledRun: ScheduledTaskRunRequest? = null,
     ) {
         val execution = ActiveExecution(
             sessionId = session.id,
@@ -677,6 +1157,7 @@ class ElymBotSessionService(
             persona = persona,
             sessionKind = sessionKind,
             snapshot = snapshot,
+            scheduledRun = scheduledRun,
         )
         execution.job = scope.launch(start = CoroutineStart.LAZY) {
             try {
@@ -710,7 +1191,6 @@ class ElymBotSessionService(
                 LiveExecutionState(
                     executionId = turn.executionId,
                     attemptId = turn.attemptId,
-                    text = "",
                     issue = null,
                     running = true,
                 ),
@@ -735,6 +1215,7 @@ class ElymBotSessionService(
         var terminalStatus: String? = null
         var failureKind: String? = null
         var retryable = false
+        var successfulSilence = false
         var uiIssue: UiIssue? = null
         try {
             val user = repository.database.messageDao().forTurn(execution.sessionId, execution.turnSequence)
@@ -768,6 +1249,31 @@ class ElymBotSessionService(
                 currentInput = ModelMessage(ModelRole.USER, content),
                 toolScope = if (execution.sessionKind == SESSION_KIND_MAIN) ToolScope.MAIN_SESSION else ToolScope.PERSONA_SESSION,
                 toolSources = toolSources(),
+                toolRegistrations = toolRegistrations(),
+                toolAccessPolicy = toolAccessPolicy,
+                inputMessage = AgentMessage(
+                    messageId = user.message.id,
+                    origin = MessageRoute(
+                        channelId = if (execution.scheduledRun == null) APP_CHANNEL_ID else SCHEDULED_TASK_CHANNEL_ID,
+                        conversationId = if (execution.scheduledRun == null) execution.sessionId else execution.scheduledRun.runId,
+                        actorId = if (execution.scheduledRun == null) APP_USER_ID else SCHEDULED_TASK_ACTOR_ID,
+                    ),
+                    segments = buildList {
+                        if (user.message.text.isNotEmpty()) add(AgentMessageSegment.Text(user.message.text))
+                        user.attachments.forEach { attachment ->
+                            add(
+                                AgentMessageSegment.Image(
+                                    MediaResourceReference(
+                                        resourceId = attachment.id,
+                                        mediaType = attachment.mediaType,
+                                        sizeBytes = attachment.byteSize,
+                                    ),
+                                ),
+                            )
+                        }
+                    },
+                ),
+                replySubmitter = replySubmitter,
             )
             var finished: AgentEvent.Finished? = null
             agentRuntime.run(request).takeWhile { event ->
@@ -784,19 +1290,7 @@ class ElymBotSessionService(
                 if (!event.belongsTo(execution)) return@collect
                 if (!isCurrentAttempt(execution)) return@collect
                 when (event) {
-                    is AgentEvent.TextDelta -> {
-                        execution.output.append(event.text)
-                        publishLive(
-                            execution.sessionId,
-                            LiveExecutionState(
-                                executionId = execution.executionId,
-                                attemptId = execution.attemptId,
-                                text = execution.output.toString(),
-                                issue = null,
-                                running = true,
-                            ),
-                        )
-                    }
+                    is AgentEvent.TextDelta -> Unit
                     is AgentEvent.AssistantFeedback -> persistAssistantFeedback(execution, event.text)
                     is AgentEvent.ToolProgress -> publishToolProgress(execution, event.active)
                     is AgentEvent.Finished -> Unit
@@ -812,6 +1306,7 @@ class ElymBotSessionService(
                 terminalStatus = ended.status.toTurnStatus()
                 failureKind = ended.failure?.kind?.name
                 retryable = ended.failure?.retryable ?: (ended.status != AgentTerminalStatus.COMPLETED)
+                successfulSilence = ended.successfulSilence
                 uiIssue = ended.failure?.kind?.toUiIssue()
             }
         } catch (cancelled: CancellationException) {
@@ -838,7 +1333,14 @@ class ElymBotSessionService(
             uiIssue = failure.toUiIssue()
         } finally {
             withContext(NonCancellable) {
-                finalizeExecution(execution, terminalStatus, failureKind, retryable, uiIssue)
+                finalizeExecution(
+                    execution = execution,
+                    status = terminalStatus,
+                    failureKind = failureKind,
+                    retryable = retryable,
+                    issue = uiIssue,
+                    successfulSilence = successfulSilence,
+                )
             }
         }
     }
@@ -935,9 +1437,10 @@ class ElymBotSessionService(
         failureKind: String?,
         retryable: Boolean,
         issue: UiIssue?,
+        successfulSilence: Boolean = false,
     ) {
         sessionLock(execution.sessionId).withLock {
-            finishTurnLocked(execution, status, failureKind, retryable, issue)
+            finishTurnLocked(execution, status, failureKind, retryable, issue, successfulSilence)
         }
     }
 
@@ -947,6 +1450,7 @@ class ElymBotSessionService(
         failureKind: String?,
         retryable: Boolean,
         issue: UiIssue?,
+        successfulSilence: Boolean = false,
     ) {
         val finished = repository.database.withTransaction {
             val turn = repository.database.turnDao().get(execution.sessionId, execution.turnSequence)
@@ -954,29 +1458,13 @@ class ElymBotSessionService(
             if (turn.status != TURN_STATUS_RUNNING || turn.executionId != execution.executionId || turn.attemptId != execution.attemptId) {
                 return@withTransaction false
             }
-            val body = execution.output.toString()
-            if (body.isNotEmpty() || status != TURN_STATUS_COMPLETED) {
-                val index = repository.database.messageDao().nextIndex(execution.sessionId, execution.turnSequence)
-                repository.database.messageDao().insert(
-                    MessageEntity(
-                        id = UUID.randomUUID().toString(),
-                        sessionId = execution.sessionId,
-                        turnSequence = execution.turnSequence,
-                        messageIndex = index,
-                        role = MESSAGE_ROLE_ASSISTANT,
-                        text = body,
-                        category = MESSAGE_CATEGORY_HISTORY,
-                        status = status.takeIf { it != TURN_STATUS_COMPLETED },
-                        author = execution.persona.name,
-                    ),
-                )
-            }
             repository.database.turnDao().update(
                 turn.copy(
                     status = status,
                     finishedAt = System.currentTimeMillis(),
                     failureKind = failureKind,
                     retryable = retryable,
+                    successfulSilence = status == TURN_STATUS_COMPLETED && successfulSilence,
                 ),
             )
             repository.database.conversationDao().setCompletionState(
@@ -992,7 +1480,6 @@ class ElymBotSessionService(
                 LiveExecutionState(
                     executionId = execution.executionId,
                     attemptId = execution.attemptId,
-                    text = execution.output.toString(),
                     issue = issue,
                     running = false,
                 ),
@@ -1007,14 +1494,15 @@ class ElymBotSessionService(
         retryable: Boolean,
         issue: UiIssue?,
         sessionLockHeld: Boolean = false,
+        successfulSilence: Boolean = false,
     ) {
         if (!execution.finalizationStarted.compareAndSet(false, true)) return
         var finishFailure: Throwable? = null
         try {
             if (status != null) {
                 try {
-                    if (sessionLockHeld) finishTurnLocked(execution, status, failureKind, retryable, issue)
-                    else finishTurn(execution, status, failureKind, retryable, issue)
+                    if (sessionLockHeld) finishTurnLocked(execution, status, failureKind, retryable, issue, successfulSilence)
+                    else finishTurn(execution, status, failureKind, retryable, issue, successfulSilence)
                 } catch (failure: Throwable) {
                     try {
                         if (sessionLockHeld) recoverInterruptedTurnLocked(execution)
@@ -1025,6 +1513,13 @@ class ElymBotSessionService(
                     }
                 }
             }
+            if (execution.scheduledRun != null) {
+                try {
+                    finishScheduledRun(execution)
+                } catch (failure: Throwable) {
+                    finishFailure = finishFailure?.also { it.addSuppressed(failure) } ?: failure
+                }
+            }
         } finally {
             try {
                 execution.snapshot.close()
@@ -1033,6 +1528,9 @@ class ElymBotSessionService(
                 liveExecutions.update { current ->
                     val state = current[execution.sessionId]
                     if (state?.belongsTo(execution) == true) current - execution.sessionId else current
+                }
+                if (execution.sessionId == MAIN_SESSION_ID) {
+                    scope.launch { drainScheduledTaskRuns() }
                 }
             }
         }
@@ -1056,21 +1554,7 @@ class ElymBotSessionService(
             }
             val messageDao = repository.database.messageDao()
             val assistant = messageDao.assistantHistoryMessage(execution.sessionId, execution.turnSequence)
-            if (assistant == null) {
-                messageDao.insert(
-                    MessageEntity(
-                        id = UUID.randomUUID().toString(),
-                        sessionId = execution.sessionId,
-                        turnSequence = execution.turnSequence,
-                        messageIndex = messageDao.nextIndex(execution.sessionId, execution.turnSequence),
-                        role = MESSAGE_ROLE_ASSISTANT,
-                        text = execution.output.toString(),
-                        category = MESSAGE_CATEGORY_HISTORY,
-                        status = TURN_STATUS_INTERRUPTED,
-                        author = execution.persona.name,
-                    ),
-                )
-            } else {
+            if (assistant != null && !repository.database.replyDeliveryDao().isCanonicalReply(assistant.id)) {
                 messageDao.update(assistant.copy(status = TURN_STATUS_INTERRUPTED))
             }
             repository.database.turnDao().update(
@@ -1093,6 +1577,53 @@ class ElymBotSessionService(
         if (activeExecutions[execution.sessionId] !== execution) return false
         val turn = repository.database.turnDao().get(execution.sessionId, execution.turnSequence) ?: return false
         return turn.status == TURN_STATUS_RUNNING && turn.executionId == execution.executionId && turn.attemptId == execution.attemptId
+    }
+
+    private suspend fun releaseDueAppTranscript(item: PendingAppTranscriptDelivery) {
+        repository.database.withTransaction {
+            val deliveries = repository.database.replyDeliveryDao()
+            val currentHead = deliveries.pendingAppTranscriptSnapshot()
+                .firstOrNull { it.sessionId == item.sessionId }
+                ?: return@withTransaction
+            if (currentHead.delivery.id != item.delivery.id) return@withTransaction
+
+            val releasedAt = System.currentTimeMillis()
+            if (item.delivery.availableAtEpochMillis > releasedAt) return@withTransaction
+            if (deliveries.releaseDueAppTranscript(item.delivery.id, releasedAt) != 1) return@withTransaction
+
+            repository.database.conversationDao().setCompletionState(
+                id = item.sessionId,
+                unread = viewedSessionId.value != item.sessionId,
+                lastActivityAt = releasedAt,
+            )
+        }
+    }
+
+    private suspend fun finishScheduledRun(execution: ActiveExecution) {
+        val request = execution.scheduledRun ?: return
+        val turn = repository.database.turnDao().get(execution.sessionId, execution.turnSequence) ?: return
+        if (turn.status == TURN_STATUS_RUNNING) return
+        val status = when (turn.status) {
+            TURN_STATUS_COMPLETED -> ScheduledTaskRunStatus.SUCCEEDED
+            TURN_STATUS_STOPPED -> ScheduledTaskRunStatus.CANCELLED
+            else -> ScheduledTaskRunStatus.FAILED
+        }
+        val failureKind = when {
+            status == ScheduledTaskRunStatus.CANCELLED -> ScheduledTaskRunFailureKind.USER_CANCELLED
+            status == ScheduledTaskRunStatus.FAILED -> ScheduledTaskRunFailureKind.AGENT_FAILED
+            else -> null
+        }
+        val dao = repository.database.scheduledTaskRunInboxDao()
+        dao.finish(
+            runId = request.runId,
+            status = status.name,
+            failureKind = failureKind?.name,
+            receiptPending = true,
+            now = System.currentTimeMillis(),
+        )
+        if (scheduledTaskHost?.recordRunReceipt(request, status, failureKind) == true) {
+            dao.acknowledgeReceipt(request.runId, System.currentTimeMillis())
+        }
     }
 
     private suspend fun publishToolProgress(execution: ActiveExecution, active: Boolean) {
@@ -1275,6 +1806,44 @@ class ElymBotSessionService(
             val selected = repository.database.checkpointDao().getByNumber(sessionId, displayNumber)
                 ?: fail(UiIssue.InvalidInput)
             if (expectedCheckpointId != null && selected.id != expectedCheckpointId) fail(UiIssue.InvalidInput)
+            val retiredAt = System.currentTimeMillis()
+            val removedTurns = repository.database.turnDao().after(sessionId, selected.boundaryTurnSequence)
+            repository.database.retiredReplyDao().retireExecutions(
+                removedTurns.map { turn ->
+                    RetiredReplyExecutionEntity(
+                        sessionId = turn.sessionId,
+                        executionId = turn.executionId,
+                        attemptId = turn.attemptId,
+                        turnSequence = turn.sequence,
+                        retiredAtEpochMillis = retiredAt,
+                    )
+                },
+            )
+            val detachedReceipts = repository.database.replySubmissionDao()
+                .externalEffectsAfter(sessionId, selected.boundaryTurnSequence)
+                .mapNotNull { delivery ->
+                    val channelId = delivery.channelId ?: return@mapNotNull null
+                    val conversationId = delivery.conversationId ?: return@mapNotNull null
+                    val pluginId = delivery.pluginId ?: return@mapNotNull null
+                    val installationInstanceId = delivery.installationInstanceId ?: return@mapNotNull null
+                    RetiredReplyReceiptEntity(
+                        id = UUID.randomUUID().toString(),
+                        sessionId = delivery.sessionId,
+                        turnSequence = delivery.turnSequence,
+                        messageId = delivery.messageId,
+                        targetKey = delivery.targetKey,
+                        channelId = channelId,
+                        conversationId = conversationId,
+                        accountId = delivery.accountId,
+                        actorId = delivery.actorId,
+                        pluginId = pluginId,
+                        installationInstanceId = installationInstanceId,
+                        status = delivery.status,
+                        remoteMessageId = delivery.remoteMessageId,
+                        retiredAtEpochMillis = retiredAt,
+                    )
+                }
+            repository.database.retiredReplyDao().insertReceipts(detachedReceipts)
             removedAssetPaths = repository.database.attachmentDao().pathsAfterTurn(sessionId, selected.boundaryTurnSequence)
             repository.database.turnDao().deleteAfter(sessionId, selected.boundaryTurnSequence)
             repository.database.historySummaryDao().deleteAfter(sessionId, selected.boundaryTurnSequence)
@@ -1328,6 +1897,60 @@ class ElymBotSessionService(
             commandIndex += 1
         }
         return displayed
+    }
+
+    private fun ReplyDeliveryEntity.toChatDeliveryTarget() = ChatDeliveryTarget(
+        id = id,
+        kind = targetKind,
+        channelId = channelId,
+        conversationId = conversationId,
+        accountId = accountId,
+        status = status.toChatDeliveryStatus(),
+    )
+
+    private fun RetiredReplyReceiptEntity.toChatDetachedDeliveryReceipt() = ChatDetachedDeliveryReceipt(
+        id = id,
+        turnSequence = turnSequence,
+        messageId = messageId,
+        targetKey = targetKey,
+        channelId = channelId,
+        conversationId = conversationId,
+        accountId = accountId,
+        pluginId = pluginId,
+        status = status.toChatDeliveryStatus(),
+        remoteMessageId = remoteMessageId,
+    )
+
+    private fun ReplyDeliveryEntity.toChatPendingDelivery() = ChatPendingDelivery(
+        id = id,
+        messageId = messageId,
+        targetKey = targetKey,
+        kind = targetKind,
+        channelId = channelId,
+        conversationId = conversationId,
+        accountId = accountId,
+        status = status.toChatDeliveryStatus(),
+        availableAtEpochMillis = availableAtEpochMillis,
+    )
+
+    private fun ReplyDeliveryWithSubmission.blocksWholeTurnRetry(): Boolean = when (delivery.targetKind) {
+        ReplyDeliveryTargetKind.APP_TRANSCRIPT.name -> delivery.status == ReplyDeliveryStatus.DELIVERED.name
+        ReplyDeliveryTargetKind.PLATFORM.name -> delivery.status in setOf(
+            ReplyDeliveryStatus.DELIVERED.name,
+            ReplyDeliveryStatus.UNKNOWN.name,
+            ReplyDeliveryStatus.SENDING.name,
+        )
+        else -> false
+    }
+
+    private fun String.toChatDeliveryStatus() = when (this) {
+        ReplyDeliveryStatus.PENDING.name -> ChatDeliveryStatus.Pending
+        ReplyDeliveryStatus.SENDING.name -> ChatDeliveryStatus.Sending
+        ReplyDeliveryStatus.DELIVERED.name -> ChatDeliveryStatus.Delivered
+        ReplyDeliveryStatus.FAILED.name -> ChatDeliveryStatus.Failed
+        ReplyDeliveryStatus.UNKNOWN.name -> ChatDeliveryStatus.Unknown
+        ReplyDeliveryStatus.CANCELLED.name -> ChatDeliveryStatus.Cancelled
+        else -> ChatDeliveryStatus.Stale
     }
 
     private fun firstTurnTitle(text: String, hasImage: Boolean): String {
@@ -1559,7 +2182,6 @@ class ElymBotSessionService(
     private data class LiveExecutionState(
         val executionId: String,
         val attemptId: String,
-        val text: String,
         val issue: UiIssue?,
         val running: Boolean,
         val toolProgressActive: Boolean = false,
@@ -1568,6 +2190,11 @@ class ElymBotSessionService(
     private data class CommandMessageGroup(
         val beforeTurnSequence: Long,
         val messages: List<ChatMessage>,
+    )
+
+    private data class SessionDeliveryState(
+        val deliveries: List<ReplyDeliveryWithSubmission>,
+        val receipts: List<RetiredReplyReceiptEntity>,
     )
 
     private class ActiveExecution(
@@ -1579,8 +2206,8 @@ class ElymBotSessionService(
         val persona: PersonaPrompt,
         val sessionKind: String,
         val snapshot: RunSnapshot,
+        val scheduledRun: ScheduledTaskRunRequest? = null,
     ) {
-        val output = StringBuilder()
         @Volatile var stopRequested = false
         val startupLock = Any()
         @Volatile var runBodyEntered = false
@@ -1605,8 +2232,43 @@ class ElymBotSessionService(
         const val MESSAGE_CATEGORY_HISTORY = "HISTORY"
         const val MESSAGE_CATEGORY_FEEDBACK = "FEEDBACK"
         const val MESSAGE_CATEGORY_COMMAND = "COMMAND"
+        const val APP_CHANNEL_ID = "app"
+        const val APP_USER_ID = "local-user"
+        const val SCHEDULED_TASK_CHANNEL_ID = "scheduled-task"
+        const val SCHEDULED_TASK_ACTOR_ID = "scheduled-task"
         const val TAG_SEPARATOR = "\u001f"
 
         fun emptyCheckpointId(sessionId: String) = "empty:$sessionId"
     }
 }
+
+private fun ScheduledTaskRunRequest.toInboxEntity(now: Long) = ScheduledTaskRunInboxEntity(
+    runId = runId,
+    taskId = taskId,
+    occurrenceId = occurrenceId,
+    scheduleRevision = scheduleRevision,
+    plannedAtEpochMillis = plannedAt?.toEpochMilli(),
+    triggeredAtEpochMillis = triggeredAt.toEpochMilli(),
+    title = title,
+    prompt = prompt,
+    timeZoneId = timeZoneId,
+    origin = origin.name,
+    installationPluginId = installationIdentity.pluginId,
+    installationInstanceId = installationIdentity.instanceId,
+    status = SCHEDULED_RUN_STATUS_QUEUED,
+    updatedAtEpochMillis = now,
+)
+
+private fun ScheduledTaskRunInboxEntity.toRunRequest() = ScheduledTaskRunRequest(
+    taskId = taskId,
+    runId = runId,
+    occurrenceId = occurrenceId,
+    scheduleRevision = scheduleRevision,
+    plannedAt = plannedAtEpochMillis?.let(Instant::ofEpochMilli),
+    triggeredAt = Instant.ofEpochMilli(triggeredAtEpochMillis),
+    title = title,
+    prompt = prompt,
+    timeZoneId = timeZoneId,
+    origin = runCatching { ScheduledTaskRunOrigin.valueOf(origin) }.getOrDefault(ScheduledTaskRunOrigin.SCHEDULED),
+    installationIdentity = ToolInstallationIdentity(installationPluginId, installationInstanceId),
+)

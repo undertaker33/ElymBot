@@ -115,6 +115,9 @@ data class MessageWithAttachments(
 data class HistoryMessageWithTurnStatus(
     @Embedded val message: MessageEntity,
     val turnStatus: String?,
+    val turnSuccessfulSilence: Boolean,
+    val isReplySubmission: Boolean,
+    val historyVisibilityDelivered: Boolean,
 )
 
 data class HistoryMessageCountByTurn(
@@ -125,7 +128,7 @@ data class HistoryMessageCountByTurn(
 @Dao
 interface MessageDao {
     @Transaction
-    @Query("SELECT * FROM messages WHERE sessionId = :sessionId ORDER BY turnSequence, messageIndex")
+    @Query("SELECT * FROM messages WHERE sessionId = :sessionId AND (NOT EXISTS (SELECT 1 FROM reply_submissions rs WHERE rs.messageId = messages.id) OR EXISTS (SELECT 1 FROM reply_deliveries rd WHERE rd.messageId = messages.id AND rd.targetKind = 'APP_TRANSCRIPT' AND rd.status = 'DELIVERED') OR EXISTS (SELECT 1 FROM reply_deliveries rd WHERE rd.messageId = messages.id AND rd.historyVisibilityGate = 1 AND rd.status = 'DELIVERED')) ORDER BY turnSequence, messageIndex")
     fun observeForSession(sessionId: String): Flow<List<MessageWithAttachments>>
 
     @Query(
@@ -143,21 +146,27 @@ interface MessageDao {
     @Query("SELECT * FROM messages WHERE sessionId = :sessionId AND turnSequence = :sequence ORDER BY messageIndex")
     suspend fun forTurn(sessionId: String, sequence: Long): List<MessageWithAttachments>
 
+    @Query("SELECT * FROM messages WHERE id = :id")
+    suspend fun get(id: String): MessageEntity?
+
     @Query("SELECT * FROM messages WHERE sessionId = :sessionId ORDER BY turnSequence DESC, messageIndex DESC LIMIT 1")
     suspend fun latest(sessionId: String): MessageEntity?
 
     @Query("SELECT COALESCE(MAX(messageIndex), -1) + 1 FROM messages WHERE sessionId = :sessionId AND turnSequence = :sequence")
     suspend fun nextIndex(sessionId: String, sequence: Long): Int
 
-    @Query("SELECT * FROM messages WHERE sessionId = :sessionId AND turnSequence < :upperBoundExclusive AND category = 'HISTORY' AND role IN ('USER', 'ASSISTANT') ORDER BY turnSequence, messageIndex")
+    @Query("SELECT * FROM messages WHERE sessionId = :sessionId AND turnSequence < :upperBoundExclusive AND category = 'HISTORY' AND role IN ('USER', 'ASSISTANT') AND (NOT EXISTS (SELECT 1 FROM reply_submissions rs WHERE rs.messageId = messages.id) OR EXISTS (SELECT 1 FROM reply_deliveries rd WHERE rd.messageId = messages.id AND rd.historyVisibilityGate = 1 AND rd.status = 'DELIVERED')) ORDER BY turnSequence, messageIndex")
     suspend fun history(sessionId: String, upperBoundExclusive: Long): List<MessageEntity>
 
-    @Query("SELECT * FROM messages WHERE sessionId = :sessionId AND turnSequence BETWEEN :fromTurn AND :toTurn AND category = 'HISTORY' AND role IN ('USER', 'ASSISTANT') ORDER BY turnSequence, messageIndex")
+    @Query("SELECT * FROM messages WHERE sessionId = :sessionId AND turnSequence BETWEEN :fromTurn AND :toTurn AND category = 'HISTORY' AND role IN ('USER', 'ASSISTANT') AND (NOT EXISTS (SELECT 1 FROM reply_submissions rs WHERE rs.messageId = messages.id) OR EXISTS (SELECT 1 FROM reply_deliveries rd WHERE rd.messageId = messages.id AND rd.historyVisibilityGate = 1 AND rd.status = 'DELIVERED')) ORDER BY turnSequence, messageIndex")
     suspend fun historyRange(sessionId: String, fromTurn: Long, toTurn: Long): List<MessageEntity>
 
     @Query(
         """
-        SELECT messages.*, turns.status AS turnStatus
+        SELECT messages.*, turns.status AS turnStatus,
+            turns.successfulSilence AS turnSuccessfulSilence,
+            EXISTS(SELECT 1 FROM reply_submissions rs WHERE rs.messageId = messages.id) AS isReplySubmission,
+            EXISTS(SELECT 1 FROM reply_deliveries rd WHERE rd.messageId = messages.id AND rd.historyVisibilityGate = 1 AND rd.status = 'DELIVERED') AS historyVisibilityDelivered
         FROM messages
         LEFT JOIN turns ON turns.sessionId = messages.sessionId AND turns.sequence = messages.turnSequence
         WHERE messages.sessionId = :sessionId
@@ -168,6 +177,9 @@ interface MessageDao {
                 OR (messages.turnSequence = :cursorTurn AND messages.messageIndex < :cursorIndex))
             AND messages.category = 'HISTORY'
             AND messages.role IN ('USER', 'ASSISTANT')
+            AND (NOT EXISTS (SELECT 1 FROM reply_submissions rs WHERE rs.messageId = messages.id)
+                OR EXISTS (SELECT 1 FROM reply_deliveries rd WHERE rd.messageId = messages.id
+                    AND rd.historyVisibilityGate = 1 AND rd.status = 'DELIVERED'))
         ORDER BY messages.turnSequence DESC, messages.messageIndex DESC
         LIMIT :limit
         """,
@@ -184,7 +196,10 @@ interface MessageDao {
 
     @Query(
         """
-        SELECT messages.*, turns.status AS turnStatus
+        SELECT messages.*, turns.status AS turnStatus,
+            turns.successfulSilence AS turnSuccessfulSilence,
+            EXISTS(SELECT 1 FROM reply_submissions rs WHERE rs.messageId = messages.id) AS isReplySubmission,
+            EXISTS(SELECT 1 FROM reply_deliveries rd WHERE rd.messageId = messages.id AND rd.historyVisibilityGate = 1 AND rd.status = 'DELIVERED') AS historyVisibilityDelivered
         FROM messages
         LEFT JOIN turns ON turns.sessionId = messages.sessionId AND turns.sequence = messages.turnSequence
         WHERE messages.sessionId = :sessionId
@@ -195,6 +210,9 @@ interface MessageDao {
                 OR (messages.turnSequence = :cursorTurn AND messages.messageIndex > :cursorIndex))
             AND messages.category = 'HISTORY'
             AND messages.role IN ('USER', 'ASSISTANT')
+            AND (NOT EXISTS (SELECT 1 FROM reply_submissions rs WHERE rs.messageId = messages.id)
+                OR EXISTS (SELECT 1 FROM reply_deliveries rd WHERE rd.messageId = messages.id
+                    AND rd.historyVisibilityGate = 1 AND rd.status = 'DELIVERED'))
         ORDER BY messages.turnSequence, messages.messageIndex
         LIMIT :limit
         """,
@@ -226,6 +244,9 @@ interface MessageDao {
 
     @Query("DELETE FROM messages WHERE sessionId = :sessionId AND turnSequence = :sequence AND role = 'ASSISTANT'")
     suspend fun deleteAssistantMessages(sessionId: String, sequence: Long)
+
+    @Query("DELETE FROM messages WHERE sessionId = :sessionId AND turnSequence = :sequence AND role = 'ASSISTANT' AND NOT EXISTS (SELECT 1 FROM reply_submissions WHERE reply_submissions.messageId = messages.id)")
+    suspend fun deleteNonReplyAssistantMessages(sessionId: String, sequence: Long)
 }
 
 @Dao

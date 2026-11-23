@@ -1,6 +1,9 @@
 package com.elymbot.android.ui
 
 import android.net.Uri
+import com.elymbot.core.contract.ScheduledTaskAction
+import com.elymbot.core.contract.ScheduledTaskActionResult
+import com.elymbot.core.contract.ScheduledTaskSnapshotResult
 import kotlinx.coroutines.flow.Flow
 
 interface ElymBotUiService {
@@ -9,6 +12,7 @@ interface ElymBotUiService {
     val activePersonaId: Flow<String?>
     val mainSession: Flow<ConversationSummary?>
     val models: Flow<ModelConfiguration>
+    val appGuide: Flow<AppGuideState>
     val commandNames: Flow<Map<ChatCommand, String>>
 
     fun sessions(personaId: String): Flow<List<ConversationSummary>>
@@ -28,6 +32,23 @@ interface ElymBotUiService {
     suspend fun send(sessionId: String, text: String, image: Uri?)
     suspend fun stop(sessionId: String)
     suspend fun retry(sessionId: String)
+    suspend fun retryDelivery(messageId: String, deliveryId: String)
+    suspend fun skipAppGuide()
+    suspend fun scheduledTasksSnapshot(
+        sessionId: String,
+        taskId: String? = null,
+    ): ScheduledTaskSnapshotResult
+    suspend fun requestScheduledTaskAction(
+        sessionId: String,
+        requestId: String,
+        action: ScheduledTaskAction,
+    ): ScheduledTaskActionResult
+    suspend fun confirmScheduledTaskAction(
+        sessionId: String,
+        confirmationId: String,
+        initiatingExecutionId: String,
+        approved: Boolean,
+    ): ScheduledTaskActionResult
     suspend fun saveModelService(service: ModelServiceDraft)
     suspend fun deleteModelService(serviceId: String)
     suspend fun fetchModels(service: ModelServiceDraft): List<String>
@@ -65,6 +86,8 @@ data class Conversation(
     val issue: UiIssue? = null,
     val canRetry: Boolean = false,
     val toolProgressActive: Boolean = false,
+    val detachedDeliveryReceipts: List<ChatDetachedDeliveryReceipt> = emptyList(),
+    val pendingDeliveries: List<ChatPendingDelivery> = emptyList(),
 )
 
 data class ChatMessage(
@@ -75,7 +98,44 @@ data class ChatMessage(
     val image: Uri? = null,
     val status: MessageStatus? = null,
     val localReceipt: Boolean = false,
+    val deliveryTargets: List<ChatDeliveryTarget> = emptyList(),
 )
+
+data class ChatDeliveryTarget(
+    val id: String,
+    val kind: String,
+    val channelId: String?,
+    val conversationId: String?,
+    val accountId: String?,
+    val status: ChatDeliveryStatus,
+)
+
+data class ChatDetachedDeliveryReceipt(
+    val id: String,
+    val turnSequence: Long,
+    val messageId: String,
+    val targetKey: String,
+    val channelId: String,
+    val conversationId: String,
+    val accountId: String?,
+    val pluginId: String,
+    val status: ChatDeliveryStatus,
+    val remoteMessageId: String?,
+)
+
+data class ChatPendingDelivery(
+    val id: String,
+    val messageId: String,
+    val targetKey: String,
+    val kind: String,
+    val channelId: String?,
+    val conversationId: String?,
+    val accountId: String?,
+    val status: ChatDeliveryStatus,
+    val availableAtEpochMillis: Long,
+)
+
+enum class ChatDeliveryStatus { Pending, Sending, Delivered, Failed, Unknown, Cancelled, Stale }
 
 data class ChatCheckpoint(
     val id: String,
@@ -99,6 +159,13 @@ enum class ChatCommand(val defaultName: String) {
 }
 
 enum class ModelRole { Text, Vision }
+
+enum class AppGuideStatus { Unknown, NeedsSetup, Skipped, Ready }
+
+data class AppGuideState(
+    val status: AppGuideStatus,
+    val structuredToolCalls: ProbeStatus,
+)
 
 data class ModelChoice(val serviceId: String, val modelId: String)
 
@@ -132,12 +199,13 @@ data class ModelServiceDraft(
 
 enum class ProbeStatus { Waiting, Supported, Unsupported, Unknown }
 
-enum class ProbeTarget { Availability, Vision, Streaming }
+enum class ProbeTarget { Availability, StructuredToolCalls, Vision, Streaming }
 
 data class ProbeFailure(val issue: UiIssue, val httpStatusCode: Int? = null)
 
 data class ModelProbe(
     val availability: ProbeStatus = ProbeStatus.Waiting,
+    val structuredToolCalls: ProbeStatus = ProbeStatus.Waiting,
     val vision: ProbeStatus = ProbeStatus.Waiting,
     val streaming: ProbeStatus = ProbeStatus.Waiting,
     val issue: UiIssue? = null,

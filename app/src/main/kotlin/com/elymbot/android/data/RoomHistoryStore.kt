@@ -112,6 +112,14 @@ class RoomHistoryStore(
         ) {
             return@withTransaction SummaryCommitResult.RejectedStaleCoverage
         }
+        if (database.replySubmissionDao().hasIneligibleHistoryMessages(
+                candidate.sessionId,
+                candidate.fromTurnInclusive,
+                candidate.toTurnInclusive,
+            )
+        ) {
+            return@withTransaction SummaryCommitResult.RejectedStaleCoverage
+        }
 
         val summaries = database.historySummaryDao().getForSession(candidate.sessionId)
         val replacementIds = candidate.replacesSummaryIds
@@ -144,7 +152,10 @@ class RoomHistoryStore(
         SummaryCommitResult.Committed(summary.toContract())
     }
 
-    private fun MessageEntity.toHistoryRecord(turnStatus: String?): HistoryRecord {
+    private fun MessageEntity.toHistoryRecord(
+        turnStatus: String?,
+        successfulSilence: Boolean = false,
+    ): HistoryRecord {
         val status = when (if (role == MESSAGE_ROLE_USER) null else this.status ?: turnStatus) {
             TURN_STATUS_STOPPED -> HistoryMessageStatus.STOPPED
             TURN_STATUS_INTERRUPTED, TURN_STATUS_FAILED, TURN_STATUS_TIMED_OUT,
@@ -158,11 +169,14 @@ class RoomHistoryStore(
             role = if (role == MESSAGE_ROLE_USER) HistoryRole.USER else HistoryRole.ASSISTANT,
             text = text,
             status = status,
+            successfulSilence = role == MESSAGE_ROLE_USER && successfulSilence,
         )
     }
 
-    private fun HistoryMessageWithTurnStatus.toHistoryRecord(): HistoryRecord =
-        message.toHistoryRecord(turnStatus)
+    private fun HistoryMessageWithTurnStatus.toHistoryRecord(): HistoryRecord = message.toHistoryRecord(
+        turnStatus = if (isReplySubmission && historyVisibilityDelivered) TURN_STATUS_COMPLETED else turnStatus,
+        successfulSilence = turnSuccessfulSilence,
+    )
 
     private fun HistorySummaryEntity.toContract() = HistorySummary(
         id = id,

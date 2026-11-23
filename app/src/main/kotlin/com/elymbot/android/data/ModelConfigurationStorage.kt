@@ -101,6 +101,9 @@ interface ModelConfigurationDao {
     @Query("SELECT * FROM model_probe_results WHERE serviceId = :serviceId AND modelId = :modelId AND baseUrl = :baseUrl")
     suspend fun getProbes(serviceId: String, modelId: String, baseUrl: String): List<ModelProbeEntity>
 
+    @Query("SELECT * FROM model_probe_results WHERE serviceId = :serviceId AND modelId = :modelId AND baseUrl = :baseUrl")
+    fun observeProbes(serviceId: String, modelId: String, baseUrl: String): Flow<List<ModelProbeEntity>>
+
     @Query("DELETE FROM model_probe_results WHERE serviceId = :serviceId")
     suspend fun deleteProbes(serviceId: String)
 

@@ -197,14 +197,15 @@ internal class ElymBotModelConfigurationService(
         val failures = failuresByTarget.mapNotNull { (target, failure) ->
             val uiTarget = when (target) {
                 ModelProbeTarget.AVAILABILITY -> ProbeTarget.Availability
+                ModelProbeTarget.STRUCTURED_TOOL_CALLS -> ProbeTarget.StructuredToolCalls
                 ModelProbeTarget.VISION -> ProbeTarget.Vision
                 ModelProbeTarget.NATIVE_STREAMING -> ProbeTarget.Streaming
-                ModelProbeTarget.STRUCTURED_TOOL_CALLS -> null
-            } ?: return@mapNotNull null
+            }
             uiTarget to ProbeFailure(failure.kind.toUiIssue(), failure.httpStatusCode)
         }.toMap()
         return ModelProbe(
             availability = availability.toUiStatus(),
+            structuredToolCalls = structuredToolCalls.toUiStatus(),
             vision = vision.toUiStatus(),
             streaming = nativeStreaming.toUiStatus(),
             issue = failures.values.firstOrNull()?.issue,

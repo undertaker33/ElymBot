@@ -69,6 +69,7 @@ data class TurnEntity(
     val visionModelId: String?,
     val failureKind: String?,
     val retryable: Boolean,
+    val successfulSilence: Boolean = false,
 )
 
 data class ConversationSummaryRow(
@@ -106,10 +107,10 @@ interface ConversationDao {
     @Query("SELECT * FROM conversations WHERE kind = 'DEDICATED'")
     suspend fun getAllDedicated(): List<ConversationEntity>
 
-    @Query("SELECT c.id, c.personaId, COALESCE(c.title, '') AS title, (SELECT CASE WHEN m.text <> '' THEN m.text ELSE NULL END FROM messages m WHERE m.sessionId = c.id AND m.category = 'HISTORY' ORDER BY m.turnSequence DESC, m.messageIndex DESC LIMIT 1) AS preview, EXISTS(SELECT 1 FROM turns t WHERE t.sessionId = c.id AND t.status = 'RUNNING') AS running, c.unread FROM conversations c WHERE c.kind = 'MAIN' AND c.mainKey = 'main' LIMIT 1")
+    @Query("SELECT c.id, c.personaId, COALESCE(c.title, '') AS title, (SELECT CASE WHEN m.text <> '' THEN m.text ELSE NULL END FROM messages m WHERE m.sessionId = c.id AND m.category = 'HISTORY' AND (NOT EXISTS(SELECT 1 FROM reply_submissions rs WHERE rs.messageId = m.id) OR EXISTS(SELECT 1 FROM reply_deliveries rd WHERE rd.messageId = m.id AND rd.targetKind = 'APP_TRANSCRIPT' AND rd.status = 'DELIVERED') OR EXISTS(SELECT 1 FROM reply_deliveries rd WHERE rd.messageId = m.id AND rd.historyVisibilityGate = 1 AND rd.status = 'DELIVERED')) ORDER BY m.turnSequence DESC, m.messageIndex DESC LIMIT 1) AS preview, EXISTS(SELECT 1 FROM turns t WHERE t.sessionId = c.id AND t.status = 'RUNNING') AS running, c.unread FROM conversations c WHERE c.kind = 'MAIN' AND c.mainKey = 'main' LIMIT 1")
     fun observeMainSummary(): Flow<ConversationSummaryRow?>
 
-    @Query("SELECT c.id, c.personaId, COALESCE(c.title, '') AS title, (SELECT CASE WHEN m.text <> '' THEN m.text ELSE NULL END FROM messages m WHERE m.sessionId = c.id AND m.category = 'HISTORY' ORDER BY m.turnSequence DESC, m.messageIndex DESC LIMIT 1) AS preview, EXISTS(SELECT 1 FROM turns t WHERE t.sessionId = c.id AND t.status = 'RUNNING') AS running, c.unread FROM conversations c WHERE c.kind = 'DEDICATED' AND c.personaId = :personaId AND c.title IS NOT NULL ORDER BY c.lastActivityAt DESC, c.createdAt DESC")
+    @Query("SELECT c.id, c.personaId, COALESCE(c.title, '') AS title, (SELECT CASE WHEN m.text <> '' THEN m.text ELSE NULL END FROM messages m WHERE m.sessionId = c.id AND m.category = 'HISTORY' AND (NOT EXISTS(SELECT 1 FROM reply_submissions rs WHERE rs.messageId = m.id) OR EXISTS(SELECT 1 FROM reply_deliveries rd WHERE rd.messageId = m.id AND rd.targetKind = 'APP_TRANSCRIPT' AND rd.status = 'DELIVERED') OR EXISTS(SELECT 1 FROM reply_deliveries rd WHERE rd.messageId = m.id AND rd.historyVisibilityGate = 1 AND rd.status = 'DELIVERED')) ORDER BY m.turnSequence DESC, m.messageIndex DESC LIMIT 1) AS preview, EXISTS(SELECT 1 FROM turns t WHERE t.sessionId = c.id AND t.status = 'RUNNING') AS running, c.unread FROM conversations c WHERE c.kind = 'DEDICATED' AND c.personaId = :personaId AND c.title IS NOT NULL ORDER BY c.lastActivityAt DESC, c.createdAt DESC")
     fun observeDedicatedSummaries(personaId: String): Flow<List<ConversationSummaryRow>>
 
     @Insert(onConflict = OnConflictStrategy.ABORT)
@@ -144,6 +145,9 @@ interface TurnDao {
 
     @Query("SELECT * FROM turns WHERE sessionId = :sessionId ORDER BY sequence DESC LIMIT 1")
     suspend fun latest(sessionId: String): TurnEntity?
+
+    @Query("SELECT * FROM turns WHERE sessionId = :sessionId AND sequence > :boundaryExclusive ORDER BY sequence")
+    suspend fun after(sessionId: String, boundaryExclusive: Long): List<TurnEntity>
 
     @Query("SELECT * FROM turns WHERE sessionId = :sessionId ORDER BY sequence")
     fun observeForSession(sessionId: String): Flow<List<TurnEntity>>

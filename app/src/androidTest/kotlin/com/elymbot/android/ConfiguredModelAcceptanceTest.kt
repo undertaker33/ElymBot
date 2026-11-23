@@ -1,6 +1,5 @@
 package com.elymbot.android
 
-import android.util.Log
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
@@ -12,17 +11,22 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.junit4.ComposeContentTestRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.elymbot.android.data.ModelProbeEntity
-import com.elymbot.android.ui.ModelConfiguration
+import com.elymbot.android.data.ReplyDeliveryStatus
+import com.elymbot.android.data.ReplyDeliveryTargetKind
+import com.elymbot.android.ui.ChatDeliveryStatus
 import com.elymbot.android.ui.ModelServiceItem
+import com.elymbot.core.contract.CapabilityStatus
+import com.elymbot.core.contract.ModelProbeTarget
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotNull
+import kotlinx.coroutines.flow.map
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -43,12 +47,11 @@ class ConfiguredModelAcceptanceTest {
         val app = compose.activity.application as ElymBotApplication
         val service = app.uiService
         val config = runBlocking {
-            withTimeout(TimeUnit.SECONDS.toMillis(30)) { service.models.first { it.text != null } }
+            withTimeout(TimeUnit.SECONDS.toMillis(30)) { service.models.first() }
         }
-        val textChoice = requireNotNull(config.text)
+        val textChoice = checkNotNull(config.text) { "The device has no assigned Text model." }
         val textService = requireNotNull(config.services.firstOrNull { it.id == textChoice.serviceId })
         check(textService.hasKey) { "The configured Text model has no saved credential." }
-        Log.i("W01ModelAcceptance", "Configured Text model=${textChoice.modelId}; service=${textService.name}")
 
         openModelEditor(textService)
         val strings = compose.activity
@@ -56,7 +59,6 @@ class ConfiguredModelAcceptanceTest {
         waitForText(compose, strings.getString(R.string.elym_probe_result))
         compose.onNodeWithText(strings.getString(R.string.elym_use_model)).assertIsEnabled()
         closeTopDialog()
-        Log.i("W01ModelAcceptance", "Configured Text model is selectable from the model list.")
 
         compose.onNodeWithText(strings.getString(R.string.elym_probe_capabilities)).performClick()
         waitForText(compose, strings.getString(R.string.elym_model_available))
@@ -71,10 +73,10 @@ class ConfiguredModelAcceptanceTest {
         assertTrue("Availability result was not stored", statuses.containsKey("AVAILABILITY"))
         assertTrue("Vision result was not stored", statuses.containsKey("VISION"))
         assertTrue("Streaming result was not stored", statuses.containsKey("NATIVE_STREAMING"))
-        Log.i(
-            "W01ModelAcceptance",
-            "Configured Text probe results: " +
-                listOf("AVAILABILITY", "VISION", "NATIVE_STREAMING").joinToString { "$it=${statuses[it]}" },
+        assertEquals(
+            "The configured Text model requires structured tools to send Reply",
+            CapabilityStatus.SUPPORTED.name,
+            statuses[ModelProbeTarget.STRUCTURED_TOOL_CALLS.name],
         )
 
         closeTopDialog()
@@ -88,21 +90,32 @@ class ConfiguredModelAcceptanceTest {
         waitForText(compose, strings.getString(R.string.elym_sessions))
         openNewSession(compose, strings.getString(R.string.elym_new_session))
 
-        val prompt = "w01-${UUID.randomUUID().toString().take(10)} reply with DEVICE_TEST_OK"
+        val replyCode = "DEVICE_TEST_OK"
+        val prompt = "t02-${UUID.randomUUID().toString().take(10)} reply with $replyCode"
         compose.onNodeWithContentDescription(strings.getString(R.string.elym_type_message)).performTextInput(prompt)
         compose.onNodeWithContentDescription(strings.getString(R.string.elym_send)).performClick()
         val session = awaitSession(prompt.take(26))
         waitForCompleted(session.id)
-        val turn = runBlocking {
-            withContext(Dispatchers.IO) { requireNotNull(fixture.database.turnDao().latest(session.id)) }
+        val reply = runBlocking {
+            withTimeout(TimeUnit.SECONDS.toMillis(30)) {
+                service.conversation(session.id).map { conversation ->
+                    conversation.messages.firstOrNull { message ->
+                        message.assistant && replyCode in message.text && message.deliveryTargets.any { target ->
+                            target.kind == ReplyDeliveryTargetKind.APP_TRANSCRIPT.name &&
+                                target.status == ChatDeliveryStatus.Delivered
+                        }
+                    }
+                }.filterNotNull().first()
+            }
         }
-        val messages = runBlocking {
-            withContext(Dispatchers.IO) { fixture.database.messageDao().forTurn(session.id, turn.sequence) }
+        val receipt = runBlocking {
+            withContext(Dispatchers.IO) {
+                fixture.database.replyDeliveryDao().forMessage(reply.id)
+                    .single { it.targetKind == ReplyDeliveryTargetKind.APP_TRANSCRIPT.name }
+            }
         }
-        val reply = messages.single { it.message.role == "ASSISTANT" }.message.text
-        assertNotNull("The configured Text model did not persist a reply", reply)
-        assertTrue("The configured Text model returned an empty reply", reply.isNotBlank())
-        Log.i("W01ModelAcceptance", "Configured Text reply=${reply.take(120)}")
+        assertEquals(ReplyDeliveryStatus.DELIVERED.name, receipt.status)
+        waitForText(compose, reply.text)
     }
 
     private fun closeTopDialog() {
@@ -125,7 +138,7 @@ class ConfiguredModelAcceptanceTest {
         withContext(Dispatchers.IO) {
             val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
             var probes = fixture.database.modelConfigurationDao().getProbes(service.id, modelId, service.baseUrl)
-            while (probes.size < 3 && System.nanoTime() < deadline) {
+            while (probes.size < ModelProbeTarget.entries.size && System.nanoTime() < deadline) {
                 Thread.sleep(25)
                 probes = fixture.database.modelConfigurationDao().getProbes(service.id, modelId, service.baseUrl)
             }
@@ -134,9 +147,14 @@ class ConfiguredModelAcceptanceTest {
     }
 
     private fun waitForCompleted(sessionId: String) {
+        var status: String? = null
         compose.waitUntil(180_000) {
-            runBlocking { withContext(Dispatchers.IO) { fixture.database.turnDao().latest(sessionId)?.status == "COMPLETED" } }
+            status = runBlocking {
+                withContext(Dispatchers.IO) { fixture.database.turnDao().latest(sessionId)?.status }
+            }
+            status != null && status != "RUNNING"
         }
+        assertEquals("The configured Text model did not complete a Reply turn", "COMPLETED", status)
     }
 
     private fun awaitSession(title: String) = runBlocking {

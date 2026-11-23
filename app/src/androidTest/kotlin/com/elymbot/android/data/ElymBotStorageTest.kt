@@ -52,6 +52,10 @@ import com.elymbot.core.contract.ModelRequestException
 import com.elymbot.core.contract.ModelRole as CoreModelRole
 import com.elymbot.core.contract.ModelStreamEvent
 import com.elymbot.core.contract.ModelToolCall
+import com.elymbot.core.contract.ReplyMessage
+import com.elymbot.core.contract.ReplySubmission
+import com.elymbot.core.contract.ReplySubmissionContext
+import com.elymbot.core.contract.ReplySubmissionResult
 import com.elymbot.core.contract.SlashCommandParser
 import com.elymbot.core.contract.SummaryCommitResult
 import com.elymbot.core.agent.ReActAgentRuntime
@@ -88,6 +92,8 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.sync.Mutex
+import org.json.JSONArray
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -215,7 +221,7 @@ class ElymBotStorageTest {
                 runtime = AgentRuntime { request ->
                     flow {
                         sendBarrier.await()
-                        emit(AgentEvent.TextDelta(request.executionId, request.attemptId, "reply"))
+                        assertTrue(request.submitTestReply("reply") is ReplySubmissionResult.Accepted)
                         emit(AgentEvent.Finished(request.executionId, request.attemptId, AgentTerminalStatus.COMPLETED))
                     }
                 },
@@ -294,7 +300,7 @@ class ElymBotStorageTest {
                         imageByteCount.set(images.single().bytes.size)
                     }
                     flow {
-                        emit(AgentEvent.TextDelta(request.executionId, request.attemptId, "image received"))
+                        assertTrue(request.submitTestReply("image received") is ReplySubmissionResult.Accepted)
                         emit(AgentEvent.Finished(request.executionId, request.attemptId, AgentTerminalStatus.COMPLETED))
                     }
                 },
@@ -1084,7 +1090,7 @@ class ElymBotStorageTest {
                 runtime = AgentRuntime { request ->
                     requestPersonas.add(request.persona.name to request.persona.prompt)
                     flow {
-                        emit(AgentEvent.TextDelta(request.executionId, request.attemptId, "reply"))
+                        assertTrue(request.submitTestReply("reply") is ReplySubmissionResult.Accepted)
                         emit(AgentEvent.Finished(request.executionId, request.attemptId, AgentTerminalStatus.COMPLETED))
                     }
                 },
@@ -1145,7 +1151,7 @@ class ElymBotStorageTest {
                                 ),
                             )
                         } else {
-                            emit(AgentEvent.TextDelta(request.executionId, request.attemptId, "finished"))
+                            assertTrue(request.submitTestReply("finished") is ReplySubmissionResult.Accepted)
                             emit(AgentEvent.Finished(request.executionId, request.attemptId, AgentTerminalStatus.COMPLETED))
                         }
                     }
@@ -1179,11 +1185,23 @@ class ElymBotStorageTest {
         try {
             fixture.initializeTestState()
             val main = fixture.database.conversationDao().getMain()!!
+            val calls = AtomicInteger()
             val service = fixture.service(
                 runtime = AgentRuntime { request ->
                     flow {
-                        emit(AgentEvent.TextDelta(request.executionId, request.attemptId, "partial"))
-                        emit(AgentEvent.Finished(request.executionId, request.attemptId, AgentTerminalStatus.COMPLETED))
+                        if (calls.incrementAndGet() == 1) {
+                            emit(
+                                AgentEvent.Finished(
+                                    request.executionId,
+                                    request.attemptId,
+                                    AgentTerminalStatus.COMPLETED,
+                                    successfulSilence = true,
+                                ),
+                            )
+                        } else {
+                            assertTrue(request.submitTestReply("retried reply") is ReplySubmissionResult.Accepted)
+                            emit(AgentEvent.Finished(request.executionId, request.attemptId, AgentTerminalStatus.COMPLETED))
+                        }
                     }
                 },
             )
@@ -1201,8 +1219,7 @@ class ElymBotStorageTest {
             val failedMessages = fixture.database.messageDao().forTurn(main.id, failedTurn.sequence)
             assertEquals(AgentFailureKind.INTERNAL.name, failedTurn.failureKind)
             assertTrue(failedTurn.retryable)
-            assertEquals(listOf("question", "partial"), failedMessages.map { it.message.text })
-            assertEquals("INTERRUPTED", failedMessages.last().message.status)
+            assertEquals(listOf("question"), failedMessages.map { it.message.text })
             assertEquals(UiIssue.Failed, service.conversation(main.id).first { !it.generating }.issue)
 
             fixture.database.openHelper.writableDatabase.execSQL("DROP TRIGGER fail_completed_turn")
@@ -1212,7 +1229,7 @@ class ElymBotStorageTest {
             val completedMessages = fixture.database.messageDao().forTurn(main.id, failedTurn.sequence)
             assertEquals(1, completedMessages.count { it.message.role == "USER" })
             assertEquals(1, completedMessages.count { it.message.role == "ASSISTANT" && it.message.category == "HISTORY" })
-            assertEquals("partial", completedMessages.last().message.text)
+            assertEquals("retried reply", completedMessages.last().message.text)
         } finally {
             fixture.close()
         }
@@ -1231,7 +1248,7 @@ class ElymBotStorageTest {
                 },
                 runtime = AgentRuntime { request ->
                     flow {
-                        emit(AgentEvent.TextDelta(request.executionId, request.attemptId, "reply-${request.turnSequence}"))
+                        assertTrue(request.submitTestReply("reply-${request.turnSequence}") is ReplySubmissionResult.Accepted)
                         emit(AgentEvent.Finished(request.executionId, request.attemptId, AgentTerminalStatus.COMPLETED))
                     }
                 },
@@ -1267,7 +1284,6 @@ class ElymBotStorageTest {
                 runtime = AgentRuntime { request ->
                     runtimeCalls.incrementAndGet()
                     flow {
-                        emit(AgentEvent.TextDelta(request.executionId, request.attemptId, "unexpected"))
                         emit(AgentEvent.Finished(request.executionId, request.attemptId, AgentTerminalStatus.COMPLETED))
                     }
                 },
@@ -1284,7 +1300,7 @@ class ElymBotStorageTest {
             assertEquals(0, runtimeCalls.get())
             assertEquals("STOPPED", fixture.database.turnDao().latest(main.id)?.status)
             assertFalse(service.conversation(main.id).first().generating)
-            assertEquals(listOf("question", ""), fixture.database.messageDao().forTurn(main.id, 1).map { it.message.text })
+            assertEquals(listOf("question"), fixture.database.messageDao().forTurn(main.id, 1).map { it.message.text })
         } finally {
             pausedScope.cancel()
             fixture.close()
@@ -1341,14 +1357,13 @@ class ElymBotStorageTest {
             val service = fixture.service(
                 runtime = AgentRuntime { request ->
                     flow {
-                        emit(AgentEvent.TextDelta(request.executionId, request.attemptId, "partial"))
                         emit(AgentEvent.ToolProgress(request.executionId, request.attemptId, active = true))
                         if (request.sessionId == first.id) firstStarted.complete(Unit)
                         if (request.sessionId == second.id) secondStarted.complete(Unit)
                         if (request.sessionId == first.id) awaitCancellation()
                         finishSecond.await()
                         emit(AgentEvent.ToolProgress(request.executionId, request.attemptId, active = false))
-                        emit(AgentEvent.TextDelta(request.executionId, request.attemptId, " reply"))
+                        assertTrue(request.submitTestReply("reply") is ReplySubmissionResult.Accepted)
                         emit(AgentEvent.Finished(request.executionId, request.attemptId, AgentTerminalStatus.COMPLETED))
                     }
                 },
@@ -1378,8 +1393,8 @@ class ElymBotStorageTest {
             val secondTurn = fixture.database.turnDao().latest(second.id)!!
             assertEquals("STOPPED", firstTurn.status)
             assertEquals("COMPLETED", secondTurn.status)
-            assertEquals("partial", fixture.database.messageDao().forTurn(first.id, firstTurn.sequence).last().message.text)
-            assertEquals("partial reply", fixture.database.messageDao().forTurn(second.id, secondTurn.sequence).last().message.text)
+            assertEquals(listOf("first question"), fixture.database.messageDao().forTurn(first.id, firstTurn.sequence).map { it.message.text })
+            assertEquals(listOf("second question", "reply"), fixture.database.messageDao().forTurn(second.id, secondTurn.sequence).map { it.message.text })
             assertFalse(service.conversation(second.id).first().toolProgressActive)
             assertTrue(fixture.database.conversationDao().get(first.id)!!.unread)
             assertTrue(fixture.database.conversationDao().get(second.id)!!.unread)
@@ -1399,9 +1414,8 @@ class ElymBotStorageTest {
                 runtime = AgentRuntime { request ->
                     flow {
                         val oldAttempt = "${request.attemptId}-old"
-                        emit(AgentEvent.TextDelta(request.executionId, oldAttempt, "stale output"))
                         emit(AgentEvent.Finished(request.executionId, oldAttempt, AgentTerminalStatus.FAILED))
-                        emit(AgentEvent.TextDelta(request.executionId, request.attemptId, "current output"))
+                        assertTrue(request.submitTestReply("current output") is ReplySubmissionResult.Accepted)
                         emit(AgentEvent.Finished(request.executionId, request.attemptId, AgentTerminalStatus.COMPLETED))
                     }
                 },
@@ -1456,7 +1470,7 @@ class ElymBotStorageTest {
     @SdkSuppress(minSdkVersion = Build.VERSION_CODES.Q)
     fun nonStreamingVisionRoutesDirectAndThroughConfiguredFallback() = runBlocking {
         val fixture = Fixture(context)
-        val server = VisualCompletionServer(expectedRequests = 5)
+        val server = VisualCompletionServer(expectedRequests = 7)
         var imageUri: Uri? = null
         try {
             fixture.initializeTestState()
@@ -1484,6 +1498,17 @@ class ElymBotStorageTest {
             val serviceId = fixture.database.modelConfigurationDao().getServices().single().id
             service.setModel(UiModelRole.Text, ModelChoice(serviceId, "model-text"))
             service.setModel(UiModelRole.Vision, ModelChoice(serviceId, "model-vision"))
+            fixture.database.modelConfigurationDao().upsertProbe(
+                ModelProbeEntity(
+                    serviceId = serviceId,
+                    modelId = "model-text",
+                    baseUrl = server.baseUrl,
+                    target = ModelProbeTarget.STRUCTURED_TOOL_CALLS.name,
+                    status = CapabilityStatus.SUPPORTED.name,
+                    failureKind = null,
+                    httpStatusCode = null,
+                ),
+            )
             val session = service.newSession(fixture.personaId(0))
             val uri = fixture.createImageContentUri()
             imageUri = uri
@@ -1492,8 +1517,12 @@ class ElymBotStorageTest {
             fixture.awaitStatus(session, "COMPLETED")
             assertEquals("Direct visual answer", fixture.database.messageDao().forTurn(session, 1).last().message.text)
             val primaryProbes = fixture.database.modelConfigurationDao().getProbes(serviceId, "model-text", server.baseUrl)
-            assertEquals(listOf(ModelProbeTarget.VISION.name), primaryProbes.map { it.target })
-            assertEquals(CapabilityStatus.SUPPORTED.name, primaryProbes.single().status)
+                .associateBy { it.target }
+            assertEquals(CapabilityStatus.SUPPORTED.name, primaryProbes.getValue(ModelProbeTarget.VISION.name).status)
+            assertEquals(
+                CapabilityStatus.SUPPORTED.name,
+                primaryProbes.getValue(ModelProbeTarget.STRUCTURED_TOOL_CALLS.name).status,
+            )
 
             fixture.setModelProbe(
                 serviceId = serviceId,
@@ -1518,29 +1547,31 @@ class ElymBotStorageTest {
 
             val requests = server.requests
             assertEquals(
-                listOf("model-text", "model-text", "model-vision", "model-vision", "model-text"),
+                listOf("model-text", "model-text", "model-text", "model-vision", "model-vision", "model-text", "model-text"),
                 requests.map { it.modelId },
             )
             assertTrue(requests.all { it.body.contains("\"stream\":false") })
             assertTrue(requests[0].body.contains("Name the four block colors in order"))
             assertFalse(requests[0].body.contains("Describe the synthetic image directly"))
             assertTrue(requests[1].body.contains("Describe the synthetic image directly"))
-            assertTrue(requests[2].body.contains("Name the four block colors in order"))
-            assertFalse(requests[2].body.contains("Describe the synthetic image through fallback"))
+            assertTrue(requests[2].body.contains("Reply accepted for durable delivery"))
+            assertTrue(requests[3].body.contains("Name the four block colors in order"))
             assertFalse(requests[3].body.contains("Describe the synthetic image through fallback"))
-            assertFalse(requests[4].body.contains("image_url"))
-            assertTrue(requests[4].body.contains("Image description:"))
-            assertTrue(requests[4].body.contains("Describe the synthetic image through fallback"))
+            assertFalse(requests[4].body.contains("Describe the synthetic image through fallback"))
+            assertFalse(requests[5].body.contains("image_url"))
+            assertTrue(requests[5].body.contains("Image description:"))
+            assertTrue(requests[5].body.contains("Describe the synthetic image through fallback"))
+            assertTrue(requests[6].body.contains("Reply accepted for durable delivery"))
             fun imageUrl(request: CapturedCompletionRequest): String? =
                 Regex("\"url\"\\s*:\\s*\"(data:image/png;base64,[^\"]+)\"")
                     .find(request.body)?.groupValues?.get(1)
             assertNotNull(imageUrl(requests[0]))
             assertNotNull(imageUrl(requests[1]))
-            assertNotNull(imageUrl(requests[2]))
             assertNotNull(imageUrl(requests[3]))
+            assertNotNull(imageUrl(requests[4]))
             assertTrue(imageUrl(requests[0]) != imageUrl(requests[1]))
-            assertTrue(imageUrl(requests[2]) != imageUrl(requests[3]))
-            assertEquals(imageUrl(requests[1]), imageUrl(requests[3]))
+            assertTrue(imageUrl(requests[3]) != imageUrl(requests[4]))
+            assertEquals(imageUrl(requests[1]), imageUrl(requests[4]))
 
             val visionProbes = fixture.database.modelConfigurationDao().getProbes(serviceId, "model-vision", server.baseUrl)
                 .associateBy { it.target }
@@ -1640,7 +1671,7 @@ class ElymBotStorageTest {
     }
 
     @Test
-    fun historyReadCanReachCompressedTurnsPersistsFeedbackAndRollbackRemovesLaterHistory() = runBlocking {
+    fun historyReadCanReachCompressedTurnsWithoutFeedbackAndRollbackRemovesLaterHistory() = runBlocking {
         val fixture = Fixture(context)
         val historyStore = RoomHistoryStore(fixture.database)
         val summaryRequests = CopyOnWriteArrayList<ModelRequest>()
@@ -1683,7 +1714,25 @@ class ElymBotStorageTest {
                                 ),
                             ),
                         )
-                    } else if (responseIndex == 2) {
+                    } else if (responseIndex == 1 || responseIndex == 4) {
+                        val replyText = if (responseIndex == 1) {
+                            "I recovered the retained history and completed the request."
+                        } else {
+                            "I recovered the retained history after rollback."
+                        }
+                        emit(
+                            ModelStreamEvent.Completed(
+                                ModelFinishReason.TOOL_CALLS,
+                                listOf(
+                                    ModelToolCall(
+                                        "history-reply-$responseIndex",
+                                        "reply",
+                                        """{"messages":[{"text":"$replyText","delayMillis":0}]}""",
+                                    ),
+                                ),
+                            ),
+                        )
+                    } else if (responseIndex == 3) {
                         emit(
                             ModelStreamEvent.Completed(
                                 ModelFinishReason.TOOL_CALLS,
@@ -1702,7 +1751,6 @@ class ElymBotStorageTest {
                             ),
                         )
                     } else {
-                        emit(ModelStreamEvent.TextDelta("I recovered the retained history and completed the request."))
                         emit(ModelStreamEvent.Completed(ModelFinishReason.STOP))
                     }
                 }
@@ -1808,17 +1856,20 @@ class ElymBotStorageTest {
                 "Provide both fromTurn and toTurn, or neither.",
                 toolResults.last().content.filterIsInstance<ModelContentPart.Text>().single().value,
             )
+            val replyToolResult = responseRequests[2].messages.filter { it.role == CoreModelRole.TOOL }
+                .single { it.toolCallId == "history-reply-1" }
+            assertTrue(replyToolResult.content.filterIsInstance<ModelContentPart.Text>().single().value.contains("Reply accepted for durable delivery"))
 
             val turnMessages = fixture.database.messageDao().forTurn(main.id, firstTurnSequence)
-            val feedback = turnMessages.single { it.message.category == "FEEDBACK" }.message
+            assertTrue("HistoryRead rejection must stay inside model tool results", turnMessages.none { it.message.category == "FEEDBACK" })
             val finalAssistant = turnMessages.single { it.message.category == "HISTORY" && it.message.role == "ASSISTANT" }.message
-            assertEquals("HistoryRead: Provide both fromTurn and toTurn, or neither.", feedback.text)
             assertEquals("I recovered the retained history and completed the request.", finalAssistant.text)
-            assertTrue(feedback.messageIndex < finalAssistant.messageIndex)
-            assertEquals(
-                feedback.text,
-                service.conversation(main.id).first().messages.first { it.text == feedback.text }.text,
-            )
+            withTimeout(5_000) {
+                while (fixture.database.replyDeliveryDao().forMessage(finalAssistant.id).single().status != "DELIVERED") delay(10)
+            }
+            val transcript = service.conversation(main.id).first().messages.map { it.text }
+            assertTrue(finalAssistant.text in transcript)
+            assertTrue(transcript.none { it.startsWith("HistoryRead:") || it == "Provide both fromTurn and toTurn, or neither." })
 
             val checkpointToRestore = service.checkpoints(main.id).first().single { it.displayNumber == 2 }
             service.restoreCheckpoint(main.id, checkpointToRestore.displayNumber, checkpointToRestore.id)
@@ -1834,8 +1885,8 @@ class ElymBotStorageTest {
                 "COMPLETED",
                 afterRollbackTurn?.status,
             )
-            assertEquals(4, responseRequests.size)
-            val afterRollbackToolResults = responseRequests[3].messages.filter { it.role == CoreModelRole.TOOL }
+            assertEquals(6, responseRequests.size)
+            val afterRollbackToolResults = responseRequests[4].messages.filter { it.role == CoreModelRole.TOOL }
             assertEquals(
                 listOf("after-rollback-retained-call", "after-rollback-deleted-call"),
                 afterRollbackToolResults.map { it.toolCallId },
@@ -1849,6 +1900,9 @@ class ElymBotStorageTest {
             assertTrue(deletedAfterRollback.contains("\"records\":[]"))
             assertFalse(deletedAfterRollback.contains("POST_CHECKPOINT_MARKER"))
             assertFalse(service.conversation(main.id).first().messages.any { it.text.contains("POST_CHECKPOINT_MARKER") })
+            val afterRollbackReply = responseRequests[5].messages.filter { it.role == CoreModelRole.TOOL }
+                .single { it.toolCallId == "history-reply-4" }
+            assertTrue(afterRollbackReply.content.filterIsInstance<ModelContentPart.Text>().single().value.contains("Reply accepted for durable delivery"))
         } finally {
             fixture.close()
         }
@@ -1928,7 +1982,7 @@ class ElymBotStorageTest {
             parser: SlashCommandParser = SlashCommandParser { _, _ -> CommandParseResult.NotCommand },
             runtime: AgentRuntime = AgentRuntime { request ->
                 flow {
-                    emit(AgentEvent.TextDelta(request.executionId, request.attemptId, "reply"))
+                    check(request.submitTestReply("reply") is ReplySubmissionResult.Accepted)
                     emit(AgentEvent.Finished(request.executionId, request.attemptId, AgentTerminalStatus.COMPLETED))
                 }
             },
@@ -2207,6 +2261,7 @@ class ElymBotStorageTest {
                         val request = readRequest(socket.getInputStream())
                         val modelId = MODEL_ID_PATTERN.find(request)?.groupValues?.get(1)
                             ?: error("Synthetic completion request omitted model ID")
+                        val requestIndex = requests.size
                         requests += CapturedCompletionRequest(modelId, request)
                         val includesImage = request.contains("data:image/png;base64,")
                         val isVisionProbe = request.contains("Name the four block colors in order")
@@ -2216,9 +2271,11 @@ class ElymBotStorageTest {
                             includesImage -> "Direct visual answer"
                             else -> "Fallback text answer"
                         }
-                        val responseBody = (
-                            "{\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"$answer\"},\"finish_reason\":\"stop\"}]}"
-                            ).toByteArray(Charsets.UTF_8)
+                        val responseBody = when (requestIndex) {
+                            1, 5 -> replyCompletion(answer)
+                            2, 6 -> emptyStopCompletion()
+                            else -> textCompletion(answer)
+                        }.toByteArray(Charsets.UTF_8)
                         val output = socket.getOutputStream()
                         output.write(
                             (
@@ -2258,6 +2315,54 @@ class ElymBotStorageTest {
             }
             return String(body, Charsets.UTF_8)
         }
+
+        private fun textCompletion(text: String): String = JSONObject()
+            .put("id", "visual-text-completion")
+            .put("object", "chat.completion")
+            .put(
+                "choices",
+                JSONArray().put(
+                    JSONObject()
+                        .put("index", 0)
+                        .put("message", JSONObject().put("role", "assistant").put("content", text))
+                        .put("finish_reason", "stop"),
+                ),
+            )
+            .toString()
+
+        private fun replyCompletion(text: String): String {
+            val arguments = JSONObject().put(
+                "messages",
+                JSONArray().put(JSONObject().put("text", text).put("delayMillis", 0)),
+            ).toString()
+            val call = JSONObject()
+                .put("id", "visual-reply-call")
+                .put("type", "function")
+                .put("function", JSONObject().put("name", "reply").put("arguments", arguments))
+            return completionWithToolCall(call)
+        }
+
+        private fun emptyStopCompletion(): String = textCompletion("")
+
+        private fun completionWithToolCall(call: JSONObject): String = JSONObject()
+            .put("id", "visual-reply-completion")
+            .put("object", "chat.completion")
+            .put(
+                "choices",
+                JSONArray().put(
+                    JSONObject()
+                        .put("index", 0)
+                        .put(
+                            "message",
+                            JSONObject()
+                                .put("role", "assistant")
+                                .put("content", JSONObject.NULL)
+                                .put("tool_calls", JSONArray().put(call)),
+                        )
+                        .put("finish_reason", "tool_calls"),
+                ),
+            )
+            .toString()
 
         override fun close() {
             server.close()
@@ -2302,3 +2407,19 @@ class ElymBotStorageTest {
         override fun invalidCommand(helpName: String) = "invalid $helpName"
     }
 }
+
+private suspend fun AgentRequest.submitTestReply(text: String): ReplySubmissionResult =
+    requireNotNull(replySubmitter) { "The App fixture must provide its durable Reply port." }.submit(
+        ReplySubmission(
+            context = ReplySubmissionContext(
+                sessionId = sessionId,
+                executionId = executionId,
+                attemptId = attemptId,
+                turnSequence = turnSequence,
+                toolStepOrdinal = 0,
+                toolCallOrdinal = 0,
+                toolCallId = "storage-test-$turnSequence-$attemptId",
+            ),
+            messages = listOf(ReplyMessage(text, suggestedDelayMillis = 0)),
+        ),
+    )
