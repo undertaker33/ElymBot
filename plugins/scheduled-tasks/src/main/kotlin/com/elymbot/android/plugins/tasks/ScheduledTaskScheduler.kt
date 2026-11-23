@@ -138,6 +138,8 @@ internal class ScheduledTaskScheduler(
                 tasks = tasks,
                 runs = runs,
                 mutationReceipts = currentState.mutationReceipts,
+                firstTaskCreated = currentState.firstTaskCreated,
+                guideSkipped = currentState.guideSkipped,
             )
             val activeQueued = runs.values.asSequence()
                 .filter { it.status == TaskRunStatus.QUEUED && it.installationIdentity == activeIdentity }

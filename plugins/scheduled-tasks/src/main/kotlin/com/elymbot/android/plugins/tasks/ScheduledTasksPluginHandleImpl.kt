@@ -24,7 +24,10 @@ import com.elymbot.core.contract.ScheduledTaskRunReceipt as ApiRunReceipt
 import com.elymbot.core.contract.ScheduledTaskRunStatus as ApiRunStatus
 import com.elymbot.core.contract.ScheduledTaskSnapshot
 import com.elymbot.core.contract.ScheduledTaskSnapshotResult
+import com.elymbot.core.contract.ScheduledTaskUiState
+import com.elymbot.core.contract.ScheduledTaskUiStateResult
 import com.elymbot.core.contract.ScheduledTasksPluginHandle
+import com.elymbot.core.contract.ScheduledTasksUiHandle
 import com.elymbot.core.contract.ToolDefinition
 import com.elymbot.core.contract.ToolExecutionContext
 import com.elymbot.core.contract.ToolExecutionResult
@@ -35,6 +38,15 @@ import com.elymbot.core.contract.ToolScope
 import com.elymbot.core.contract.ToolSource
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -49,6 +61,7 @@ import kotlinx.serialization.json.put
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import java.time.Clock
+import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -67,8 +80,9 @@ internal class ScheduledTasksPluginHandleImpl(
     repository: ScheduledTaskRepository,
     private val installationIdentity: ToolInstallationIdentity,
     private val clock: Clock = Clock.systemUTC(),
-) : ScheduledTasksPluginHandle {
-    private val service = ScheduledTasksService(repository, installationIdentity, clock)
+    confirmationTtl: Duration = Duration.ofMinutes(5),
+) : ScheduledTasksPluginHandle, ScheduledTasksUiHandle {
+    private val service = ScheduledTasksService(repository, installationIdentity, clock, confirmationTtl)
     private val scheduler = ScheduledTaskScheduler(repository, installationIdentity)
 
     override val toolSources: List<ToolSource> = listOf(ScheduledTasksToolSource(this))
@@ -86,6 +100,26 @@ internal class ScheduledTasksPluginHandleImpl(
             throw cancelled
         } catch (_: Exception) {
             ScheduledTaskSnapshotResult.Rejected(ScheduledTaskRejection.STORE_UNAVAILABLE)
+        }
+    }
+
+    override fun observeMainUiState(
+        access: ScheduledTaskAccessContext,
+        taskId: String?,
+    ): Flow<ScheduledTaskUiStateResult> = service.observeMainUiState(access, taskId).flowOn(Dispatchers.IO)
+
+    override suspend fun skipFirstTaskGuide(
+        access: ScheduledTaskAccessContext,
+    ): ScheduledTaskUiStateResult {
+        accessRejection(access, requireUi = true)?.let { return ScheduledTaskUiStateResult.Rejected(it) }
+        return try {
+            withContext(Dispatchers.IO) {
+                service.skipFirstTaskGuide(access, clock.instant())
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            ScheduledTaskUiStateResult.Rejected(ScheduledTaskRejection.STORE_UNAVAILABLE)
         }
     }
 
@@ -152,13 +186,14 @@ internal class ScheduledTasksPluginHandleImpl(
     }
 
     override fun close() {
-        service.discardPendingConfirmations()
+        service.close()
     }
 
     private fun accessRejection(
         access: ScheduledTaskAccessContext,
         requireUi: Boolean,
     ): ScheduledTaskRejection? {
+        if (service.isClosed()) return ScheduledTaskRejection.INACTIVE_INSTALLATION
         if (access.installationIdentity != installationIdentity) {
             return ScheduledTaskRejection.INACTIVE_INSTALLATION
         }
@@ -185,16 +220,88 @@ private class ScheduledTasksService(
     private val repository: ScheduledTaskRepository,
     private val installationIdentity: ToolInstallationIdentity,
     private val clock: Clock,
+    private val confirmationTtl: Duration,
 ) {
     private val pendingMonitor = Any()
     private val pendingById = linkedMapOf<String, PendingTaskAction>()
     private val pendingByRequestId = mutableMapOf<String, String>()
+    private val uiRevision = MutableStateFlow(0L)
+    @Volatile
+    private var closed = false
+
+    fun isClosed(): Boolean = closed
+
+    fun observeMainUiState(
+        access: ScheduledTaskAccessContext,
+        taskId: String?,
+    ): Flow<ScheduledTaskUiStateResult> = flow {
+        uiAccessRejection(access)?.let { reason ->
+            emit(ScheduledTaskUiStateResult.Rejected(reason))
+            return@flow
+        }
+
+        while (currentCoroutineContext().isActive) {
+            if (closed) {
+                emit(ScheduledTaskUiStateResult.Rejected(ScheduledTaskRejection.INACTIVE_INSTALLATION))
+                return@flow
+            }
+            val beforeDataRevision = repository.dataRevision.value
+            val beforeUiRevision = uiRevision.value
+            val now = clock.instant()
+            val result = try {
+                uiState(access, taskId, now)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                ScheduledTaskUiStateResult.Rejected(ScheduledTaskRejection.STORE_UNAVAILABLE)
+            }
+            val afterDataRevision = repository.dataRevision.value
+            val afterUiRevision = uiRevision.value
+            emit(
+                if (result is ScheduledTaskUiStateResult.Visible) {
+                    ScheduledTaskUiStateResult.Visible(result.state.copy(dataRevision = afterDataRevision))
+                } else {
+                    result
+                },
+            )
+            if (result is ScheduledTaskUiStateResult.Rejected) return@flow
+            if (closed || beforeDataRevision != afterDataRevision || beforeUiRevision != afterUiRevision) continue
+
+            val nextExpiry = nextConfirmationExpiry()
+            if (nextExpiry == null) {
+                awaitUiChange(afterDataRevision, afterUiRevision)
+            } else {
+                val timeoutMillis = Duration.between(clock.instant(), nextExpiry).toMillis().coerceAtLeast(0L)
+                withTimeoutOrNull(timeoutMillis) {
+                    awaitUiChange(afterDataRevision, afterUiRevision)
+                }
+            }
+        }
+    }
+
+    fun skipFirstTaskGuide(
+        access: ScheduledTaskAccessContext,
+        now: Instant,
+    ): ScheduledTaskUiStateResult {
+        repository.transact { state ->
+            val nextState = if (state.guideSkipped) state else state.copy(guideSkipped = true)
+            nextState to Unit
+        }
+        return uiState(access, taskId = null, now)
+    }
 
     fun snapshot(
         taskId: String?,
         now: Instant,
     ): ScheduledTaskSnapshotResult {
-        val state = repository.snapshot()
+        return snapshot(repository.snapshot(), taskId, now)
+    }
+
+    private fun snapshot(
+        state: TaskStoreState,
+        taskId: String?,
+        now: Instant,
+    ): ScheduledTaskSnapshotResult {
         if (taskId != null && taskId !in state.tasks) {
             return ScheduledTaskSnapshotResult.Rejected(ScheduledTaskRejection.TASK_NOT_FOUND)
         }
@@ -217,12 +324,62 @@ private class ScheduledTasksService(
         )
     }
 
+    private fun uiState(
+        access: ScheduledTaskAccessContext,
+        taskId: String?,
+        now: Instant,
+    ): ScheduledTaskUiStateResult {
+        val state = repository.snapshot()
+        val snapshot = when (val result = snapshot(state, taskId, now)) {
+            is ScheduledTaskSnapshotResult.Visible -> result.snapshot
+            is ScheduledTaskSnapshotResult.Rejected -> return ScheduledTaskUiStateResult.Rejected(result.reason)
+        }
+        val pending = synchronized(pendingMonitor) {
+            discardExpired(now)
+            pendingById.values.asSequence()
+                .filter { it.sessionId == access.sessionId && it.userId == access.userId &&
+                    it.installationIdentity == installationIdentity
+                }
+                .sortedBy(PendingTaskAction::createdAt)
+                .map { it.asResult() }
+                .toList()
+        }
+        return ScheduledTaskUiStateResult.Visible(
+            ScheduledTaskUiState(
+                snapshot = snapshot,
+                pendingConfirmations = pending,
+                firstTaskCreated = state.firstTaskCreated,
+                guideSkipped = state.guideSkipped,
+                dataRevision = repository.dataRevision.value,
+            ),
+        )
+    }
+
+    private fun uiAccessRejection(access: ScheduledTaskAccessContext): ScheduledTaskRejection? = when {
+        closed -> ScheduledTaskRejection.INACTIVE_INSTALLATION
+        access.installationIdentity != installationIdentity -> ScheduledTaskRejection.INACTIVE_INSTALLATION
+        access.origin != ScheduledTaskAccessOrigin.APP_UI_MAIN -> ScheduledTaskRejection.UNAUTHORIZED
+        access.sessionId.isBlank() || access.userId.isBlank() || access.sessionScope != ToolScope.MAIN_SESSION ->
+            ScheduledTaskRejection.UNAUTHORIZED
+        else -> null
+    }
+
+    private fun nextConfirmationExpiry(): Instant? = synchronized(pendingMonitor) {
+        pendingById.values.minOfOrNull(PendingTaskAction::expiresAt)
+    }
+
+    private suspend fun awaitUiChange(dataRevision: Long, observedUiRevision: Long) {
+        combine(repository.dataRevision, uiRevision) { data, ui -> data to ui }
+            .first { (data, ui) -> data != dataRevision || ui != observedUiRevision }
+    }
+
     fun propose(
         access: ScheduledTaskAccessContext,
         requestId: String,
         action: ScheduledTaskAction,
         now: Instant,
     ): ScheduledTaskActionResult {
+        if (closed) return ScheduledTaskActionResult.Rejected(ScheduledTaskRejection.INACTIVE_INSTALLATION)
         if (requestId.isBlank() || requestId.length > MAX_REQUEST_ID_LENGTH) {
             return ScheduledTaskActionResult.Rejected(ScheduledTaskRejection.INVALID_INPUT)
         }
@@ -262,11 +419,13 @@ private class ScheduledTasksService(
                 userId = access.userId,
                 installationIdentity = access.installationIdentity,
                 initiatingExecutionId = executionId,
+                summary = action.toSummary(state),
                 createdAt = now,
-                expiresAt = now.plus(CONFIRMATION_TTL),
+                expiresAt = now.plus(confirmationTtl),
             )
             pendingById[confirmationId] = pending
             pendingByRequestId[requestId] = confirmationId
+            uiRevision.value += 1L
             return pending.asResult()
         }
     }
@@ -278,6 +437,7 @@ private class ScheduledTasksService(
         approved: Boolean,
         now: Instant,
     ): ScheduledTaskActionResult {
+        if (closed) return ScheduledTaskActionResult.Rejected(ScheduledTaskRejection.INACTIVE_INSTALLATION)
         val pending = synchronized(pendingMonitor) {
             discardExpired(now)
             pendingById[confirmationId]
@@ -317,10 +477,13 @@ private class ScheduledTasksService(
         return result
     }
 
-    fun discardPendingConfirmations() {
+    fun close() {
         synchronized(pendingMonitor) {
+            if (closed) return
+            closed = true
             pendingById.clear()
             pendingByRequestId.clear()
+            uiRevision.value += 1L
         }
     }
 
@@ -381,6 +544,7 @@ private class ScheduledTasksService(
         val nextState = state.copy(
             tasks = state.tasks + (taskId to task),
             mutationReceipts = state.mutationReceipts + (requestId to receipt),
+            firstTaskCreated = true,
         )
         return nextState to ScheduledTaskActionResult.Saved(task.toApi(nextState, now))
     }
@@ -757,7 +921,7 @@ private class ScheduledTasksService(
             requestId = requestId,
             initiatingExecutionId = initiatingExecutionId,
             requestedAction = action,
-            summary = action.toSummary(repository.snapshot()),
+            summary = summary,
             expiresAt = expiresAt,
         )
 
@@ -767,10 +931,11 @@ private class ScheduledTasksService(
     }
 
     private fun removePending(pending: PendingTaskAction) {
-        pendingById.remove(pending.confirmationId)
+        val removed = pendingById.remove(pending.confirmationId) != null
         if (pendingByRequestId[pending.requestId] == pending.confirmationId) {
             pendingByRequestId.remove(pending.requestId)
         }
+        if (removed) uiRevision.value += 1L
     }
 
     private fun scheduledExecutionCount(state: TaskStoreState, taskId: String): Int =
@@ -789,6 +954,7 @@ private class ScheduledTasksService(
         val userId: String,
         val installationIdentity: ToolInstallationIdentity,
         val initiatingExecutionId: String,
+        val summary: ScheduledTaskConfirmationSummary,
         val createdAt: Instant,
         val expiresAt: Instant,
     )
@@ -797,7 +963,6 @@ private class ScheduledTasksService(
         const val RUN_HISTORY_LIMIT = 6
         const val MAX_REQUEST_ID_LENGTH = 256
         const val MAX_PENDING_CONFIRMATIONS = 100
-        val CONFIRMATION_TTL = java.time.Duration.ofMinutes(5)
     }
 }
 

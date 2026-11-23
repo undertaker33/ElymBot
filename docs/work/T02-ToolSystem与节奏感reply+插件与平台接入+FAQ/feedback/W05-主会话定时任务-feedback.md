@@ -33,6 +33,19 @@ jar --list --file <plugin.jar>
 - App 页面与任务查询、确认交互、系统调度入口、主会话忙碌排队、宿主队列幂等、平台快照及实际投递由 W02/W06/W07 接线和验证；本次没有正式 App 到插件的端到端操作。
 - 此处只测试 W05 的确定性时间、存储和领域行为。真实 Android 回调/重启、插件签名包安装与正式 DexClassLoader 生命周期仍需宿主组合验收；用户删除时是否清理插件数据由宿主按选择处理。
 
+## 2026-11-23 UI 状态与首次任务引导补充
+
+- 在 Core 增加独立 `ScheduledTasksUiHandle`，不扩展旧 `ScheduledTasksPluginHandle` 或既有 DTO 构造签名。主会话 UI 可订阅带 task/run snapshot、当前待确认动作、`firstTaskCreated`、`guideSkipped` 和 `dataRevision` 的状态；详情订阅可按 task ID 读取运行历史。只接受宿主验证的 APP_UI_MAIN、MAIN_SESSION、同 session/user/安装身份。确认仍调用原 `confirmAction`。
+- 状态 Flow 由插件仓库变更修订号和内存待确认修订号驱动。模型动作进入或退出待确认、拒绝、到期时更新流；到期可在没有后续操作时自动清除，关闭或替换插件句柄会发出 `INACTIVE_INSTALLATION` 并结束流。请宿主在活动句柄锁外收集长生命周期 Flow，避免阻止插件停用。
+- 创建动作成功时在同一持久事务设置 `firstTaskCreated`，删除最后一项不清除；显式跳过通过 APP_UI_MAIN 写入 `guideSkipped`。仓库格式升为 v2；v1 读取时用现有任务或 CREATED mutation receipt 回退判断首次创建，跳过默认为 false；下次写入原子迁移到 v2。清除插件数据后两项重置。
+
+| Checklist 项 | 方法或命令 | 平台或工具版本 | 实际结果 | 仓库相对证据 |
+| --- | --- | --- | --- | --- |
+| `T02.09 A07/A10/A17`（插件领域补充） | `gradlew.bat :plugins:scheduled-tasks:testDebugUnitTest :plugins:scheduled-tasks:assembleDebug --offline` | 总控执行；JDK 17；Gradle Wrapper 9.9.1；AGP 9.5.1；Android SDK 37 | JVM 单元测试 20/20 通过，0 skip；2 个仓库测试、3 个周期计算测试、4 个调度测试及 11 个 handle 测试。新增覆盖状态 Flow 的当前确认/批准/到期/关闭、非 UI caller 拒绝、跳过持久化、创建位在删除后保留及 v1 store 迁移 | `plugins/scheduled-tasks/src/test/kotlin/com/elymbot/android/plugins/tasks/ScheduledTasksHandleTest.kt`；`FileScheduledTaskRepositoryTest.kt` |
+| `T02.09` 最终 AAR 编译切片 | 同上；检查 AAR ZIP 项和 `classes.jar` 中的 entrypoint class | JDK 17；Gradle Wrapper 9.9.1；Android SDK 37 | 最终 AAR `scheduled-tasks-debug.aar`，168,388 bytes，SHA-256 `6E51B49DBDAF88ED3D5DA85B6F233FE9BB2B7FA6BDC969781165078923C8AA8D`；包含 `classes.jar`，且包含 `com/elymbot/android/plugins/tasks/ScheduledTasksPluginEntrypoint.class` | `plugins/scheduled-tasks/build.gradle.kts`；`plugins/scheduled-tasks/src/main/kotlin/com/elymbot/android/plugins/tasks/ScheduledTasksPluginHandleImpl.kt` |
+
+首阶段 AAR 的 D8 结果仅适用于当时的 AAR 摘要 `FDE69CC4705F94E3EB65C5150D7D92DD016D09D1E0187B363F50D866D1490B9D`。此次 Core UI capability 和插件实现更新后的最终 AAR 尚待总控重建 DEX fixture；不能沿用首阶段 `plugin.jar` 摘要作为最终产物证据。新版 Core 下旧 DEX fixture 的兼容性也待总控复验。App UI 主会话状态订阅、任务页面、首次引导实际入口与系统调度未在本轮端到端运行。
+
 UTF-8 guard:
 - files checked: `docs/work/T02-ToolSystem与节奏感reply+插件与平台接入+FAQ/feedback/W05-主会话定时任务-feedback.md`
 - result: passed; UTF-8 decoding, mojibake scan, and Markdown fence balance checks succeeded

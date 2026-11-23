@@ -3,6 +3,7 @@ package com.elymbot.core.contract
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime
+import kotlinx.coroutines.flow.Flow
 
 /**
  * Typed capability implemented by the active scheduled-tasks plugin. The host owns
@@ -55,6 +56,43 @@ interface ScheduledTasksPluginHandle : PluginHandle {
         receipt: ScheduledTaskRunReceipt,
     ): ScheduledTaskRunRecord?
 }
+
+/**
+ * App-only live view and first-use state for the active scheduled-tasks plugin.
+ * Kept separate from [ScheduledTasksPluginHandle] so older plugin fixtures remain
+ * binary compatible while the host adopts this observer.
+ */
+interface ScheduledTasksUiHandle : PluginHandle {
+    /**
+     * Emits the current task view and pending confirmations for a host-attested
+     * App main-session caller. Closing or invalidating this handle emits
+     * [ScheduledTaskRejection.INACTIVE_INSTALLATION] and completes the flow.
+     */
+    fun observeMainUiState(
+        access: ScheduledTaskAccessContext,
+        taskId: String? = null,
+    ): Flow<ScheduledTaskUiStateResult>
+
+    /** Persists that the user explicitly skipped the first-task guide. */
+    suspend fun skipFirstTaskGuide(
+        access: ScheduledTaskAccessContext,
+    ): ScheduledTaskUiStateResult
+}
+
+sealed interface ScheduledTaskUiStateResult {
+    data class Visible(val state: ScheduledTaskUiState) : ScheduledTaskUiStateResult
+
+    data class Rejected(val reason: ScheduledTaskRejection) : ScheduledTaskUiStateResult
+}
+
+data class ScheduledTaskUiState(
+    val snapshot: ScheduledTaskSnapshot,
+    val pendingConfirmations: List<ScheduledTaskActionResult.ConfirmationRequired>,
+    val firstTaskCreated: Boolean,
+    val guideSkipped: Boolean,
+    /** Monotonic only within this active handle; transient confirmation emissions may repeat it. */
+    val dataRevision: Long,
+)
 
 /** Host-attested request identity. Model arguments never provide these fields. */
 data class ScheduledTaskAccessContext(

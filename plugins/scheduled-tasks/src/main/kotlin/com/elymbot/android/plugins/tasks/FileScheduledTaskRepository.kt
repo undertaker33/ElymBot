@@ -21,6 +21,9 @@ import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 /**
  * Lazy, versioned storage in the plugin-ID-scoped directory supplied by the host.
@@ -30,6 +33,8 @@ import kotlin.concurrent.withLock
 internal class FileScheduledTaskRepository(
     private val dataDirectory: File,
 ) : ScheduledTaskRepository {
+    private val mutableDataRevision = MutableStateFlow(0L)
+    override val dataRevision: StateFlow<Long> = mutableDataRevision.asStateFlow()
     private val dataFile = File(dataDirectory, DATA_FILE_NAME).toPath().toAbsolutePath().normalize()
     private val lockFile = File(dataDirectory, LOCK_FILE_NAME).toPath().toAbsolutePath().normalize()
     private val processLock = processLocks.computeIfAbsent(dataFile.toString()) { ReentrantLock() }
@@ -41,7 +46,10 @@ internal class FileScheduledTaskRepository(
     override fun <T> transact(block: (TaskStoreState) -> Pair<TaskStoreState, T>): T = withExclusiveLock {
         val state = readState()
         val (nextState, result) = block(state)
-        if (nextState != state) writeState(nextState)
+        if (nextState != state) {
+            writeState(nextState)
+            mutableDataRevision.value += 1L
+        }
         result
     }
 
@@ -66,15 +74,27 @@ internal class FileScheduledTaskRepository(
         DataInputStream(BufferedInputStream(FileInputStream(dataFile.toFile()))).use { input ->
             if (input.readInt() != MAGIC) throw IOException("Scheduled task store header is invalid.")
             val version = input.readInt()
-            if (version != SCHEMA_VERSION) {
+            if (version !in LEGACY_SCHEMA_VERSION..SCHEMA_VERSION) {
                 throw IOException("Scheduled task store schema is not supported.")
             }
             val tasks = readItems(input, MAX_TASKS) { readTask(input) }.associateBy(TaskRecord::id)
             val runs = readItems(input, MAX_RUNS) { readRun(input) }.associateBy(TaskRunRecord::runId)
             val receipts = readItems(input, MAX_RECEIPTS) { readMutationReceipt(input) }
                 .associateBy(MutationReceipt::requestId)
+            val firstTaskCreated = if (version >= SCHEMA_VERSION) {
+                input.readBoolean()
+            } else {
+                tasks.isNotEmpty() || receipts.values.any { it.resultKind == MutationResultKind.CREATED }
+            }
+            val guideSkipped = if (version >= SCHEMA_VERSION) input.readBoolean() else false
             if (input.read() != -1) throw IOException("Scheduled task store contains trailing data.")
-            return TaskStoreState(tasks, runs, receipts)
+            return TaskStoreState(
+                tasks = tasks,
+                runs = runs,
+                mutationReceipts = receipts,
+                firstTaskCreated = firstTaskCreated,
+                guideSkipped = guideSkipped,
+            )
         }
     }
 
@@ -98,6 +118,8 @@ internal class FileScheduledTaskRepository(
                         state.mutationReceipts.values.sortedBy(MutationReceipt::requestId),
                         ::writeMutationReceipt,
                     )
+                    output.writeBoolean(state.firstTaskCreated)
+                    output.writeBoolean(state.guideSkipped)
                     output.flush()
                     fileOutput.fd.sync()
                 }
@@ -279,7 +301,8 @@ internal class FileScheduledTaskRepository(
         const val DATA_FILE_NAME = "scheduled-tasks.bin"
         const val LOCK_FILE_NAME = "scheduled-tasks.lock"
         const val MAGIC = 0x45595354
-        const val SCHEMA_VERSION = 1
+        const val LEGACY_SCHEMA_VERSION = 1
+        const val SCHEMA_VERSION = 2
         const val HEADER_SIZE = 8
         const val MAX_FILE_SIZE_BYTES = 32L * 1024L * 1024L
         const val MAX_TASKS = 10_000

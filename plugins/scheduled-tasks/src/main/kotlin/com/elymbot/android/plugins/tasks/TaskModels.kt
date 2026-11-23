@@ -121,6 +121,8 @@ internal data class TaskStoreState(
     val tasks: Map<String, TaskRecord> = emptyMap(),
     val runs: Map<String, TaskRunRecord> = emptyMap(),
     val mutationReceipts: Map<String, MutationReceipt> = emptyMap(),
+    val firstTaskCreated: Boolean = false,
+    val guideSkipped: Boolean = false,
 )
 
 internal data class PlannedOccurrence(

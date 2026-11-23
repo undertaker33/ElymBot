@@ -2,8 +2,11 @@ package com.elymbot.android.plugins.tasks
 
 import com.elymbot.core.contract.ToolInstallationIdentity
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.File
+import java.nio.ByteBuffer
 import java.nio.file.Files
 import java.time.Instant
 import java.time.LocalDate
@@ -54,6 +57,8 @@ class FileScheduledTaskRepositoryTest {
                     revision = task.revision,
                 ),
             ),
+            firstTaskCreated = true,
+            guideSkipped = true,
         )
         try {
             val repository = FileScheduledTaskRepository(directory)
@@ -65,6 +70,55 @@ class FileScheduledTaskRepositoryTest {
             assertEquals(state, restored)
             assertEquals("America/Los_Angeles", restored.tasks.getValue(task.id).timeZoneId)
             assertEquals(identity, restored.runs.getValue(run.runId).installationIdentity)
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun legacyTaskStoreInfersFirstUseFromCreateReceiptAfterDeletionAndMigratesOnNextWrite() {
+        val directory = Files.createTempDirectory("scheduled-task-store-legacy").toFile()
+        val currentRepository = FileScheduledTaskRepository(directory)
+        try {
+            currentRepository.transact { state ->
+                state.copy(
+                    mutationReceipts = mapOf(
+                        "legacy-create" to MutationReceipt(
+                            requestId = "legacy-create",
+                            fingerprint = "create-fingerprint",
+                            resultKind = MutationResultKind.CREATED,
+                            taskId = "legacy-task",
+                            revision = 1,
+                        ),
+                        "legacy-delete" to MutationReceipt(
+                            requestId = "legacy-delete",
+                            fingerprint = "delete-fingerprint",
+                            resultKind = MutationResultKind.DELETED,
+                            taskId = "legacy-task",
+                        ),
+                    ),
+                    firstTaskCreated = true,
+                    guideSkipped = true,
+                ) to Unit
+            }
+            val storeFile = File(directory, "scheduled-tasks.bin").toPath()
+            val currentBytes = Files.readAllBytes(storeFile)
+            val legacyBytes = currentBytes.copyOf(currentBytes.size - 2)
+            ByteBuffer.wrap(legacyBytes).putInt(4, 1)
+            Files.write(storeFile, legacyBytes)
+
+            val legacyRepository = FileScheduledTaskRepository(directory)
+            val legacyState = legacyRepository.snapshot()
+            assertTrue(legacyState.firstTaskCreated)
+            assertFalse(legacyState.guideSkipped)
+
+            legacyRepository.transact { state -> state.copy(guideSkipped = true) to Unit }
+            val migratedBytes = Files.readAllBytes(storeFile)
+            assertEquals(2, ByteBuffer.wrap(migratedBytes).getInt(4))
+            val migratedState = FileScheduledTaskRepository(directory).snapshot()
+            assertTrue(migratedState.firstTaskCreated)
+            assertTrue(migratedState.guideSkipped)
+            assertTrue(migratedState.tasks.isEmpty())
         } finally {
             directory.deleteRecursively()
         }

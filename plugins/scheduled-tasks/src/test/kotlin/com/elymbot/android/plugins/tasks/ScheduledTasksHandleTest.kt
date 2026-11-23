@@ -13,17 +13,27 @@ import com.elymbot.core.contract.ScheduledTaskRejection
 import com.elymbot.core.contract.ScheduledTaskRepeatRule
 import com.elymbot.core.contract.ScheduledTaskRunStatus
 import com.elymbot.core.contract.ScheduledTaskSnapshotResult
+import com.elymbot.core.contract.ScheduledTaskUiStateResult
+import com.elymbot.core.contract.ScheduledTasksUiHandle
 import com.elymbot.core.contract.ToolInstallationIdentity
 import com.elymbot.core.contract.ToolScope
 import com.elymbot.core.contract.ToolExecutionContext
 import com.elymbot.core.contract.ToolResultStatus
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.Clock
+import java.time.Duration
 import java.time.Instant
 import java.time.LocalDateTime
 import java.time.ZoneId
@@ -111,6 +121,109 @@ class ScheduledTasksHandleTest {
 
         assertEquals(first.run.runId, replay.run.runId)
         assertEquals(1, repository.snapshot().runs.size)
+    }
+
+    @Test
+    fun mainUiStateFlowStreamsConfirmationsAndClosesWithInactiveIdentity() = runBlocking<Unit> {
+        val repository = InMemoryScheduledTaskRepository()
+        val handle = handle(repository)
+        val uiHandle = handle as ScheduledTasksUiHandle
+        val states = Channel<ScheduledTaskUiStateResult>(Channel.UNLIMITED)
+        val observer = launch {
+            uiHandle.observeMainUiState(uiAccess()).collect { states.send(it) }
+        }
+
+        val initial = states.visibleWhen { it.pendingConfirmations.isEmpty() }
+        assertEquals(0L, initial.dataRevision)
+
+        val action = ScheduledTaskAction.Create(draft("Check the project"))
+        val pending = handle.requestAction(agentAccess(), "execution-1:call-ui-flow", action)
+            as ScheduledTaskActionResult.ConfirmationRequired
+        val pendingState = states.visibleWhen {
+            it.pendingConfirmations.singleOrNull()?.confirmationId == pending.confirmationId
+        }
+        assertEquals(action, pendingState.pendingConfirmations.single().requestedAction)
+        assertFalse(pendingState.firstTaskCreated)
+
+        handle.confirmAction(uiAccess(), pending, approved = true)
+        val createdState = states.visibleWhen {
+            it.pendingConfirmations.isEmpty() && it.snapshot.tasks.size == 1 && it.firstTaskCreated
+        }
+        assertTrue(createdState.dataRevision > pendingState.dataRevision)
+
+        handle.close()
+        val invalidated = withTimeout(2_000L) {
+            states.receiveAsFlow().first { it is ScheduledTaskUiStateResult.Rejected }
+        } as ScheduledTaskUiStateResult.Rejected
+        assertEquals(ScheduledTaskRejection.INACTIVE_INSTALLATION, invalidated.reason)
+        observer.cancelAndJoin()
+        states.close()
+    }
+
+    @Test
+    fun mainUiStateFlowExpiresPendingConfirmationWithoutAnotherAction() = runBlocking<Unit> {
+        val repository = InMemoryScheduledTaskRepository()
+        val handle = handle(
+            repository,
+            clock = Clock.systemUTC(),
+            confirmationTtl = Duration.ofMillis(250),
+        )
+        val uiHandle = handle as ScheduledTasksUiHandle
+        val states = Channel<ScheduledTaskUiStateResult>(Channel.UNLIMITED)
+        val observer = launch {
+            uiHandle.observeMainUiState(uiAccess()).collect { states.send(it) }
+        }
+        states.visibleWhen { it.pendingConfirmations.isEmpty() }
+
+        val action = ScheduledTaskAction.Create(
+            draft("Expired request").copy(startLocalDateTime = LocalDateTime.parse("2026-12-01T11:00")),
+        )
+        val pending = handle.requestAction(agentAccess(), "execution-expire:call-1", action)
+            as ScheduledTaskActionResult.ConfirmationRequired
+        val visiblePending = states.visibleWhen {
+            it.pendingConfirmations.singleOrNull()?.confirmationId == pending.confirmationId
+        }
+        assertEquals(pending.confirmationId, visiblePending.pendingConfirmations.single().confirmationId)
+        val cleared = states.visibleWhen {
+            it.pendingConfirmations.none { confirmation -> confirmation.confirmationId == pending.confirmationId }
+        }
+        assertTrue(cleared.pendingConfirmations.isEmpty())
+        assertTrue(repository.snapshot().tasks.isEmpty())
+        val result = handle.confirmAction(uiAccess(), pending, approved = true)
+            as ScheduledTaskActionResult.Rejected
+        assertEquals(ScheduledTaskRejection.CONFIRMATION_EXPIRED, result.reason)
+
+        observer.cancelAndJoin()
+        states.close()
+    }
+
+    @Test
+    fun firstTaskGuideSkipPersistsAndFirstCreationSurvivesDeletingLastTask() = runBlocking {
+        val repository = InMemoryScheduledTaskRepository()
+        val handle = handle(repository)
+        val uiHandle = handle as ScheduledTasksUiHandle
+
+        val skipped = uiHandle.skipFirstTaskGuide(uiAccess()) as ScheduledTaskUiStateResult.Visible
+        assertTrue(skipped.state.guideSkipped)
+        assertFalse(skipped.state.firstTaskCreated)
+
+        val created = handle.requestAction(
+            uiAccess(),
+            requestId = "guide-create",
+            action = ScheduledTaskAction.Create(draft("Keep the guide complete")),
+        ) as ScheduledTaskActionResult.Saved
+        assertTrue(repository.snapshot().firstTaskCreated)
+
+        handle.requestAction(
+            uiAccess(),
+            requestId = "guide-delete",
+            action = ScheduledTaskAction.Delete(created.task.id, created.task.revision),
+        )
+        val afterDelete = uiHandle.observeMainUiState(uiAccess()).first()
+            as ScheduledTaskUiStateResult.Visible
+        assertTrue(afterDelete.state.snapshot.tasks.isEmpty())
+        assertTrue(afterDelete.state.firstTaskCreated)
+        assertTrue(afterDelete.state.guideSkipped)
     }
 
     @Test
@@ -240,21 +353,27 @@ class ScheduledTasksHandleTest {
     @Test
     fun unauthorizedAppRouteAndInactiveInstallationAreRejected() = runBlocking {
         val handle = handle(InMemoryScheduledTaskRepository())
+        val uiHandle = handle as ScheduledTasksUiHandle
         val nonMain = handle.snapshot(
             access = uiAccess().copy(sessionScope = ToolScope.PERSONA_SESSION),
         )
         val wrongInstallation = handle.snapshot(
             access = uiAccess().copy(installationIdentity = ToolInstallationIdentity("scheduled-tasks", "old")),
         )
+        val modelObserver = uiHandle.observeMainUiState(agentAccess()).first()
+        val modelSkip = uiHandle.skipFirstTaskGuide(agentAccess())
 
         assertEquals(ScheduledTaskRejection.UNAUTHORIZED, (nonMain as ScheduledTaskSnapshotResult.Rejected).reason)
         assertEquals(ScheduledTaskRejection.INACTIVE_INSTALLATION, (wrongInstallation as ScheduledTaskSnapshotResult.Rejected).reason)
+        assertEquals(ScheduledTaskRejection.UNAUTHORIZED, (modelObserver as ScheduledTaskUiStateResult.Rejected).reason)
+        assertEquals(ScheduledTaskRejection.UNAUTHORIZED, (modelSkip as ScheduledTaskUiStateResult.Rejected).reason)
     }
 
     private fun handle(
         repository: ScheduledTaskRepository,
         clock: Clock = Clock.fixed(now, ZoneId.of("UTC")),
-    ) = ScheduledTasksPluginHandleImpl(repository, identity, clock)
+        confirmationTtl: Duration = Duration.ofMinutes(5),
+    ) = ScheduledTasksPluginHandleImpl(repository, identity, clock, confirmationTtl)
 
     private fun draft(prompt: String) = ScheduledTaskDraft(
         title = "Review",
@@ -309,4 +428,12 @@ class ScheduledTasksHandleTest {
 
         override fun instant(): Instant = current
     }
+
+    private suspend fun Channel<ScheduledTaskUiStateResult>.visibleWhen(
+        predicate: (com.elymbot.core.contract.ScheduledTaskUiState) -> Boolean,
+    ) = withTimeout(2_000L) {
+        receiveAsFlow().first { result ->
+            result is ScheduledTaskUiStateResult.Visible && predicate(result.state)
+        }
+    }.let { (it as ScheduledTaskUiStateResult.Visible).state }
 }
