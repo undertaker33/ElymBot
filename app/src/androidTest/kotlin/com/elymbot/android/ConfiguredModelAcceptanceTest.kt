@@ -90,32 +90,68 @@ class ConfiguredModelAcceptanceTest {
         waitForText(compose, strings.getString(R.string.elym_sessions))
         openNewSession(compose, strings.getString(R.string.elym_new_session))
 
-        val replyCode = "DEVICE_TEST_OK"
-        val prompt = "t02-${UUID.randomUUID().toString().take(10)} reply with $replyCode"
+        val tokenSuffix = UUID.randomUUID().toString().replace("-", "").take(8).uppercase()
+        val firstReplyToken = "DEVICE_REPLY_FIRST_$tokenSuffix"
+        val secondReplyToken = "DEVICE_REPLY_SECOND_$tokenSuffix"
+        val prompt = """
+            t02-$tokenSuffix: Call the reply tool exactly once with this JSON:
+            {"messages":[{"text":"$firstReplyToken","delayMillis":0},{"text":"$secondReplyToken","delayMillis":1200}]}
+            Do not call other tools or send ordinary assistant text.
+        """.trimIndent()
         compose.onNodeWithContentDescription(strings.getString(R.string.elym_type_message)).performTextInput(prompt)
         compose.onNodeWithContentDescription(strings.getString(R.string.elym_send)).performClick()
         val session = awaitSession(prompt.take(26))
         waitForCompleted(session.id)
-        val reply = runBlocking {
-            withTimeout(TimeUnit.SECONDS.toMillis(30)) {
+        val replies = runBlocking {
+            withTimeout(TimeUnit.SECONDS.toMillis(60)) {
                 service.conversation(session.id).map { conversation ->
-                    conversation.messages.firstOrNull { message ->
-                        message.assistant && replyCode in message.text && message.deliveryTargets.any { target ->
+                    val first = conversation.messages.firstOrNull { message ->
+                        message.assistant && firstReplyToken in message.text && message.deliveryTargets.any { target ->
                             target.kind == ReplyDeliveryTargetKind.APP_TRANSCRIPT.name &&
                                 target.status == ChatDeliveryStatus.Delivered
                         }
                     }
+                    val second = conversation.messages.firstOrNull { message ->
+                        message.assistant && secondReplyToken in message.text && message.deliveryTargets.any { target ->
+                            target.kind == ReplyDeliveryTargetKind.APP_TRANSCRIPT.name &&
+                                target.status == ChatDeliveryStatus.Delivered
+                        }
+                    }
+                    if (first != null && second != null) first to second else null
                 }.filterNotNull().first()
             }
         }
-        val receipt = runBlocking {
+        val persistedDeliveries = runBlocking {
             withContext(Dispatchers.IO) {
-                fixture.database.replyDeliveryDao().forMessage(reply.id)
-                    .single { it.targetKind == ReplyDeliveryTargetKind.APP_TRANSCRIPT.name }
+                fixture.database.replyDeliveryDao().observeForSession(session.id).first()
             }
         }
-        assertEquals(ReplyDeliveryStatus.DELIVERED.name, receipt.status)
-        waitForText(compose, reply.text)
+        val first = replies.first
+        val second = replies.second
+        val firstDelivery = persistedDeliveries.single {
+            it.delivery.messageId == first.id && it.delivery.targetKind == ReplyDeliveryTargetKind.APP_TRANSCRIPT.name
+        }
+        val secondDelivery = persistedDeliveries.single {
+            it.delivery.messageId == second.id && it.delivery.targetKind == ReplyDeliveryTargetKind.APP_TRANSCRIPT.name
+        }
+        assertEquals(firstReplyToken, first.text)
+        assertEquals(secondReplyToken, second.text)
+        val conversationMessages = runBlocking { service.conversation(session.id).first().messages }
+        assertTrue(
+            conversationMessages.indexOfFirst { it.id == first.id } <
+                conversationMessages.indexOfFirst { it.id == second.id },
+        )
+        assertEquals(ReplyDeliveryStatus.DELIVERED.name, firstDelivery.delivery.status)
+        assertEquals(ReplyDeliveryStatus.DELIVERED.name, secondDelivery.delivery.status)
+        assertEquals(firstDelivery.executionId, secondDelivery.executionId)
+        assertEquals(firstDelivery.attemptId, secondDelivery.attemptId)
+        assertEquals(firstDelivery.turnSequence, secondDelivery.turnSequence)
+        assertEquals(
+            1_200L,
+            secondDelivery.delivery.availableAtEpochMillis - firstDelivery.delivery.availableAtEpochMillis,
+        )
+        waitForText(compose, first.text)
+        waitForText(compose, second.text)
     }
 
     private fun closeTopDialog() {

@@ -291,7 +291,6 @@ class OpenAiCompatibleModelGateway(
             model = model,
             messages = listOf(userText("Call capability_probe once with probe set to elymbot. Do not answer in text.")),
             tools = listOf(tool),
-            forcedToolChoice = "required",
         )
         val call = result.toolCalls.singleOrNull() ?: return CapabilityStatus.UNKNOWN
         if (result.finishReason != ModelFinishReason.TOOL_CALLS || call.name != PROBE_TOOL_NAME) {
@@ -306,7 +305,6 @@ class OpenAiCompatibleModelGateway(
         model: ModelReference,
         messages: List<ModelMessage>,
         tools: List<ModelToolDefinition> = emptyList(),
-        forcedToolChoice: String? = null,
     ): ParsedCompletion {
         val request = ModelRequest(
             model = model,
@@ -317,7 +315,6 @@ class OpenAiCompatibleModelGateway(
         val requestBody = OpenAiCompatibleRequestEncoder.buildRequest(
             request = request,
             streaming = false,
-            forcedToolChoice = forcedToolChoice,
         )
         val httpRequest = postRequest(connection, requestBody, streaming = false)
         return execute(probeClient, httpRequest) { response ->

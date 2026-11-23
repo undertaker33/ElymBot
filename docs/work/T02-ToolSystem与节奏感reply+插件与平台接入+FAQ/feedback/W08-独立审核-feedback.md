@@ -72,3 +72,8 @@
 
 - GPT-6.1 Sol High 发现暂停任务的「立即运行」被页面禁用，更新准备协程在 Activity 重建后可能调用已注销的启动器。复审确认从暂停任务详情可正常发起手动运行，尚未交给系统的安装票据在更新界面销毁后会回收。
 - 总控在 MuMu 使用 Compose 测试分别通过暂停任务手动运行、Activity 重建后收到合成 Ready 并清理票据。正式更新包经系统安装器完成升级仍待验收。[W06 Feedback](W06-Android页面与引导-feedback.md)
+
+## 2026-11-23 真实模型能力探测复审
+
+- GPT-6.1 Sol High 复审确认探测与正式 Reply 一致地使用自动工具选择，探测仍要求唯一匹配的工具调用、正确参数和 `TOOL_CALLS` 终态。模型网关定向 JVM 23/23 通过。
+- 总控在 MuMu 复验真实模型。正式 App 正确识别工具能力，两条 Reply 均投递至 App 且 Room 记录有 1,200 ms 的可用时间间隔。[W01 Feedback](W01-Core工具与Reply-feedback.md)

@@ -407,7 +407,9 @@ class OpenAiCompatibleModelGatewayTest {
         assertTrue(imagePart.getValue("image_url").jsonObject.getValue("url").jsonPrimitive.content.startsWith("data:image/png;base64,"))
         assertEquals("text/event-stream, application/json", streaming.headers["Accept"])
         val toolBody = Json.parseToJsonElement(tools.body?.utf8().orEmpty()).jsonObject
-        assertEquals("required", toolBody.getValue("tool_choice").jsonPrimitive.content)
+        assertFalse(toolBody.containsKey("tool_choice"))
+        assertEquals("capability_probe", toolBody.getValue("tools").jsonArray.single()
+            .jsonObject.getValue("function").jsonObject.getValue("name").jsonPrimitive.content)
         assertEquals("Bearer " + API_KEY, tools.headers["Authorization"])
     }
 

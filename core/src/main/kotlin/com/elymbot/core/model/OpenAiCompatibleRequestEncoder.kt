@@ -32,7 +32,6 @@ internal object OpenAiCompatibleRequestEncoder {
     fun buildRequest(
         request: ModelRequest,
         streaming: Boolean,
-        forcedToolChoice: String? = null,
     ): String {
         validateRequest(request)
         return buildJsonObject {
@@ -42,7 +41,6 @@ internal object OpenAiCompatibleRequestEncoder {
             request.maxOutputTokens?.let { put("max_completion_tokens", it) }
             if (request.tools.isNotEmpty()) {
                 put("tools", buildJsonArray { request.tools.forEach { add(serializeTool(it)) } })
-                if (forcedToolChoice != null) put("tool_choice", forcedToolChoice)
             }
         }.toString()
     }
