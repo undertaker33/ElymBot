@@ -146,3 +146,39 @@ MuMu 产物：App SHA-256 `A3C65A0511094AA2B5961DC863AC2803AFEA257CCF31E9D109912
 | App 与 AndroidTest 编译及新增安装器请求 | `:app:assembleDebug :app:assembleDebugAndroidTest --offline --console=plain`；`adb shell am instrument -w -e class com.elymbot.android.runtime.pluginpackage.OfficialAppUpdateServiceTest#installerIntentUsesReadOnlyAppUpdateProviderUri com.elymbot.android.debug.test/androidx.test.runner.AndroidJUnitRunner` | JDK 17、Gradle Wrapper 9.9.1、Android SDK 37；MuMu Android 15、API 35 | 构建成功；新增目标测试 `OK (1 test)`。通过实际 target App FileProvider URI 读取只读测试文件；未启动系统安装器 | `OfficialAppUpdateService.kt`；`OfficialAppUpdateServiceTest.kt`；`AndroidManifest.xml`；`app_update_paths.xml` |
 
 最终目标测试产物：App SHA-256 `B0430C9EC8CEE8E456D3AB8A5FBDBC6D2061B3FA3100A48D130D01F95D2C40BC`；AndroidTest SHA-256 `E08A78D2BE0341C460FBE0B3B370C8D09992D579B4E745101EA875A78F6721F3`。真实官方更新 sidecar、独立签名元数据和可安装的新版 APK 尚未发布，本轮未验证正式制品下载、实际系统安装结果或关于页入口。
+
+## 2026-11-23 插件 DEX 与签名发行包构建入口
+
+- 根 `build.gradle.kts` 新增 `packagePluginDex`，以 `-PelymbotPluginId=scheduled-tasks|qq` 选择已接入插件 release AAR，解出 `classes.jar`，并用固定 Android SDK Build Tools 37.0.0 的 D8 生成 API 26+ 单个 `classes.dex`。使用插件实际 `releaseRuntimeClasspath` 作为 DEX 程序输入；排除宿主提供的 Core、Kotlin 标准库、annotations、coroutines 与 serialization 类型，插件之间的实现依赖会被拒绝。`releaseCompileClasspath` 只作为编译解析类路径。产物是仅含 `classes.dex` 和插件自身 `src/main/resources` 的 JAR，未接入基础 App 构建。
+- `scripts/package-plugin.ps1` 将 DEX JAR 与签名清单封装为 App 校验器接受的 ZIP：`manifest.json`、`signature.bin`、`payload/plugin.jar`，签名为原始 UTF-8 manifest 的 SHA256withRSA/PKCS#1 v1.5。脚本要求显式提供 RSA PEM 私钥路径，不生成密钥或读取隐式密钥；签名密钥的发布者职责留给调用方。可选 `-Offline` 才向 Wrapper 传入离线参数。显式插件资源必须同时提供调用者预期的 SHA-256，且与源文件核对后才写入 inner JAR。输出与临时文件均位于忽略的 `build/` 下，不属于仓库发布材料。
+- README 增加本地构建脚本的最小调用例和 source-only 边界说明。发布签名密钥、已签名发行包及 QQ rootfs 均未加入仓库。
+
+### W05 插件包合成签名烟测
+
+| 验证项 | 方法或命令 | 工具与输入 | 实际结果 | 仓库相对证据 |
+| --- | --- | --- | --- | --- |
+| `packagePluginDex` D8 输出与宿主类型排除 | `.\gradlew.bat packagePluginDex -PelymbotPluginId=scheduled-tasks --offline --console=plain`；静态读取输出 DEX class definitions | Gradle Wrapper 9.9.1、JDK 17、Android SDK Build Tools 37.0.0；W05 release AAR | 生成只有一个 `classes.dex` 的 JAR，191,346 字节，SHA-256 `91d360381fdafcc748eeb1a044dad33816dbdccb6c5ad21e958d88e5df3232c4`。DEX 有 91 个 class definitions；未定义 Core、Kotlin/Kotlinx、JSON 或 JetBrains 宿主类 | `build.gradle.kts`；`plugins/scheduled-tasks/build.gradle.kts` |
+| App 文件包格式与签名 | `.\scripts\package-plugin.ps1`，显式传入临时测试 PEM 与以下合成 identity | `publisherId=synthetic.elymbot.tests`；`pluginId=scheduled-tasks`；`version=0.0.2-ui-probe`；`hostApi=host-api-test-1`；ABIs `x86_64`, `x86`, `arm64-v8a`, `armeabi-v7a`；entry `com.elymbot.android.plugins.tasks.ScheduledTasksPluginEntrypoint` | 独立检查确认 ZIP 仅含三个约定成员；PKCS#1 v1.5 / SHA-256 签名有效；manifest 声明的 payload 长度和摘要与 inner JAR 相符。签名文件包 192,218 字节，SHA-256 `CAB3C3380C6214AA2474098C16F2785B7DAD2497497016B6A69CB8A03EB5FE51`。使用的是一次性合成 RSA 测试密钥，未使用或生成正式发布密钥 | `scripts/package-plugin.ps1`；`app/src/main/kotlin/com/elymbot/android/runtime/pluginpackage/PluginPackageStager.kt` |
+
+该验证覆盖 W05 release AAR 到本地签名文件包的构建链，不代替正式发布目录、发布者信任根或用户安装验收。脚本最初检查私钥普通文件时错误拒绝有效 PEM，并在 ZIP 成员完全相等时受到 PowerShell strict mode 的空比较结果影响；两处已修正。Gradle 离线参数现为 opt-in，默认为正常在线 Wrapper 行为。
+
+### QQ DEX 与 rootfs 资源打包
+
+- QQ release runtime graph 的实际依赖为 Commons Compress 1.28.0、Commons Codec 1.19.0、Commons IO 2.20.0、Commons Lang 3.18.0 和 XZ 1.10；宿主 Kotlin 标准库及 annotations 由 App 提供。`packagePluginDex -PelymbotPluginId=qq` 依据该图将 QQ 实现及所需 runtime 依赖转为单一 DEX。QQ 运行资源按 W04 消费端读取路径注入内层 `plugin.jar`：`runtime/ubuntu-rootfs.tar.xz` 与模块资源 `runtime/root_launcher.sh`，未额外写入 `payload/runtime/`。
+- 首次合包把 `classes.dex` 也按 STORE 写入，连同 64,133,552 字节 rootfs 后超过 App 单 payload 文件的 64 MiB 上限 47,394 字节。现仅对未预压缩的 DEX/脚本使用 ZIP Optimal；`.tar.xz` 保持 STORE。重新签名检查通过，内层 JAR 为 65,434,541 字节，低于 67,108,864 字节限制；外层包为 65,435,386 字节，低于 128 MiB 限制。
+- 当前 QQ 合成发行包身份为 `publisherId=synthetic.elymbot.tests`、`pluginId=qq`、`version=0.0.1-on04-probe`、`hostApi=elymbot-plugin-api-v1`、ABI `arm64-v8a`。外层 ZIP 成员、RSA PKCS#1 v1.5 / SHA-256 签名、manifest 内层长度/摘要及资源清单均由总控独立核对；rootfs SHA-256 为 `91acaa786b8e2fbba56a9fd0f8a1188cee482b5c7baeed707b29ddaa9a294daa`。本地 ON-04 rootfs 与一次性合成签名输入未加入仓库。
+
+| 制品 | 大小 | SHA-256 |
+| --- | ---: | --- |
+| QQ `payload/plugin.jar` | 65,434,541 | `5ebc52d8ba731f9fc1aa7aa810c6482dca4367029cf4561080c3ae61386529a2` |
+| QQ signed `.elymbot-plugin` | 65,435,386 | `82c29ac21455fe9eff721e18919659b7c9399213816de3c57f481f1540289852` |
+
+内层条目检查：`classes.dex` 为 3,017,440 字节、压缩后 1,296,231 字节；`runtime/root_launcher.sh` 为 14,900 字节、压缩后 4,382 字节；`runtime/ubuntu-rootfs.tar.xz` 为 64,133,552 字节并保持原样存储。此为合成签名、目录外本地输入的格式及大小证明，不是正式发布或 QQ 登录验收。W04 的源代码审查仍有未关闭项，因此该 QQ 制品摘要仅作为中间验证结果。
+
+### W05 正式 App 中的签名插件装载
+
+| 验证项 | 方法或命令 | 平台 | 实际结果 | 仓库相对证据 |
+| --- | --- | --- | --- | --- |
+| 已签名 W05 包通过真实 App 插件入口加载 | `adb shell am instrument -w -e class com.elymbot.android.session.ScheduledTaskHostIntegrationTest#signedUiCapabilityLoadsAndPreservesGuideChoice com.elymbot.android.debug.test/androidx.test.runner.AndroidJUnitRunner` | MuMu Android 15、API 35、x86_64 | `OK (1 test)`；检查了刚生成且 SHA-256 为 `CAB3C3380C6214AA2474098C16F2785B7DAD2497497016B6A69CB8A03EB5FE51` 的 signed W05 文件包。测试后恢复了原有缓存探针文件；未使用正式发行密钥或权威目录 | `ScheduledTaskHostIntegrationTest.kt`；`PluginRuntimeManager.kt`；`PluginRuntimeLoader.kt` |
+
+App APK SHA-256：`6946D5265E119A07BFBE2DF7178657C7B7A27AA793C2F416645EE37918F3FB38`。AndroidTest APK SHA-256：`B068F028E8DD8838DD3227CDD885C1AE8310DF820B0EC26CA3D2685B10A09F18`。该 MuMu 用例仅验 W05 的签名插件装载和宿主状态；未执行 QQ 插件加载、登录或网络往返。当前 QQ DEX/签名包也尚未在 App 中加载，且 W04 源审查项未闭合。

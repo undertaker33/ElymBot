@@ -97,6 +97,24 @@ API Key 在 App 中配置。不要把真实密钥写入 README、源码、测试
 ./gradlew :plugins:qq:assembleDebug :plugins:scheduled-tasks:assembleDebug
 ```
 
+### 本地插件文件包
+
+`scripts/package-plugin.ps1` 从插件 release AAR 构建单插件 DEX JAR，并按 App 文件包格式生成签名包。调用时必须显式传入发布者、版本、ABI、入口类和调用者提供的 RSA PEM 私钥路径；脚本不生成密钥，也不读取隐式密钥。QQ 等显式资源需同时提供对应的 SHA-256。生成的发布 DEX、文件包和暂存文件留在忽略的 `build/` 目录；仓库不包含发布签名私钥、签名发布包或 QQ rootfs。
+
+```powershell
+$PublisherId = 'your-publisher-id'
+$Version = 'your-plugin-version'
+$SigningPrivateKeyPath = 'path/to/your-plugin-key.pem'
+.\scripts\package-plugin.ps1 `
+  -PluginId 'scheduled-tasks' `
+  -PublisherId $PublisherId `
+  -Version $Version `
+  -HostApi 'elymbot-plugin-api-v1' `
+  -Abis @('arm64-v8a') `
+  -EntryClass 'com.elymbot.android.plugins.tasks.ScheduledTasksPluginEntrypoint' `
+  -SigningPrivateKeyPath $SigningPrivateKeyPath
+```
+
 `connectedDebugAndroidTest` 需要已授权的 Android 设备或运行中的模拟器。测试覆盖情况及环境按实际工作包 Feedback 记录，不以命令清单代替验收结果。
 
 创建 PR 前更新 `app/build.gradle.kts` 的 `versionName` 和 `versionCode`，并在候选 App 的「关于」页核对显示版本。

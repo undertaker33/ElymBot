@@ -77,3 +77,8 @@
 
 - GPT-6.1 Sol High 复审确认探测与正式 Reply 一致地使用自动工具选择，探测仍要求唯一匹配的工具调用、正确参数和 `TOOL_CALLS` 终态。模型网关定向 JVM 23/23 通过。
 - 总控在 MuMu 复验真实模型。正式 App 正确识别工具能力，两条 Reply 均投递至 App 且 Room 记录有 1,200 ms 的可用时间间隔。[W01 Feedback](W01-Core工具与Reply-feedback.md)
+
+## 2026-11-23 插件构建与签名复审
+
+- GPT-6.1 Sol High 审查独立 DEX 输出、宿主依赖排除、显式签名输入、完整摘要校验和临时文件替换，无待处理项。
+- 总控用打包入口生成合成签名制品并复核签名和摘要。定时任务包通过 MuMu 实际装载。含 Ubuntu 资源的 QQ 包内层 JAR 低于宿主 64 MiB 单文件限制，保留为制品格式证据。[W03 Feedback](W03-插件底座与分发-feedback.md)
