@@ -129,3 +129,20 @@ MuMu 产物：App SHA-256 `A3C65A0511094AA2B5961DC863AC2803AFEA257CCF31E9D109912
 
 - 已确认当前官方 Release API 基线为 `v0.1.0` / tag `正式版`，仅含 debug 与 release APK，未含 `elymbot-release.json`、数值版本元数据或插件目录。Release APK 的 `versionCode=1`、`versionName=0.1.0`，摘要和签名证书见 [W07 Feedback](W07-集成与验收-feedback.md)。
 - 已约定未来 sidecar 文件名 `elymbot-release.json`，字段为 `formatVersion`、`packageName`、`versionCode`、`versionName`、`apkAssetName` 和 `apkSha256`。当前 sidecar 缺失，因此 updater 应报告 `METADATA_MISSING`；App 更新检查与用户确认后的下载/签名校验/系统安装入口仍待实现。
+
+## 2026-11-23 App 更新校验与系统安装请求
+
+- 新增 `OfficialPluginDistributionConfiguration.load(context)`，从可选资源 `plugin-distribution/directory-root.der` 读取发布构建注入的 X.509 RSA 公钥，并以当前支持 ABI 和 `elymbot-plugin-api-v1` 生成目录配置。资源缺失返回 `NotConfigured`，无效或无法读取时返回可区分的 `Invalid` 结果；仓库没有加入生产根密钥。当前 `ElymBotApplication` 仍以空配置初始化目录仓库，因此不会因缺少正式信任根而联网或阻断基础 App 启动。
+- 新增 App 内部 `OfficialAppUpdateService`。更新查询先核对安装包名和当前签名，再读取固定 GitHub Release API；必须先取得有 API 大小与摘要证明的 `elymbot-release.json`，按 sidecar 数值 `versionCode` 判断是否提供更新，且不会在确认前请求 APK。确认后的下载校验长度、SHA-256、APK 包名、数值版本和签名证书；当前代码固定 `com.elymbot.android` 及现有正式发行证书摘要。由于当前正式 Release 不含 sidecar，真实发行返回 `METADATA_MISSING`，不会下载 APK。
+- 验证通过的更新包保存在 App 缓存 `app-updates/`，下载结束后设置为只读并确认 `canWrite()` 为 false。检查发现此前权限顺序会在置只读后重新打开所有者写权限，导致 `installerIntent()` 按自身只读要求拒绝有效文件；现改为关闭所有者及其他用户的写权限，并在权限无法生效时拒绝交付。
+- `installerIntent()` 返回 `Intent.ACTION_INSTALL_PACKAGE`，以 `${applicationId}.updates` FileProvider URI 分享 APK，设置读取授权及返回安装结果标记。W02 Manifest 声明与实际路径一致：`REQUEST_INSTALL_PACKAGES`、`@xml/app_update_paths` 和仅限缓存 `app-updates/` 的 `<cache-path>`。真实用户确认界面仍由 App/W06 接入；本次测试不启动系统安装器。
+- `OfficialAppUpdateServiceTest` 的先前 5 个合成检查通过，覆盖正式配置对 debug 包的拒绝、sidecar 缺失、数值版本比较、API 摘要/包名错误拒绝，以及确认前不请求 APK。该 5 项结果来自前一 APK；发现只读权限问题后未重复整组，且这些断言不覆盖下载后 APK 权限。
+- 新增 `installerIntentUsesReadOnlyAppUpdateProviderUri`，使用目标 App 缓存下唯一 UUID 文件验证实际 FileProvider authority、路径、读取授权和内容读取。`finally` 只删除本测试创建的文件；只有当目录由本测试创建且仍为空时才删除目录。该测试不启动安装器，也不把合成内容作为可安装 APK。
+
+### App 更新构建与 MuMu 验证
+
+| 验证项 | 方法 | 平台或工具 | 结果 | 仓库相对证据 |
+| --- | --- | --- | --- | --- |
+| App 与 AndroidTest 编译及新增安装器请求 | `:app:assembleDebug :app:assembleDebugAndroidTest --offline --console=plain`；`adb shell am instrument -w -e class com.elymbot.android.runtime.pluginpackage.OfficialAppUpdateServiceTest#installerIntentUsesReadOnlyAppUpdateProviderUri com.elymbot.android.debug.test/androidx.test.runner.AndroidJUnitRunner` | JDK 17、Gradle Wrapper 9.9.1、Android SDK 37；MuMu Android 15、API 35 | 构建成功；新增目标测试 `OK (1 test)`。通过实际 target App FileProvider URI 读取只读测试文件；未启动系统安装器 | `OfficialAppUpdateService.kt`；`OfficialAppUpdateServiceTest.kt`；`AndroidManifest.xml`；`app_update_paths.xml` |
+
+最终目标测试产物：App SHA-256 `B0430C9EC8CEE8E456D3AB8A5FBDBC6D2061B3FA3100A48D130D01F95D2C40BC`；AndroidTest SHA-256 `E08A78D2BE0341C460FBE0B3B370C8D09992D579B4E745101EA875A78F6721F3`。真实官方更新 sidecar、独立签名元数据和可安装的新版 APK 尚未发布，本轮未验证正式制品下载、实际系统安装结果或关于页入口。
