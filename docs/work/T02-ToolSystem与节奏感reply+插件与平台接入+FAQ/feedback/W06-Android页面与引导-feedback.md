@@ -55,6 +55,30 @@
 
 - FAQ 的「打开模型配置」每次进入「模型」分类，底栏「配置」延续用户上次选择。`FaqSettingsTest` 覆盖从底栏选择「工具」、从 FAQ 进入「模型」、在 FAQ 路径切换到「工具」并返回后重新打开，以及再次进入底栏确认原先分类。源码差异检查通过，待复验。 [分类导航](../../../../app/src/main/kotlin/com/elymbot/android/ui/ElymBotApp.kt) · [定向测试](../../../../app/src/androidTest/kotlin/com/elymbot/android/FaqSettingsTest.kt)
 
+## 2026-11-23 定时任务界面组件
+
+- 已编写任务列表、详情、编辑与确认弹层。编辑传递实际标题、提示词、起始日期时间、时区、重复规则和结束条件，更新携带已有任务的 revision。聊天增加待确认状态和真正确认操作所需的组件，实际展示依赖主会话获授权的运行时数据。 [任务页](../../../../app/src/main/kotlin/com/elymbot/android/ui/ElymBotScheduledTasks.kt) · [编辑表单](../../../../app/src/main/kotlin/com/elymbot/android/ui/ScheduledTaskEditor.kt) · [聊天页](../../../../app/src/main/kotlin/com/elymbot/android/ui/ElymBotChat.kt)
+- W02、W05 和 W03 继续对齐主会话可用性、待确认列表、首次引导持久状态和快照变更。插件详情按任务 ID 读取运行记录，现有 App 快照接口需透传该参数。待授权状态来源接通后再打开主会话和 FAQ 入口，T02.11 A07、A10、A17 待联调。
+- 源码、资源键和 Java 17 时间格式探针已核对。严格 `HH:mm` 解析接受 `08:15`，拒绝 `24:00`。编译和真实插件页面验收待总控。
+
+## 2026-11-23 主会话任务、插件与更新接线
+
+- App 主会话菜单及 FAQ 的任务动作以宿主可用性流为准。任务页按选中的任务 ID 订阅，展示真实计划和运行记录。首次引导使用插件持久状态和跳过动作，聊天通过同一状态流查看待确认操作，批准或拒绝交由宿主复核。新增 `ScheduledTasksAvailabilityTest` 从真实 MainActivity 覆盖主会话按可用性开入口、专属会话隐藏入口。 [导航](../../../../app/src/main/kotlin/com/elymbot/android/ui/ElymBotApp.kt) · [定向测试](../../../../app/src/androidTest/kotlin/com/elymbot/android/ScheduledTasksAvailabilityTest.kt)
+- 插件页读取官方目录和已安装实例，显示兼容性、版本、启停和清理状态。通过用户确认提交目录中的指定制品，管理操作交由宿主处理；FAQ 从「已安装」打开。 [插件页](../../../../app/src/main/kotlin/com/elymbot/android/ui/ElymBotPlugins.kt)
+- 「关于」提供手动检查更新。启动自动检查由宿主触发，App 观察真实版本状态。确认后下载并交系统安装，按系统返回清理安装票据。安装权限设置与验证失败均有对应状态。 [关于](../../../../app/src/main/kotlin/com/elymbot/android/ui/ElymBotAbout.kt) · [下载与安装](../../../../app/src/main/kotlin/com/elymbot/android/ui/AppUpdatePrompt.kt)
+- 当前证据为源码、资源和文档检查。任务数据、官方目录、真实安装或卸载、系统更新和全部相应验收项由总控联编和定向验证。QQ 平台等待 App 服务公开对应状态与操作。
+
+## 2026-11-23 联编与 W08 返工
+
+- App 与 AndroidTest APK 联编通过，对应 SHA-256 分别为 `B6DB5FE203B383190E111F4B90A1E060C35B2B524F2700104BC1960EA79541BA`、`D27B4BCB44EB707EB614BB1A62E0D79567A06945FD90DB5C380EA13B644BE5AA`。MuMu 通过 FAQ、关于、任务入口三项定向测试。该环境未配置官方目录，未覆盖已启用插件的主会话任务入口。
+- 按插件实际 `RunNow` 语义，已暂停的任务仍可手动运行。更新下载在当前界面的协程中执行，界面退出或启动器不可用时回收未交给系统的票据，系统已接收的票据由 ActivityResult 处理。 [任务详情](../../../../app/src/main/kotlin/com/elymbot/android/ui/ElymBotScheduledTasks.kt) · [安装界面](../../../../app/src/main/kotlin/com/elymbot/android/ui/AppUpdatePrompt.kt)
+- `TaskAndUpdateLifecycleTest` 覆盖暂停任务按钮和合成下载时 Activity 重建。重建测试在旧界面销毁后交回合成票据，验证清理、未走启动成功分支。真实签名更新及插件已启用时主会话正路径仍待相应制品与环境。返工后的定向构建和复验由总控执行。 [定向测试](../../../../app/src/androidTest/kotlin/com/elymbot/android/TaskAndUpdateLifecycleTest.kt)
+
+## 2026-11-23 Activity 重建测试复核
+
+- App 与测试 APK 联编通过。MuMu 中 `pausedTaskCanRunManually` 通过，`activityRecreationCleansAnUnhandedUpdateTicket` 超时。原结果只到协程超时栈，无法从日志判断卡在下载进入还是清理回执。
+- 重建夹具使用 Compose 测试等候器驱动调度，分别等待下载进入、旧 composition 释放和未交系统票据回收。同步核对所有权，宿主清理准备过程中取消的文件，界面在收到票据后只负责清理未交给安装器的票据。测试调整后的复验由总控进行。 [定向测试](../../../../app/src/androidTest/kotlin/com/elymbot/android/TaskAndUpdateLifecycleTest.kt)
+- 总控在同一 App APK `0DEC37D7CF4A539A70777879813F3BA66267BB0D1AC30D8E8F5074BF6456D116` 上重编测试 APK，并用 MuMu 定向复验 `TaskAndUpdateLifecycleTest#activityRecreationCleansAnUnhandedUpdateTicket`，1/1 通过且无跳过，测试 APK 为 `9972A3D4A582B0EAB5C83DE2D59F88B368529AE083975D08327FDA735CDB4545`。沿用先前测试 APK `F3B8CFD8548C06890878504FDAB603B9E2D9548D2BAED9CAC4B51BCCF28BF3BF` 的 `pausedTaskCanRunManually` 通过结果。两项测试分别覆盖合成下载票据回收及暂停态任务按钮，真实签名更新、系统安装和实际插件的任务端到端仍待验。
 ## 2026-11-23 MuMu 设置帮助入口复验
 
 - `gradlew.bat :app:assembleDebug :app:assembleDebugAndroidTest --offline --console=plain` 通过。Android 15 / API 35 MuMu 使用 App SHA-256 `46A8CC4DFBE6485D36E82DDEDE6B364F26468B28FBFC53DEFA2C30ECD96B42EF`、AndroidTest SHA-256 `FCB103B160C478313738E51FCC34C76C46B730EEBE957F5E0582C148F54FE1AA`，覆盖安装后冷启动成功。

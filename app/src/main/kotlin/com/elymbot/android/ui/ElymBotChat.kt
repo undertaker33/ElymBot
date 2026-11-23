@@ -26,6 +26,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.elymbot.android.R
+import com.elymbot.core.contract.ScheduledTaskActionResult
+import com.elymbot.core.contract.ScheduledTaskRejection
+import com.elymbot.core.contract.ScheduledTaskUiStateResult
+import kotlinx.coroutines.flow.flowOf
 
 @Composable
 internal fun ChatPage(
@@ -41,6 +45,7 @@ internal fun ChatPage(
     onEdit: () -> Unit,
     onDelete: () -> Unit,
     onRename: (String) -> Unit,
+    onOpenTasks: (() -> Unit)? = null,
 ) {
     val service = model.service
     val conversation by remember(id) { service.conversation(id) }.collectAsStateWithLifecycle(Conversation())
@@ -59,6 +64,19 @@ internal fun ChatPage(
     var submitting by remember { mutableStateOf(false) }
     var stopping by remember(id) { mutableStateOf(false) }
     var showMissingMainModel by remember { mutableStateOf(false) }
+    var confirmationId by rememberSaveable(id) { mutableStateOf<String?>(null) }
+    var confirmingTask by remember(id) { mutableStateOf(false) }
+    var taskIssue by remember(id) { mutableStateOf<ScheduledTaskRejection?>(null) }
+    val canUseTasks = current && main && onOpenTasks != null
+    val taskState by key(id, canUseTasks) {
+        val updates = remember {
+            if (canUseTasks) service.scheduledTaskUiState(id)
+            else flowOf<ScheduledTaskUiStateResult?>(null)
+        }
+        updates.collectAsStateWithLifecycle(initialValue = null)
+    }
+    val pendingConfirmations = (taskState as? ScheduledTaskUiStateResult.Visible)?.state?.pendingConfirmations.orEmpty()
+    val pendingTask = pendingConfirmations.firstOrNull { it.confirmationId == confirmationId } ?: pendingConfirmations.firstOrNull()
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) image = uri.toString()
     }
@@ -76,10 +94,11 @@ internal fun ChatPage(
     val hasActiveDelivery = pending.any { it.status.inFlight } || conversation.messages.any { message ->
         message.deliveryTargets.any { it.status.inFlight }
     }
-    val showEmpty = conversation.messages.isEmpty() && pending.isEmpty() && receipts.isEmpty() &&
+    val showEmpty = conversation.messages.isEmpty() && pending.isEmpty() && receipts.isEmpty() && pendingTask == null &&
         !conversation.generating && conversation.issue == null
+    val generatingReply = conversation.generating && pendingTask == null
     val itemCount = conversation.messages.size + pending.size + receipts.size +
-        listOf(showEmpty, conversation.generating, conversation.issue != null).count { it }
+        listOf(showEmpty, generatingReply, pendingTask != null, conversation.issue != null).count { it }
     val replyFade = tween<Float>(PrimaryMotion.FadeMillis, easing = PrimaryMotion.Fade)
     val revealedSend = pendingSendScroll?.takeIf { it.hasNewEcho(conversation.messages) }
     fun stopReply() {
@@ -136,6 +155,10 @@ internal fun ChatPage(
                 DropdownMenu(current && menu, { menu = false }, containerColor = SurfaceColor, shape = RoundedCornerShape(16.dp)) {
                     if (main) {
                         ChatMenuItem(R.string.elym_sessions, R.drawable.elym_chat) { menu = false; onSessions(persona.id) }
+                        if (onOpenTasks != null) ChatMenuItem(R.string.elym_scheduled_tasks, R.drawable.elym_clock) {
+                            menu = false
+                            onOpenTasks()
+                        }
                         if (conversation.generating) ChatMenuItem(R.string.elym_other_sessions, R.drawable.elym_person) { menu = false; chooseSessions = true }
                         ChatMenuItem(R.string.elym_edit_persona, R.drawable.elym_sliders) { menu = false; onEdit() }
                     } else if (displayTitle.isNotBlank()) {
@@ -190,8 +213,19 @@ internal fun ChatPage(
                         } else null,
                     )
                 }
-                if (conversation.generating) item(key = "reply-progress") {
+                if (generatingReply) item(key = "reply-progress") {
                     ReplyProgress(conversation.toolProgressActive)
+                }
+                if (pendingTask != null) item(key = "scheduled-task-confirmation") {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text(stringResource(R.string.elym_task_waiting_confirmation), color = Muted)
+                        Action(stringResource(R.string.elym_task_view_confirmation), {
+                            if (current) confirmationId = pendingTask.confirmationId
+                        })
+                    }
                 }
                 conversation.issue?.let { issue ->
                     item {
@@ -259,6 +293,32 @@ internal fun ChatPage(
             TextButton(onClick = { showMissingMainModel = false }) { Text(stringResource(R.string.elym_close)) }
         },
     )
+
+    pendingTask?.takeIf { current && it.confirmationId == confirmationId }?.let { pending ->
+        ScheduledTaskConfirmation(pending, confirmingTask) { approved ->
+            if (!confirmingTask) {
+                confirmingTask = true
+                model.perform {
+                    try {
+                        val result = service.confirmScheduledTaskAction(id, pending.confirmationId, pending.initiatingExecutionId, approved)
+                        if (result is ScheduledTaskActionResult.Rejected && result.reason != ScheduledTaskRejection.CONFIRMATION_DECLINED) {
+                            taskIssue = result.reason
+                        }
+                        confirmationId = null
+                    } finally {
+                        confirmingTask = false
+                    }
+                }
+            }
+        }
+    }
+    taskIssue?.takeIf { current }?.let { rejection ->
+        AlertDialog(
+            onDismissRequest = { taskIssue = null },
+            text = { Text(stringResource(rejection.label)) },
+            confirmButton = { TextButton(onClick = { taskIssue = null }) { Text(stringResource(R.string.elym_close)) } },
+        )
+    }
 
     if (current && chooseSessions) Sheet(stringResource(R.string.elym_choose_persona), { chooseSessions = false }) {
         Group {

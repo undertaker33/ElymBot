@@ -37,6 +37,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.elymbot.android.R
 import com.elymbot.android.data.AppearanceMode
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 
 internal class ElymBotViewModel(val service: ElymBotUiService) : ViewModel() {
@@ -68,6 +69,7 @@ private enum class Page(val title: Int, val icon: Int) {
     About(R.string.elym_about, R.drawable.elym_settings),
     Faq(R.string.elym_faq, R.drawable.elym_info),
     AppSetup(R.string.elym_guide_title, R.drawable.elym_sliders),
+    ScheduledTasks(R.string.elym_scheduled_tasks, R.drawable.elym_clock),
     Chat(R.string.elym_chat, R.drawable.elym_chat),
     Sessions(R.string.elym_sessions, R.drawable.elym_chat),
 }
@@ -89,6 +91,7 @@ private data class Destination(
                 Page.Sessions -> sessionsDepth
                 Page.About, Page.Faq -> 1
                 Page.AppSetup -> 1 + backPages.size
+                Page.ScheduledTasks -> 2
                 else -> 0
             }
         }
@@ -100,6 +103,7 @@ private data class Destination(
         Page.Chat -> if (sessionId == null) Destination() else copy(page = Page.Sessions, sessionId = null, title = "")
         Page.Sessions -> if (mainId == null) Destination() else copy(page = Page.Chat, ownerId = null)
         Page.About, Page.Faq -> Destination(Page.Settings)
+        Page.ScheduledTasks -> Destination(Page.Chat, mainId = mainId)
         else -> Destination()
     }
 
@@ -133,6 +137,17 @@ internal fun ElymBotApp(
     val personas by service.personas.collectAsStateWithLifecycle(emptyList())
     val personaTags by service.personaTags.collectAsStateWithLifecycle(emptyList())
     val main by service.mainSession.collectAsStateWithLifecycle(null)
+    val mainId = main?.id
+    val tasksAvailability = remember(service, mainId) {
+        mainId?.let(service::scheduledTasksAvailable) ?: flowOf(false)
+    }
+    val tasksAvailable by tasksAvailability.collectAsStateWithLifecycle(false)
+    val appUpdate by service.appUpdate.collectAsStateWithLifecycle(AppUpdateState())
+    val pluginManagement by service.pluginManagement.collectAsStateWithLifecycle(initialValue = null)
+    var dismissedUpdateId by rememberSaveable { mutableStateOf<String?>(null) }
+    var requestedUpdateId by rememberSaveable { mutableStateOf<String?>(null) }
+    val availableUpdate = appUpdate.availableUpdate?.takeIf { appUpdate.status == AppUpdateUiStatus.UpdateAvailable }
+    val visibleUpdate = availableUpdate?.takeIf { it.id != dismissedUpdateId || it.id == requestedUpdateId }
     val config by service.models.collectAsStateWithLifecycle(ModelConfiguration())
     val appGuide by service.appGuide.collectAsStateWithLifecycle(AppGuideState(AppGuideStatus.Unknown, ProbeStatus.Unknown))
     val commands by service.commandNames.collectAsStateWithLifecycle(emptyMap())
@@ -140,6 +155,8 @@ internal fun ElymBotApp(
     var destination by rememberSaveable(stateSaver = Destination.Saver) { mutableStateOf(Destination()) }
     var dockConfigurationCategory by rememberSaveable { mutableStateOf(ConfigurationCategory.Models) }
     var faqConfigurationCategory by rememberSaveable { mutableStateOf(ConfigurationCategory.Models) }
+    var dockPluginTab by rememberSaveable { mutableStateOf(PluginTab.Discover) }
+    var faqPluginTab by rememberSaveable { mutableStateOf(PluginTab.Installed) }
     val focusManager = LocalFocusManager.current
     var personaForm by remember { mutableStateOf<PersonaCard?>(null) }
     var deletePersona by remember { mutableStateOf<PersonaCard?>(null) }
@@ -239,25 +256,39 @@ internal fun ElymBotApp(
                                     onAbout = { if (current) navigate(Destination(Page.About)) },
                                     onFaq = { if (current) navigate(Destination(Page.Faq)) })
                             }
-                            Page.About -> AboutPage(backFromScreen)
+                            Page.About -> AboutPage(
+                                backFromScreen, appUpdate,
+                                onCheckForUpdate = { if (current) model.perform { service.checkForAppUpdate(forceRefresh = true) } },
+                                onShowUpdate = { if (current) requestedUpdateId = availableUpdate?.id },
+                            )
                             Page.Faq -> stateHolder.SaveableStateProvider(screen.key) {
                                 FaqPage(
                                     backFromScreen,
-                                    actions = mapOf(
-                                        FaqAction.Setup to R.string.elym_faq_open_setup,
-                                        FaqAction.Models to R.string.elym_faq_open_models,
-                                    ),
+                                    actions = buildMap {
+                                        put(FaqAction.Setup, R.string.elym_faq_open_setup)
+                                        put(FaqAction.Models, R.string.elym_faq_open_models)
+                                        if (pluginManagement != null) put(FaqAction.Plugins, R.string.elym_faq_open_plugins)
+                                        if (mainId != null && tasksAvailable) put(FaqAction.Tasks, R.string.elym_faq_open_tasks)
+                                    },
                                 ) { action ->
                                     if (current) {
+                                        val faqBack = listOf(Page.Faq)
                                         val page = when (action) {
-                                            FaqAction.Setup -> Page.AppSetup
+                                            FaqAction.Setup -> Destination(Page.AppSetup, backPages = faqBack)
                                             FaqAction.Models -> {
                                                 faqConfigurationCategory = ConfigurationCategory.Models
-                                                Page.Models
+                                                Destination(Page.Models, backPages = faqBack)
+                                            }
+                                            FaqAction.Tasks -> mainId?.takeIf { tasksAvailable }?.let {
+                                                Destination(Page.ScheduledTasks, mainId = it, backPages = faqBack)
+                                            }
+                                            FaqAction.Plugins -> pluginManagement?.let {
+                                                faqPluginTab = PluginTab.Installed
+                                                Destination(Page.Plugins, backPages = faqBack)
                                             }
                                             else -> null
                                         }
-                                        if (page != null) navigate(Destination(page, backPages = listOf(Page.Faq)))
+                                        if (page != null) navigate(page)
                                     }
                                 }
                             }
@@ -278,17 +309,29 @@ internal fun ElymBotApp(
                                     }
                                 },
                             )
-                            Page.Platform, Page.Plugins -> stateHolder.SaveableStateProvider(screen.key) {
+                            Page.Plugins -> stateHolder.SaveableStateProvider(screen.key) {
+                                val fromFaq = screen.backPages.lastOrNull() == Page.Faq
+                                PluginsPage(model, pluginManagement, current, footerClearance,
+                                    tab = if (fromFaq) faqPluginTab else dockPluginTab,
+                                    onTabChange = { tab ->
+                                        if (current) {
+                                            if (fromFaq) faqPluginTab = tab else dockPluginTab = tab
+                                        }
+                                    },
+                                    onBack = backFromScreen.takeIf { fromFaq })
+                            }
+                            Page.Platform -> stateHolder.SaveableStateProvider(screen.key) {
                                 PrimaryPage(screen.page.title, current, footerClearance) { query, clearance ->
                                     Box(Modifier.padding(clearance)) {
                                         EmptyMessage(
-                                            stringResource(if (!query.isNullOrEmpty()) R.string.elym_no_search_results
-                                                else if (screen.page == Page.Platform) R.string.elym_no_platforms
-                                                else R.string.elym_no_plugins),
+                                            stringResource(if (!query.isNullOrEmpty()) R.string.elym_no_search_results else R.string.elym_no_platforms),
                                             screen.page.icon,
                                         )
                                     }
                                 }
+                            }
+                            Page.ScheduledTasks -> screen.mainId?.let { id ->
+                                ScheduledTasksPage(model, id, active?.name.orEmpty(), current, id == mainId && tasksAvailable, backFromScreen)
                             }
                             Page.Sessions -> if (persona != null) SessionsPage(
                                 model, persona, backFromScreen, current, managePersona = screen.mainId == null,
@@ -305,6 +348,9 @@ internal fun ElymBotApp(
                                         onEdit = { if (current) personaForm = persona },
                                         onDelete = { if (current) deletePersona = persona },
                                         onRename = { if (destination.key == screen.key) destination = screen.copy(title = it) },
+                                        onOpenTasks = if (screen.sessionId == null && id == mainId && tasksAvailable) {
+                                            { if (current) navigate(Destination(Page.ScheduledTasks, mainId = id)) }
+                                        } else null,
                                     )
                                 }
                             }
@@ -365,6 +411,10 @@ internal fun ElymBotApp(
                 text = { Text(stringResource(issueLabel(issue))) },
                 confirmButton = { TextButton(model::clearIssue) { Text(stringResource(R.string.elym_close)) } },
             )
+        }
+        AppUpdatePrompt(model, visibleUpdate) {
+            dismissedUpdateId = visibleUpdate?.id
+            requestedUpdateId = null
         }
     }
 }

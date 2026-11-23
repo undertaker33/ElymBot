@@ -39,7 +39,12 @@ private const val ProjectUrl = "https://github.com/undertaker33/ElymBot"
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-internal fun AboutPage(back: () -> Unit) {
+internal fun AboutPage(
+    back: () -> Unit,
+    update: AppUpdateState,
+    onCheckForUpdate: () -> Unit,
+    onShowUpdate: () -> Unit,
+) {
     val context = LocalContext.current
     val version by produceState<String?>(null, context) {
         value = withContext(Dispatchers.IO) { context.installedVersion() }
@@ -83,6 +88,21 @@ internal fun AboutPage(back: () -> Unit) {
             Spacer(Modifier.height(40.dp))
 
             Column(Modifier.widthIn(max = 560.dp).fillMaxWidth()) {
+                Group {
+                    ListRow(
+                        stringResource(R.string.elym_update_check), R.drawable.elym_clock, onCheckForUpdate,
+                        subtitle = stringResource(update.status.label), enabled = update.status != AppUpdateUiStatus.Checking,
+                    )
+                    val candidate = update.availableUpdate
+                    if (update.status == AppUpdateUiStatus.UpdateAvailable && candidate != null) {
+                        HorizontalDivider(color = Line)
+                        ListRow(
+                            stringResource(R.string.elym_update_view), R.drawable.elym_box, onShowUpdate,
+                            subtitle = candidate.versionName,
+                        )
+                    }
+                }
+                Spacer(Modifier.height(18.dp))
                 Section(stringResource(R.string.elym_about_links)) {
                     ListRow(
                         stringResource(R.string.elym_about_repository), R.drawable.elym_sliders,
@@ -102,6 +122,16 @@ internal fun AboutPage(back: () -> Unit) {
             }
         }
     }
+}
+
+private val AppUpdateUiStatus.label: Int get() = when (this) {
+    AppUpdateUiStatus.Checking -> R.string.elym_update_checking
+    AppUpdateUiStatus.UpToDate -> R.string.elym_update_current
+    AppUpdateUiStatus.UpdateAvailable -> R.string.elym_update_available
+    AppUpdateUiStatus.MetadataMissing -> R.string.elym_update_missing
+    AppUpdateUiStatus.NetworkError -> R.string.elym_update_network_error
+    AppUpdateUiStatus.InvalidRelease -> R.string.elym_update_invalid
+    AppUpdateUiStatus.IncompatiblePackage, AppUpdateUiStatus.IncompatibleInstallation -> R.string.elym_update_incompatible
 }
 
 @Composable
