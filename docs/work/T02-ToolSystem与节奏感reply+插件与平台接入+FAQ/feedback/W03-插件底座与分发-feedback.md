@@ -103,3 +103,29 @@ Copy-Item "$FixtureWork/dex/classes.dex" 'app/src/androidTest/assets/plugin-fixt
 ### 首轮 MuMu DEX fixture 诊断
 
 - 首次 MuMu DEX 测试的 prepare 次数预期 `1`、实际 `0`，原因是测试 APK 将源类拆入 `classes6.dex`，夹具误读主 `classes.dex`。改为扫描 DEX 后再次失败，原因是 AndroidTest/App classpath 已含同 FQN 的测试 entrypoint，父加载器优先找到后被生产 loader 的来源校验拒绝。最终使用唯一 FQN 的独立 D8 asset 解决；生产 child-loader 来源校验保持严格。随后独立生命周期测试通过，日志和 APK 标识记录在上表。
+
+## 2026-11-23 官方目录与双源分发切片
+
+- 新增 App 内部 `OfficialPluginDistributionRepository`。生产信任配置由宿主注入目录根 RSA 公钥、当前 host API 和支持 ABI；当前没有已授权的目录根密钥，因此 Application 使用 `configuration = null`，状态明确为 `NOT_CONFIGURED`，不发起请求。目录只从固定官方 GitHub latest Release API 的 `elymbot-plugin-directory.json` 与 `elymbot-plugin-directory.sig` 读取；校验 GitHub API 给出的两个资产大小和 SHA-256，再用注入的根公钥校验覆盖原始 UTF-8 字节的 `SHA256withRSA` 签名。已验证原文及签名写入 App 私有目录，读取缓存时仍使用当前根密钥重新验证。
+- 内部目录格式为 `formatVersion: 1` 和排序的 `plugins` 发行列表。每个条目包含发布者、插件、版本、host API、ABI、发布者 X.509 RSA 公钥，以及包长度、SHA-256、GitHub URL 和可选 Gitee URL。公钥和地址均受根签名保护；未知字段、重复条目、越界长度、无效 URL、无效兼容条件及错误签名被拒绝。旧版本恢复依赖签名目录保留仍可用的历史发行条目；网络失败和新目录校验失败保留 last-good 缓存，不从已安装包或未签名状态推导信任。
+- `resolveExpectation(PluginPackageReference)` 只为目录内精确的发布者、插件和版本返回 `PluginPackageExpectation`，包内不能提供信任根。`downloadPlugin(reference)` 只接受已验证目录中的兼容版本，先下载 GitHub，再在传输失败时使用同条目签名声明的 Gitee 镜像；两路都按同一签名长度与 SHA-256 校验。GitHub 返回完整但摘要不符时拒绝且不尝试镜像。返回的下载文件位于 App 私有缓存并只读，消费后可关闭删除。
+- `PluginDirectorySnapshot` 区分未配置、可用、目录缺失、网络错误及无效目录，并带有受限失败类别；不暴露异常正文或远端响应体。W02 已接收 `refreshPluginDirectory()` → `manager.restore(repository::resolveExpectation)` 接线约定；目前 Application 在 Room 投递恢复前刷新并恢复插件。真实插件目录、独立信任根及 Gitee 地址尚未发布，故尚无生产目录接收或真实双源证据。
+- 新增 `OfficialPluginDistributionRepositoryTest`，使用运行时 RSA 合成密钥和本机 HTTP fixture 覆盖未配置不联网、两个历史版本解析、重启后 last-good 缓存、主源 503 后 Gitee 精确制品回退、摘要错误不回退及无效新签名保留 last-good。测试上下文把 `applicationContext`、`filesDir` 与 `cacheDir` 指向唯一 fixture 私有目录，清理只作用于该目录。
+
+### 目录分发构建与 MuMu 验证
+
+| Checklist 项 | 方法或命令 | 平台或工具版本 | 实际结果 | 仓库相对证据 |
+| --- | --- | --- | --- | --- |
+| `T02.06 A12、A13` 合成目录、签名与双源失败路径 | `:app:assembleDebug :app:assembleDebugAndroidTest --offline --console=plain`；运行 `OfficialPluginDistributionRepositoryTest` | JDK 17、Gradle Wrapper 9.9.1、Android SDK 37；MuMu Android 15、API 35 | App 与 AndroidTest 构建成功；5/5 instrumentation 用例通过。证据等级为合成 RSA/HTTP 与模拟器，未连接真实目录或 Gitee | `OfficialPluginDistributionRepository.kt`；`OfficialPluginDistributionRepositoryTest.kt` |
+
+MuMu 产物：App SHA-256 `A3C65A0511094AA2B5961DC863AC2803AFEA257CCF31E9D109912C16EED8FB90`；AndroidTest SHA-256 `54B3435FE56E420C0CE002D2DA0F40436A33E00FCEB0BBDC06AA00ED22CC4361`。
+
+### 本机 HTTP fixture 返工
+
+- 首轮 4 个有配置测试均在 `refreshPluginDirectory()` 返回 `NETWORK_ERROR`，没有进入目录验签或备用下载。MuMu debug network security 配置只允许 `localhost` 明文流量；fixture URL 使用 `127.0.0.1`，与既有配置不符。将测试 URL 改为 `localhost`，监听 socket 保持绑定 loopback 地址。
+- 原测试曾清理真实 App 的 `plugin-distribution` 与 `plugin-downloads` 路径。现改用目标 App Context 包装出的唯一测试私有目录，并在 teardown 只删除该 fixture 根；生产路径和已安装目录未被测试清理。修复后上述 5/5 测试通过。
+
+### App 更新实现状态
+
+- 已确认当前官方 Release API 基线为 `v0.1.0` / tag `正式版`，仅含 debug 与 release APK，未含 `elymbot-release.json`、数值版本元数据或插件目录。Release APK 的 `versionCode=1`、`versionName=0.1.0`，摘要和签名证书见 [W07 Feedback](W07-集成与验收-feedback.md)。
+- 已约定未来 sidecar 文件名 `elymbot-release.json`，字段为 `formatVersion`、`packageName`、`versionCode`、`versionName`、`apkAssetName` 和 `apkSha256`。当前 sidecar 缺失，因此 updater 应报告 `METADATA_MISSING`；App 更新检查与用户确认后的下载/签名校验/系统安装入口仍待实现。
