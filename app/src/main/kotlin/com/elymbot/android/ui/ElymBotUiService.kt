@@ -1,9 +1,11 @@
 package com.elymbot.android.ui
 
 import android.net.Uri
+import android.content.Intent
 import com.elymbot.core.contract.ScheduledTaskAction
 import com.elymbot.core.contract.ScheduledTaskActionResult
 import com.elymbot.core.contract.ScheduledTaskSnapshotResult
+import com.elymbot.core.contract.ScheduledTaskUiStateResult
 import kotlinx.coroutines.flow.Flow
 
 interface ElymBotUiService {
@@ -14,6 +16,8 @@ interface ElymBotUiService {
     val models: Flow<ModelConfiguration>
     val appGuide: Flow<AppGuideState>
     val commandNames: Flow<Map<ChatCommand, String>>
+    val pluginManagement: Flow<PluginManagementState>
+    val appUpdate: Flow<AppUpdateState>
 
     fun sessions(personaId: String): Flow<List<ConversationSummary>>
     fun conversation(sessionId: String): Flow<Conversation>
@@ -38,6 +42,12 @@ interface ElymBotUiService {
         sessionId: String,
         taskId: String? = null,
     ): ScheduledTaskSnapshotResult
+    fun scheduledTaskUiState(
+        sessionId: String,
+        taskId: String? = null,
+    ): Flow<ScheduledTaskUiStateResult>
+    fun scheduledTasksAvailable(sessionId: String): Flow<Boolean>
+    suspend fun skipScheduledTaskGuide(sessionId: String): ScheduledTaskUiStateResult
     suspend fun requestScheduledTaskAction(
         sessionId: String,
         requestId: String,
@@ -49,6 +59,16 @@ interface ElymBotUiService {
         initiatingExecutionId: String,
         approved: Boolean,
     ): ScheduledTaskActionResult
+    suspend fun refreshPluginDirectory()
+    suspend fun installPlugin(reference: PluginReleaseReference): PluginManagementActionResult
+    suspend fun enablePlugin(pluginId: String): PluginManagementActionResult
+    suspend fun disablePlugin(pluginId: String): PluginManagementActionResult
+    suspend fun uninstallPlugin(pluginId: String, deleteData: Boolean): PluginManagementActionResult
+    suspend fun checkForAppUpdate(forceRefresh: Boolean = false)
+    fun canRequestAppUpdateInstall(): Boolean
+    fun appUpdatePermissionSettingsIntent(): Intent
+    suspend fun prepareAppUpdateInstall(offerId: String): AppUpdateInstallResult
+    suspend fun finishAppUpdateInstall(ticketId: String)
     suspend fun saveModelService(service: ModelServiceDraft)
     suspend fun deleteModelService(serviceId: String)
     suspend fun fetchModels(service: ModelServiceDraft): List<String>
@@ -166,6 +186,108 @@ data class AppGuideState(
     val status: AppGuideStatus,
     val structuredToolCalls: ProbeStatus,
 )
+
+data class PluginReleaseReference(
+    val pluginId: String,
+    val publisherId: String,
+    val version: String,
+)
+
+data class PluginReleaseOption(
+    val reference: PluginReleaseReference,
+    val compatible: Boolean,
+)
+
+enum class PluginTrustConfigurationStatus { NotConfigured, Ready, Invalid }
+
+enum class PluginTrustConfigurationFailure { EmptyKey, KeyTooLarge, InvalidRsaKey, UnsupportedAbi, ReadFailed }
+
+enum class PluginDistributionStatus { NotConfigured, Loading, Ready, DirectoryMissing, NetworkError, InvalidDirectory }
+
+enum class PluginDistributionFailure { Transfer, InvalidMetadata, PrivateStorage, Internal }
+
+enum class PluginRuntimeAvailability { Restoring, Active, Unavailable, Disabled }
+
+data class InstalledPluginSummary(
+    val pluginId: String,
+    val publisherId: String,
+    val version: String,
+    val enabled: Boolean,
+    val availability: PluginRuntimeAvailability,
+    val cleanupPending: Boolean,
+)
+
+data class PluginManagementState(
+    val trustConfigurationStatus: PluginTrustConfigurationStatus,
+    val trustConfigurationFailure: PluginTrustConfigurationFailure? = null,
+    val restorationComplete: Boolean = false,
+    val directoryStatus: PluginDistributionStatus,
+    val directoryFailure: PluginDistributionFailure? = null,
+    val usingLastGoodDirectory: Boolean = false,
+    val releases: List<PluginReleaseOption> = emptyList(),
+    val installed: List<InstalledPluginSummary> = emptyList(),
+)
+
+enum class PluginManagementFailure {
+    TrustNotConfigured,
+    DirectoryUnavailable,
+    ReleaseNotVerified,
+    IncompatibleRelease,
+    PluginNotInstalled,
+    RuntimeUnavailable,
+    InstallFailed,
+    UninstallCleanupPending,
+}
+
+sealed interface PluginManagementActionResult {
+    data object Completed : PluginManagementActionResult
+
+    data class Rejected(val reason: PluginManagementFailure) : PluginManagementActionResult
+}
+
+enum class AppUpdateUiStatus {
+    Checking,
+    UpToDate,
+    UpdateAvailable,
+    MetadataMissing,
+    NetworkError,
+    InvalidRelease,
+    IncompatiblePackage,
+    IncompatibleInstallation,
+}
+
+enum class AppUpdateUiFailure { Network, ReleaseMetadata, ReleaseAssetDigest, InstalledPackage }
+
+data class AppUpdateCandidate(
+    val id: String,
+    val versionCode: Long,
+    val versionName: String,
+)
+
+data class AppUpdateState(
+    val status: AppUpdateUiStatus = AppUpdateUiStatus.Checking,
+    val installedVersionCode: Long? = null,
+    val installedVersionName: String? = null,
+    val availableUpdate: AppUpdateCandidate? = null,
+    val failure: AppUpdateUiFailure? = null,
+)
+
+data class AppUpdateInstallTicket(
+    val id: String,
+    val intent: Intent,
+    val versionCode: Long,
+    val versionName: String,
+)
+
+enum class AppUpdateInstallFailure { OfferExpired, InstallerUnavailable, DownloadFailed }
+
+sealed interface AppUpdateInstallResult {
+    data class Ready(val ticket: AppUpdateInstallTicket) : AppUpdateInstallResult
+
+    data object InstallerPermissionRequired : AppUpdateInstallResult
+
+    data class Rejected(val reason: AppUpdateInstallFailure) : AppUpdateInstallResult
+}
 
 data class ModelChoice(val serviceId: String, val modelId: String)
 

@@ -42,6 +42,7 @@ import com.elymbot.core.contract.ScheduledTaskRunStatus
 import com.elymbot.core.contract.ScheduledTaskRejection
 import com.elymbot.core.contract.ScheduledTaskSnapshotResult
 import com.elymbot.core.contract.ScheduledTaskUiStateResult
+import com.elymbot.core.contract.ScheduledTasksPluginHandle
 import com.elymbot.core.contract.ScheduledTasksUiHandle
 import com.elymbot.core.contract.ToolScope
 import java.io.File
@@ -372,6 +373,60 @@ class ScheduledTaskHostIntegrationTest {
             assertEquals(ScheduledTaskRunStatus.SUCCEEDED, completedRuns.single { it.runId == firstQueued.run.runId }.status)
             assertFalse(database.scheduledTaskRunInboxDao().get(firstQueued.run.runId)?.receiptPending ?: true)
             assertEquals(2, agentRequests.size)
+
+            val originalIdentity = requireNotNull(runtimeManager.statusSnapshot().singleOrNull()).installationIdentity
+            val beforeDisable = pluginScheduler.modes.size
+            runtimeManager.disable("scheduled-tasks")
+            service.refreshScheduledTasksAfterPluginRuntimeChange("scheduled-tasks")
+            assertTrue(
+                "Disabling the task plugin cancels its registered OS wake",
+                (beforeDisable until pluginScheduler.modes.size).any { index ->
+                    pluginScheduler.modes[index] == ScheduledTaskScheduleMode.REPLACE &&
+                        pluginScheduler.scheduledAt[index] == null
+                },
+            )
+
+            val enabled = runtimeManager.enable("scheduled-tasks", expectation)
+            assertTrue("Reactivation must create a fresh installation identity", originalIdentity != enabled.installationIdentity)
+            val beforeEnable = pluginScheduler.modes.size
+            service.refreshScheduledTasksAfterPluginRuntimeChange("scheduled-tasks")
+            assertTrue(
+                "Reactivation re-registers the saved next occurrence",
+                (beforeEnable until pluginScheduler.modes.size).any { index ->
+                    pluginScheduler.modes[index] == ScheduledTaskScheduleMode.REPLACE &&
+                        pluginScheduler.scheduledAt[index] != null
+                },
+            )
+
+            val enabledIdentity = enabled.installationIdentity
+            val pendingAfterEnable = runtimeManager.withActivePluginHandle(
+                pluginId = "scheduled-tasks",
+                installationIdentity = enabledIdentity,
+                handleType = ScheduledTasksPluginHandle::class.java,
+            ) { handle ->
+                handle.requestAction(
+                    access = ScheduledTaskAccessContext(
+                        origin = ScheduledTaskAccessOrigin.APP_UI_MAIN,
+                        sessionId = main.id,
+                        userId = "local-user",
+                        sessionScope = ToolScope.MAIN_SESSION,
+                        installationIdentity = enabledIdentity,
+                    ),
+                    requestId = "pending-after-enable-${UUID.randomUUID()}",
+                    action = ScheduledTaskAction.RunNow(created.task.id, created.task.revision),
+                )
+            } as? ScheduledTaskActionResult.RunQueued ?: error("Enabled task plugin did not queue the probe run")
+            service.refreshScheduledTasksAfterPluginRuntimeChange("scheduled-tasks")
+            withTimeout(10_000) {
+                while (database.turnDao().latest(main.id)?.sequence != 3L ||
+                    database.turnDao().latest(main.id)?.status == "RUNNING"
+                ) delay(20)
+            }
+            assertEquals(3, agentRequests.size)
+            assertEquals(
+                "SUCCEEDED",
+                database.scheduledTaskRunInboxDao().get(pendingAfterEnable.run.runId)?.status,
+            )
         } finally {
             releaseFirstTurn.complete(Unit)
             serviceScope.cancel()

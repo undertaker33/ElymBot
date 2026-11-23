@@ -32,6 +32,7 @@ import com.elymbot.android.data.PersonaEntity
 import com.elymbot.android.data.PersonaTagEntity
 import com.elymbot.android.data.RoomModelServiceConnectionProvider
 import com.elymbot.android.data.TurnEntity
+import com.elymbot.android.runtime.pluginpackage.AppHostManagementUiService
 import com.elymbot.android.ui.ChatCheckpoint
 import com.elymbot.android.ui.ChatCommand
 import com.elymbot.android.ui.ChatDeliveryStatus
@@ -44,6 +45,10 @@ import com.elymbot.android.ui.ConversationSummary
 import com.elymbot.android.ui.ElymBotUiService
 import com.elymbot.android.ui.AppGuideState
 import com.elymbot.android.ui.AppGuideStatus
+import com.elymbot.android.ui.AppUpdateInstallFailure
+import com.elymbot.android.ui.AppUpdateInstallResult
+import com.elymbot.android.ui.AppUpdateState
+import com.elymbot.android.ui.AppUpdateUiStatus
 import com.elymbot.android.ui.ImagePosition
 import com.elymbot.android.ui.ModelChoice
 import com.elymbot.android.ui.ModelConfiguration
@@ -52,6 +57,10 @@ import com.elymbot.android.ui.ModelRole as UiModelRole
 import com.elymbot.android.ui.ModelServiceDraft
 import com.elymbot.android.ui.MessageStatus
 import com.elymbot.android.ui.PersonaCard
+import com.elymbot.android.ui.PluginManagementActionResult
+import com.elymbot.android.ui.PluginManagementFailure
+import com.elymbot.android.ui.PluginManagementState
+import com.elymbot.android.ui.PluginReleaseReference
 import com.elymbot.android.ui.ProbeStatus
 import com.elymbot.android.ui.UiIssue
 import com.elymbot.android.ui.UiServiceException
@@ -92,6 +101,7 @@ import com.elymbot.core.contract.ScheduledTaskAction
 import com.elymbot.core.contract.ScheduledTaskActionResult
 import com.elymbot.core.contract.ScheduledTaskRejection
 import com.elymbot.core.contract.ScheduledTaskSnapshotResult
+import com.elymbot.core.contract.ScheduledTaskUiStateResult
 import com.elymbot.core.contract.ScheduledTaskRunFailureKind
 import com.elymbot.core.contract.ScheduledTaskRunOrigin
 import com.elymbot.core.contract.ScheduledTaskRunRequest
@@ -115,6 +125,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.collectLatest
@@ -155,6 +166,7 @@ class ElymBotSessionService internal constructor(
         )
     },
     private val scheduledTaskHost: ScheduledTaskHost? = null,
+    private val appHostManagement: AppHostManagementUiService? = null,
     private val toolRegistrations: () -> List<ToolRegistration> = { emptyList() },
     private val toolAccessPolicy: ToolAccessPolicy = BuiltInOnlyToolAccessPolicy,
 ) : ElymBotUiService {
@@ -223,6 +235,17 @@ class ElymBotSessionService internal constructor(
     }
 
     override val models: Flow<ModelConfiguration> = modelConfigurationService.models
+
+    override val pluginManagement: Flow<PluginManagementState> = appHostManagement?.pluginManagement
+        ?: flowOf(
+            PluginManagementState(
+                trustConfigurationStatus = com.elymbot.android.ui.PluginTrustConfigurationStatus.NotConfigured,
+                directoryStatus = com.elymbot.android.ui.PluginDistributionStatus.NotConfigured,
+            ),
+        )
+
+    override val appUpdate: Flow<AppUpdateState> = appHostManagement?.appUpdate
+        ?: flowOf(AppUpdateState(status = AppUpdateUiStatus.IncompatibleInstallation))
 
     override val appGuide: Flow<AppGuideState> = flow {
         repository.initialize()
@@ -765,6 +788,45 @@ class ElymBotSessionService internal constructor(
             ?: ScheduledTaskSnapshotResult.Rejected(ScheduledTaskRejection.INACTIVE_INSTALLATION)
     }
 
+    override fun scheduledTaskUiState(
+        sessionId: String,
+        taskId: String?,
+    ): Flow<ScheduledTaskUiStateResult> = flow {
+        try {
+            awaitScheduledServiceReady()
+            val host = scheduledTaskHost
+            if (host == null) {
+                emit(ScheduledTaskUiStateResult.Rejected(ScheduledTaskRejection.INACTIVE_INSTALLATION))
+            } else {
+                emitAll(host.observeMainUiState(sessionId, taskId))
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            emit(ScheduledTaskUiStateResult.Rejected(ScheduledTaskRejection.STORE_UNAVAILABLE))
+        }
+    }.flowOn(Dispatchers.IO)
+
+    override fun scheduledTasksAvailable(sessionId: String): Flow<Boolean> = flow {
+        awaitScheduledServiceReady()
+        emitAll(
+            combine(mainSession, pluginManagement) { main, state ->
+                val mainIsUnique = repository.database.conversationDao().countMain() == 1
+                mainIsUnique && main?.id == sessionId && sessionId == MAIN_SESSION_ID &&
+                    state.restorationComplete && state.installed.any {
+                        it.pluginId == SCHEDULED_TASKS_PLUGIN_ID && it.enabled &&
+                            it.availability == com.elymbot.android.ui.PluginRuntimeAvailability.Active
+                    }
+            }.distinctUntilChanged(),
+        )
+    }.flowOn(Dispatchers.IO)
+
+    override suspend fun skipScheduledTaskGuide(sessionId: String): ScheduledTaskUiStateResult {
+        awaitScheduledServiceReady()
+        return scheduledTaskHost?.skipFirstTaskGuideMain(sessionId)
+            ?: ScheduledTaskUiStateResult.Rejected(ScheduledTaskRejection.INACTIVE_INSTALLATION)
+    }
+
     override suspend fun requestScheduledTaskAction(
         sessionId: String,
         requestId: String,
@@ -794,6 +856,58 @@ class ElymBotSessionService internal constructor(
         return result
     }
 
+    override suspend fun refreshPluginDirectory() {
+        appHostManagement?.refreshPluginDirectory()
+    }
+
+    override suspend fun installPlugin(reference: PluginReleaseReference): PluginManagementActionResult =
+        appHostManagement?.installPlugin(reference)?.also { result ->
+            if (reference.pluginId == SCHEDULED_TASKS_PLUGIN_ID && result.changedPluginRuntime()) {
+                refreshScheduledTasksAfterPluginRuntimeChange(SCHEDULED_TASKS_PLUGIN_ID)
+            }
+        } ?: PluginManagementActionResult.Rejected(PluginManagementFailure.TrustNotConfigured)
+
+    override suspend fun enablePlugin(pluginId: String): PluginManagementActionResult =
+        appHostManagement?.enablePlugin(pluginId)?.also { result ->
+            if (pluginId == SCHEDULED_TASKS_PLUGIN_ID && result.changedPluginRuntime()) {
+                refreshScheduledTasksAfterPluginRuntimeChange(pluginId)
+            }
+        } ?: PluginManagementActionResult.Rejected(PluginManagementFailure.RuntimeUnavailable)
+
+    override suspend fun disablePlugin(pluginId: String): PluginManagementActionResult =
+        appHostManagement?.disablePlugin(pluginId)?.also { result ->
+            if (pluginId == SCHEDULED_TASKS_PLUGIN_ID && result.changedPluginRuntime()) {
+                refreshScheduledTasksAfterPluginRuntimeChange(pluginId)
+            }
+        } ?: PluginManagementActionResult.Rejected(PluginManagementFailure.RuntimeUnavailable)
+
+    override suspend fun uninstallPlugin(
+        pluginId: String,
+        deleteData: Boolean,
+    ): PluginManagementActionResult = appHostManagement?.uninstallPlugin(pluginId, deleteData)?.also { result ->
+        if (pluginId == SCHEDULED_TASKS_PLUGIN_ID && result.changedPluginRuntime()) {
+            refreshScheduledTasksAfterPluginRuntimeChange(pluginId)
+        }
+    } ?: PluginManagementActionResult.Rejected(PluginManagementFailure.RuntimeUnavailable)
+
+    override suspend fun checkForAppUpdate(forceRefresh: Boolean) {
+        appHostManagement?.checkForAppUpdate(forceRefresh)
+    }
+
+    override fun canRequestAppUpdateInstall(): Boolean = appHostManagement?.canRequestAppUpdateInstall() ?: false
+
+    override fun appUpdatePermissionSettingsIntent(): android.content.Intent =
+        appHostManagement?.appUpdatePermissionSettingsIntent()
+            ?: android.content.Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES)
+
+    override suspend fun prepareAppUpdateInstall(offerId: String): AppUpdateInstallResult =
+        appHostManagement?.prepareAppUpdateInstall(offerId)
+            ?: AppUpdateInstallResult.Rejected(AppUpdateInstallFailure.OfferExpired)
+
+    override suspend fun finishAppUpdateInstall(ticketId: String) {
+        appHostManagement?.finishAppUpdateInstall(ticketId)
+    }
+
     internal suspend fun processScheduledTaskWake(): Boolean {
         awaitScheduledServiceReady()
         val host = scheduledTaskHost ?: return false
@@ -803,6 +917,21 @@ class ElymBotSessionService internal constructor(
                 flushPendingScheduledTaskReceipts()
                 enqueueScheduledTaskRuns(collection.requests)
                 true
+            }
+        }
+    }
+
+    /** Rebinds the OS wake and replays plugin-owned queued work after task-plugin activation changes. */
+    internal suspend fun refreshScheduledTasksAfterPluginRuntimeChange(pluginId: String) {
+        if (pluginId != SCHEDULED_TASKS_PLUGIN_ID) return
+        awaitScheduledServiceReady()
+        val host = scheduledTaskHost ?: return
+        host.refreshSchedule()
+        when (val collection = host.collectPendingRuns()) {
+            ScheduledRunCollection.Deferred -> Unit
+            is ScheduledRunCollection.Ready -> {
+                flushPendingScheduledTaskReceipts()
+                enqueueScheduledTaskRuns(collection.requests)
             }
         }
     }
@@ -2272,3 +2401,8 @@ private fun ScheduledTaskRunInboxEntity.toRunRequest() = ScheduledTaskRunRequest
     origin = runCatching { ScheduledTaskRunOrigin.valueOf(origin) }.getOrDefault(ScheduledTaskRunOrigin.SCHEDULED),
     installationIdentity = ToolInstallationIdentity(installationPluginId, installationInstanceId),
 )
+
+private fun PluginManagementActionResult.changedPluginRuntime(): Boolean =
+    this == PluginManagementActionResult.Completed ||
+        this is PluginManagementActionResult.Rejected &&
+        reason == PluginManagementFailure.UninstallCleanupPending

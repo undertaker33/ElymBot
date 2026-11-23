@@ -39,6 +39,7 @@ internal enum class PluginInstanceAvailability {
 
 internal data class PluginRuntimeStatus(
     val pluginId: String,
+    val publisherId: String,
     val version: String,
     val enabled: Boolean,
     val installationIdentity: ToolInstallationIdentity,
@@ -544,6 +545,7 @@ internal class PluginRuntimeManager(context: Context) {
         }
         return PluginRuntimeStatus(
             pluginId = record.pluginId,
+            publisherId = record.publisherId,
             version = record.version,
             enabled = record.enabled,
             installationIdentity = record.installationIdentity,

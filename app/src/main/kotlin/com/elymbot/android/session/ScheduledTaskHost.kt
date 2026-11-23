@@ -13,11 +13,16 @@ import com.elymbot.core.contract.ScheduledTaskRunReceipt
 import com.elymbot.core.contract.ScheduledTaskRunRequest
 import com.elymbot.core.contract.ScheduledTaskRunStatus
 import com.elymbot.core.contract.ScheduledTaskSnapshotResult
+import com.elymbot.core.contract.ScheduledTaskUiStateResult
 import com.elymbot.core.contract.ScheduledTasksPluginHandle
+import com.elymbot.core.contract.ScheduledTasksUiHandle
 import com.elymbot.core.contract.ToolInstallationIdentity
 import com.elymbot.core.contract.ToolScope
 import java.time.Instant
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.flow
 
 internal const val SCHEDULED_TASKS_PLUGIN_ID = "scheduled-tasks"
 internal const val SCHEDULED_RUN_STATUS_QUEUED = "QUEUED"
@@ -192,6 +197,56 @@ internal class ScheduledTaskHost(
             ScheduledTaskRunStatus.STALE -> ScheduledRunClaimResult.Stale
             else -> ScheduledRunClaimResult.Lost
         }
+    }
+
+    fun observeMainUiState(sessionId: String, taskId: String? = null): Flow<ScheduledTaskUiStateResult> = flow {
+        val active = activeIdentityOrNull()
+        if (active == null) {
+            emit(ScheduledTaskUiStateResult.Rejected(
+                com.elymbot.core.contract.ScheduledTaskRejection.INACTIVE_INSTALLATION,
+            ))
+            return@flow
+        }
+        val access = mainUiAccess(identity = active, requestedSessionId = sessionId)
+        if (access == null) {
+            emit(ScheduledTaskUiStateResult.Rejected(
+                com.elymbot.core.contract.ScheduledTaskRejection.UNAUTHORIZED,
+            ))
+            return@flow
+        }
+        // Obtain the cold Flow while the manager lock verifies the active handle, then collect
+        // after that lock is released so an observer cannot block plugin disable or replacement.
+        val updates = pluginRuntimeManager.withActivePluginHandle(
+            pluginId = SCHEDULED_TASKS_PLUGIN_ID,
+            installationIdentity = active,
+            handleType = ScheduledTasksUiHandle::class.java,
+        ) { handle -> handle.observeMainUiState(access, taskId) }
+        if (updates == null) {
+            emit(ScheduledTaskUiStateResult.Rejected(
+                com.elymbot.core.contract.ScheduledTaskRejection.INACTIVE_INSTALLATION,
+            ))
+        } else {
+            emitAll(updates)
+        }
+    }
+
+    suspend fun skipFirstTaskGuideMain(sessionId: String): ScheduledTaskUiStateResult {
+        val active = activeIdentityOrNull()
+            ?: return ScheduledTaskUiStateResult.Rejected(
+                com.elymbot.core.contract.ScheduledTaskRejection.INACTIVE_INSTALLATION,
+            )
+        val access = mainUiAccess(identity = active, requestedSessionId = sessionId)
+            ?: return ScheduledTaskUiStateResult.Rejected(
+                com.elymbot.core.contract.ScheduledTaskRejection.UNAUTHORIZED,
+            )
+        return pluginRuntimeManager.withActivePluginHandle(
+            pluginId = SCHEDULED_TASKS_PLUGIN_ID,
+            installationIdentity = active,
+            handleType = ScheduledTasksUiHandle::class.java,
+        ) { handle -> handle.skipFirstTaskGuide(access) }
+            ?: ScheduledTaskUiStateResult.Rejected(
+                com.elymbot.core.contract.ScheduledTaskRejection.INACTIVE_INSTALLATION,
+            )
     }
 
     suspend fun resumeClaimedRun(request: ScheduledTaskRunRequest): ScheduledRunClaimResult =

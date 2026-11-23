@@ -84,3 +84,12 @@ UTF-8 guard:
 - `scheduledTasksSnapshot(sessionId, taskId)` 已将 taskId 透传至插件快照查询，仍先复核调用会话为唯一主会话；供任务详情读取对应运行记录。页面消费由 W06 接手。
 - 为 W03 官方 APK 更新确认后的系统安装 Intent 增加 FileProvider：authority `${applicationId}.updates`，只授权 `cache/app-updates/`，并声明 `REQUEST_INSTALL_PACKAGES`。W03 已确认 Manifest 元数据与安装器服务一致；Intent/URI 端到端验证由 W03 安排。
 - 本轮总控构建 `:app:assembleDebug` 与 AndroidTest 成功；Worker 未运行 Gradle 或操作设备。此交接不覆盖 W05 typed 任务 UI 状态流、平台出站、定时任务 UI 或最终整包验收。
+
+## 2026-11-23 T02.04 官方分发宿主与任务插件重激活复验
+
+- `ElymBotApplication` 现在从 `OfficialPluginDistributionConfiguration.load` 读取独立公钥资产，并用官方目录仓库的已验证本地快照恢复插件。缺少或无效的信任配置保留为 `pluginManagement` 可观察状态；目录刷新和 App 更新检查在 Application 作用域异步启动，不等待网络完成后才打开 Room。
+- `ElymBotUiService` 发布正式 DTO 与宿主动作：目录/安装运行状态、经验证发布条目、用户请求的插件安装/启用/停用/卸载、App 更新检查/准备/完成 ticket，以及 `ScheduledTasksUiHandle` 的主会话状态观察与首次任务引导 skip。模型的 `official_plugin_catalog` 仅读取已验证目录，不提供安装或更改入口。
+- App 更新检查由一个服务共享启动自动检查与 About 手动刷新；只有 UI 显式确认后才准备下载。安装器 Intent 使用已验证 APK 的 FileProvider URI；ticket 保存到 ActivityResult 完成后清理 Verified 文件，并保留用于 Activity 重建的 ticket 元信息。
+- scheduled-tasks 插件安装、启用、停用或卸载成功后，SessionService 在宿主侧刷新唯一 WorkManager wake，再按当前 active installation 重采集插件持久队列、提交 Room 幂等 Inbox 并 drain；停用/卸载会取消旧 wake。UI 不直接操作调度器。
+- 总控在 MuMu Android 15 / x86_64 上报告 `ScheduledTaskHostIntegrationTest` 的 3 项全部通过、0 skipped：恢复 readiness barrier、签名 W05 typed UI capability 与 skip 持久化、以及 RunNow busy queue 场景扩展的 disable→enable 新身份、nextWakeAt 重登记和 queued run drain。
+- 联编 App APK SHA-256：`C0B64124510595193FB0FEE60C5BD93B110D063C13F7C1B95E1C53ABB8B4203F`；AndroidTest APK SHA-256：`EF136CF7CDE91A259430EDD02BBE3CD774ABF84C4EE0FACED6B64726B1BC8513`。本轮 App + AndroidTest 编译和上述定向 MuMu 仪器测试通过；平台运行/QQ 登录与消息端到端仍待 W04 的 App runtime handoff。
