@@ -16,3 +16,15 @@ android {
         targetCompatibility = JavaVersion.toVersion(libs.versions.jdk.get())
     }
 }
+
+dependencies {
+    // The host owns Core and coroutine classes at runtime; a signed plugin must not bundle them.
+    compileOnly(project(":core"))
+    compileOnly(libs.kotlinx.coroutines.core)
+    compileOnly(libs.kotlinx.serialization.json)
+
+    testImplementation(project(":core"))
+    testImplementation(libs.kotlinx.coroutines.core)
+    testImplementation(libs.kotlinx.serialization.json)
+    testImplementation(libs.junit)
+}
