@@ -31,6 +31,8 @@ import com.elymbot.core.contract.ReplyMessage
 import com.elymbot.core.contract.ReplySubmission
 import com.elymbot.core.contract.ReplySubmissionContext
 import com.elymbot.core.contract.ReplySubmissionResult
+import com.elymbot.core.contract.ScheduledTaskAccessContext
+import com.elymbot.core.contract.ScheduledTaskAccessOrigin
 import com.elymbot.core.contract.ScheduledTaskAction
 import com.elymbot.core.contract.ScheduledTaskActionResult
 import com.elymbot.core.contract.ScheduledTaskDraft
@@ -39,6 +41,9 @@ import com.elymbot.core.contract.ScheduledTaskRepeatRule
 import com.elymbot.core.contract.ScheduledTaskRunStatus
 import com.elymbot.core.contract.ScheduledTaskRejection
 import com.elymbot.core.contract.ScheduledTaskSnapshotResult
+import com.elymbot.core.contract.ScheduledTaskUiStateResult
+import com.elymbot.core.contract.ScheduledTasksUiHandle
+import com.elymbot.core.contract.ToolScope
 import java.io.File
 import java.security.KeyFactory
 import java.security.spec.X509EncodedKeySpec
@@ -55,6 +60,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -69,6 +75,62 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class ScheduledTaskHostIntegrationTest {
+    @Test
+    fun signedUiCapabilityLoadsAndPreservesGuideChoice() = runBlocking<Unit> {
+        assumeTrue(InstrumentationRegistry.getArguments().getString("t02ScheduleUiProbe") == "true")
+        val baseContext = InstrumentationRegistry.getInstrumentation().targetContext
+        val isolatedFiles = File(baseContext.cacheDir, "t02-scheduled-ui-${UUID.randomUUID()}")
+        check(isolatedFiles.mkdirs())
+        val runtime = PluginRuntimeManager(IsolatedPluginContext(baseContext, isolatedFiles))
+        val fixture = File(baseContext.cacheDir, "t02-scheduled-ui-probe")
+        val pluginId = "scheduled-tasks"
+        val publisherKey = KeyFactory.getInstance("RSA").generatePublic(
+            X509EncodedKeySpec(File(fixture, "final-probe-publisher-public.der").readBytes()),
+        )
+        val expectation = PluginPackageExpectation(
+            publisherId = "synthetic.elymbot.tests",
+            pluginId = pluginId,
+            version = "0.0.2-ui-probe",
+            hostApi = "host-api-test-1",
+            supportedAbis = setOf("arm64-v8a", "armeabi-v7a", "x86", "x86_64"),
+            trustedPublisherKey = publisherKey,
+        )
+
+        try {
+            runtime.restore { null }
+            val installed = runtime.install(
+                File(fixture, "scheduled-tasks-ui-probe-final.elymbot-plugin"),
+                expectation,
+            )
+            val access = ScheduledTaskAccessContext(
+                origin = ScheduledTaskAccessOrigin.APP_UI_MAIN,
+                sessionId = "probe-main",
+                userId = "probe-owner",
+                sessionScope = ToolScope.MAIN_SESSION,
+                installationIdentity = installed.installationIdentity,
+            )
+            withTimeout(5_000) {
+                runtime.withActivePluginHandle(pluginId, access.installationIdentity, ScheduledTasksUiHandle::class.java) {
+                    val initial = it.observeMainUiState(access).first() as ScheduledTaskUiStateResult.Visible
+                    assertFalse(initial.state.guideSkipped)
+                    val skipped = it.skipFirstTaskGuide(access) as ScheduledTaskUiStateResult.Visible
+                    assertTrue(skipped.state.guideSkipped)
+                } ?: error("Signed DEX did not expose the optional UI capability")
+
+                runtime.disable(pluginId)
+                val reenabled = runtime.enable(pluginId, expectation)
+                val reactivatedAccess = access.copy(installationIdentity = reenabled.installationIdentity)
+                runtime.withActivePluginHandle(pluginId, reenabled.installationIdentity, ScheduledTasksUiHandle::class.java) {
+                    val current = it.observeMainUiState(reactivatedAccess).first() as ScheduledTaskUiStateResult.Visible
+                    assertTrue(current.state.guideSkipped)
+                } ?: error("Reactivated DEX did not expose the UI capability")
+            }
+        } finally {
+            runCatching { runtime.uninstall(pluginId, deleteData = true) }
+            isolatedFiles.deleteRecursively()
+        }
+    }
+
     @Test
     fun workerWakeWaitsForRepositoryRecovery() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
