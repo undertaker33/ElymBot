@@ -220,14 +220,18 @@ class ContextCompiler(
             for (record in page.records.asReversed()) {
                 if (record.turnSequence >= request.historyUpperBoundExclusive) continue
                 if (record.truncated) {
-                    incompleteSequences += record.turnSequence
+                    if (record.status == HistoryMessageStatus.COMPLETE) {
+                        incompleteSequences += record.turnSequence
+                    }
                     continue
                 }
                 if (record.messageId in found) continue
                 val cost = tokenCounter.estimate(listOf(record.toModelMessage()), emptyList())
                 val remaining = budget.maxHistoryTokensToRead - tokens
                 if (cost > remaining) {
-                    incompleteSequences += record.turnSequence
+                    if (record.status == HistoryMessageStatus.COMPLETE) {
+                        incompleteSequences += record.turnSequence
+                    }
                     tokens = budget.maxHistoryTokensToRead
                     stoppedAtRecordBoundary = true
                     break
@@ -250,15 +254,15 @@ class ContextCompiler(
         return found.values
             .groupBy { it.turnSequence }
             .mapNotNull { (sequence, records) ->
-                val ordered = records.sortedBy { it.messageIndex }
-                if (sequence in incompleteSequences || ordered.isEmpty() || ordered.any {
-                        it.status != HistoryMessageStatus.COMPLETE || it.truncated
-                    }
-                ) return@mapNotNull null
-                if (ordered.none { it.role == HistoryRole.USER } || ordered.none { it.role == HistoryRole.ASSISTANT }) {
-                    return@mapNotNull null
-                }
-                HistoryTurn(sequence, ordered)
+                if (sequence in incompleteSequences) return@mapNotNull null
+                val complete = records.filter {
+                    it.status == HistoryMessageStatus.COMPLETE && !it.truncated
+                }.sortedBy { it.messageIndex }
+                if (complete.none { it.role == HistoryRole.USER }) return@mapNotNull null
+                val hasAssistantReply = complete.any { it.role == HistoryRole.ASSISTANT }
+                val explicitlySilent = complete.any { it.role == HistoryRole.USER && it.successfulSilence }
+                if (!hasAssistantReply && !explicitlySilent) return@mapNotNull null
+                HistoryTurn(sequence, complete)
             }
             .sortedBy { it.sequence }
     }

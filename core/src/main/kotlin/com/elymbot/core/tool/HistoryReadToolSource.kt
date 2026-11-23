@@ -108,6 +108,7 @@ class HistoryReadToolSource(
                 put("status", record.status.name)
                 put("text", record.text)
                 put("truncated", record.truncated)
+                put("successfulSilence", record.successfulSilence)
             }
         })
         val continuation: JsonElement = page.continuation?.let { cursor ->

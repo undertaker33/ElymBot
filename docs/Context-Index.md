@@ -15,3 +15,4 @@
 | 编号 | 工作包 | 状态 | 更新日期与验收证据 |
 | --- | --- | --- | --- |
 | T01 | [Core 和基础 App 重构](work/T01-Core和基础app重构/T01-Core和基础app重构-spec.md) | `implemented_unarchived` | 2026-11-22 实体设备验收通过。T01.07、T01.08 的验收条目据此关闭；剩余补充核验未执行且按原证据等级保留，详见 W01/W04/W05 Feedback。见 [Checklist](work/T01-Core和基础app重构/T01-Core和基础app重构-checklist.md) 和 [T01 交付回顾](work/T01-Core和基础app重构/feedback/W01-总控与集成-feedback.md#2026-11-22-用户验收与包级关闭)。插件包下载、安装和加载仍是已登记的后续能力欠账，见 [能力欠账](OutstandingDebtList.md)。 |
+| T02 | [ToolSystem 与节奏感 Reply、插件与平台接入、FAQ](work/T02-ToolSystem与节奏感reply+插件与平台接入+FAQ/T02-ToolSystem与节奏感reply+插件与平台接入+FAQ-spec.md) | `not_implemented` | 2026-11-22 任务书已确认，拆为 12 项任务。[Tasks](work/T02-ToolSystem与节奏感reply+插件与平台接入+FAQ/T02-ToolSystem与节奏感reply+插件与平台接入+FAQ-tasks.md) · [Checklist](work/T02-ToolSystem与节奏感reply+插件与平台接入+FAQ/T02-ToolSystem与节奏感reply+插件与平台接入+FAQ-checklist.md) |

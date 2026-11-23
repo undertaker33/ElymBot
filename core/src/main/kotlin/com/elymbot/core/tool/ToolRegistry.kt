@@ -1,9 +1,17 @@
 package com.elymbot.core.tool
 
 import com.elymbot.core.contract.ModelToolCall
+import com.elymbot.core.contract.BuiltInOnlyToolAccessPolicy
+import com.elymbot.core.contract.ToolAccessContext
+import com.elymbot.core.contract.ToolAccessDecision
+import com.elymbot.core.contract.ToolAccessDenial
+import com.elymbot.core.contract.ToolAccessPolicy
 import com.elymbot.core.contract.ToolDefinition
 import com.elymbot.core.contract.ToolExecutionContext
 import com.elymbot.core.contract.ToolExecutionResult
+import com.elymbot.core.contract.ToolInstallationIdentity
+import com.elymbot.core.contract.ToolRegistration
+import com.elymbot.core.contract.ToolRegistrationOwner
 import com.elymbot.core.contract.ToolResultStatus
 import com.elymbot.core.contract.ToolScope
 import com.elymbot.core.contract.ToolSource
@@ -27,28 +35,38 @@ class ToolRegistry(
     sources: List<ToolSource>,
     private val executionTimeoutMillis: Long = DEFAULT_TOOL_TIMEOUT_MILLIS,
     private val maxResultCharacters: Int = DEFAULT_MAX_RESULT_CHARACTERS,
+    registrations: List<ToolRegistration> = emptyList(),
+    private val accessPolicy: ToolAccessPolicy = BuiltInOnlyToolAccessPolicy,
 ) {
-    private val sourcesByName: Map<String, ToolSource>
+    private val registrationsByName: Map<String, ToolRegistration>
 
     init {
         require(executionTimeoutMillis > 0)
         require(maxResultCharacters > 0)
-        val duplicateIds = sources.groupBy { it.definition.id }.filterValues { it.size > 1 }.keys
+        val allRegistrations = sources.map { ToolRegistration(it) } + registrations
+        val duplicateIds = allRegistrations.groupBy { it.source.definition.id }.filterValues { it.size > 1 }.keys
         require(duplicateIds.isEmpty()) { "Tool source IDs must be unique." }
-        val duplicateNames = sources.groupBy { it.definition.name }.filterValues { it.size > 1 }.keys
+        val duplicateNames = allRegistrations.groupBy { it.source.definition.name }.filterValues { it.size > 1 }.keys
         require(duplicateNames.isEmpty()) { "Tool names must be unique." }
-        require(sources.all { it.definition.id.isNotBlank() && it.definition.name.isNotBlank() }) {
+        require(allRegistrations.all { it.source.definition.id.isNotBlank() && it.source.definition.name.isNotBlank() }) {
             "Tool source IDs and names must not be blank."
         }
-        require(sources.all { definition -> parseSchema(definition.definition.parametersJsonSchema) != null }) {
+        require(allRegistrations.all { registration -> parseSchema(registration.source.definition.parametersJsonSchema) != null }) {
             "Tool parameter schemas must be JSON objects."
         }
-        sourcesByName = sources.associateBy { it.definition.name }
+        registrationsByName = allRegistrations.associateBy { it.source.definition.name }
     }
 
-    fun definitionsFor(scope: ToolScope): List<ToolDefinition> = sourcesByName.values
-        .map { it.definition }
-        .filter { scope in it.scopes }
+    /** Scope-only compatibility path; callers with request metadata should use the context overload. */
+    fun definitionsFor(scope: ToolScope): List<ToolDefinition> = definitionsFor(ToolAccessContext(scope))
+
+    /** Full request context is required when advertising route- or instance-bound plugin tools. */
+    fun definitionsFor(context: ToolAccessContext): List<ToolDefinition> = registrationsByName.values
+        .filter { registration ->
+            context.scope in registration.source.definition.scopes &&
+                canAdvertise(registration, context.withInstallation(registration.installationIdentity()))
+        }
+        .map { it.source.definition }
 
     suspend fun execute(
         call: ModelToolCall,
@@ -56,18 +74,23 @@ class ToolRegistry(
         onExecutionState: suspend (Boolean) -> Unit = {},
     ): ToolExecutionResult {
         if (call.callId.isBlank()) return rejected(call.callId, "Missing tool call ID.")
-        val source = sourcesByName[call.name] ?: return rejected(call.callId, "Unknown tool.")
-        if (context.scope !in source.definition.scopes) return rejected(call.callId, "Tool is not available in this session.")
-        val validationError = validateArguments(source.definition, call.argumentsJson)
+        val registration = registrationsByName[call.name] ?: return rejected(call.callId, "Unknown tool.")
+        val definition = registration.source.definition
+        if (context.scope !in definition.scopes) return rejected(call.callId, "Tool is not available in this session.")
+        val validationError = validateArguments(definition, call.argumentsJson)
         if (validationError != null) return rejected(call.callId, validationError)
 
+        val registeredContext = context.copy(installationIdentity = registration.installationIdentity())
         val callerJob = currentCoroutineContext()[Job]
         var started = false
         return try {
             onExecutionState(true)
             started = true
             val result = withTimeout(executionTimeoutMillis) {
-                source.execute(call, context) { _ -> }
+                when (authorize(registration, registeredContext)) {
+                    ToolAccessDecision.Allowed -> registration.source.execute(call, registeredContext) { _ -> }
+                    is ToolAccessDecision.Rejected -> rejected(call.callId, "Tool access is not available.")
+                }
             }
             ToolExecutionResult(
                 callId = call.callId,
@@ -167,6 +190,46 @@ class ToolRegistry(
 
     private fun parseSchema(raw: String): JsonObject? =
         runCatching { Json.parseToJsonElement(raw) as? JsonObject }.getOrNull()
+
+    private fun canAdvertise(registration: ToolRegistration, context: ToolAccessContext): Boolean = try {
+        accessPolicy.canAdvertise(registration.source.definition, registration.owner, context)
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (_: Exception) {
+        false
+    }
+
+    private suspend fun authorize(
+        registration: ToolRegistration,
+        context: ToolExecutionContext,
+    ): ToolAccessDecision = try {
+        accessPolicy.authorize(
+            registration.source.definition,
+            registration.owner,
+            context.toAccessContext(),
+        )
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (_: Exception) {
+        ToolAccessDecision.Rejected(ToolAccessDenial.HOST_AUTHORITY_REQUIRED)
+    }
+
+    private fun ToolRegistration.installationIdentity(): ToolInstallationIdentity? =
+        (owner as? ToolRegistrationOwner.Plugin)?.installation
+
+    private fun ToolAccessContext.withInstallation(identity: ToolInstallationIdentity?): ToolAccessContext =
+        copy(installationIdentity = identity)
+
+    private fun ToolExecutionContext.toAccessContext(): ToolAccessContext = ToolAccessContext(
+        scope = scope,
+        sessionId = sessionId,
+        executionId = executionId,
+        attemptId = attemptId,
+        turnSequence = turnSequence,
+        historyUpperBoundExclusive = historyUpperBoundExclusive,
+        inputMessage = inputMessage,
+        installationIdentity = installationIdentity,
+    )
 
     private fun bounded(value: String, limit: Int): String =
         if (value.length <= limit) value else value.take(limit) + "…[truncated]"

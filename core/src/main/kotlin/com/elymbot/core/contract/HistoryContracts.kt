@@ -49,6 +49,8 @@ data class HistoryRecord(
     val text: String,
     val status: HistoryMessageStatus,
     val truncated: Boolean = false,
+    /** Host supplied marker for a successfully completed silent turn's user input. */
+    val successfulSilence: Boolean = false,
 )
 
 data class HistoryReadPage(

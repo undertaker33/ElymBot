@@ -6,6 +6,7 @@ import com.elymbot.core.context.ConservativeContextTokenCounter
 import com.elymbot.core.context.DefaultModelContextBudgetProvider
 import com.elymbot.core.contract.AgentEvent
 import com.elymbot.core.contract.AgentFailureKind
+import com.elymbot.core.contract.AgentMessage
 import com.elymbot.core.contract.AgentRequest
 import com.elymbot.core.contract.AgentTerminalStatus
 import com.elymbot.core.contract.CapabilityStatus
@@ -29,12 +30,20 @@ import com.elymbot.core.contract.ModelRole
 import com.elymbot.core.contract.ModelSelection
 import com.elymbot.core.contract.ModelStreamEvent
 import com.elymbot.core.contract.ModelToolCall
+import com.elymbot.core.contract.MessageRoute
 import com.elymbot.core.contract.PersonaPrompt
 import com.elymbot.core.contract.SummaryCommitResult
+import com.elymbot.core.contract.ToolAccessContext
+import com.elymbot.core.contract.ToolAccessDecision
+import com.elymbot.core.contract.ToolAccessDenial
+import com.elymbot.core.contract.ToolAccessPolicy
 import com.elymbot.core.contract.ToolDefinition
 import com.elymbot.core.contract.ToolExecutionContext
 import com.elymbot.core.contract.ToolExecutionResult
+import com.elymbot.core.contract.ToolInstallationIdentity
 import com.elymbot.core.contract.ToolProgress
+import com.elymbot.core.contract.ToolRegistration
+import com.elymbot.core.contract.ToolRegistrationOwner
 import com.elymbot.core.contract.ToolResultStatus
 import com.elymbot.core.contract.ToolScope
 import com.elymbot.core.contract.ToolSource
@@ -79,6 +88,8 @@ class ReActAgentRuntimeTest {
 
         assertEquals(listOf("alpha", "beta"), order)
         assertEquals(2, gateway.requests.size)
+        assertTrue(gateway.requests.first().useNativeStreaming)
+        assertFalse(gateway.requests.first().tools.any { it.name == "reply" })
         val resultMessages = gateway.requests[1].messages.filter { it.role == ModelRole.TOOL }
         assertEquals(listOf("id-a", "id-b"), resultMessages.map { it.toolCallId })
         assertEquals(listOf("result:alpha", "result:beta"), resultMessages.map { (it.content.single() as ModelContentPart.Text).value })
@@ -89,6 +100,7 @@ class ReActAgentRuntimeTest {
         assertTrue(events.none { it is AgentEvent.AssistantFeedback && it.text.startsWith("Started ") })
         assertTrue(events.any { it is AgentEvent.TextDelta && it.text == "Answer." })
         assertEquals(AgentTerminalStatus.COMPLETED, (events.last() as AgentEvent.Finished).status)
+        assertFalse((events.last() as AgentEvent.Finished).successfulSilence)
         assertTrue(events.all { it.executionId == "execution-1" && it.attemptId == "attempt-1" })
     }
 
@@ -114,6 +126,164 @@ class ReActAgentRuntimeTest {
         assertEquals("id-x", result.toolCallId)
         assertEquals("operation not permitted", (result.content.single() as ModelContentPart.Text).value)
         assertTrue(events.any { it is AgentEvent.AssistantFeedback && it.text.contains("denied: operation not permitted") })
+        assertEquals(AgentTerminalStatus.COMPLETED, (events.last() as AgentEvent.Finished).status)
+    }
+
+    @Test
+    fun duplicateToolCallIdsFailBeforeAnySourceExecutes() = runTest {
+        val gateway = FakeGateway { _, _ ->
+            flow {
+                emit(
+                    ModelStreamEvent.Completed(
+                        ModelFinishReason.TOOL_CALLS,
+                        listOf(
+                            ModelToolCall("duplicate-id", "alpha", "{}"),
+                            ModelToolCall("duplicate-id", "alpha", "{}"),
+                        ),
+                    ),
+                )
+            }
+        }
+        val executed = mutableListOf<String>()
+
+        val events = runtime(gateway)
+            .run(request(toolSources = listOf(RecordingTool("alpha", executed))))
+            .toList()
+        val finished = events.last() as AgentEvent.Finished
+
+        assertTrue(executed.isEmpty())
+        assertEquals(AgentTerminalStatus.FAILED, finished.status)
+        assertEquals(AgentFailureKind.PROTOCOL, finished.failure?.kind)
+    }
+
+    @Test
+    fun repeatedProviderCallIdsAcrossStepsGetDistinctHostOrdinals() = runTest {
+        val gateway = FakeGateway { call, _ ->
+            when (call) {
+                1 -> flow {
+                    emit(
+                        ModelStreamEvent.Completed(
+                            ModelFinishReason.TOOL_CALLS,
+                            listOf(
+                                ModelToolCall("reused-id", "alpha", "{}"),
+                                ModelToolCall("other-id", "alpha", "{}"),
+                            ),
+                        ),
+                    )
+                }
+
+                2 -> flow {
+                    emit(
+                        ModelStreamEvent.Completed(
+                            ModelFinishReason.TOOL_CALLS,
+                            listOf(ModelToolCall("reused-id", "alpha", "{}")),
+                        ),
+                    )
+                }
+
+                else -> flow { emit(ModelStreamEvent.Completed(ModelFinishReason.STOP)) }
+            }
+        }
+        val order = mutableListOf<String>()
+        val contexts = mutableListOf<ToolExecutionContext>()
+
+        val events = runtime(gateway)
+            .run(request(toolSources = listOf(RecordingTool("alpha", order, contexts = contexts))))
+            .toList()
+
+        assertEquals(listOf("alpha", "alpha", "alpha"), order)
+        assertEquals(listOf(0 to 0, 0 to 1, 1 to 0), contexts.map { it.toolStepOrdinal to it.toolCallOrdinal })
+        assertEquals(AgentTerminalStatus.COMPLETED, (events.last() as AgentEvent.Finished).status)
+    }
+
+    @Test
+    fun runtimeAdvertisesAndRechecksHostRegisteredPluginWithNormalizedInput() = runTest {
+        val installation = ToolInstallationIdentity("qq-plugin", "instance-8")
+        val inputMessage = AgentMessage(
+            messageId = "qq-message-18",
+            origin = MessageRoute("qq", "private-chat-1", accountId = "bot-1", actorId = "user-2"),
+            target = MessageRoute("qq", "private-chat-1", accountId = "bot-1"),
+            segments = listOf(com.elymbot.core.contract.AgentMessageSegment.Text("question")),
+        )
+        var active = true
+        var executions = 0
+        val advertised = mutableListOf<ToolAccessContext>()
+        val authorized = mutableListOf<ToolAccessContext>()
+        val source = object : ToolSource {
+            override val definition = agentTestTool("plugin-query")
+
+            override suspend fun execute(
+                call: ModelToolCall,
+                context: ToolExecutionContext,
+                onProgress: suspend (ToolProgress) -> Unit,
+            ): ToolExecutionResult {
+                executions += 1
+                return ToolExecutionResult(call.callId, ToolResultStatus.SUCCESS, "unexpected")
+            }
+        }
+        val policy = object : ToolAccessPolicy {
+            override fun canAdvertise(
+                definition: ToolDefinition,
+                owner: ToolRegistrationOwner,
+                context: ToolAccessContext,
+            ): Boolean {
+                advertised += context
+                if (owner == ToolRegistrationOwner.Host) return true
+                return active && owner == ToolRegistrationOwner.Plugin(installation) &&
+                    context.installationIdentity == installation && context.scope == ToolScope.MAIN_SESSION &&
+                    context.inputMessage == inputMessage
+            }
+
+            override suspend fun authorize(
+                definition: ToolDefinition,
+                owner: ToolRegistrationOwner,
+                context: ToolAccessContext,
+            ): ToolAccessDecision {
+                authorized += context
+                if (owner == ToolRegistrationOwner.Host) return ToolAccessDecision.Allowed
+                return if (
+                    active && owner == ToolRegistrationOwner.Plugin(installation) &&
+                    context.installationIdentity == installation && context.scope == ToolScope.MAIN_SESSION &&
+                    context.inputMessage == inputMessage
+                ) {
+                    ToolAccessDecision.Allowed
+                } else {
+                    ToolAccessDecision.Rejected(ToolAccessDenial.INSTALLATION_INACTIVE)
+                }
+            }
+        }
+        val gateway = FakeGateway { call, _ ->
+            if (call == 1) flow {
+                active = false
+                emit(ModelStreamEvent.Completed(
+                    ModelFinishReason.TOOL_CALLS,
+                    listOf(ModelToolCall("provider-id", "plugin-query", "{}")),
+                ))
+            } else flow {
+                emit(ModelStreamEvent.Completed(ModelFinishReason.STOP))
+            }
+        }
+        val request = request().copy(
+            toolScope = ToolScope.MAIN_SESSION,
+            inputMessage = inputMessage,
+            toolRegistrations = listOf(
+                ToolRegistration(source, ToolRegistrationOwner.Plugin(installation)),
+            ),
+            toolAccessPolicy = policy,
+        )
+
+        val events = runtime(gateway).run(request).toList()
+        val pluginAdvertisement = advertised.single { it.installationIdentity == installation }
+        val pluginAuthorization = authorized.single { it.installationIdentity == installation }
+
+        assertTrue(gateway.requests.first().tools.any { it.name == "plugin-query" })
+        assertTrue(gateway.requests.first().tools.any { it.name == "HistoryRead" })
+        assertEquals(inputMessage, pluginAdvertisement.inputMessage)
+        assertEquals("execution-1", pluginAdvertisement.executionId)
+        assertEquals(installation, pluginAdvertisement.installationIdentity)
+        assertEquals(inputMessage, pluginAuthorization.inputMessage)
+        assertEquals("execution-1", pluginAuthorization.executionId)
+        assertEquals(0, executions)
         assertEquals(AgentTerminalStatus.COMPLETED, (events.last() as AgentEvent.Finished).status)
     }
 
@@ -198,12 +368,17 @@ class ReActAgentRuntimeTest {
                     RecordingTool("alpha", toolOrder, "result:alpha " + "x".repeat(2_000)),
                     RecordingTool("beta", toolOrder),
                 ),
+            ).copy(
+                replySubmitter = com.elymbot.core.contract.ReplySubmitter {
+                    com.elymbot.core.contract.ReplySubmissionResult.Accepted(emptyList())
+                },
             ),
         ).toList()
 
         assertEquals(listOf("alpha", "beta"), toolOrder)
         assertEquals(4, normalRequests.size)
         assertEquals(1, summaryRequests.size)
+        assertTrue(normalRequests.all { !it.useNativeStreaming })
         val rejectedRequest = normalRequests[2]
         val retryRequest = normalRequests[3]
         val localEstimate = ConservativeContextTokenCounter().estimate(rejectedRequest.messages, rejectedRequest.tools)
@@ -316,6 +491,33 @@ class ReActAgentRuntimeTest {
     }
 
     @Test
+    fun replyModeKeepsSupportedPrimaryVisionInputOnNonStreamingRequest() = runTest {
+        val gateway = FakeGateway { _, _ ->
+            flow { emit(ModelStreamEvent.Completed(ModelFinishReason.STOP)) }
+        }
+        val input = request().copy(
+            primaryModel = selection("model-1", CapabilityStatus.SUPPORTED),
+            currentInput = ModelMessage(
+                ModelRole.USER,
+                listOf(
+                    ModelContentPart.Text("Describe this image."),
+                    ModelContentPart.Image(byteArrayOf(1, 2, 3), "image/png"),
+                ),
+            ),
+            replySubmitter = com.elymbot.core.contract.ReplySubmitter {
+                com.elymbot.core.contract.ReplySubmissionResult.Accepted(listOf("queued"))
+            },
+        )
+
+        val events = runtime(gateway).run(input).toList()
+
+        assertEquals(1, gateway.requests.size)
+        assertFalse(gateway.requests.single().useNativeStreaming)
+        assertTrue(gateway.requests.single().messages.flatMap { it.content }.any { it is ModelContentPart.Image })
+        assertTrue((events.last() as AgentEvent.Finished).successfulSilence)
+    }
+
+    @Test
     fun unknownPrimaryVisionCapabilityStopsBeforeCallingModel() = runTest {
         val gateway = FakeGateway { _, _ -> flow { emit(ModelStreamEvent.Completed(ModelFinishReason.STOP)) } }
         val input = request().copy(
@@ -412,6 +614,7 @@ class ReActAgentRuntimeTest {
         name: String,
         private val order: MutableList<String>,
         private val result: String = "result:$name",
+        private val contexts: MutableList<ToolExecutionContext>? = null,
     ) : ToolSource {
         override val definition = agentTestTool(name)
 
@@ -421,6 +624,7 @@ class ReActAgentRuntimeTest {
             onProgress: suspend (ToolProgress) -> Unit,
         ): ToolExecutionResult {
             order += call.name
+            contexts?.add(context)
             onProgress(ToolProgress("Started ${call.name}"))
             return ToolExecutionResult(call.callId, ToolResultStatus.SUCCESS, result)
         }

@@ -22,12 +22,15 @@ import com.elymbot.core.contract.ModelSelection
 import com.elymbot.core.contract.ModelStreamEvent
 import com.elymbot.core.contract.ModelToolCall
 import com.elymbot.core.contract.ModelToolDefinition
+import com.elymbot.core.contract.ToolAccessContext
 import com.elymbot.core.contract.ToolExecutionContext
 import com.elymbot.core.contract.ToolExecutionResult
+import com.elymbot.core.contract.ToolRegistration
 import com.elymbot.core.contract.ToolResultStatus
 import com.elymbot.core.contract.ToolScope
 import com.elymbot.core.contract.ModelContentPart.Text
 import com.elymbot.core.tool.HistoryReadToolSource
+import com.elymbot.core.tool.ReplyToolSource
 import com.elymbot.core.tool.ToolRegistry
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -57,10 +60,10 @@ class ReActAgentRuntime(
     override fun run(request: AgentRequest): Flow<AgentEvent> = flow {
         val ownerJob = currentCoroutineContext()[Job]
         try {
-            withTimeout(turnTimeoutMillis) {
+            val successfullySilent = withTimeout(turnTimeoutMillis) {
                 runTurn(request) { event -> emit(event) }
             }
-            emit(finished(request, AgentTerminalStatus.COMPLETED))
+            emit(finished(request, AgentTerminalStatus.COMPLETED, successfulSilence = successfullySilent))
         } catch (timeout: TimeoutCancellationException) {
             if (ownerJob?.isActive == false) throw timeout
             emit(
@@ -96,11 +99,24 @@ class ReActAgentRuntime(
     private suspend fun runTurn(
         originalRequest: AgentRequest,
         emitEvent: suspend (AgentEvent) -> Unit,
-    ) {
+    ): Boolean {
         val request = prepareVision(originalRequest)
-        val sources = request.toolSources + HistoryReadToolSource(historyReader)
+        val replyEnabled = request.replySubmitter != null
+        if (replyEnabled && request.primaryModel.capabilities.structuredToolCalls != CapabilityStatus.SUPPORTED) {
+            throw protocolFailure()
+        }
+        val registrations = buildList {
+            addAll(request.toolRegistrations)
+            request.replySubmitter?.let { add(ToolRegistration(ReplyToolSource(it))) }
+            add(ToolRegistration(HistoryReadToolSource(historyReader)))
+        }
         val registry = try {
-            ToolRegistry(sources, executionTimeoutMillis = toolTimeoutMillis)
+            ToolRegistry(
+                sources = request.toolSources,
+                executionTimeoutMillis = toolTimeoutMillis,
+                registrations = registrations,
+                accessPolicy = request.toolAccessPolicy,
+            )
         } catch (_: IllegalArgumentException) {
             throw AgentRunFailure(
                 AgentTerminalStatus.FAILED,
@@ -108,7 +124,17 @@ class ReActAgentRuntime(
             )
         }
         val tools = if (request.primaryModel.capabilities.structuredToolCalls == CapabilityStatus.SUPPORTED) {
-            registry.definitionsFor(request.toolScope).map { definition ->
+            registry.definitionsFor(
+                ToolAccessContext(
+                    scope = request.toolScope,
+                    sessionId = request.sessionId,
+                    executionId = request.executionId,
+                    attemptId = request.attemptId,
+                    turnSequence = request.turnSequence,
+                    historyUpperBoundExclusive = request.historyUpperBoundExclusive,
+                    inputMessage = request.inputMessage,
+                ),
+            ).map { definition ->
                 ModelToolDefinition(definition.name, definition.description, definition.parametersJsonSchema)
             }
         } else {
@@ -118,6 +144,9 @@ class ReActAgentRuntime(
         var toolBatchSummary: String? = null
         var modelCalls = 0
         var toolCalls = 0
+        var toolStepOrdinal = 0
+        var replyToolAttempted = false
+        var acceptedReplies = 0
         var contextRecoveryUsed = false
 
         while (true) {
@@ -205,7 +234,13 @@ class ReActAgentRuntime(
             when (modelAttempt.finishReason) {
                 ModelFinishReason.STOP -> {
                     if (modelAttempt.toolCalls.isNotEmpty()) throw protocolFailure()
-                    return
+                    if (!replyEnabled) return false
+                    if (modelAttempt.text.isNotBlank() && acceptedReplies == 0) throw protocolFailure()
+                    if (modelAttempt.text.isBlank() && acceptedReplies == 0) {
+                        if (replyToolAttempted) throw protocolFailure()
+                        return true
+                    }
+                    return false
                 }
 
                 ModelFinishReason.OUTPUT_LIMIT -> {
@@ -230,7 +265,10 @@ class ReActAgentRuntime(
                     )
                     val batchMessages = mutableListOf(assistantMessage)
                     var exceededToolLimit = false
-                    for (call in modelAttempt.toolCalls) {
+                    val currentToolStepOrdinal = toolStepOrdinal++
+                    for ((toolCallOrdinal, call) in modelAttempt.toolCalls.withIndex()) {
+                        val isReplyCall = replyEnabled && call.name == ReplyToolSource.TOOL_NAME
+                        if (isReplyCall) replyToolAttempted = true
                         val result = if (toolCalls >= maxToolCalls) {
                             exceededToolLimit = true
                             ToolExecutionResult(call.callId, ToolResultStatus.REJECTED, "Tool execution limit reached.")
@@ -244,13 +282,18 @@ class ReActAgentRuntime(
                                     attemptId = request.attemptId,
                                     historyUpperBoundExclusive = request.historyUpperBoundExclusive,
                                     scope = request.toolScope,
+                                    executionId = request.executionId,
+                                    inputMessage = request.inputMessage,
+                                    toolStepOrdinal = currentToolStepOrdinal,
+                                    toolCallOrdinal = toolCallOrdinal,
                                 ),
                                 onExecutionState = { active ->
                                     emitEvent(AgentEvent.ToolProgress(request.executionId, request.attemptId, active))
                                 },
                             )
                         }
-                        if (result.status != ToolResultStatus.SUCCESS) {
+                        if (isReplyCall && result.status == ToolResultStatus.SUCCESS) acceptedReplies += 1
+                        if (!replyEnabled && result.status != ToolResultStatus.SUCCESS) {
                             val failureText = "${call.name}: ${result.content}"
                             emitEvent(
                                 AgentEvent.AssistantFeedback(
@@ -292,13 +335,16 @@ class ReActAgentRuntime(
                     model = request.primaryModel.reference,
                     messages = compiled.messages,
                     tools = compiled.toolDefinitions,
-                    useNativeStreaming = request.primaryModel.capabilities.nativeStreaming == CapabilityStatus.SUPPORTED,
+                    useNativeStreaming = request.replySubmitter == null &&
+                        request.primaryModel.capabilities.nativeStreaming == CapabilityStatus.SUPPORTED,
                 ),
             ).collect { event ->
                 when (event) {
                     is ModelStreamEvent.TextDelta -> {
                         output.append(event.text)
-                        emitEvent(AgentEvent.TextDelta(request.executionId, request.attemptId, event.text))
+                        if (request.replySubmitter == null) {
+                            emitEvent(AgentEvent.TextDelta(request.executionId, request.attemptId, event.text))
+                        }
                     }
 
                     is ModelStreamEvent.Completed -> {
@@ -458,7 +504,8 @@ class ReActAgentRuntime(
         request: AgentRequest,
         status: AgentTerminalStatus,
         failure: AgentFailure? = null,
-    ) = AgentEvent.Finished(request.executionId, request.attemptId, status, failure)
+        successfulSilence: Boolean = false,
+    ) = AgentEvent.Finished(request.executionId, request.attemptId, status, failure, successfulSilence)
 
     private data class ModelAttempt(
         val finishReason: ModelFinishReason,

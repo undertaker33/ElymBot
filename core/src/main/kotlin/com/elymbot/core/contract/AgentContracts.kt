@@ -26,6 +26,14 @@ data class AgentRequest(
     val currentInput: ModelMessage,
     val toolScope: ToolScope,
     val toolSources: List<ToolSource> = emptyList(),
+    /** Host-normalized routing and media metadata; null for legacy T01 callers. */
+    val inputMessage: AgentMessage? = null,
+    /** Host-attested registrations supplied by the verified plugin loader. */
+    val toolRegistrations: List<ToolRegistration> = emptyList(),
+    /** Gate shared by tool advertisement and execution-time authorization. */
+    val toolAccessPolicy: ToolAccessPolicy = BuiltInOnlyToolAccessPolicy,
+    /** App-owned durable queue boundary; absent until Reply is wired by the host. */
+    val replySubmitter: ReplySubmitter? = null,
 )
 
 enum class AgentTerminalStatus {
@@ -87,6 +95,8 @@ sealed interface AgentEvent {
         override val attemptId: String,
         val status: AgentTerminalStatus,
         val failure: AgentFailure? = null,
+        /** True only when an opted-in turn completed permitted empty STOP without a Reply attempt. */
+        val successfulSilence: Boolean = false,
     ) : AgentEvent
 }
 

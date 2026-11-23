@@ -94,6 +94,35 @@ class ContextCompilerTest {
     }
 
     @Test
+    fun includesOnlyExplicitSilentInputsAndCompleteRepliesFromPartiallyFailedTurns() = kotlinx.coroutines.runBlocking {
+        val records = listOf(
+            HistoryRecord("u-silent", 1, 0, HistoryRole.USER, "successful silent input", HistoryMessageStatus.COMPLETE, successfulSilence = true),
+            HistoryRecord("u-pending", 2, 0, HistoryRole.USER, "pending input", HistoryMessageStatus.COMPLETE),
+            HistoryRecord("a-pending", 2, 1, HistoryRole.ASSISTANT, "pending draft", HistoryMessageStatus.INTERRUPTED),
+            HistoryRecord("u-replied", 3, 0, HistoryRole.USER, "replied input", HistoryMessageStatus.COMPLETE),
+            HistoryRecord("a-replied", 3, 1, HistoryRole.ASSISTANT, "durably accepted reply", HistoryMessageStatus.COMPLETE),
+            HistoryRecord("a-later-failed", 3, 2, HistoryRole.ASSISTANT, "unfinished later reply", HistoryMessageStatus.INTERRUPTED),
+            HistoryRecord("u-failed", 4, 0, HistoryRole.USER, "failed input", HistoryMessageStatus.COMPLETE),
+            HistoryRecord("a-failed", 4, 1, HistoryRole.ASSISTANT, "failed attempt", HistoryMessageStatus.INTERRUPTED),
+        )
+
+        val compiled = compiler(FakeHistoryReader(records), FakeSummaryStore(), FakeGateway { flow { } })
+            .compile(request(), emptyList())
+        val text = compiled.messages.flatMap { it.content }
+            .filterIsInstance<ModelContentPart.Text>()
+            .joinToString("\n") { it.value }
+
+        assertTrue(text.contains("successful silent input"))
+        assertTrue(text.contains("replied input"))
+        assertTrue(text.contains("durably accepted reply"))
+        assertFalse(text.contains("pending input"))
+        assertFalse(text.contains("pending draft"))
+        assertFalse(text.contains("unfinished later reply"))
+        assertFalse(text.contains("failed input"))
+        assertFalse(text.contains("failed attempt"))
+    }
+
+    @Test
     fun excludesAnyTurnContainingATruncatedRecord() = kotlinx.coroutines.runBlocking {
         val records = completeTurns(2).map { record ->
             if (record.messageId == "u-2") record.copy(text = "partial-secret", truncated = true) else record
@@ -105,6 +134,71 @@ class ContextCompilerTest {
         assertTrue(text.contains("U-1"))
         assertFalse(text.contains("partial-secret"))
         assertFalse(text.contains("U-2"))
+    }
+
+    @Test
+    fun truncatedLaterReplyKeepsTheWholeTurnOutOfRawContext() = kotlinx.coroutines.runBlocking {
+        val records = listOf(
+            HistoryRecord("u-2", 2, 0, HistoryRole.USER, "U-2", HistoryMessageStatus.COMPLETE),
+            HistoryRecord("a-2-1", 2, 1, HistoryRole.ASSISTANT, "accepted reply one", HistoryMessageStatus.COMPLETE),
+            HistoryRecord("a-2-2", 2, 2, HistoryRole.ASSISTANT, "truncated accepted reply two", HistoryMessageStatus.COMPLETE, truncated = true),
+            HistoryRecord("u-3", 3, 0, HistoryRole.USER, "U-3", HistoryMessageStatus.COMPLETE),
+            HistoryRecord("a-3", 3, 1, HistoryRole.ASSISTANT, "A-3", HistoryMessageStatus.COMPLETE),
+        )
+        val compiled = compiler(FakeHistoryReader(records), FakeSummaryStore(), FakeGateway { flow { } })
+            .compile(request(), emptyList())
+        val text = compiled.messages.flatMap { it.content }
+            .filterIsInstance<ModelContentPart.Text>()
+            .joinToString("\n") { it.value }
+
+        assertFalse(text.contains("U-2"))
+        assertFalse(text.contains("accepted reply one"))
+        assertFalse(text.contains("truncated accepted reply two"))
+        assertTrue(text.contains("U-3"))
+        assertTrue(text.contains("A-3"))
+    }
+
+    @Test
+    fun truncatedLaterReplyCannotBeLostBySummarizingItsTurn() = kotlinx.coroutines.runBlocking {
+        val records = completeTurns(3) + HistoryRecord(
+            "a-2-later",
+            2,
+            2,
+            HistoryRole.ASSISTANT,
+            "truncated accepted reply two",
+            HistoryMessageStatus.COMPLETE,
+            truncated = true,
+        )
+        val summaryInputs = mutableListOf<String>()
+        val gateway = FakeGateway { modelRequest ->
+            if (modelRequest.maxOutputTokens != null) {
+                summaryInputs += modelRequest.messages.flatMap { it.content }
+                    .filterIsInstance<ModelContentPart.Text>()
+                    .joinToString("\n") { it.value }
+                flow {
+                    emit(ModelStreamEvent.TextDelta("Earlier complete turn summary."))
+                    emit(ModelStreamEvent.Completed(ModelFinishReason.STOP))
+                }
+            } else {
+                flow { emit(ModelStreamEvent.Completed(ModelFinishReason.STOP)) }
+            }
+        }
+        val compiler = ContextCompiler(
+            FakeHistoryReader(records),
+            FakeSummaryStore(),
+            gateway,
+            DefaultModelContextBudgetProvider(
+                ContextBudget(recentCompleteTurnsToKeep = 1),
+            ),
+        )
+
+        compiler.compile(request(), emptyList(), forceCompaction = true)
+
+        val source = summaryInputs.single()
+        assertTrue(source.contains("Turn 1"))
+        assertFalse(source.contains("Turn 2"))
+        assertFalse(source.contains("accepted reply one"))
+        assertFalse(source.contains("truncated accepted reply two"))
     }
 
     @Test
