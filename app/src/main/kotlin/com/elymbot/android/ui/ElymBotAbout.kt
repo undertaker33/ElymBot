@@ -58,7 +58,8 @@ internal fun AboutPage(back: () -> Unit) {
             )
         }
         Column(
-            Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 18.dp)
+            Modifier.fillMaxWidth().then(LocalPageBodyMotion.current)
+                .verticalScroll(rememberScrollState()).padding(horizontal = 18.dp)
                 .padding(top = 36.dp, bottom = 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {

@@ -42,6 +42,7 @@ internal fun SessionsPage(
     var rename by remember { mutableStateOf<ConversationSummary?>(null) }
     var deletion by remember { mutableStateOf<Set<String>?>(null) }
     val create = { model.perform { open(service.newSession(persona.id), "") } }
+    val bodyMotion = LocalPageBodyMotion.current
     BackHandler(current && editing) { editing = false; selection = emptySet() }
 
     Column(Modifier.fillMaxSize()) {
@@ -79,12 +80,14 @@ internal fun SessionsPage(
             }
         }
         if (sessions.isEmpty()) {
-            EmptyMessage(stringResource(R.string.elym_no_sessions), R.drawable.elym_chat) {
-                Action(stringResource(R.string.elym_new_session), create, primary = true)
+            Box(bodyMotion) {
+                EmptyMessage(stringResource(R.string.elym_no_sessions), R.drawable.elym_chat) {
+                    Action(stringResource(R.string.elym_new_session), create, primary = true)
+                }
             }
         } else {
             LazyColumn(
-                Modifier.weight(1f).fillMaxWidth(),
+                Modifier.weight(1f).fillMaxWidth().then(bodyMotion),
                 contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 10.dp, bottom = 14.dp),
             ) {
                 itemsIndexed(sessions, key = { _, session -> session.id }) { index, session ->
@@ -121,7 +124,7 @@ internal fun SessionsPage(
                     }
                 }
             }
-            if (editing) Row(Modifier.fillMaxWidth().padding(18.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+            if (editing) Row(Modifier.fillMaxWidth().then(bodyMotion).padding(18.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
                 Text(pluralStringResource(R.plurals.elym_selected, selection.size, selection.size), color = Muted, fontSize = 13.sp)
                 Action(stringResource(R.string.elym_delete_selected), { deletion = selection }, danger = true, enabled = selection.isNotEmpty())
             }

@@ -3,14 +3,14 @@ package com.elymbot.android.ui
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.runtime.*
-import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.key
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.Dp
 import com.elymbot.android.R
 
-private enum class ConfigurationCategory(val label: Int) {
+internal enum class ConfigurationCategory(val label: Int) {
     Models(R.string.elym_config_models),
     Context(R.string.elym_config_context),
     Tools(R.string.elym_config_tools),
@@ -22,19 +22,22 @@ internal fun ConfigurationPage(
     config: ModelConfiguration,
     current: Boolean,
     footerClearance: Dp,
+    category: ConfigurationCategory,
+    onCategoryChange: (ConfigurationCategory) -> Unit,
+    onBack: (() -> Unit)? = null,
 ) {
-    var category by rememberSaveable { mutableStateOf(ConfigurationCategory.Models) }
     val modelScroll = rememberScrollState()
     PrimaryPage(
         title = R.string.elym_config,
         current = current,
         footerClearance = footerClearance,
         section = category,
+        onBack = onBack,
         canScrollBackward = { category == ConfigurationCategory.Models && modelScroll.canScrollBackward },
         isScrollInProgress = { category == ConfigurationCategory.Models && modelScroll.isScrollInProgress },
         tags = {
             ConfigurationCategory.entries.forEach { item ->
-                TagChip(stringResource(item.label), item == category) { category = item }
+                TagChip(stringResource(item.label), item == category) { onCategoryChange(item) }
             }
         },
     ) { query, clearance ->

@@ -20,6 +20,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -51,10 +54,15 @@ internal fun LocalChatReceipt(text: String) {
 }
 
 @Composable
-internal fun MessageBubble(message: ChatMessage, persona: String) {
+internal fun MessageBubble(
+    message: ChatMessage,
+    persona: String,
+    modifier: Modifier = Modifier,
+    onRetryDelivery: (String) -> Unit,
+) {
     val shape = if (message.assistant) RoundedCornerShape(6.dp, 16.dp, 16.dp, 16.dp) else RoundedCornerShape(16.dp, 6.dp, 16.dp, 16.dp)
     Column(
-        Modifier.fillMaxWidth(),
+        modifier.fillMaxWidth(),
         horizontalAlignment = if (message.assistant) Alignment.Start else Alignment.End,
     ) {
         if (message.assistant) Text(message.author ?: persona, Modifier.padding(start = 4.dp, bottom = 4.dp), color = Muted, fontSize = 11.sp)
@@ -66,7 +74,7 @@ internal fun MessageBubble(message: ChatMessage, persona: String) {
             message.image?.let { Photo(it, Modifier.widthIn(max = 210.dp).heightIn(max = 175.dp).clip(RoundedCornerShape(8.dp))) }
             if (message.text.isNotEmpty()) Text(message.text, color = Ink, fontSize = 15.sp, lineHeight = 24.sp)
             else if (message.status == MessageStatus.Waiting) {
-                WaitingDots()
+                WaitingDots(Modifier.semanticsLabel(stringResource(R.string.elym_waiting)))
             }
         }
         val status = when (message.status) {
@@ -75,14 +83,78 @@ internal fun MessageBubble(message: ChatMessage, persona: String) {
             else -> null
         }
         if (status != null) Text(stringResource(status), Modifier.padding(horizontal = 4.dp, vertical = 5.dp), color = Muted, fontSize = 11.sp)
+        message.deliveryTargets.forEach { target ->
+            if (target.channelId != null || target.status != ChatDeliveryStatus.Delivered) {
+                ReplyDeliveryStatusLine(
+                    target.channelId, target.conversationId, target.status,
+                    onRetry = if (target.status == ChatDeliveryStatus.Failed) {
+                        { onRetryDelivery(target.id) }
+                    } else null,
+                )
+            }
+        }
     }
 }
 
 @Composable
-internal fun WaitingDots() {
+internal fun ReplyDeliveryStatusLine(
+    channelId: String?,
+    conversationId: String?,
+    status: ChatDeliveryStatus,
+    modifier: Modifier = Modifier,
+    onRetry: (() -> Unit)? = null,
+) {
+    val target = when {
+        channelId == null -> stringResource(R.string.elym_reply_target_app)
+        conversationId == null -> channelId
+        else -> stringResource(R.string.elym_reply_target_conversation, channelId, conversationId)
+    }
+    val statusLabel = stringResource(when (status) {
+        ChatDeliveryStatus.Pending -> R.string.elym_reply_delivery_pending
+        ChatDeliveryStatus.Sending -> R.string.elym_reply_delivery_sending
+        ChatDeliveryStatus.Delivered -> R.string.elym_reply_delivery_delivered
+        ChatDeliveryStatus.Failed -> R.string.elym_reply_delivery_failed
+        ChatDeliveryStatus.Unknown -> R.string.elym_reply_delivery_unknown
+        ChatDeliveryStatus.Cancelled -> R.string.elym_reply_delivery_cancelled
+        ChatDeliveryStatus.Stale -> R.string.elym_reply_delivery_stale
+    })
+    Row(modifier.padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            stringResource(R.string.elym_reply_target_status, target, statusLabel),
+            Modifier.weight(1f, fill = false),
+            color = if (status == ChatDeliveryStatus.Failed) Danger else Muted,
+            fontSize = 12.sp,
+        )
+        if (onRetry != null) {
+            TextButton(
+                onClick = onRetry,
+                modifier = Modifier.semanticsLabel(stringResource(R.string.elym_reply_retry_target, target)),
+            ) { Text(stringResource(R.string.elym_retry)) }
+        }
+    }
+}
+
+@Composable
+internal fun ReplyProgress(toolProgressActive: Boolean, modifier: Modifier = Modifier) {
+    Row(
+        modifier.semantics { liveRegion = LiveRegionMode.Polite },
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(7.dp),
+    ) {
+        WaitingDots()
+        Text(
+            stringResource(if (toolProgressActive) R.string.elym_tool_progress else R.string.elym_generating),
+            color = Muted,
+            fontSize = 12.sp,
+        )
+    }
+}
+
+@Composable
+private fun WaitingDots(modifier: Modifier = Modifier) {
     val pulse = rememberInfiniteTransition(label = "Waiting dots")
     Row(
-        Modifier.semanticsLabel(stringResource(R.string.elym_waiting)),
+        modifier,
         horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         repeat(3) { index ->

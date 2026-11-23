@@ -28,6 +28,7 @@ internal fun SettingsPage(
     onAppearanceModeChange: (AppearanceMode) -> Unit,
     footerClearance: Dp,
     onAbout: () -> Unit,
+    onFaq: () -> Unit,
 ) {
     var editing by remember { mutableStateOf(false) }
     var appearanceOpen by remember { mutableStateOf(false) }
@@ -37,13 +38,16 @@ internal fun SettingsPage(
         canScrollBackward = { browseScroll.canScrollBackward },
         isScrollInProgress = { browseScroll.isScrollInProgress },
     ) { query, clearance ->
-        val entries = listOf(
-            SettingsEntry(stringResource(R.string.elym_appearance), R.drawable.elym_settings) { appearanceOpen = true },
-            SettingsEntry(stringResource(R.string.elym_command_names), R.drawable.elym_sliders) { editing = true },
-            SettingsEntry(stringResource(R.string.elym_about), R.drawable.elym_info, onAbout),
-        ).filter { query.matchesPageSearch(it.title) }
+        val groups = listOf(
+            listOf(SettingsEntry(stringResource(R.string.elym_appearance), R.drawable.elym_settings) { appearanceOpen = true }),
+            listOf(SettingsEntry(stringResource(R.string.elym_command_names), R.drawable.elym_sliders) { editing = true }),
+            listOf(
+                SettingsEntry(stringResource(R.string.elym_faq), R.drawable.elym_info, onFaq),
+                SettingsEntry(stringResource(R.string.elym_about), R.drawable.elym_info, onAbout),
+            ),
+        ).map { entries -> entries.filter { query.matchesPageSearch(it.title) } }.filter { it.isNotEmpty() }
         val scroll = if (query == null) browseScroll else key(query) { rememberScrollState() }
-        if (entries.isEmpty()) {
+        if (groups.isEmpty()) {
             Box(Modifier.padding(clearance)) {
                 EmptyMessage(stringResource(R.string.elym_no_search_results), R.drawable.elym_search)
             }
@@ -52,7 +56,7 @@ internal fun SettingsPage(
                 .padding(top = clearance.calculateTopPadding() + 7.dp, bottom = clearance.calculateBottomPadding() + 12.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            entries.forEach { SettingsGroup(it) }
+            groups.forEach { SettingsGroup(it) }
         }
     }
     if (current && appearanceOpen) {
@@ -107,7 +111,7 @@ private val AppearanceMode.label: Int
 private data class SettingsEntry(val title: String, val icon: Int, val onClick: () -> Unit)
 
 @Composable
-private fun SettingsGroup(vararg entries: SettingsEntry) {
+private fun SettingsGroup(entries: List<SettingsEntry>) {
     Group {
         entries.forEachIndexed { index, entry ->
             if (index > 0) HorizontalDivider(Modifier.padding(start = 56.dp, end = 16.dp), color = Line)

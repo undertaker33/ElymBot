@@ -37,6 +37,7 @@ internal fun GalleryPage(
     current: Boolean,
     footerClearance: Dp,
     onAdd: () -> Unit,
+    setupGuide: (@Composable () -> Unit)? = null,
     onOpen: (PersonaCard) -> Unit,
 ) {
     val allLabel = stringResource(R.string.elym_all)
@@ -82,14 +83,7 @@ internal fun GalleryPage(
                 (query.matchesPageSearch(it.name, it.description, it.prompt) ||
                     it.tags.any { value -> query.matchesPageSearch(value) })
         }
-        if (visible.isEmpty()) {
-            val clearFilter: (@Composable () -> Unit)? = if (query == null) {
-                { Action(stringResource(R.string.elym_clear_filter), { favoritesOnly = false; customTag = null }) }
-            } else null
-            Box(Modifier.padding(clearance)) {
-                EmptyMessage(stringResource(R.string.elym_no_personas), R.drawable.elym_search, clearFilter)
-            }
-        } else key(query) {
+        key(query) {
             LazyVerticalGrid(
                 columns = GridCells.Fixed(2),
                 state = if (query == null) gridState else rememberLazyGridState(),
@@ -100,6 +94,17 @@ internal fun GalleryPage(
                 horizontalArrangement = Arrangement.spacedBy(11.dp),
                 verticalArrangement = Arrangement.spacedBy(11.dp),
             ) {
+                if (query == null && setupGuide != null) {
+                    item(key = "setup-guide", span = { GridItemSpan(maxLineSpan) }) { setupGuide() }
+                }
+                if (visible.isEmpty()) {
+                    item(key = "no-personas", span = { GridItemSpan(maxLineSpan) }) {
+                        val clearFilter: (@Composable () -> Unit)? = if (query == null) {
+                            { Action(stringResource(R.string.elym_clear_filter), { favoritesOnly = false; customTag = null }) }
+                        } else null
+                        EmptyMessage(stringResource(R.string.elym_no_personas), R.drawable.elym_search, clearFilter)
+                    }
+                }
                 itemsIndexed(visible, key = { _, item -> item.id }, span = { index, _ -> GridItemSpan(if (index == 0) maxLineSpan else 1) }) { index, item ->
                     GalleryCard(item, index == 0, item.id == activeId, unread && item.id == activeId) { onOpen(item) }
                 }

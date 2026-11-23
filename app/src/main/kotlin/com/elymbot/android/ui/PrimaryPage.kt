@@ -66,6 +66,8 @@ internal object PrimaryMotion {
     val Fade = CubicBezierEasing(0.42f, 0f, 0.58f, 1f)
 }
 
+internal val LocalPageBodyMotion = compositionLocalOf<Modifier> { Modifier }
+
 private enum class PrimaryLayer { Header, Tags, Underlay, Content }
 
 private const val PagePaperGradientEnd = 600f
@@ -82,6 +84,7 @@ internal fun PrimaryPage(
     section: Any? = null,
     canScrollBackward: () -> Boolean = { false },
     isScrollInProgress: () -> Boolean = { false },
+    onBack: (() -> Unit)? = null,
     action: (@Composable () -> Unit)? = null,
     tags: (@Composable RowScope.() -> Unit)? = null,
     content: @Composable (query: String?, clearance: PaddingValues) -> Unit,
@@ -95,6 +98,7 @@ internal fun PrimaryPage(
     val keyboard = LocalSoftwareKeyboardController.current
     val focusRequester = remember { FocusRequester() }
     val tagScroll = if (tags != null) rememberScrollState() else null
+    val bodyMotion = LocalPageBodyMotion.current
     val closeSearch = {
         focusManager.clearFocus(force = true)
         keyboard?.hide()
@@ -163,6 +167,7 @@ internal fun PrimaryPage(
         val header = subcompose(PrimaryLayer.Header) {
             PrimaryPageHeader(
                 title, hint, morph, chromeAlpha, searching, draft, { draft = it }, action, focusRequester,
+                onBack = onBack,
                 onSearch = {
                     if (searchLift == 0f) searchLiftTarget = chromeAlpha
                     searching = true
@@ -173,7 +178,7 @@ internal fun PrimaryPage(
         }.single().measure(chromeConstraints)
         val tagStrip = if (tags != null && tagScroll != null) {
             subcompose(PrimaryLayer.Tags) {
-                Box(Modifier.fillMaxWidth().height(TagStripHeight)) {
+                Box(Modifier.fillMaxWidth().height(TagStripHeight).then(bodyMotion)) {
                     if (chromeAlpha > 0f) {
                         Box(Modifier.graphicsLayer { alpha = chromeAlpha; translationY = -20.dp.toPx() * morph }) {
                             TagStrip(tagScroll, tags)
@@ -214,7 +219,7 @@ internal fun PrimaryPage(
         val topClearance = header.height.toDp() + if (results == null) tagHeight - lift else tagHeight * chromeAlpha
         val bottomClearance = if (results == null) footerClearance + lift else footerClearance
         val body = subcompose(PrimaryLayer.Content) {
-            Box(Modifier.fillMaxSize().clipToBounds().nestedScroll(scroll)) {
+            Box(Modifier.fillMaxSize().clipToBounds().then(bodyMotion).nestedScroll(scroll)) {
                 content(results, PaddingValues(top = topClearance, bottom = bottomClearance))
             }
         }.single().measure(constraints)
@@ -238,6 +243,7 @@ private fun PrimaryPageHeader(
     onDraftChange: (TextFieldValue) -> Unit,
     action: (@Composable () -> Unit)?,
     focusRequester: FocusRequester,
+    onBack: (() -> Unit)?,
     onSearch: () -> Unit,
     onClose: () -> Unit,
     onKeyboardSearch: () -> Unit,
@@ -269,10 +275,11 @@ private fun PrimaryPageHeader(
                             clipRect(left = left, right = left + visibleWidth) { this@onDrawWithContent.drawContent() }
                         }
                     }
-                    .padding(start = 18.dp, end = buttonInset + compactBarWidth + 4.dp)
+                    .padding(start = if (onBack == null) 18.dp else 5.dp, end = buttonInset + compactBarWidth + 4.dp)
                     .then(if (searching) Modifier.semantics { hideFromAccessibility() } else Modifier),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                if (onBack != null) RoundAction(R.drawable.elym_back, stringResource(R.string.elym_back), onBack)
                 Text(
                     stringResource(title), Modifier.weight(1f).semantics { heading() }, color = Ink,
                     fontSize = 28.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis,

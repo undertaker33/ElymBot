@@ -79,21 +79,26 @@ internal fun ModelConfigurationContent(
     }
     editor?.takeIf { current }?.let { initial -> ModelEditor(model, initial, hasKey, { editor = null }) }
     role?.takeIf { current }?.let { selected ->
-        val choice = if (selected == ModelRole.Text) config.text else config.vision
-        var edited by remember(selected, choice) { mutableStateOf(choice) }
-        Sheet(stringResource(if (selected == ModelRole.Text) R.string.elym_text_model else R.string.elym_vision_model), { role = null }) {
-            Group {
-                ListRow(stringResource(R.string.elym_unselected), R.drawable.elym_box, { edited = null }, badge = selectedBadge(edited == null))
-                config.services.forEach { service ->
-                    (listOf(service.modelId) + service.catalog).distinct().forEach { id ->
-                        HorizontalDivider(color = Line)
-                        val item = ModelChoice(service.id, id)
-                        ListRow(id, R.drawable.elym_box, { edited = item }, subtitle = service.name, badge = selectedBadge(edited == item))
-                    }
+        ModelRolePicker(model, config, selected) { role = null }
+    }
+}
+
+@Composable
+internal fun ModelRolePicker(model: ElymBotViewModel, config: ModelConfiguration, selected: ModelRole, dismiss: () -> Unit) {
+    val choice = if (selected == ModelRole.Text) config.text else config.vision
+    var edited by remember(selected, choice) { mutableStateOf(choice) }
+    Sheet(stringResource(if (selected == ModelRole.Text) R.string.elym_text_model else R.string.elym_vision_model), dismiss) {
+        Group {
+            ListRow(stringResource(R.string.elym_unselected), R.drawable.elym_box, { edited = null }, badge = selectedBadge(edited == null))
+            config.services.forEach { service ->
+                (listOf(service.modelId) + service.catalog).distinct().forEach { id ->
+                    HorizontalDivider(color = Line)
+                    val item = ModelChoice(service.id, id)
+                    ListRow(id, R.drawable.elym_box, { edited = item }, subtitle = service.name, badge = selectedBadge(edited == item))
                 }
             }
-            Action(stringResource(R.string.elym_save), { model.perform { model.service.setModel(selected, edited); role = null } }, primary = true)
         }
+        Action(stringResource(R.string.elym_save), { model.perform { model.service.setModel(selected, edited); dismiss() } }, primary = true)
     }
 }
 
@@ -120,7 +125,7 @@ private enum class Provider(val key: String, val label: Int, val url: String, va
 }
 
 @Composable
-private fun ModelEditor(model: ElymBotViewModel, initial: ModelServiceDraft, hasKey: Boolean, dismiss: () -> Unit) {
+internal fun ModelEditor(model: ElymBotViewModel, initial: ModelServiceDraft, hasKey: Boolean, dismiss: () -> Unit) {
     var draft by remember(initial) { mutableStateOf(initial) }
     var providerMenu by remember { mutableStateOf(false) }
     var modelList by remember { mutableStateOf<List<String>?>(null) }
@@ -200,6 +205,7 @@ private fun ModelEditor(model: ElymBotViewModel, initial: ModelServiceDraft, has
         ProbeDialog(stringResource(R.string.elym_probe_capabilities), { probe = null }) {
             Text(input.modelId, color = Muted, fontSize = 12.sp)
             Capability(R.string.elym_model_available, result.availability, result.failuresByTarget[ProbeTarget.Availability])
+            Capability(R.string.elym_guide_tools, result.structuredToolCalls, result.failuresByTarget[ProbeTarget.StructuredToolCalls])
             Capability(R.string.elym_vision_support, result.vision, result.failuresByTarget[ProbeTarget.Vision])
             Capability(R.string.elym_streaming_support, result.streaming, result.failuresByTarget[ProbeTarget.Streaming])
             result.issue?.let { Text(stringResource(issueLabel(it)), color = Danger, fontSize = 13.sp) }

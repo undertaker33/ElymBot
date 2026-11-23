@@ -4,6 +4,7 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
@@ -56,6 +57,7 @@ internal fun ChatPage(
     var draft by rememberSaveable(stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue()) }
     var image by rememberSaveable { mutableStateOf<String?>(null) }
     var submitting by remember { mutableStateOf(false) }
+    var stopping by remember(id) { mutableStateOf(false) }
     var showMissingMainModel by remember { mutableStateOf(false) }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) image = uri.toString()
@@ -69,13 +71,33 @@ internal fun ChatPage(
             if (scrolling) follow = atEnd
         }
     }
-    val showToolProgress = conversation.generating && conversation.toolProgressActive
-    val showPendingReply = conversation.generating && (showToolProgress || last?.assistant != true)
-    val showEmpty = conversation.messages.isEmpty() && !conversation.generating
-    val itemCount = conversation.messages.size + listOf(showEmpty, showPendingReply, conversation.issue != null).count { it }
+    val pending = conversation.pendingDeliveries
+    val receipts = conversation.detachedDeliveryReceipts
+    val hasActiveDelivery = pending.any { it.status.inFlight } || conversation.messages.any { message ->
+        message.deliveryTargets.any { it.status.inFlight }
+    }
+    val showEmpty = conversation.messages.isEmpty() && pending.isEmpty() && receipts.isEmpty() &&
+        !conversation.generating && conversation.issue == null
+    val itemCount = conversation.messages.size + pending.size + receipts.size +
+        listOf(showEmpty, conversation.generating, conversation.issue != null).count { it }
+    val replyFade = tween<Float>(PrimaryMotion.FadeMillis, easing = PrimaryMotion.Fade)
     val revealedSend = pendingSendScroll?.takeIf { it.hasNewEcho(conversation.messages) }
+    fun stopReply() {
+        if (!current || stopping) return
+        stopping = true
+        model.perform {
+            try {
+                service.stop(id)
+            } finally {
+                stopping = false
+            }
+        }
+    }
+    fun retryDelivery(messageId: String, deliveryId: String) {
+        if (current) model.perform { service.retryDelivery(messageId, deliveryId) }
+    }
     fun submit(text: String, attachment: Uri?) {
-        if (!current || submitting) return
+        if (!current || submitting || stopping) return
         val sentDraft = SentDraft(text, attachment != null).watchNewEcho(conversation.messages, pendingSendScroll)
         submitting = true
         model.perform {
@@ -129,7 +151,7 @@ internal fun ChatPage(
             }
         }
         HorizontalDivider(color = Line)
-        FloatingComposerLayout(Modifier.weight(1f).fillMaxWidth(), timeline = { bottomPadding ->
+        FloatingComposerLayout(Modifier.weight(1f).fillMaxWidth().then(LocalPageBodyMotion.current), timeline = { bottomPadding ->
             LaunchedEffect(current, last?.id, last?.text, itemCount, revealedSend, bottomPadding) {
                 if (!current) return@LaunchedEffect
                 if (revealedSend != null && pendingSendScroll == revealedSend) {
@@ -149,15 +171,27 @@ internal fun ChatPage(
                     EmptyMessage(stringResource(R.string.elym_no_messages), R.drawable.elym_chat)
                 }
                 items(conversation.messages, key = { it.id }) { message ->
-                    if (message.localReceipt) LocalChatReceipt(message.text) else MessageBubble(message, persona.name)
+                    if (message.localReceipt) LocalChatReceipt(message.text)
+                    else MessageBubble(
+                        message, persona.name,
+                        modifier = if (message.assistant && message.deliveryTargets.isNotEmpty()) {
+                            Modifier.animateItem(fadeInSpec = replyFade, placementSpec = null, fadeOutSpec = null)
+                        } else Modifier,
+                    ) { deliveryId -> retryDelivery(message.id, deliveryId) }
                 }
-                if (showPendingReply) item {
-                    val pendingReply = if (showToolProgress) {
-                        ChatMessage("waiting", text = stringResource(R.string.elym_tool_progress), assistant = true)
-                    } else {
-                        ChatMessage("waiting", assistant = true, status = MessageStatus.Waiting)
-                    }
-                    MessageBubble(pendingReply, persona.name)
+                items(receipts, key = { "detached:${it.id}" }) { receipt ->
+                    ReplyDeliveryStatusLine(receipt.channelId, receipt.conversationId, receipt.status)
+                }
+                items(pending, key = { "unreleased:${it.id}" }) { delivery ->
+                    ReplyDeliveryStatusLine(
+                        delivery.channelId, delivery.conversationId, delivery.status,
+                        onRetry = if (delivery.status == ChatDeliveryStatus.Failed) {
+                            { retryDelivery(delivery.messageId, delivery.id) }
+                        } else null,
+                    )
+                }
+                if (conversation.generating) item(key = "reply-progress") {
+                    ReplyProgress(conversation.toolProgressActive)
                 }
                 conversation.issue?.let { issue ->
                     item {
@@ -183,7 +217,8 @@ internal fun ChatPage(
             ) {
                 Box(Modifier.padding(FloatingComposerInnerPadding)) {
                     val running = conversation.generating
-                    val canSend = current && !running && !submitting && (draft.text.isNotBlank() || image != null)
+                    val canSend = current && !running && !submitting && !stopping &&
+                        (draft.text.isNotBlank() || image != null)
                     val sendDraft = { if (canSend) submit(draft.text.trim(), image?.let(Uri::parse)) }
                     ChatComposer(
                         draft = draft,
@@ -196,15 +231,21 @@ internal fun ChatPage(
                         onPickImage = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
                         onSend = sendDraft,
                     ) {
-                        RoundAction(
-                            if (running) R.drawable.elym_stop else R.drawable.elym_send,
-                            stringResource(if (running) R.string.elym_stop else R.string.elym_send),
-                            {
-                                if (current && running) model.perform { service.stop(id) }
-                                else sendDraft()
-                            },
-                            primary = true, enabled = current && (running || canSend), roundedSquare = true,
-                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            if (running || hasActiveDelivery) {
+                                RoundAction(
+                                    R.drawable.elym_stop,
+                                    stringResource(if (running) R.string.elym_stop else R.string.elym_stop_delivery),
+                                    ::stopReply, primary = running, enabled = current && !stopping, roundedSquare = true,
+                                )
+                            }
+                            if (!running) {
+                                RoundAction(
+                                    R.drawable.elym_send, stringResource(R.string.elym_send), sendDraft,
+                                    primary = true, enabled = canSend, roundedSquare = true,
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -237,6 +278,9 @@ internal fun ChatPage(
         conversation.generating, stringResource(R.string.elym_confirm_session, displayTitle), { delete = false },
     ) { model.perform { service.deleteSessions(persona.id, setOf(id)); delete = false; back() } }
 }
+
+private val ChatDeliveryStatus.inFlight: Boolean
+    get() = this == ChatDeliveryStatus.Pending || this == ChatDeliveryStatus.Sending
 
 private data class SentDraft(
     val text: String,

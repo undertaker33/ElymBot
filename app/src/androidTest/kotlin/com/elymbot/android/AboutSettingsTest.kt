@@ -31,12 +31,12 @@ class AboutSettingsTest {
         val heading = SemanticsMatcher.keyIsDefined(SemanticsProperties.Heading)
         val about = hasText(activity.getString(R.string.elym_about))
         val search = activity.getString(R.string.elym_search)
+        val searchField = compose.onNode(hasContentDescription(search) and hasSetTextAction())
         val aboutEntry = compose.onNode(about and hasClickAction() and !hasSetTextAction())
 
         compose.onNode(settings and hasClickAction()).performClick()
         compose.onNodeWithContentDescription(search).performClick()
-        compose.onNode(hasContentDescription(search) and hasSetTextAction())
-            .performTextInput(activity.getString(R.string.elym_about))
+        searchField.performTextInput(activity.getString(R.string.elym_about))
         aboutEntry.assertIsDisplayed().performClick()
         compose.onNode(about and heading).assertIsDisplayed()
         compose.onNodeWithText(activity.getString(R.string.app_name)).assertIsDisplayed()
@@ -47,6 +47,7 @@ class AboutSettingsTest {
 
         compose.onNodeWithContentDescription(activity.getString(R.string.elym_back)).performClick()
         compose.onNode(settings and heading).assertIsDisplayed()
+        searchField.assertDoesNotExist()
         aboutEntry.performClick()
         compose.onNode(about and heading).assertIsDisplayed()
         compose.activityRule.scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
