@@ -16,3 +16,14 @@ android {
         targetCompatibility = JavaVersion.toVersion(libs.versions.jdk.get())
     }
 }
+
+dependencies {
+    // The host owns these types at runtime; do not bundle a second Core copy in the plugin.
+    compileOnly(project(":core"))
+    // Core supplies the same JSON runtime in the host class loader.
+    compileOnly(libs.kotlinx.serialization.json)
+
+    testImplementation(project(":core"))
+    testImplementation(libs.kotlinx.serialization.json)
+    testImplementation(libs.junit)
+}

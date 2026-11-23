@@ -1,0 +1,72 @@
+package com.elymbot.android.plugins.tasks
+
+import com.elymbot.core.contract.ToolInstallationIdentity
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import java.nio.file.Files
+import java.time.Instant
+import java.time.LocalDate
+import java.time.LocalDateTime
+
+class FileScheduledTaskRepositoryTest {
+    @Test
+    fun dataRoundTripsWithSavedZoneAndRunIdentityAcrossRepositoryInstances() {
+        val directory = Files.createTempDirectory("scheduled-task-store").toFile()
+        val identity = ToolInstallationIdentity("scheduled-tasks", "instance-a")
+        val task = TaskRecord(
+            id = "task-1",
+            revision = 4,
+            title = "Evening review",
+            prompt = "Review today's notes",
+            startLocalDateTime = LocalDateTime.parse("2026-11-23T20:30"),
+            timeZoneId = "America/Los_Angeles",
+            repeatRule = TaskRepeatRule(TaskRepeatKind.WEEKLY),
+            endCondition = TaskEndCondition(TaskEndKind.DATE, endDate = LocalDate.parse("2026-12-31")),
+            enabled = true,
+            eligibleFrom = Instant.parse("2026-11-23T18:00:00Z"),
+            creationSource = TaskCreationSource.AGENT,
+            createdAt = Instant.parse("2026-11-20T12:00:00Z"),
+            updatedAt = Instant.parse("2026-11-22T12:00:00Z"),
+        )
+        val run = TaskRunRecord(
+            taskId = task.id,
+            runId = "run-1",
+            occurrenceId = "occurrence-1",
+            scheduleRevision = task.revision,
+            plannedAt = Instant.parse("2026-11-23T04:30:00Z"),
+            triggeredAt = Instant.parse("2026-11-23T04:32:00Z"),
+            origin = TaskRunOrigin.SCHEDULED,
+            installationIdentity = identity,
+            requestId = null,
+            status = TaskRunStatus.QUEUED,
+            updatedAt = Instant.parse("2026-11-23T04:32:00Z"),
+        )
+        val state = TaskStoreState(
+            tasks = mapOf(task.id to task),
+            runs = mapOf(run.runId to run),
+            mutationReceipts = mapOf(
+                "request-1" to MutationReceipt(
+                    requestId = "request-1",
+                    fingerprint = "fingerprint",
+                    resultKind = MutationResultKind.CREATED,
+                    taskId = task.id,
+                    revision = task.revision,
+                ),
+            ),
+        )
+        try {
+            val repository = FileScheduledTaskRepository(directory)
+
+            assertTrue(directory.listFiles().orEmpty().isEmpty())
+            repository.transact { state to Unit }
+            val restored = FileScheduledTaskRepository(directory).snapshot()
+
+            assertEquals(state, restored)
+            assertEquals("America/Los_Angeles", restored.tasks.getValue(task.id).timeZoneId)
+            assertEquals(identity, restored.runs.getValue(run.runId).installationIdentity)
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+}
