@@ -35,6 +35,12 @@
 - 同一 App 候选验证正式 Reply、跨会话、不兼容模型及 Room 投递的 12 个用例，全部通过。[W02 Feedback](W02-Android会话与投递-feedback.md)
 - 修订为隔离目录与允许的本地 HTTP 域后，签名目录合成测试 5 项通过，包含签名缓存、主源摘要不符时拒绝备用，以及主源传输失败后核对备用文件摘要。[W03 Feedback](W03-插件底座与分发-feedback.md)
 
+## 2026-11-23 · 定时任务和设置入口复验
+
+- 基础 App `0DEC37D7CF4A539A70777879813F3BA66267BB0D1AC30D8E8F5074BF6456D116` 联编通过。检查 `:app:dependencies --configuration debugRuntimeClasspath`、APK ZIP 条目及 14 个 DEX 的 `dexdump -f` 类定义。基础 App 的工程依赖为 `:core`，容器原生文件限 ARM64 PRoot、loader 和 talloc。ZIP 无 rootfs、NapCat 或插件 JAR，DEX 无 QQ、定时任务、Commons Compress 或 XZ 的实现。
+- 在 MuMu Android 15 / x86_64 实际装载新旧签名定时任务制品，覆盖新版引导状态持久化和旧版忙碌主会话排队。宿主启停的定向复验使用记录式调度器，覆盖取消唤醒、重新登记和保留待运行任务入队。[W02 Feedback](W02-Android会话与投递-feedback.md) · [W05 Feedback](W05-主会话定时任务-feedback.md)
+- Compose 定向通过常见问题、关于、任务入口门禁和暂停任务手动运行。Activity 重建用例验证收到合成下载票据后回收。正式制品安装、任务启用和系统升级留作端到端验收。[W06 Feedback](W06-Android页面与引导-feedback.md)
+
 ## 待验
 
-- 当前产物仅用于 Reply 集成，尚未覆盖官方插件加载、系统调度、QQ、真实双源和同签名 App 更新。正式模型及用户行为验收使用完成相应路径集成后的候选版本。
+- 真实兼容模型 Reply、已启用插件的任务正式入口、系统自然唤醒、ARM64 QQ 与平台投递、正式双源分发及同签名 App 更新仍待按 A01–A17 验收。
