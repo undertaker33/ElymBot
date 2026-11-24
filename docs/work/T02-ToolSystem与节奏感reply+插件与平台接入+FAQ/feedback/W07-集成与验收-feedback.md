@@ -59,6 +59,13 @@
 
 - MuMu Android 15 / x86_64 定向复验启动及手动版本检查。App 管理服务启动时请求一次，HTTP 503 产生网络错误状态；再次发起自动检查未增加请求。手动检查复用该服务并识别更新，确认前未请求 APK。该用例使用合成本地 Release，覆盖 T02.04 的 A14 装配检查。[定向用例](../../../../app/src/androidTest/kotlin/com/elymbot/android/runtime/pluginpackage/OfficialAppUpdateServiceTest.kt) · [联编制品摘要](W02-Android会话与投递-feedback.md#2026-11-24-高审-p2-媒体清理与授权快照修复)
 
+## 2026-11-24 · ARM64 调度观察与签名插件装配
+
+- 在 Android 16 / API 36 ARM64 设备上安装独立测试 App，由正式服务加载签名定时任务插件并登记一次任务。登记后正常退至后台，结束该测试进程，保留 Android JobScheduler 的任务。到期后观察 13 分 57 秒，系统任务处于 `ready`，App 进程未启动，任务运行表、轮次和投递表无记录。随后用 `cmd jobscheduler run -s` 请求系统在满足约束时执行，系统返回 `Running job`，后续 25 秒仍无进程或模型请求。未观察到该设备在进程结束后的自然唤醒。
+- 同一设备安装独立 QQ 测试 App，App 管理服务从本地合成签名目录安装两个独立插件，`scheduled-tasks` 和 `qq` 均返回 `Completed`。QQ 新命令设置能力可读。通过正式宿主启动 QQ，Ubuntu rootfs 解包完成，容器内入口已写入 `install-base`（15%）状态。此处确认 ARM64 下签名安装及原生容器启动，登录码与收发继续实测。
+- QQ 测试 App SHA-256 `6983EC06C9946685F7A7D3AF634E4A83C07CFC8AF6A23C8A555A528B06735006`。QQ 签名包为 65,735,084 字节，内层 JAR 65,734,240 字节，低于 64 MiB，外层 SHA-256 `FB5495F9788B00312A2CADF338FDA2B7FF7218CCF2F4F8E024BF65820D500379`。定时任务签名包 SHA-256 `78B2BEEEF349B60702272A3C63075F4647C39E0043FA853B5ED3450044B619A7`。测试签名与本地目录仅用于隔离环境。
+- Ubuntu APT 基础依赖实际安装完成，随后入口停在 `download-installer`（45%），宿主报告 `FAILED/STARTUP`，没有出现登录码。保留初始现场后，使用同一 APK 安装的 PRoot、loader 与 talloc，在原隔离 Ubuntu 内通过 curl 分别请求固定安装器 API 与固定提交 Raw，均返回 HTTP 404。Desktop 同样收到 404。已验证 APK 仅包含核准的三项 ARM64 容器启动文件，未含 rootfs、可选插件 JAR、NapCat 或 Linux QQ 制品。
+
 ## 待验
 
 - 已启用插件的任务正式入口、系统自然唤醒、ARM64 QQ 与平台投递、正式双源分发及同签名 App 更新仍待按 A01–A17 验收。

@@ -197,3 +197,7 @@ App APK SHA-256：`6946D5265E119A07BFBE2DF7178657C7B7A27AA793C2F416645EE37918F3F
 | App sidecar 反例拒绝 | 对同包名、同数值版本但由临时非官方证书重签的 APK 运行 sidecar；另将公开 debug APK 作为输入 | 本地 APK 校验；临时签名副本与密钥随后清理 | 重签 APK 在证书摘要比对阶段拒绝；debug APK 在包名元数据检查阶段拒绝；原 release APK SHA-256 保持不变，未生成反例 release 输出 | scripts/create-app-release-sidecar.ps1 |
 
 本次验证证明本地合成签名目录和现有公开 App APK sidecar 的生成格式；未生成或发布正式插件目录，未加入正式目录根公钥，未验证真实 Gitee 回退或新的 App 系统安装。
+
+## 2026-11-24 ARM64 原生组件复验
+
+- 沿用已核查的基础 App runtime 图及 DEX 隔离证据，检查 ARM64 验收 APK 的 ZIP 条目，确认其中的容器启动文件为 PRoot、loader 与 talloc，Ubuntu rootfs 由独立 QQ 插件包提供。Android 16 / API 36 ARM64 上，实际宿主启动签名 QQ 插件的 Ubuntu 根文件系统，容器内完成基础 APT 安装。[W07 真机证据](W07-集成与验收-feedback.md)
