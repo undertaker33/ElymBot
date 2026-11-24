@@ -90,6 +90,7 @@ internal class AppReplyTargetSnapshotProvider(
             if (platform.platformId != QQ_PLATFORM_ID || settings == null || owner == null || !owner.ownerBound ||
                 owner.installationInstanceId != identity.instanceId || owner.channelId != QQ_PLATFORM_ID ||
                 owner.accountId.isBlank() || owner.actorId.isBlank() ||
+                platformAccountGate(platform.state.value.accountId, owner.accountId) == PlatformAccountGate.ACCOUNT_CHANGED ||
                 !isAuthorizedQqRoute(owner.conversationId, owner.actorId, settings.settings)
             ) {
                 null
@@ -128,7 +129,10 @@ internal class AppReplyTargetSnapshotProvider(
             handleType = PlatformPluginHandle::class.java,
         ) { platform ->
             val settings = (platform as? QqPlatformSettingsHandle)?.settings?.value ?: return@withActivePluginHandle false
-            platform.platformId == QQ_PLATFORM_ID && isAuthorizedQqReplyRoute(origin, target, settings.settings)
+            val accountId = target.accountId ?: return@withActivePluginHandle false
+            platform.platformId == QQ_PLATFORM_ID &&
+                platformAccountGate(platform.state.value.accountId, accountId) != PlatformAccountGate.ACCOUNT_CHANGED &&
+                isAuthorizedQqReplyRoute(origin, target, settings.settings)
         } ?: false
     }
 

@@ -161,7 +161,7 @@ class RoomReplySubmitterTest {
     }
 
     @Test
-    fun reopenedRepositoryCancelsInterruptedPendingAndRecoversSendingAsUnknown() = runBlocking {
+    fun reopenedRepositoryRestoresValidPendingAndLeavesFinishedDeliveriesOutOfTheQueue() = runBlocking {
         val databaseName = "reply-restart-${UUID.randomUUID()}.db"
         var database: ElymBotDatabase? = null
         try {
@@ -176,6 +176,22 @@ class RoomReplySubmitterTest {
             val deliveries = original.replyDeliveryDao().forMessage(accepted.messageIds.single())
             val inFlight = deliveries.single { it.targetKey == "in-flight" }
             assertEquals(1, original.replyDeliveryDao().markSending(inFlight.id, 80L))
+
+            val parallelSession = requireNotNull(original.conversationDao().get(turn.sessionId)).copy(
+                id = "parallel-${UUID.randomUUID()}",
+                currentCheckpointId = "parallel-checkpoint",
+            )
+            original.conversationDao().insert(parallelSession)
+            val finished = insertRunningTurn(original, parallelSession.id, sequence = 1)
+            val finishedReply = RoomReplySubmitter(original, externalTargets("waiting", "already-sent")).submit(
+                submission(finished, 0, listOf("finish before the process reopens")),
+            ) as ReplySubmissionResult.Accepted
+            val finishedDeliveries = original.replyDeliveryDao().forMessage(finishedReply.messageIds.single())
+            val waiting = finishedDeliveries.single { it.targetKey == "waiting" }
+            val alreadySent = finishedDeliveries.single { it.targetKey == "already-sent" }
+            resolve(original, alreadySent.id, ReplyDeliveryStatus.DELIVERED)
+            original.turnDao().update(finished.copy(status = "COMPLETED", finishedAt = System.currentTimeMillis()))
+
             original.close()
             database = null
 
@@ -193,6 +209,12 @@ class RoomReplySubmitterTest {
                     "in-flight" to ReplyDeliveryStatus.UNKNOWN.name,
                 ),
                 recovered.associate { it.targetKey to it.status },
+            )
+            assertEquals(listOf(waiting.id), reopened.replyDeliveryDao().pendingPlatformSnapshot().map { it.delivery.id })
+            assertEquals(
+                ReplyDeliveryStatus.DELIVERED.name,
+                reopened.replyDeliveryDao().forMessage(finishedReply.messageIds.single())
+                    .single { it.id == alreadySent.id }.status,
             )
         } finally {
             database?.close()

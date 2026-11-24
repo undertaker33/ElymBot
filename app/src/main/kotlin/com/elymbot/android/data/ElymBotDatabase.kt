@@ -24,6 +24,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         PlatformConversationBindingEntity::class,
         PlatformOwnerBindingEntity::class,
         PlatformInboundInboxEntity::class,
+        PlatformInboundSegmentEntity::class,
         PlatformTurnRouteEntity::class,
         ModelServiceEntity::class,
         ModelAssignmentEntity::class,
@@ -32,7 +33,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         CredentialEntity::class,
         PersonaTagEntity::class,
     ],
-    version = 6,
+    version = 7,
     exportSchema = false,
 )
 abstract class ElymBotDatabase : RoomDatabase() {
@@ -333,11 +334,45 @@ abstract class ElymBotDatabase : RoomDatabase() {
             }
         }
 
+        internal val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `platform_inbound_segments` (
+                        `inboxId` TEXT NOT NULL,
+                        `segmentIndex` INTEGER NOT NULL,
+                        `kind` TEXT NOT NULL,
+                        `textValue` TEXT,
+                        `resourceId` TEXT,
+                        `mediaType` TEXT,
+                        `displayName` TEXT,
+                        `declaredSizeBytes` INTEGER,
+                        `privatePath` TEXT,
+                        `byteSize` INTEGER,
+                        `projectionStatus` TEXT NOT NULL,
+                        PRIMARY KEY(`inboxId`, `segmentIndex`),
+                        FOREIGN KEY(`inboxId`) REFERENCES `platform_inbound_inbox`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                    """.trimIndent(),
+                )
+                database.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_platform_inbound_segments_inboxId` ON `platform_inbound_segments` (`inboxId`)",
+                )
+            }
+        }
+
         fun open(context: Context): ElymBotDatabase = open(context, "elymbot.db")
 
         internal fun open(context: Context, databaseName: String): ElymBotDatabase =
             Room.databaseBuilder(context.applicationContext, ElymBotDatabase::class.java, databaseName)
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+                .addMigrations(
+                    MIGRATION_1_2,
+                    MIGRATION_2_3,
+                    MIGRATION_3_4,
+                    MIGRATION_4_5,
+                    MIGRATION_5_6,
+                    MIGRATION_6_7,
+                )
                 .build()
     }
 }

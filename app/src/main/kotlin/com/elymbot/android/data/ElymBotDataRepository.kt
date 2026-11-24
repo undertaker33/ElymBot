@@ -115,16 +115,18 @@ class ElymBotDataRepository(
 
     suspend fun cleanupUnreferencedAssets() {
         val attachmentPaths = database.attachmentDao().referencedPaths()
+        val inboundMediaPaths = database.platformRouteDao().referencedInboundMediaPaths()
         val coverPaths = database.personaDao().getAll().mapNotNull { it.coverPath }
-        assets.removeUnreferenced((attachmentPaths + coverPaths).toSet())
+        assets.removeUnreferenced((attachmentPaths + inboundMediaPaths + coverPaths).toSet())
     }
 
     suspend fun cleanupUnreferencedAssets(candidates: Collection<String>) {
         val candidatePaths = candidates.toSet()
         if (candidatePaths.isEmpty()) return
         val attachmentPaths = database.attachmentDao().referencedPaths()
+        val inboundMediaPaths = database.platformRouteDao().referencedInboundMediaPaths()
         val coverPaths = database.personaDao().getAll().mapNotNull { it.coverPath }
-        (candidatePaths - (attachmentPaths + coverPaths).toSet()).forEach { path ->
+        (candidatePaths - (attachmentPaths + inboundMediaPaths + coverPaths).toSet()).forEach { path ->
             assets.delete(path)
         }
     }

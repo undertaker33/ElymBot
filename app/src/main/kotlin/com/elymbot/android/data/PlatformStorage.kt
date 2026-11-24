@@ -94,6 +94,34 @@ data class PlatformInboundInboxEntity(
     val updatedAtEpochMillis: Long,
 )
 
+/** Ordered host-owned projection of the normalized message, including unsupported media metadata. */
+@Entity(
+    tableName = "platform_inbound_segments",
+    primaryKeys = ["inboxId", "segmentIndex"],
+    foreignKeys = [
+        ForeignKey(
+            entity = PlatformInboundInboxEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["inboxId"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+    indices = [Index(value = ["inboxId"])],
+)
+data class PlatformInboundSegmentEntity(
+    val inboxId: String,
+    val segmentIndex: Int,
+    val kind: String,
+    val textValue: String?,
+    val resourceId: String?,
+    val mediaType: String?,
+    val displayName: String?,
+    val declaredSizeBytes: Long?,
+    val privatePath: String?,
+    val byteSize: Long?,
+    val projectionStatus: String,
+)
+
 /** Source and original reply route for a platform-created Agent turn. */
 @Entity(
     tableName = "platform_turn_routes",
@@ -177,6 +205,18 @@ interface PlatformRouteDao {
 
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertInbound(item: PlatformInboundInboxEntity): Long
+
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    suspend fun insertInboundSegments(items: List<PlatformInboundSegmentEntity>)
+
+    @Query("SELECT * FROM platform_inbound_segments WHERE inboxId = :inboxId ORDER BY segmentIndex")
+    suspend fun inboundSegments(inboxId: String): List<PlatformInboundSegmentEntity>
+
+    @Query("SELECT privatePath FROM platform_inbound_segments WHERE privatePath IS NOT NULL")
+    suspend fun referencedInboundMediaPaths(): List<String>
+
+    @Query("UPDATE platform_inbound_segments SET privatePath = NULL WHERE inboxId = :inboxId")
+    suspend fun clearInboundMediaPaths(inboxId: String): Int
 
     @Query(
         "SELECT * FROM platform_inbound_inbox WHERE pluginId = :pluginId AND channelId = :channelId " +

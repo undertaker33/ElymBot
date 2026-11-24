@@ -20,6 +20,7 @@ import com.elymbot.android.data.PendingAppTranscriptDelivery
 import com.elymbot.android.data.PendingPlatformDelivery
 import com.elymbot.android.data.PlatformConversationBindingEntity
 import com.elymbot.android.data.PlatformInboundInboxEntity
+import com.elymbot.android.data.PlatformInboundSegmentEntity
 import com.elymbot.android.data.PlatformOwnerBindingEntity
 import com.elymbot.android.data.PlatformTurnRouteEntity
 import com.elymbot.android.data.ReplyDeliveryEntity
@@ -1669,7 +1670,7 @@ class ElymBotSessionService internal constructor(
             val status = runCatching { ScheduledTaskRunStatus.valueOf(item.status) }.getOrNull()
                 ?: ScheduledTaskRunStatus.FAILED
             val failure = item.failureKind?.let { runCatching { ScheduledTaskRunFailureKind.valueOf(it) }.getOrNull() }
-            if (host.recordRunReceipt(item.toRunRequest(), status, failure)) {
+            if (host.settleRunReceipt(item.toRunRequest(), status, failure)) {
                 dao.acknowledgeReceipt(item.runId, System.currentTimeMillis())
             }
         }
@@ -1723,7 +1724,7 @@ class ElymBotSessionService internal constructor(
                             now = System.currentTimeMillis(),
                         )
                         snapshot.close()
-                        if (host.recordRunReceipt(request, ScheduledTaskRunStatus.FAILED, ScheduledTaskRunFailureKind.UNKNOWN)) {
+                        if (host.settleRunReceipt(request, ScheduledTaskRunStatus.FAILED, ScheduledTaskRunFailureKind.UNKNOWN)) {
                             dao.acknowledgeReceipt(item.runId, System.currentTimeMillis())
                         }
                         continue
@@ -1792,7 +1793,7 @@ class ElymBotSessionService internal constructor(
                         receiptPending = true,
                         now = System.currentTimeMillis(),
                     )
-                    if (host.recordRunReceipt(request, ScheduledTaskRunStatus.FAILED, ScheduledTaskRunFailureKind.HOST_REJECTED)) {
+                    if (host.settleRunReceipt(request, ScheduledTaskRunStatus.FAILED, ScheduledTaskRunFailureKind.HOST_REJECTED)) {
                         dao.acknowledgeReceipt(item.runId, System.currentTimeMillis())
                     }
                     throw failure
@@ -1872,12 +1873,19 @@ class ElymBotSessionService internal constructor(
         val actorId = origin.actorId?.trim().orEmpty()
         if (origin.channelId != QQ_PLATFORM_ID || accountId.isEmpty() || actorId.isEmpty() ||
             origin.conversationId.isBlank() || message.segments.isEmpty() ||
-            message.segments.any { it !is AgentMessageSegment.Text }
+            message.segments.size > MAX_PLATFORM_INBOUND_SEGMENTS
         ) {
             return PlatformInboundResult.Rejected(PlatformInboundRejection.INVALID_MESSAGE)
         }
         val text = message.segments.filterIsInstance<AgentMessageSegment.Text>().joinToString("") { it.value }
-        if (text.isBlank() || text.length > MAX_PLATFORM_TEXT_CHARS) {
+        if ((text.isBlank() && message.segments.all { it is AgentMessageSegment.Text }) ||
+            text.length > MAX_PLATFORM_TEXT_CHARS || message.segments.any { segment ->
+                val resource = segment.mediaResourceOrNull()
+                resource != null && (resource.resourceId.isBlank() || resource.resourceId.length > MAX_PLATFORM_RESOURCE_ID_CHARS ||
+                    resource.mediaType.isBlank() || resource.mediaType.length > MAX_PLATFORM_MEDIA_TYPE_CHARS ||
+                    resource.sizeBytes?.let { it < 0 } == true)
+            }
+        ) {
             return PlatformInboundResult.Rejected(PlatformInboundRejection.INVALID_MESSAGE)
         }
         val messageReference = message.reference
@@ -1900,15 +1908,157 @@ class ElymBotSessionService internal constructor(
             ) { handle ->
                 if (handle.platformId != QQ_PLATFORM_ID) {
                     InboundAcceptResult(PlatformInboundResult.Rejected(PlatformInboundRejection.UNAUTHORIZED_ROUTE))
-                } else if (handle.state.value.accountId != accountId) {
-                    InboundAcceptResult(PlatformInboundResult.Rejected(PlatformInboundRejection.UNAUTHORIZED_ROUTE))
                 } else {
-                    val settings = handle as? QqPlatformSettingsHandle
-                    val revision = settings?.settings?.value?.revision
+                    val settingsHandle = handle as? QqPlatformSettingsHandle
                         ?: return@withActivePluginHandle InboundAcceptResult(
                             PlatformInboundResult.Rejected(PlatformInboundRejection.PERSISTENCE),
                         )
-                    persistPlatformInbound(identity, envelope, text, revision)
+                    val accountAtAuthorization = handle.state.value.accountId
+                    val settingsAtAuthorization = settingsHandle.settings.value
+                    val revision = settingsAtAuthorization.revision
+                    if (accountAtAuthorization != accountId) {
+                        return@withActivePluginHandle InboundAcceptResult(
+                            PlatformInboundResult.Rejected(PlatformInboundRejection.UNAUTHORIZED_ROUTE),
+                        )
+                    }
+                    suspend fun stillAuthorized(): Boolean {
+                        val settingsBeforeRouteCheck = settingsHandle.settings.value
+                        if (!manager.isActive(identity) || handle.state.value.accountId != accountAtAuthorization ||
+                            settingsBeforeRouteCheck.revision != revision
+                        ) {
+                            return false
+                        }
+                        val routeAuthorized = platformInboundAuthorizedBeforeRead(
+                            identity,
+                            envelope,
+                            settingsBeforeRouteCheck.settings,
+                        )
+                        val activeAfterRouteCheck = manager.isActive(identity)
+                        val accountAfterRouteCheck = handle.state.value.accountId
+                        val settingsAfterRouteCheck = settingsHandle.settings.value
+                        return routeAuthorized && activeAfterRouteCheck && accountAfterRouteCheck == accountAtAuthorization &&
+                            settingsAfterRouteCheck.revision == revision
+                    }
+                    val routes = repository.database.platformRouteDao()
+                    val duplicate = routes.getInbound(
+                        pluginId = identity.pluginId,
+                        channelId = origin.channelId,
+                        accountId = accountId,
+                        conversationId = origin.conversationId,
+                        messageId = messageId,
+                    )
+                    if (!stillAuthorized()) {
+                        return@withActivePluginHandle InboundAcceptResult(
+                            PlatformInboundResult.Rejected(PlatformInboundRejection.UNAUTHORIZED_ROUTE),
+                        )
+                    }
+                    if (duplicate != null) {
+                        return@withActivePluginHandle InboundAcceptResult(PlatformInboundResult.Duplicate)
+                    }
+
+                    val stagedSegments = mutableListOf<PlatformInboundSegmentEntity>()
+                    val stagedAssetPaths = mutableListOf<String>()
+                    val mediaReader = PlatformInboundMediaReader(repository.assets)
+                    var copiedImageBytes = 0L
+                    try {
+                        message.segments.forEachIndexed { index, segment ->
+                            stagedSegments += when (segment) {
+                                is AgentMessageSegment.Text -> PlatformInboundSegmentEntity(
+                                    inboxId = messageId,
+                                    segmentIndex = index,
+                                    kind = INBOUND_SEGMENT_TEXT,
+                                    textValue = segment.value,
+                                    resourceId = null,
+                                    mediaType = null,
+                                    displayName = null,
+                                    declaredSizeBytes = null,
+                                    privatePath = null,
+                                    byteSize = null,
+                                    projectionStatus = INBOUND_SEGMENT_TEXT_READY,
+                                )
+                                is AgentMessageSegment.Image -> {
+                                    val resource = segment.resource
+                                    val canCopyImage = envelope.processing == PlatformInboundProcessing.TRIGGER_AGENT &&
+                                        resource.mediaType.startsWith("image/", ignoreCase = true) &&
+                                        resource.sizeBytes?.let { it > MAX_PLATFORM_IMAGE_BYTES } != true &&
+                                        copiedImageBytes < MAX_PLATFORM_TOTAL_IMAGE_BYTES
+                                    if (!canCopyImage) {
+                                        val copyStatus = when {
+                                            envelope.processing != PlatformInboundProcessing.TRIGGER_AGENT -> INBOUND_SEGMENT_NOT_PROJECTED
+                                            !resource.mediaType.startsWith("image/", ignoreCase = true) -> INBOUND_SEGMENT_UNSUPPORTED
+                                            resource.sizeBytes?.let { it > MAX_PLATFORM_IMAGE_BYTES } == true ||
+                                                copiedImageBytes >= MAX_PLATFORM_TOTAL_IMAGE_BYTES -> INBOUND_SEGMENT_TOO_LARGE
+                                            else -> INBOUND_SEGMENT_NOT_PROJECTED
+                                        }
+                                        platformInboundMediaEntity(index, INBOUND_SEGMENT_IMAGE, resource, status = copyStatus)
+                                    } else {
+                                        val remainingBytes = MAX_PLATFORM_TOTAL_IMAGE_BYTES - copiedImageBytes
+                                        val perImageLimit = minOf(MAX_PLATFORM_IMAGE_BYTES, remainingBytes)
+                                        val imported = mediaReader.copyImage(
+                                            handle = handle,
+                                            reference = resource,
+                                            maxBytes = perImageLimit,
+                                            stillAuthorized = { stillAuthorized() },
+                                        )
+                                        when (imported) {
+                                            PlatformInboundImageResult.Unauthorized -> return@withActivePluginHandle InboundAcceptResult(
+                                                PlatformInboundResult.Rejected(PlatformInboundRejection.UNAUTHORIZED_ROUTE),
+                                            )
+                                            is PlatformInboundImageResult.Stored -> {
+                                                stagedAssetPaths += imported.asset.relativePath
+                                                copiedImageBytes += imported.asset.byteSize
+                                                PlatformInboundSegmentEntity(
+                                                    inboxId = messageId,
+                                                    segmentIndex = index,
+                                                    kind = INBOUND_SEGMENT_IMAGE,
+                                                    textValue = null,
+                                                    resourceId = resource.resourceId,
+                                                    mediaType = imported.mediaType,
+                                                    displayName = resource.displayName,
+                                                    declaredSizeBytes = resource.sizeBytes,
+                                                    privatePath = imported.asset.relativePath,
+                                                    byteSize = imported.asset.byteSize,
+                                                    projectionStatus = INBOUND_SEGMENT_IMAGE_READY,
+                                                )
+                                            }
+                                            is PlatformInboundImageResult.Rejected -> platformInboundMediaEntity(
+                                                index,
+                                                INBOUND_SEGMENT_IMAGE,
+                                                resource,
+                                                status = when (imported.status) {
+                                                    PlatformInboundImageResult.Status.TOO_LARGE -> INBOUND_SEGMENT_TOO_LARGE
+                                                    PlatformInboundImageResult.Status.UNSUPPORTED -> INBOUND_SEGMENT_UNSUPPORTED
+                                                    PlatformInboundImageResult.Status.UNAVAILABLE -> INBOUND_SEGMENT_UNAVAILABLE
+                                                },
+                                            )
+                                        }
+                                    }
+                                }
+                                is AgentMessageSegment.Audio -> platformInboundMediaEntity(
+                                    index, INBOUND_SEGMENT_AUDIO, segment.resource,
+                                    status = mediaMetadataStatus(segment.resource),
+                                )
+                                is AgentMessageSegment.Video -> platformInboundMediaEntity(
+                                    index, INBOUND_SEGMENT_VIDEO, segment.resource,
+                                    status = mediaMetadataStatus(segment.resource),
+                                )
+                                is AgentMessageSegment.File -> platformInboundMediaEntity(
+                                    index, INBOUND_SEGMENT_FILE, segment.resource,
+                                    status = mediaMetadataStatus(segment.resource),
+                                )
+                            }
+                        }
+                        if (!stillAuthorized()) {
+                            return@withActivePluginHandle InboundAcceptResult(
+                                PlatformInboundResult.Rejected(PlatformInboundRejection.UNAUTHORIZED_ROUTE),
+                            )
+                        }
+                        persistPlatformInbound(identity, envelope, text, revision, stagedSegments)
+                    } finally {
+                        withContext(NonCancellable) {
+                            repository.cleanupUnreferencedAssets(stagedAssetPaths)
+                        }
+                    }
                 }
             } ?: return@withLock InboundAcceptResult(
                 PlatformInboundResult.Rejected(PlatformInboundRejection.INACTIVE_INSTANCE),
@@ -1922,6 +2072,99 @@ class ElymBotSessionService internal constructor(
         signalPlatformChanged()
         return result.result
     }
+
+    private fun platformInboundMediaEntity(
+        index: Int,
+        kind: String,
+        resource: MediaResourceReference,
+        status: String,
+    ) = PlatformInboundSegmentEntity(
+        inboxId = "",
+        segmentIndex = index,
+        kind = kind,
+        textValue = null,
+        resourceId = resource.resourceId,
+        mediaType = resource.mediaType,
+        displayName = resource.displayName,
+        declaredSizeBytes = resource.sizeBytes,
+        privatePath = null,
+        byteSize = null,
+        projectionStatus = status,
+    )
+
+    private fun mediaMetadataStatus(resource: MediaResourceReference): String =
+        if (resource.sizeBytes?.let { it > MAX_PLATFORM_UNPROJECTED_MEDIA_BYTES } == true) {
+            INBOUND_SEGMENT_TOO_LARGE
+        } else {
+            INBOUND_SEGMENT_NOT_PROJECTED
+        }
+
+    private suspend fun platformInboundAuthorizedBeforeRead(
+        identity: ToolInstallationIdentity,
+        envelope: PlatformInboundEnvelope,
+        settings: QqPlatformSettings,
+    ): Boolean {
+        val manager = pluginRuntimeManager ?: return false
+        val message = envelope.message
+        val origin = message.origin
+        val accountId = origin.accountId ?: return false
+        val actorId = origin.actorId ?: return false
+        if (!manager.isActive(identity) || identity.pluginId != QQ_PLATFORM_ID ||
+            !validPlatformEnvelope(envelope) ||
+            !inboundPolicyAllows(origin.conversationId, actorId, envelope.historyVisibility.name, settings)
+        ) {
+            return false
+        }
+
+        val routes = repository.database.platformRouteDao()
+        val owner = if (envelope.historyVisibility == PlatformHistoryVisibility.PRIVATE) {
+            routes.getOwnerBinding(identity.pluginId)
+        } else {
+            null
+        }
+        if (owner != null && owner.autoGrantedPrivatePermission && owner.actorId == actorId &&
+            (!owner.ownerBound || owner.installationInstanceId != identity.instanceId ||
+                owner.accountId != accountId || owner.conversationId != origin.conversationId)
+        ) {
+            return false
+        }
+        val ownerMatches = owner?.ownerBound == true && owner.installationInstanceId == identity.instanceId &&
+            owner.channelId == origin.channelId && owner.accountId == accountId &&
+            owner.conversationId == origin.conversationId && owner.actorId == actorId
+        if (ownerMatches) {
+            val main = repository.database.conversationDao().getMain() ?: return false
+            return repository.database.conversationDao().countMain() == 1 &&
+                main.id == MAIN_SESSION_ID && main.kind == SESSION_KIND_MAIN
+        }
+
+        val existing = routes.getBinding(
+            pluginId = identity.pluginId,
+            channelId = origin.channelId,
+            accountId = accountId,
+            conversationId = origin.conversationId,
+        )
+        val sharedGroup = envelope.historyVisibility == PlatformHistoryVisibility.GROUP_PUBLIC
+        if (existing != null && !sharedGroup && existing.actorId != actorId) return false
+        val existingSession = existing?.let { repository.database.conversationDao().get(it.sessionId) }
+        return existing == null || existingSession?.kind == SESSION_KIND_DEDICATED
+    }
+
+    private fun platformSegmentToAgentMessageSegment(segment: PlatformInboundSegmentEntity): AgentMessageSegment? =
+        when (segment.kind) {
+            INBOUND_SEGMENT_TEXT -> segment.textValue?.let { AgentMessageSegment.Text(it) }
+            INBOUND_SEGMENT_IMAGE -> AgentMessageSegment.Image(segment.toMediaReference())
+            INBOUND_SEGMENT_AUDIO -> AgentMessageSegment.Audio(segment.toMediaReference())
+            INBOUND_SEGMENT_VIDEO -> AgentMessageSegment.Video(segment.toMediaReference())
+            INBOUND_SEGMENT_FILE -> AgentMessageSegment.File(segment.toMediaReference())
+            else -> null
+        }
+
+    private fun PlatformInboundSegmentEntity.toMediaReference() = MediaResourceReference(
+        resourceId = resourceId ?: "$inboxId:$segmentIndex",
+        mediaType = mediaType ?: "application/octet-stream",
+        displayName = displayName,
+        sizeBytes = byteSize ?: declaredSizeBytes,
+    )
 
     private fun validPlatformEnvelope(envelope: PlatformInboundEnvelope): Boolean {
         val message = envelope.message
@@ -1958,6 +2201,7 @@ class ElymBotSessionService internal constructor(
         envelope: PlatformInboundEnvelope,
         text: String,
         policyRevision: Long,
+        segments: List<PlatformInboundSegmentEntity>,
     ): InboundAcceptResult {
         val origin = envelope.message.origin
         val accountId = origin.accountId.orEmpty()
@@ -2031,7 +2275,10 @@ class ElymBotSessionService internal constructor(
                             ?: return@withTransaction InboundAcceptResult(
                                 PlatformInboundResult.Rejected(PlatformInboundRejection.PERSISTENCE),
                             ),
-                        title = firstTurnTitle(text, hasImage = false),
+                        title = firstTurnTitle(
+                            text,
+                            hasImage = segments.any { it.kind == INBOUND_SEGMENT_IMAGE && it.projectionStatus == INBOUND_SEGMENT_IMAGE_READY },
+                        ),
                         now = now,
                     )
                     val routeBinding = PlatformConversationBindingEntity(
@@ -2087,6 +2334,9 @@ class ElymBotSessionService internal constructor(
                 if (routes.insertInbound(inbox) == -1L) {
                     return@withTransaction InboundAcceptResult(PlatformInboundResult.Duplicate)
                 }
+                if (segments.isNotEmpty()) {
+                    routes.insertInboundSegments(segments.map { it.copy(inboxId = inbox.id) })
+                }
                 conversations.setCompletionState(
                     id = sessionId,
                     unread = viewedSessionId.value != sessionId,
@@ -2140,31 +2390,63 @@ class ElymBotSessionService internal constructor(
                     PluginInstanceAvailability.RESTORING,
                     PluginInstanceAvailability.UNAVAILABLE -> return
                     PluginInstanceAvailability.INVALIDATED -> {
-                        routes.updateInboundStatus(item.id, INBOUND_STATUS_STALE, System.currentTimeMillis())
+                        retireQueuedPlatformInbound(item)
                         continue
                     }
                     PluginInstanceAvailability.ACTIVE -> Unit
                 }
-                val authorized = manager.withActivePluginHandle(
+                val authorization = manager.withActivePluginHandle<PlatformPluginHandle, QueuedPlatformInboundAuthorization>(
                     pluginId = identity.pluginId,
                     installationIdentity = identity,
                     handleType = PlatformPluginHandle::class.java,
                 ) { handle ->
-                    val settings = (handle as? QqPlatformSettingsHandle)?.settings?.value ?: return@withActivePluginHandle false
-                    val owner = if (item.sessionId == MAIN_SESSION_ID) routes.getOwnerBinding(QQ_PLATFORM_ID) else null
-                    handle.platformId == QQ_PLATFORM_ID && settings.revision == item.policyRevision &&
-                        inboundPolicyAllows(item, settings.settings) &&
-                    (item.sessionId != MAIN_SESSION_ID || owner?.ownerBound == true &&
-                        owner.installationInstanceId == identity.instanceId &&
-                            owner.accountId == item.accountId && owner.conversationId == item.conversationId &&
-                            owner.actorId == item.actorId)
-                } ?: false
-                if (!authorized) {
-                    routes.updateInboundStatus(item.id, INBOUND_STATUS_STALE, System.currentTimeMillis())
+                    when (platformAccountGate(handle.state.value.accountId, item.accountId)) {
+                        PlatformAccountGate.WAITING_FOR_ACCOUNT -> QueuedPlatformInboundAuthorization.DEFERRED
+                        PlatformAccountGate.ACCOUNT_CHANGED -> QueuedPlatformInboundAuthorization.REJECTED
+                        PlatformAccountGate.MATCH -> {
+                            val settings = (handle as? QqPlatformSettingsHandle)?.settings?.value
+                            if (handle.platformId != QQ_PLATFORM_ID || settings == null || settings.revision != item.policyRevision) {
+                                QueuedPlatformInboundAuthorization.REJECTED
+                            } else {
+                                val owner = if (item.sessionId == MAIN_SESSION_ID) {
+                                    routes.getOwnerBinding(QQ_PLATFORM_ID)
+                                } else {
+                                    null
+                                }
+                                if (inboundPolicyAllows(item, settings.settings) &&
+                                    (item.sessionId != MAIN_SESSION_ID || owner?.ownerBound == true &&
+                                        owner.installationInstanceId == identity.instanceId && owner.accountId == item.accountId &&
+                                        owner.conversationId == item.conversationId && owner.actorId == item.actorId)
+                                ) {
+                                    QueuedPlatformInboundAuthorization.AUTHORIZED
+                                } else {
+                                    QueuedPlatformInboundAuthorization.REJECTED
+                                }
+                            }
+                        }
+                    }
+                }
+                when (authorization) {
+                    null, QueuedPlatformInboundAuthorization.DEFERRED -> return
+                    QueuedPlatformInboundAuthorization.REJECTED -> {
+                        retireQueuedPlatformInbound(item)
+                        continue
+                    }
+                    QueuedPlatformInboundAuthorization.AUTHORIZED -> Unit
+                }
+                val inboundSegments = routes.inboundSegments(item.id)
+                val readyImages = inboundSegments.filter {
+                    it.kind == INBOUND_SEGMENT_IMAGE && it.projectionStatus == INBOUND_SEGMENT_IMAGE_READY &&
+                        it.privatePath != null && it.byteSize != null && it.mediaType != null
+                }
+                if (item.text.isBlank() && readyImages.isEmpty()) {
+                    routes.clearInboundMediaPaths(item.id)
+                    routes.updateInboundStatus(item.id, INBOUND_STATUS_UNSUPPORTED_MEDIA, System.currentTimeMillis())
+                    repository.cleanupUnreferencedAssets(inboundSegments.mapNotNull { it.privatePath })
                     continue
                 }
                 val session = repository.database.conversationDao().get(sessionId) ?: run {
-                    routes.updateInboundStatus(item.id, INBOUND_STATUS_STALE, System.currentTimeMillis())
+                    retireQueuedPlatformInbound(item)
                     continue
                 }
                 val snapshot = try {
@@ -2217,6 +2499,23 @@ class ElymBotSessionService internal constructor(
                                 author = currentInbox.actorId,
                             ),
                         )
+                        val queuedMedia = routes.inboundSegments(currentInbox.id)
+                        val images = queuedMedia.filter {
+                            it.kind == INBOUND_SEGMENT_IMAGE && it.projectionStatus == INBOUND_SEGMENT_IMAGE_READY &&
+                                it.privatePath != null && it.byteSize != null && it.mediaType != null
+                        }
+                        images.forEach { image ->
+                            repository.database.attachmentDao().insert(
+                                AttachmentEntity(
+                                    id = UUID.randomUUID().toString(),
+                                    messageId = userMessageId,
+                                    privatePath = requireNotNull(image.privatePath),
+                                    mediaType = requireNotNull(image.mediaType),
+                                    byteSize = requireNotNull(image.byteSize),
+                                ),
+                            )
+                        }
+                        routes.clearInboundMediaPaths(currentInbox.id)
                         repository.database.platformRouteDao().insertTurnRoute(
                             PlatformTurnRouteEntity(
                                 sessionId = current.id,
@@ -2237,7 +2536,7 @@ class ElymBotSessionService internal constructor(
                         check(routes.markRunning(item.id, sequence, startedAt) == 1)
                         repository.database.conversationDao().update(
                             current.copy(
-                                title = current.title ?: firstTurnTitle(currentInbox.text, hasImage = false),
+                                title = current.title ?: firstTurnTitle(currentInbox.text, hasImage = images.isNotEmpty()),
                                 nextTurnSequence = sequence + 1,
                                 unread = viewedSessionId.value != sessionId,
                                 lastActivityAt = startedAt,
@@ -2271,26 +2570,45 @@ class ElymBotSessionService internal constructor(
     }
 
     private fun inboundPolicyAllows(item: PlatformInboundInboxEntity, settings: QqPlatformSettings): Boolean {
-        if (item.historyVisibility == PlatformHistoryVisibility.GROUP_PUBLIC.name) {
-            val groupId = item.conversationId.removePrefix("group:").takeIf { it.isNotBlank() }
+        return inboundPolicyAllows(item.conversationId, item.actorId, item.historyVisibility, settings)
+    }
+
+    private suspend fun retireQueuedPlatformInbound(item: PlatformInboundInboxEntity) {
+        val routes = repository.database.platformRouteDao()
+        val candidatePaths = routes.inboundSegments(item.id).mapNotNull { it.privatePath }
+        repository.database.withTransaction {
+            routes.clearInboundMediaPaths(item.id)
+            routes.updateInboundStatus(item.id, INBOUND_STATUS_STALE, System.currentTimeMillis())
+        }
+        repository.cleanupUnreferencedAssets(candidatePaths)
+    }
+
+    private fun inboundPolicyAllows(
+        conversationId: String,
+        actorId: String,
+        historyVisibility: String,
+        settings: QqPlatformSettings,
+    ): Boolean {
+        if (historyVisibility == PlatformHistoryVisibility.GROUP_PUBLIC.name) {
+            val groupId = conversationId.removePrefix("group:").takeIf { it.isNotBlank() }
                 ?: return false
             return groupId in settings.publicGroupHistoryGroupIds
         }
-        val privateUser = item.conversationId.removePrefix("private:")
-        if (item.historyVisibility == PlatformHistoryVisibility.PRIVATE.name && privateUser != item.actorId) return false
+        val privateUser = conversationId.removePrefix("private:")
+        if (historyVisibility == PlatformHistoryVisibility.PRIVATE.name && privateUser != actorId) return false
         if (!settings.whitelistEnabled) return true
-        if (item.actorId in settings.allowedUserIds) return true
-        if (item.historyVisibility == PlatformHistoryVisibility.PRIVATE.name) {
-            return item.actorId in settings.allowedPrivateUserIds ||
-                item.actorId in settings.adminUserIds && settings.adminPrivateBypassWhitelistEnabled
+        if (actorId in settings.allowedUserIds) return true
+        if (historyVisibility == PlatformHistoryVisibility.PRIVATE.name) {
+            return actorId in settings.allowedPrivateUserIds ||
+                actorId in settings.adminUserIds && settings.adminPrivateBypassWhitelistEnabled
         }
-        if (item.actorId in settings.adminUserIds && settings.adminGroupBypassWhitelistEnabled) return true
+        if (actorId in settings.adminUserIds && settings.adminGroupBypassWhitelistEnabled) return true
         val groupMarker = ":member:"
-        val memberIndex = item.conversationId.indexOf(groupMarker)
+        val memberIndex = conversationId.indexOf(groupMarker)
         if (memberIndex < 0) return false
-        val groupId = item.conversationId.substringAfter("group:").substringBefore(groupMarker)
+        val groupId = conversationId.substringAfter("group:").substringBefore(groupMarker)
         return groupId in settings.allowedGroupIds ||
-            com.elymbot.core.contract.QqGroupMember(item.actorId, groupId) in settings.allowedGroupMembers
+            com.elymbot.core.contract.QqGroupMember(actorId, groupId) in settings.allowedGroupMembers
     }
 
     private suspend fun authorizedGroupContext(route: PlatformTurnRouteEntity): List<AgentSupplementalContext> {
@@ -2539,6 +2857,9 @@ class ElymBotSessionService internal constructor(
                 execution.sessionId,
                 execution.turnSequence,
             )
+            val normalizedPlatformSegments = execution.platformInboxId
+                ?.let { repository.database.platformRouteDao().inboundSegments(it) }
+                .orEmpty()
             val supplementalContext: List<AgentSupplementalContext> =
                 if (platformRoute == null) emptyList() else authorizedGroupContext(platformRoute)
             val request = AgentRequest(
@@ -2564,20 +2885,22 @@ class ElymBotSessionService internal constructor(
                     ),
                     target = platformRoute?.toPlatformTargetRoute(),
                     reference = platformRoute?.toPlatformReplyReference(),
-                    segments = buildList {
-                        if (user.message.text.isNotEmpty()) add(AgentMessageSegment.Text(user.message.text))
-                        user.attachments.forEach { attachment ->
-                            add(
-                                AgentMessageSegment.Image(
-                                    MediaResourceReference(
-                                        resourceId = attachment.id,
-                                        mediaType = attachment.mediaType,
-                                        sizeBytes = attachment.byteSize,
+                    segments = normalizedPlatformSegments.takeIf { it.isNotEmpty() }
+                        ?.mapNotNull { platformSegmentToAgentMessageSegment(it) }
+                        ?: buildList {
+                            if (user.message.text.isNotEmpty()) add(AgentMessageSegment.Text(user.message.text))
+                            user.attachments.forEach { attachment ->
+                                add(
+                                    AgentMessageSegment.Image(
+                                        MediaResourceReference(
+                                            resourceId = attachment.id,
+                                            mediaType = attachment.mediaType,
+                                            sizeBytes = attachment.byteSize,
+                                        ),
                                     ),
-                                ),
-                            )
-                        }
-                    },
+                                )
+                            }
+                        },
                 ),
                 replySubmitter = replySubmitter,
                 supplementalContext = supplementalContext,
@@ -2987,7 +3310,14 @@ class ElymBotSessionService internal constructor(
             handleType = PlatformPluginHandle::class.java,
         ) { platform ->
             val route = item.delivery.toMessageRoute() ?: return@withActivePluginHandle false
+            val accountAuthorization = route.accountId?.let { platformAccountGate(platform.state.value.accountId, it) }
+                ?: PlatformAccountGate.ACCOUNT_CHANGED
+            if (accountAuthorization == PlatformAccountGate.WAITING_FOR_ACCOUNT) {
+                outcome = PlatformDispatchOutcome.DEFERRED
+                return@withActivePluginHandle false
+            }
             val authorized = platform.platformId == QQ_PLATFORM_ID && route.channelId == QQ_PLATFORM_ID &&
+                accountAuthorization == PlatformAccountGate.MATCH &&
                 isPlatformDeliveryStillAuthorized(item, identity, route, platform)
             if (!authorized) {
                 markPlatformDeliveryStale(item, "authorization-revoked")
@@ -3185,7 +3515,7 @@ class ElymBotSessionService internal constructor(
             receiptPending = true,
             now = System.currentTimeMillis(),
         )
-        if (scheduledTaskHost?.recordRunReceipt(request, status, failureKind) == true) {
+        if (scheduledTaskHost?.settleRunReceipt(request, status, failureKind) == true) {
             dao.acknowledgeReceipt(request.runId, System.currentTimeMillis())
         }
     }
@@ -3763,6 +4093,12 @@ class ElymBotSessionService internal constructor(
         NO_CHANGE,
     }
 
+    private enum class QueuedPlatformInboundAuthorization {
+        AUTHORIZED,
+        DEFERRED,
+        REJECTED,
+    }
+
     private data class LiveExecutionState(
         val executionId: String,
         val attemptId: String,
@@ -3824,6 +4160,12 @@ class ElymBotSessionService internal constructor(
         const val QQ_PLATFORM_ID = "qq"
         const val PLATFORM_RUNTIME_PREFERENCES = "platform_runtime"
         const val MAX_PLATFORM_TEXT_CHARS = 40_000
+        const val MAX_PLATFORM_INBOUND_SEGMENTS = 32
+        const val MAX_PLATFORM_RESOURCE_ID_CHARS = 512
+        const val MAX_PLATFORM_MEDIA_TYPE_CHARS = 128
+        const val MAX_PLATFORM_IMAGE_BYTES = 12L * 1024 * 1024
+        const val MAX_PLATFORM_TOTAL_IMAGE_BYTES = 24L * 1024 * 1024
+        const val MAX_PLATFORM_UNPROJECTED_MEDIA_BYTES = 16L * 1024 * 1024
         const val MAX_SHARED_GROUP_CONTEXT_MESSAGES = 20
         const val OWNER_GRANT_COMPENSATION_ATTEMPTS = 3
         const val INBOUND_STATUS_QUEUED = "QUEUED"
@@ -3834,10 +4176,59 @@ class ElymBotSessionService internal constructor(
         const val INBOUND_STATUS_FAILED = "FAILED"
         const val INBOUND_STATUS_FAILED_UNKNOWN = "FAILED_UNKNOWN"
         const val INBOUND_STATUS_STALE = "STALE"
+        const val INBOUND_STATUS_UNSUPPORTED_MEDIA = "UNSUPPORTED_MEDIA"
+        const val INBOUND_SEGMENT_TEXT = "TEXT"
+        const val INBOUND_SEGMENT_IMAGE = "IMAGE"
+        const val INBOUND_SEGMENT_AUDIO = "AUDIO"
+        const val INBOUND_SEGMENT_VIDEO = "VIDEO"
+        const val INBOUND_SEGMENT_FILE = "FILE"
+        const val INBOUND_SEGMENT_TEXT_READY = "TEXT_READY"
+        const val INBOUND_SEGMENT_IMAGE_READY = "IMAGE_READY"
+        const val INBOUND_SEGMENT_NOT_PROJECTED = "NOT_PROJECTED"
+        const val INBOUND_SEGMENT_UNSUPPORTED = "UNSUPPORTED"
+        const val INBOUND_SEGMENT_TOO_LARGE = "TOO_LARGE"
+        const val INBOUND_SEGMENT_UNAVAILABLE = "UNAVAILABLE"
         const val TAG_SEPARATOR = "\u001f"
 
         fun emptyCheckpointId(sessionId: String) = "empty:$sessionId"
     }
+}
+
+internal suspend fun detectPlatformImageMimeType(file: java.io.File): String? = withContext(Dispatchers.IO) {
+    if (!file.isFile) return@withContext null
+    val header = ByteArray(16)
+    val count = runCatching {
+        file.inputStream().use { input ->
+            var read = 0
+            while (read < header.size) {
+                val count = input.read(header, read, header.size - read)
+                if (count < 0) break
+                read += count
+            }
+            read
+        }
+    }.getOrDefault(-1)
+    if (count < 12) return@withContext null
+    fun byte(index: Int) = header[index].toInt() and 0xff
+    when {
+        byte(0) == 0xff && byte(1) == 0xd8 && byte(2) == 0xff -> "image/jpeg"
+        byte(0) == 0x89 && byte(1) == 0x50 && byte(2) == 0x4e && byte(3) == 0x47 &&
+            byte(4) == 0x0d && byte(5) == 0x0a && byte(6) == 0x1a && byte(7) == 0x0a -> "image/png"
+        header.copyOfRange(0, 4).decodeToString() == "GIF8" &&
+            (byte(4) == 0x37 || byte(4) == 0x39) && byte(5) == 0x61 -> "image/gif"
+        header.copyOfRange(0, 4).decodeToString() == "RIFF" &&
+            header.copyOfRange(8, 12).decodeToString() == "WEBP" -> "image/webp"
+        byte(0) == 0x42 && byte(1) == 0x4d -> "image/bmp"
+        else -> null
+    }
+}
+
+private fun AgentMessageSegment.mediaResourceOrNull(): MediaResourceReference? = when (this) {
+    is AgentMessageSegment.Text -> null
+    is AgentMessageSegment.Image -> resource
+    is AgentMessageSegment.Audio -> resource
+    is AgentMessageSegment.Video -> resource
+    is AgentMessageSegment.File -> resource
 }
 
 private fun ScheduledTaskRunRequest.toInboxEntity(now: Long) = ScheduledTaskRunInboxEntity(

@@ -56,9 +56,10 @@ import java.util.concurrent.CopyOnWriteArrayList
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
-import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -174,7 +175,7 @@ class ScheduledTaskHostIntegrationTest {
             assertTrue(database.turnDao().running().isEmpty())
         } finally {
             releaseRecovery.complete(Unit)
-            serviceScope.cancel()
+            serviceScope.coroutineContext[Job]?.cancelAndJoin()
             database.close()
             assetRoot.deleteRecursively()
         }
@@ -376,8 +377,15 @@ class ScheduledTaskHostIntegrationTest {
 
             val originalIdentity = requireNotNull(runtimeManager.statusSnapshot().singleOrNull()).installationIdentity
             val beforeDisable = pluginScheduler.modes.size
+            database.openHelper.writableDatabase.execSQL(
+                "UPDATE scheduled_task_run_inbox SET receiptPending = 1 WHERE runId = ?",
+                arrayOf(firstQueued.run.runId),
+            )
             runtimeManager.disable("scheduled-tasks")
             service.refreshScheduledTasksAfterPluginRuntimeChange("scheduled-tasks")
+            val retiredReceipt = database.scheduledTaskRunInboxDao().get(firstQueued.run.runId)
+            assertEquals("SUCCEEDED", retiredReceipt?.status)
+            assertFalse(retiredReceipt?.receiptPending ?: true)
             assertTrue(
                 "Disabling the task plugin cancels its registered OS wake",
                 (beforeDisable until pluginScheduler.modes.size).any { index ->
@@ -429,7 +437,7 @@ class ScheduledTaskHostIntegrationTest {
             )
         } finally {
             releaseFirstTurn.complete(Unit)
-            serviceScope.cancel()
+            serviceScope.coroutineContext[Job]?.cancelAndJoin()
             runCatching { runtimeManager.uninstall("scheduled-tasks", deleteData = true) }
             database.close()
             isolatedFiles.deleteRecursively()

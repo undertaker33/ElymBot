@@ -257,21 +257,22 @@ internal class ScheduledTaskHost(
             PluginInstanceAvailability.INVALIDATED -> ScheduledRunClaimResult.Stale
         }
 
-    suspend fun recordRunReceipt(
+    /** Returns whether the App can clear the pending receipt, including permanently retired installations. */
+    suspend fun settleRunReceipt(
         request: ScheduledTaskRunRequest,
         status: ScheduledTaskRunStatus,
         failureKind: ScheduledTaskRunFailureKind? = null,
     ): Boolean {
-        if (pluginRuntimeManager.instanceAvailability(request.installationIdentity) != PluginInstanceAvailability.ACTIVE) {
-            return false
+        val identity = request.installationIdentity
+        return when (pluginRuntimeManager.instanceAvailability(identity)) {
+            PluginInstanceAvailability.INVALIDATED -> true
+            PluginInstanceAvailability.RESTORING,
+            PluginInstanceAvailability.UNAVAILABLE -> false
+            PluginInstanceAvailability.ACTIVE -> withActiveHandle(identity) { handle ->
+                handle.recordRunReceipt(identity, request.toReceipt(status, failureKind))
+                true
+            } ?: (pluginRuntimeManager.instanceAvailability(identity) == PluginInstanceAvailability.INVALIDATED)
         }
-        return withActiveHandle(request.installationIdentity) { handle ->
-            handle.recordRunReceipt(
-                request.installationIdentity,
-                request.toReceipt(status, failureKind),
-            )
-            true
-        } ?: false
     }
 
     private suspend fun mainUiAccess(

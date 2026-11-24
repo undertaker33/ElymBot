@@ -57,3 +57,8 @@ UTF-8 guard:
 - 从提交 `c970a26` 使用 `gradlew.bat :app:assembleDebug :app:assembleDebugAndroidTest --offline` 构建宿主和加入定向复验的测试 APK。基础 APK SHA-256 `EB2BB82813BF722EE8246F9A5B2C9504B0E58B6B3F5E84CEDC0229A3E8E453A5`，测试 APK SHA-256 `72346F6EA632E5F57885854F595CA53EEACCFF06E195D664B74279D2833811A8`。
 - 最终 AAR 的 `classes.jar` 用同一 D8 命令重打包，DEX JAR SHA-256 `07FD458EDF00C4DCC360AA18D2990EC31E5C0F1CBC05E91C4B4E34D83B7E5DED`。本地测试发布者签名的制品 SHA-256 `E9F1392B9F72F436D8830C8356114C0277A58A14490E0DB7641ECD9E235E51D2`。此前旧版测试制品保持原样。
 - 在 Android 15 x86_64 模拟器用 `am instrument -w -r -e t02ScheduleUiProbe true -e t02ScheduleProbe true` 定向运行两条 [Signed DEX 测试](../../../../app/src/androidTest/kotlin/com/elymbot/android/session/ScheduledTaskHostIntegrationTest.kt)，2/2 通过，无跳过。新版通过宿主验证加载，跳过引导在停用和重新启用后保留。旧版在新版宿主下仍经忙碌主会话排队、去重和 App 回复路径。正式页面、系统后台调度和外部目标投递另行验证。
+
+## 2026-11-24 · 旧安装的运行回执
+
+- 宿主保留已完成的轮次和投递结果。插件安装身份永久失效时，清除待交给旧插件的回执标记。插件正在恢复或者暂不可用时仍保留回执等待后续写回。用已签名插件覆盖停用前留下待交接回执、停用后保留原成功状态以及重新启用使用新安装身份。
+- MuMu Android 15 / x86_64 的 [ScheduledTaskHostIntegrationTest](../../../../app/src/androidTest/kotlin/com/elymbot/android/session/ScheduledTaskHostIntegrationTest.kt) 3/3 通过，无跳过，同一候选制品与媒体测试联跑 13/13。[联编制品摘要](W02-Android会话与投递-feedback.md#2026-11-24-平台媒体入站与账号复核) · [系统登记与补跑证据](W07-集成与验收-feedback.md)

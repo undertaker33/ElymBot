@@ -114,3 +114,18 @@ UTF-8 guard:
 - MuMu Android 15 / x86_64 跑定向仪器测试 11/11，0 跳过。四个 [PlatformHostSafetyTest](../../../../app/src/androidTest/kotlin/com/elymbot/android/session/PlatformHostSafetyTest.kt) 覆盖群 origin/target 和引用、设置写入后取消补偿、保留待清理授权标记、guest 交接取消清理。另通过三项签名定时任务宿主测试、三项设置与任务入口测试及真实中英文 Reply。
 - 同一 MuMu App 覆盖安装并打开后，Room 从 v5 迁移至 v6。迁移前后人格、轮次、消息、检查点、模型服务及文本分配的记录数相同。
 - 此切片提供平台文本入站、会话隔离、Room 出站和所有当前可见已授权目标的快照。平台媒体入口、剩余管理命令、合成多目标实际送达和 ARM64 真实 QQ 往返留作后续验收。
+
+## 2026-11-24 平台媒体入站与账号复核
+
+- Room v7 保留入站段顺序、稳定资源标识和投影状态。普通图片经当前账号、安装身份、D07 与会话授权后，从插件读入 App 私有目录，写入受单项和单消息限制，实际文件签名决定能否进入视觉路径。文字、图像仍可投影，音频、视频、文件及不支持的图像保留类型与状态。切换到不同账号后停止消费旧入站或发送旧目标，临时缺失账号时保留队列等待复核。
+- `gradlew.bat :app:assembleDebug :app:assembleDebugAndroidTest --offline --console=plain` 通过。MuMu Android 15 / x86_64 的 [PlatformHostSafetyTest](../../../../app/src/androidTest/kotlin/com/elymbot/android/session/PlatformHostSafetyTest.kt) 10/10 通过，无跳过，覆盖前置撤权不读、读取中撤权清理、文件签名、字节上限、取消清理、账号边界和保留旧入站记录。与签名定时任务宿主用例联跑共 13/13。App SHA-256 `F32F012C74F391B2AFDCE47D843C4F7ABD3ECE18BC1AA060C4E2C505197F1A54`，AndroidTest SHA-256 `484C5CEBBFE208FAE7F65DFA507D7EBA551E7AAE61D16F3019F9BFD908E0549F`。
+- 同一模拟器覆盖安装媒体候选 App 后从 v6 冷启动迁移至 v7，迁移前后的会话、检查点、模型服务、模型用途记录数量相同。合成旧库迁移另验证保留既有入站记录。合成媒体读取调用生产 reader，QQ 实际账号收发与群媒体端到端另行验收。
+
+## 2026-11-24 高审 P2 媒体清理与授权快照修复
+
+- `PlatformInboundMediaReader` 在成功导入后暂时持有文件所有权；后置授权拒绝、取消或图片签名不支持时，在 `NonCancellable` 清理未交给调用方的文件。调用插件复制前，在导入器的复制回调内紧邻 `handle.copyMedia` 再做授权复核。
+- `acceptPlatformInbound` 使用局部 `stillAuthorized`：Room 路由授权读取前同步检查安装实例、账号和设置 revision，读取后同步复核；重复记录查询后及最终持久化前均复用该检查。暂存资产的引用判定清理保留原有数据库查询，并在 `NonCancellable` 中完成。
+- `PlatformHostSafetyTest` 增加复制完成后阻塞在后置授权挂起点并取消的用例，断言暂存目录清空；原 reader 用例补充复制回调授权失效时不调用插件句柄的断言。
+- 本轮未运行 Gradle、仪器测试或设备操作。新增源码和用例待总控联编与定向复验；此前 2026-11-24 的 13/13 MuMu 结果不覆盖本轮改动。
+
+- 总控联编 App 和 AndroidTest，通过 MuMu Android 15 / x86_64 定向联跑 16/16，无跳过。11 项平台测试覆盖新增复制后取消、复制前二次撤权，另通过三项定时任务宿主测试、一项已完成轮次待发恢复和中断轮次/已发送状态校验，以及一项自动和手动版本检查。App SHA-256 `18BE0F03285F6FC7EC1C3F8C5B2E6BA200EE8F31DC6EE9DE2846AB4630FD0269`，AndroidTest SHA-256 `BF6ABD450788A066FBF8F5001CCD3AA978A18158093AEB7344CE68C0A61CED35`。
