@@ -133,6 +133,68 @@ class ReplyHostIntegrationTest {
     }
 
     @Test
+    fun newInputCancelsOlderPendingReplyAndKeepsDeliveredReplyOnce() {
+        val delivered = "prior-delivered-${UUID.randomUUID().toString().take(7)}"
+        val pending = "prior-pending-${UUID.randomUUID().toString().take(7)}"
+        val newReply = "new-turn-reply-${UUID.randomUUID().toString().take(7)}"
+        replyFixtureRule.server.prepare(
+            listOf(
+                ReplyItem(delivered, 0),
+                ReplyItem(pending, 30_000),
+            ),
+        )
+        replyFixtureRule.server.prepare(listOf(ReplyItem(newReply, 0)))
+
+        val firstPrompt = "prior-turn-${UUID.randomUUID().toString().take(8)}"
+        sendPromptThroughMainActivity(firstPrompt)
+        val session = replyFixtureRule.awaitSession(firstPrompt)
+        replyFixtureRule.server.awaitInitialRequest(0)
+        replyFixtureRule.server.awaitFollowUpRequest(0)
+        replyFixtureRule.server.releaseFinalResponse(0)
+        val firstTurn = replyFixtureRule.awaitCompleted(session.id)
+        replyFixtureRule.awaitDeliveryStatusForText(session.id, firstTurn.sequence, delivered, "DELIVERED")
+        replyFixtureRule.awaitDeliveryStatusForText(session.id, firstTurn.sequence, pending, "PENDING")
+        waitForText(activityRule, delivered)
+        assertNoText(activityRule, pending)
+
+        val nextPrompt = "next-turn-${UUID.randomUUID().toString().take(8)}"
+        activityRule.onNodeWithContentDescription(activityRule.activity.getString(R.string.elym_type_message))
+            .performTextInput(nextPrompt)
+        activityRule.onNodeWithContentDescription(activityRule.activity.getString(R.string.elym_send)).performClick()
+
+        val secondRequest = replyFixtureRule.server.awaitInitialRequest(1)
+        assertTrue("The next turn must use the current conversation", secondRequest.contains(nextPrompt))
+        assertTrue("Previously delivered Reply remains available to history", secondRequest.contains(delivered))
+        assertEquals(1, Regex(Regex.escape(delivered)).findAll(secondRequest).count())
+        assertFalse("Canceled pending Reply must not enter the next model request", secondRequest.contains(pending))
+        replyFixtureRule.awaitDeliveryStatusForText(session.id, firstTurn.sequence, pending, "CANCELLED")
+        assertEquals("DELIVERED", replyFixtureRule.deliveryStatusForText(session.id, firstTurn.sequence, delivered))
+
+        replyFixtureRule.server.awaitFollowUpRequest(1)
+        replyFixtureRule.server.releaseFinalResponse(1)
+        val secondTurn = replyFixtureRule.awaitCompleted(session.id)
+        assertEquals(firstTurn.sequence + 1, secondTurn.sequence)
+        waitForText(activityRule, newReply)
+
+        val firstAssistantRows = replyFixtureRule.messages(session.id, firstTurn.sequence)
+            .filter { it.message.role == "ASSISTANT" }
+        assertEquals(listOf(delivered, pending), firstAssistantRows.map { it.message.text })
+        assertEquals(
+            "DELIVERED",
+            replyFixtureRule.deliveryStatus(firstAssistantRows.single { it.message.text == delivered }.message.id),
+        )
+        assertEquals(
+            "CANCELLED",
+            replyFixtureRule.deliveryStatus(firstAssistantRows.single { it.message.text == pending }.message.id),
+        )
+        val history = replyFixtureRule.history(session.id, secondTurn.sequence)
+        assertEquals(1, history.count { it.text == delivered })
+        assertFalse(history.any { it.text == pending })
+        assertEquals(4, replyFixtureRule.server.receivedRequests)
+        assertMessageOrder(delivered, newReply)
+    }
+
+    @Test
     fun oneDelayedReplyReleasesAtItsDeadlineWithoutAnotherModelOrUserWrite() {
         val first = "first-immediate-${UUID.randomUUID().toString().take(7)}"
         val text = "single-delayed-${UUID.randomUUID().toString().take(8)}"
