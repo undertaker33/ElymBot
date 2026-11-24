@@ -64,6 +64,7 @@ private enum class Page(val title: Int, val icon: Int) {
     Gallery(R.string.elym_persona, R.drawable.elym_person),
     Models(R.string.elym_config, R.drawable.elym_sliders),
     Platform(R.string.elym_platform, R.drawable.elym_platform),
+    Qq(R.string.elym_plugin_qq, R.drawable.elym_platform),
     Plugins(R.string.elym_plugins, R.drawable.elym_plugin),
     Settings(R.string.elym_settings, R.drawable.elym_settings),
     About(R.string.elym_about, R.drawable.elym_settings),
@@ -90,6 +91,7 @@ private data class Destination(
                 Page.Chat -> if (sessionId == null) 1 else sessionsDepth + 1
                 Page.Sessions -> sessionsDepth
                 Page.About, Page.Faq -> 1
+                Page.Qq -> 1 + backPages.size
                 Page.AppSetup -> 1 + backPages.size
                 Page.ScheduledTasks -> 2
                 else -> 0
@@ -103,6 +105,7 @@ private data class Destination(
         Page.Chat -> if (sessionId == null) Destination() else copy(page = Page.Sessions, sessionId = null, title = "")
         Page.Sessions -> if (mainId == null) Destination() else copy(page = Page.Chat, ownerId = null)
         Page.About, Page.Faq -> Destination(Page.Settings)
+        Page.Qq -> Destination(Page.Platform)
         Page.ScheduledTasks -> Destination(Page.Chat, mainId = mainId)
         else -> Destination()
     }
@@ -144,6 +147,12 @@ internal fun ElymBotApp(
     val tasksAvailable by tasksAvailability.collectAsStateWithLifecycle(false)
     val appUpdate by service.appUpdate.collectAsStateWithLifecycle(AppUpdateState())
     val pluginManagement by service.pluginManagement.collectAsStateWithLifecycle(initialValue = null)
+    val platformState by key(service, mainId) {
+        val updates = remember { mainId?.let(service::platformConnections) ?: flowOf<PlatformConnectionsState?>(null) }
+        updates.collectAsStateWithLifecycle(initialValue = null)
+    }
+    val qqConnection = platformState?.takeIf { it.authorized }?.connections
+        ?.firstOrNull { it.pluginId == QqPluginId && it.availability != PlatformAvailability.NotInstalled }
     var dismissedUpdateId by rememberSaveable { mutableStateOf<String?>(null) }
     var requestedUpdateId by rememberSaveable { mutableStateOf<String?>(null) }
     val availableUpdate = appUpdate.availableUpdate?.takeIf { appUpdate.status == AppUpdateUiStatus.UpdateAvailable }
@@ -268,6 +277,7 @@ internal fun ElymBotApp(
                                         put(FaqAction.Setup, R.string.elym_faq_open_setup)
                                         put(FaqAction.Models, R.string.elym_faq_open_models)
                                         if (pluginManagement != null) put(FaqAction.Plugins, R.string.elym_faq_open_plugins)
+                                        if (qqConnection != null) put(FaqAction.Qq, R.string.elym_faq_open_qq)
                                         if (mainId != null && tasksAvailable) put(FaqAction.Tasks, R.string.elym_faq_open_tasks)
                                     },
                                 ) { action ->
@@ -285,6 +295,9 @@ internal fun ElymBotApp(
                                             FaqAction.Plugins -> pluginManagement?.let {
                                                 faqPluginTab = PluginTab.Installed
                                                 Destination(Page.Plugins, backPages = faqBack)
+                                            }
+                                            FaqAction.Qq -> mainId?.takeIf { qqConnection != null }?.let {
+                                                Destination(Page.Qq, mainId = it, backPages = faqBack)
                                             }
                                             else -> null
                                         }
@@ -321,15 +334,22 @@ internal fun ElymBotApp(
                                     onBack = backFromScreen.takeIf { fromFaq })
                             }
                             Page.Platform -> stateHolder.SaveableStateProvider(screen.key) {
-                                PrimaryPage(screen.page.title, current, footerClearance) { query, clearance ->
-                                    Box(Modifier.padding(clearance)) {
-                                        EmptyMessage(
-                                            stringResource(if (!query.isNullOrEmpty()) R.string.elym_no_search_results else R.string.elym_no_platforms),
-                                            screen.page.icon,
-                                        )
-                                    }
-                                }
+                                PlatformPage(
+                                    platformState, current, footerClearance,
+                                    onQq = { if (current && mainId != null && qqConnection != null) navigate(Destination(Page.Qq, mainId = mainId)) },
+                                    onPlugins = if (pluginManagement != null) ({ if (current) navigate(Destination(Page.Plugins)) }) else null,
+                                )
                             }
+                            Page.Qq -> QqPlatformPage(
+                                model, mainId?.takeIf { it == screen.mainId }, qqConnection?.takeIf { mainId == screen.mainId },
+                                current, backFromScreen,
+                                onPlugins = if (pluginManagement != null) ({
+                                    if (current) {
+                                        dockPluginTab = PluginTab.Installed
+                                        navigate(Destination(Page.Plugins))
+                                    }
+                                }) else null,
+                            )
                             Page.ScheduledTasks -> screen.mainId?.let { id ->
                                 ScheduledTasksPage(model, id, active?.name.orEmpty(), current, id == mainId && tasksAvailable, backFromScreen)
                             }
@@ -361,6 +381,7 @@ internal fun ElymBotApp(
             var selectedRoot by remember {
                 mutableStateOf(destination.page.takeIf { destination.depth == 0 } ?: when (destination.page) {
                     Page.About, Page.Faq -> Page.Settings
+                    Page.Qq -> if (destination.backPages.isEmpty()) Page.Platform else Page.Settings
                     Page.AppSetup -> destination.backPages.lastOrNull()?.let { Page.Settings } ?: Page.Gallery
                     else -> Page.Gallery
                 })

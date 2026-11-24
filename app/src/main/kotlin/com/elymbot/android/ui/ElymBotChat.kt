@@ -48,7 +48,9 @@ internal fun ChatPage(
     onOpenTasks: (() -> Unit)? = null,
 ) {
     val service = model.service
-    val conversation by remember(id) { service.conversation(id) }.collectAsStateWithLifecycle(Conversation())
+    val observedConversation by remember(id) { service.conversation(id) }.collectAsStateWithLifecycle(initialValue = null)
+    val conversation = observedConversation ?: Conversation()
+    val writable = current && observedConversation?.readOnly == false
     val sessionList by remember(persona.id, main) {
         if (main) kotlinx.coroutines.flow.flowOf(emptyList()) else service.sessions(persona.id)
     }.collectAsStateWithLifecycle(emptyList())
@@ -67,7 +69,7 @@ internal fun ChatPage(
     var confirmationId by rememberSaveable(id) { mutableStateOf<String?>(null) }
     var confirmingTask by remember(id) { mutableStateOf(false) }
     var taskIssue by remember(id) { mutableStateOf<ScheduledTaskRejection?>(null) }
-    val canUseTasks = current && main && onOpenTasks != null
+    val canUseTasks = writable && main && onOpenTasks != null
     val taskState by key(id, canUseTasks) {
         val updates = remember {
             if (canUseTasks) service.scheduledTaskUiState(id)
@@ -102,7 +104,7 @@ internal fun ChatPage(
     val replyFade = tween<Float>(PrimaryMotion.FadeMillis, easing = PrimaryMotion.Fade)
     val revealedSend = pendingSendScroll?.takeIf { it.hasNewEcho(conversation.messages) }
     fun stopReply() {
-        if (!current || stopping) return
+        if (!writable || stopping) return
         stopping = true
         model.perform {
             try {
@@ -113,10 +115,10 @@ internal fun ChatPage(
         }
     }
     fun retryDelivery(messageId: String, deliveryId: String) {
-        if (current) model.perform { service.retryDelivery(messageId, deliveryId) }
+        if (writable) model.perform { service.retryDelivery(messageId, deliveryId) }
     }
     fun submit(text: String, attachment: Uri?) {
-        if (!current || submitting || stopping) return
+        if (!writable || submitting || stopping) return
         val sentDraft = SentDraft(text, attachment != null).watchNewEcho(conversation.messages, pendingSendScroll)
         submitting = true
         model.perform {
@@ -150,7 +152,7 @@ internal fun ChatPage(
                 Modifier.weight(1f).padding(start = 4.dp), color = Ink, fontSize = 19.sp, fontWeight = FontWeight.Bold,
                 maxLines = 1, overflow = TextOverflow.Ellipsis,
             )
-            Box {
+            if (writable) Box {
                 RoundAction(R.drawable.elym_more, stringResource(R.string.elym_chat_menu), { menu = true })
                 DropdownMenu(current && menu, { menu = false }, containerColor = SurfaceColor, shape = RoundedCornerShape(16.dp)) {
                     if (main) {
@@ -200,7 +202,8 @@ internal fun ChatPage(
                         modifier = if (message.assistant && message.deliveryTargets.isNotEmpty()) {
                             Modifier.animateItem(fadeInSpec = replyFade, placementSpec = null, fadeOutSpec = null)
                         } else Modifier,
-                    ) { deliveryId -> retryDelivery(message.id, deliveryId) }
+                        onRetryDelivery = if (writable) ({ deliveryId -> retryDelivery(message.id, deliveryId) }) else null,
+                    )
                 }
                 items(receipts, key = { "detached:${it.id}" }) { receipt ->
                     ReplyDeliveryStatusLine(receipt.channelId, receipt.conversationId, receipt.status)
@@ -208,7 +211,7 @@ internal fun ChatPage(
                 items(pending, key = { "unreleased:${it.id}" }) { delivery ->
                     ReplyDeliveryStatusLine(
                         delivery.channelId, delivery.conversationId, delivery.status,
-                        onRetry = if (delivery.status == ChatDeliveryStatus.Failed) {
+                        onRetry = if (writable && delivery.status == ChatDeliveryStatus.Failed) {
                             { retryDelivery(delivery.messageId, delivery.id) }
                         } else null,
                     )
@@ -235,14 +238,18 @@ internal fun ChatPage(
                         ) {
                             Text(stringResource(R.string.elym_reply_failed), color = Accent, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                             Text(stringResource(issueLabel(issue)), color = Accent, fontSize = 13.sp)
-                            if (conversation.canRetry) Action(stringResource(R.string.elym_retry), { model.perform { service.retry(id) } })
+                            if (writable && conversation.canRetry) Action(stringResource(R.string.elym_retry), { model.perform { service.retry(id) } })
                         }
                     }
                 }
                 item { Spacer(Modifier.height(1.dp)) }
             }
         }) {
-            Surface(
+            if (!writable) Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                if (conversation.readOnly) {
+                    Text(stringResource(R.string.elym_qq_read_only), Modifier.padding(10.dp), color = Muted, fontSize = 13.sp)
+                }
+            } else Surface(
                 Modifier.fillMaxWidth().padding(horizontal = FloatingComposerHorizontalMargin, vertical = 8.dp),
                 shape = RoundedCornerShape(24.dp),
                 color = PaperTop,
@@ -286,7 +293,7 @@ internal fun ChatPage(
         }
     }
 
-    if (current && showMissingMainModel) AlertDialog(
+    if (writable && showMissingMainModel) AlertDialog(
         onDismissRequest = { showMissingMainModel = false },
         text = { Text(stringResource(R.string.elym_main_missing)) },
         confirmButton = {
@@ -320,7 +327,7 @@ internal fun ChatPage(
         )
     }
 
-    if (current && chooseSessions) Sheet(stringResource(R.string.elym_choose_persona), { chooseSessions = false }) {
+    if (writable && chooseSessions) Sheet(stringResource(R.string.elym_choose_persona), { chooseSessions = false }) {
         Group {
             personas.filter { it.id != persona.id }.forEachIndexed { index, item ->
                 if (index > 0) HorizontalDivider(color = Line)
@@ -328,13 +335,13 @@ internal fun ChatPage(
             }
         }
     }
-    if (current && rename) RenameSession(displayTitle, { rename = false }) { edited ->
+    if (writable && rename) RenameSession(displayTitle, { rename = false }) { edited ->
         model.perform { service.renameSession(id, edited); onRename(edited); rename = false }
     }
-    if (current && showCheckpoints) {
+    if (writable && showCheckpoints) {
         CheckpointsSheet(model, id, conversation.generating, { showCheckpoints = false })
     }
-    if (current && delete) ConfirmSessionDelete(
+    if (writable && delete) ConfirmSessionDelete(
         conversation.generating, stringResource(R.string.elym_confirm_session, displayTitle), { delete = false },
     ) { model.perform { service.deleteSessions(persona.id, setOf(id)); delete = false; back() } }
 }

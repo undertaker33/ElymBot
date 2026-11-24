@@ -58,7 +58,7 @@ internal fun MessageBubble(
     message: ChatMessage,
     persona: String,
     modifier: Modifier = Modifier,
-    onRetryDelivery: (String) -> Unit,
+    onRetryDelivery: ((String) -> Unit)?,
 ) {
     val shape = if (message.assistant) RoundedCornerShape(6.dp, 16.dp, 16.dp, 16.dp) else RoundedCornerShape(16.dp, 6.dp, 16.dp, 16.dp)
     Column(
@@ -87,7 +87,7 @@ internal fun MessageBubble(
             if (target.channelId != null || target.status != ChatDeliveryStatus.Delivered) {
                 ReplyDeliveryStatusLine(
                     target.channelId, target.conversationId, target.status,
-                    onRetry = if (target.status == ChatDeliveryStatus.Failed) {
+                    onRetry = if (target.status == ChatDeliveryStatus.Failed && onRetryDelivery != null) {
                         { onRetryDelivery(target.id) }
                     } else null,
                 )

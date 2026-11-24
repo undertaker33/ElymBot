@@ -55,10 +55,12 @@ internal fun SessionsPage(
                 Text(persona.name, color = Muted, fontSize = 12.sp)
             }
             if (sessions.isNotEmpty()) {
-                TextButton(onClick = {
-                    editing = !editing
-                    selection = emptySet()
-                }) { Text(stringResource(if (editing) R.string.elym_cancel else R.string.elym_select)) }
+                if (editing || sessions.any { !it.readOnly }) {
+                    TextButton(onClick = {
+                        editing = !editing
+                        selection = emptySet()
+                    }) { Text(stringResource(if (editing) R.string.elym_cancel else R.string.elym_select)) }
+                }
                 if (!editing) RoundAction(R.drawable.elym_plus, stringResource(R.string.elym_new_session), create, primary = true)
             }
             if (managePersona && !editing) {
@@ -110,16 +112,19 @@ internal fun SessionsPage(
                         val chosen = session.id in selection
                         val toggle = { selection = if (chosen) selection - session.id else selection + session.id }
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            if (editing) Checkbox(chosen, { toggle() }, enabled = !session.running, modifier = Modifier.semanticsLabel(session.title))
+                            val canEdit = !session.running && !session.readOnly
+                            if (editing) Checkbox(chosen, { toggle() }, enabled = canEdit, modifier = Modifier.semanticsLabel(session.title))
                             ListRow(
                                 session.title, R.drawable.elym_chat,
-                                { if (editing) { if (!session.running) toggle() } else open(session.id, session.title) },
+                                { if (editing) { if (canEdit) toggle() } else open(session.id, session.title) },
                                 Modifier.weight(1f),
                                 subtitle = if (session.running) stringResource(R.string.elym_generating) else session.preview ?: stringResource(R.string.elym_image_message),
                                 badge = if (session.unread) stringResource(R.string.elym_unread) else null,
                                 trailing = false,
                             )
-                            if (!editing) RoundAction(R.drawable.elym_more, stringResource(R.string.elym_session_menu, session.title), { options = session })
+                            if (!editing && !session.readOnly) {
+                                RoundAction(R.drawable.elym_more, stringResource(R.string.elym_session_menu, session.title), { options = session })
+                            }
                         }
                     }
                 }

@@ -499,6 +499,7 @@ internal fun issueLabel(issue: UiIssue): Int = when (issue) {
     UiIssue.OwnedSessions -> R.string.elym_owned_sessions
     UiIssue.InvalidInput -> R.string.elym_invalid_input
     UiIssue.NoCheckpointBoundary -> R.string.elym_command_no_mark_boundary
+    UiIssue.ReadOnlyConversation -> R.string.elym_qq_read_only
     UiIssue.Failed -> R.string.elym_failed
 }
 

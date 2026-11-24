@@ -79,8 +79,25 @@
 - App 与测试 APK 联编通过。MuMu 中 `pausedTaskCanRunManually` 通过，`activityRecreationCleansAnUnhandedUpdateTicket` 超时。原结果只到协程超时栈，无法从日志判断卡在下载进入还是清理回执。
 - 重建夹具使用 Compose 测试等候器驱动调度，分别等待下载进入、旧 composition 释放和未交系统票据回收。同步核对所有权，宿主清理准备过程中取消的文件，界面在收到票据后只负责清理未交给安装器的票据。测试调整后的复验由总控进行。 [定向测试](../../../../app/src/androidTest/kotlin/com/elymbot/android/TaskAndUpdateLifecycleTest.kt)
 - 总控在同一 App APK `0DEC37D7CF4A539A70777879813F3BA66267BB0D1AC30D8E8F5074BF6456D116` 上重编测试 APK，并用 MuMu 定向复验 `TaskAndUpdateLifecycleTest#activityRecreationCleansAnUnhandedUpdateTicket`，1/1 通过且无跳过，测试 APK 为 `9972A3D4A582B0EAB5C83DE2D59F88B368529AE083975D08327FDA735CDB4545`。沿用先前测试 APK `F3B8CFD8548C06890878504FDAB603B9E2D9548D2BAED9CAC4B51BCCF28BF3BF` 的 `pausedTaskCanRunManually` 通过结果。两项测试分别覆盖合成下载票据回收及暂停态任务按钮，真实签名更新、系统安装和实际插件的任务端到端仍待验。
+
+## 2026-11-24 QQ 平台与会话
+
+- 底栏「平台」显示已安装 QQ 的真实可用性、账号与连接状态。详情操作由当前 App 主会话授权及插件状态门禁控制，支持启动、停止、刷新登录码、重连、退出和绑定用户指定的私聊。FAQ 在有真实 QQ 详情时提供入口。 [平台页](../../../../app/src/main/kotlin/com/elymbot/android/ui/ElymBotPlatforms.kt) · [App 导航](../../../../app/src/main/kotlin/com/elymbot/android/ui/ElymBotApp.kt)
+- 登录采用 QQ 插件本地生成的只读模块矩阵。App 按整数像素绘制并留四格静区，随当前页面、运行状态和挑战更新移除，若提供有效期则到期移除。接入规则编辑使用真实快照和 revision，覆盖准入、唤醒与触发、公开群聊历史、命令别名及限频。 [规则编辑](../../../../app/src/main/kotlin/com/elymbot/android/ui/QqPolicyEditor.kt)
+- App 可从专属会话列表进入外部会话并查看已有消息，来自宿主的只读标记关闭输入、会话编辑和 Reply 重试。`QqPlatformUiTest` 覆盖合成登录挑战在连接状态变化后移除，以及外部对话历史可显示且写入口关闭。 [聊天页](../../../../app/src/main/kotlin/com/elymbot/android/ui/ElymBotChat.kt) · [定向测试](../../../../app/src/androidTest/kotlin/com/elymbot/android/QqPlatformUiTest.kt)
+- 源码差异、66 个 QQ/平台双语资源键、145 个界面资源引用、UTF-8、围栏和 35 个文档链接通过。合成页面测试待总控联编后执行。受支持 ARM64 真机的插件安装、实际二维码扫描、OneBot 私聊与群聊、断线重连及引导恢复仍按 A06–A09、A17 实测记录。
+
+### W08 文案复核
+
+- 群聊开关改为「回复仅 @ 机器人的群消息」。它对应无正文且 @ 当前账号的触发条件，命令与唤醒仍遵循原规则。新增定向测试，点击并保存后核对仅 `replyOnAtOnlyEnabled` 从关闭变为开启，版本与其他设置保持原值。静态差异与双语资源检查通过，测试待总控执行。 [定向测试](../../../../app/src/androidTest/kotlin/com/elymbot/android/QqPlatformUiTest.kt)
+- App 联编发现宿主新增的 `ReadOnlyConversation` 尚未映射。界面复用中英「只读会话」资源，此轮由总控待重编。合成页面测试及真实 QQ 验收仍待执行。 [错误文案映射](../../../../app/src/main/kotlin/com/elymbot/android/ui/ElymBotComponents.kt)
 ## 2026-11-23 MuMu 设置帮助入口复验
 
 - `gradlew.bat :app:assembleDebug :app:assembleDebugAndroidTest --offline --console=plain` 通过。Android 15 / API 35 MuMu 使用 App SHA-256 `46A8CC4DFBE6485D36E82DDEDE6B364F26468B28FBFC53DEFA2C30ECD96B42EF`、AndroidTest SHA-256 `FCB103B160C478313738E51FCC34C76C46B730EEBE957F5E0582C148F54FE1AA`，覆盖安装后冷启动成功。
 - 正常动画下 `FaqSettingsTest` 和 `AboutSettingsTest` 通过。验证 FAQ 和关于两行同卡相邻、搜索可单独筛选、FAQ 只显示可跳转条目、返回保留 FAQ 内容状态、再次打开模型配置仍进入模型分类，以及底栏独立保留分类。覆盖首次配置从 FAQ 打开、跳过和重新打开。
 - 关闭动画后 `FaqSettingsTest` 同一用例再次通过。测试后模拟器动画缩放恢复为原值。插件、平台、任务页面及相关 FAQ 入口继续随正式能力接入验收。
+
+## 2026-11-24 平台页面联编
+
+- App 与 AndroidTest 联编通过，已包含 [QQ 合成页面用例](../../../../app/src/androidTest/kotlin/com/elymbot/android/QqPlatformUiTest.kt)。App APK SHA-256 `1C3D53993B2C631F6CF238A3571AC78F3F5F077D227A8B864909B201D2F43726`，AndroidTest APK SHA-256 `F3EC14756F2DBA91DE5A8685683E27EE16720FC36A251D78FA1BA58F7C62E045`。
+- MuMu 的 FAQ、关于、主会话任务入口三项回归通过。QQ 专项页面用例已编译，扫码、连接、规则和外部会话视图的设备验收仍待执行。

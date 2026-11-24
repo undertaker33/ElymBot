@@ -213,7 +213,7 @@
     <string name="elym_faq_plugins_question">安装后在哪里管理插件？</string>
     <string name="elym_faq_plugins_answer">在插件页切换到「已安装」，可查看版本与启用状态。</string>
     <string name="elym_faq_qq_question">在哪里进行 QQ 首次配置？</string>
-    <string name="elym_faq_qq_answer">从平台页进入 QQ。点击「一键启动」后，在出现二维码时扫码登录。</string>
+    <string name="elym_faq_qq_answer">启用 QQ 插件后，从底栏「平台」进入 QQ。选择「启动 QQ」，在出现二维码时用手机 QQ 扫码。</string>
     <string name="elym_faq_tasks_question">在哪里创建定时任务？</string>
     <string name="elym_faq_tasks_answer">打开 App 主会话的菜单，进入「定时任务」。</string>
     <string name="elym_guide_title">首次配置</string>
