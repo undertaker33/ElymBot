@@ -68,3 +68,4 @@
 - 总控在冻结源码上运行 `gradlew.bat :plugins:qq:testDebugUnitTest :plugins:qq:assembleDebug --offline --console=plain`，JVM 33/33 通过、0 跳过。Debug AAR SHA-256 为 `BA0A76985787DCDD30D8F459CD8C466171C7390FCD8807331BD180CCAE952148`。
 - 用 W03 打包入口及本地测试签名者构建 ARM64 签名插件，内层 JAR 65,714,944 bytes，低于 64 MiB 单文件上限。外层文件 65,715,793 bytes，SHA-256 `1BB4AFD992257417F6AE2DF9209F6B61F7A5C7235868DCAEF9D2757E013A833C`。核对内层 `classes.dex`、`runtime/root_launcher.sh`、`runtime/ubuntu-rootfs.tar.xz` 及嵌入 rootfs 的已固定摘要。
 - 依赖图确认 ZXing Core 3.5.3 只由 QQ 提供，基础 App debug runtime 图无 QQ 模块和 ZXing。复审关闭三项 P2；QQ 管理命令专项及真实 ARM64 扫码、登录和消息往返仍待验收。
+- Windows 默认 `core.autocrlf=true` 会改写按原始字节核验的启动脚本。为该脚本固定 LF，使用 `git -c core.autocrlf=true checkout-index` 定向复验，检出文件摘要为已验证的 `B67C6AFBFB2764C4E609D2E2F2B4E5CACA0150E77DAE342DD8F5A0512DD34C64`。
