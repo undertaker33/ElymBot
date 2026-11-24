@@ -28,7 +28,11 @@ class ReplyToolSource(
     override val definition = ToolDefinition(
         id = "core.reply",
         name = TOOL_NAME,
-        description = "Queue one or more user-visible text messages. Use this tool for every reply to the user; it does not end the turn.",
+        description = "Queue user-visible text messages without ending the turn. " +
+            "Prefer one complete message for a simple answer; split only when distinct semantic beats need separate delivery. " +
+            "Ordinary continuations should stay together or use no or a brief suggested pause; suggest a longer pause only for emphasis or a topic change. " +
+            "The host adds a bounded text-length-based typing interval to later messages. " +
+            "The first message should normally request no delay.",
         parametersJsonSchema = PARAMETERS_SCHEMA,
         scopes = setOf(ToolScope.MAIN_SESSION, ToolScope.PERSONA_SESSION),
     )
@@ -125,7 +129,12 @@ class ReplyToolSource(
                     "type": "object",
                     "properties": {
                       "text": {"type": "string", "minLength": 1, "maxLength": 4000},
-                      "delayMillis": {"type": "integer", "minimum": 0, "maximum": 30000}
+                      "delayMillis": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 30000,
+                        "description": "Additional pause after the host's length-based typing interval. Use no or a brief pause for ordinary continuation; use a longer pause only for emphasis or a topic change."
+                      }
                     },
                     "required": ["text", "delayMillis"],
                     "additionalProperties": false

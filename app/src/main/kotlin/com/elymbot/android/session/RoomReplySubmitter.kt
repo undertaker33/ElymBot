@@ -9,6 +9,7 @@ import com.elymbot.android.data.ReplyDeliveryTargetKind
 import com.elymbot.android.data.ReplySubmissionEntity
 import com.elymbot.core.contract.MessageRoute
 import com.elymbot.core.contract.ReplyFailureCode
+import com.elymbot.core.contract.ReplyMessage
 import com.elymbot.core.contract.ReplyRejectionCode
 import com.elymbot.core.contract.ReplySubmission
 import com.elymbot.core.contract.ReplySubmissionContext
@@ -98,11 +99,18 @@ internal class RoomReplySubmitter(
                     return@withTransaction ReplySubmissionResult.Rejected(ReplyRejectionCode.INVALID_REQUEST)
                 }
 
+                var previousPlannedAt = database.replySubmissionDao().lastHistoryGateAvailableAtForExecution(
+                    sessionId = context.sessionId,
+                    turnSequence = context.turnSequence,
+                    executionId = context.executionId,
+                    attemptId = context.attemptId,
+                )
                 val acceptedAt = now()
-                var availableAt = acceptedAt
                 val messageIds = mutableListOf<String>()
                 submission.messages.forEachIndexed { ordinal, reply ->
-                    availableAt = Math.addExact(availableAt, reply.suggestedDelayMillis)
+                    val delayMillis = reply.plannedDelayMillis(isInitialMessage = previousPlannedAt == null && ordinal == 0)
+                    val plannedAt = Math.addExact(previousPlannedAt ?: acceptedAt, delayMillis)
+                    val availableAt = if (ordinal == 0) maxOf(acceptedAt, plannedAt) else plannedAt
                     val messageId = UUID.randomUUID().toString()
                     val messageIndex = database.messageDao().nextIndex(context.sessionId, context.turnSequence)
                     database.messageDao().insert(
@@ -145,6 +153,7 @@ internal class RoomReplySubmitter(
                         },
                     )
                     messageIds += messageId
+                    previousPlannedAt = availableAt
                 }
                 ReplySubmissionResult.Accepted(messageIds)
             }
@@ -185,6 +194,44 @@ internal class RoomReplySubmitter(
             context.toolCallId.isNotBlank() && messages.isNotEmpty() &&
             messages.all { it.text.isNotBlank() && it.suggestedDelayMillis >= 0 }
     }
+
+    private fun ReplyMessage.plannedDelayMillis(isInitialMessage: Boolean): Long {
+        if (isInitialMessage) return suggestedDelayMillis.coerceAtMost(MAX_REPLY_SEGMENT_DELAY_MILLIS)
+
+        val typingBaseline = typingBaselineMillis(text)
+        val suggestedPause = suggestedDelayMillis.coerceAtMost(MAX_REPLY_SEGMENT_DELAY_MILLIS - typingBaseline)
+        return typingBaseline + suggestedPause
+    }
+
+    private fun typingBaselineMillis(text: String): Long {
+        var hanCharacters = 0L
+        var westernWords = 0L
+        var inWesternWord = false
+        var index = 0
+        while (index < text.length) {
+            val codePoint = text.codePointAt(index)
+            if (codePoint.isHanIdeograph()) {
+                hanCharacters += 1
+                inWesternWord = false
+            } else if (Character.isLetterOrDigit(codePoint)) {
+                if (!inWesternWord) westernWords += 1
+                inWesternWord = true
+            } else {
+                inWesternWord = false
+            }
+            index += Character.charCount(codePoint)
+        }
+
+        val estimatedMillis = hanCharacters * HAN_TYPING_MILLIS_PER_CHARACTER +
+            westernWords * WESTERN_TYPING_MILLIS_PER_WORD
+        return estimatedMillis.coerceIn(MIN_TYPING_BASELINE_MILLIS, MAX_TYPING_BASELINE_MILLIS)
+    }
+
+    private fun Int.isHanIdeograph(): Boolean =
+        this in 0x3400..0x4DBF ||
+            this in 0x4E00..0x9FFF ||
+            this in 0xF900..0xFAFF ||
+            this in 0x20000..0x323AF
 
     private fun ReplyTargetSnapshot.isValid(): Boolean {
         if (targets.isEmpty() || historyVisibilityTargetKey.isBlank()) return false
@@ -236,5 +283,10 @@ internal class RoomReplySubmitter(
         const val RUNNING = "RUNNING"
         const val MESSAGE_ROLE_ASSISTANT = "ASSISTANT"
         const val MESSAGE_CATEGORY_HISTORY = "HISTORY"
+        const val MAX_REPLY_SEGMENT_DELAY_MILLIS = 30_000L
+        const val MIN_TYPING_BASELINE_MILLIS = 180L
+        const val HAN_TYPING_MILLIS_PER_CHARACTER = 55L
+        const val WESTERN_TYPING_MILLIS_PER_WORD = 160L
+        const val MAX_TYPING_BASELINE_MILLIS = 3_200L
     }
 }

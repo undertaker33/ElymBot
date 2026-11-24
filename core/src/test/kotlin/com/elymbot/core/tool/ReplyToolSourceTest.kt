@@ -21,6 +21,24 @@ import org.junit.Test
 
 class ReplyToolSourceTest {
     @Test
+    fun describesSemanticSplittingAndSuggestedPauseGuidance() {
+        val definition = ReplyToolSource(
+            ReplySubmitter { ReplySubmissionResult.Accepted(emptyList()) },
+        ).definition
+
+        assertTrue(definition.description.contains("one complete message for a simple answer"))
+        assertTrue(definition.description.contains("distinct semantic beats need separate delivery"))
+        assertTrue(definition.description.contains("Ordinary continuations"))
+        assertTrue(definition.description.contains("emphasis or a topic change"))
+        assertTrue(definition.description.contains("first message should normally request no delay"))
+        assertTrue(
+            definition.parametersJsonSchema.contains(
+                "Additional pause after the host's length-based typing interval",
+            ),
+        )
+    }
+
+    @Test
     fun rejectsAggregateMessageTextAboveConfiguredLimitBeforeSubmission() = runBlocking {
         var submissions = 0
         val source = ReplyToolSource(

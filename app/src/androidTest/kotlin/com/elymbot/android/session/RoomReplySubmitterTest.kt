@@ -161,6 +161,92 @@ class RoomReplySubmitterTest {
     }
 
     @Test
+    fun laterMessagesUseLengthAndSuggestedPauseWithOneScheduleForEveryTarget() = runBlocking {
+        val database = newDatabase()
+        try {
+            val turn = seedRunningTurn(database, sequence = 1)
+            val clock = 1_000_000L
+            val submitter = RoomReplySubmitter(database, externalTargets("origin", "mirror"), now = { clock })
+            val messages = listOf(
+                ReplyMessage("opening", suggestedDelayMillis = 250L),
+                ReplyMessage("ordinary continuation", suggestedDelayMillis = 1_000L),
+                ReplyMessage("这是一段较长的中文回复内容。".repeat(12), suggestedDelayMillis = 0L),
+                ReplyMessage("one more thought", suggestedDelayMillis = 30_000L),
+            )
+
+            val accepted = submitter.submit(
+                submission(turn, callOrdinal = 0, messages = emptyList()).copy(messages = messages),
+            ) as ReplySubmissionResult.Accepted
+            val plannedAt = accepted.messageIds.map { messageId ->
+                database.replyDeliveryDao().forMessage(messageId)
+                    .single { it.historyVisibilityGate }
+                    .availableAtEpochMillis
+            }
+
+            assertEquals(clock + 250L, plannedAt[0])
+            assertTrue(plannedAt[1] - plannedAt[0] > 1_000L)
+            assertTrue(plannedAt[2] - plannedAt[1] > plannedAt[1] - plannedAt[0])
+            assertTrue(plannedAt[3] - plannedAt[2] in 1L..30_000L)
+            for (messageId in accepted.messageIds) {
+                val targets = database.replyDeliveryDao().forMessage(messageId)
+                assertEquals(2, targets.size)
+                assertEquals(1, targets.map { it.availableAtEpochMillis }.distinct().size)
+            }
+            assertEquals(
+                accepted.messageIds,
+                database.messageDao().forTurn(turn.sessionId, turn.sequence)
+                    .filter { it.message.role == "ASSISTANT" }
+                    .map { it.message.id },
+            )
+        } finally {
+            database.close()
+        }
+    }
+
+    @Test
+    fun laterReplyCallsContinuePersistedOrderAndElapsedToolTimeOffsetsTheNextPlan() = runBlocking {
+        val database = newDatabase()
+        try {
+            val turn = seedRunningTurn(database, sequence = 1)
+            var clock = 1_000_000L
+            val submitter = RoomReplySubmitter(database, externalTargets("origin"), now = { clock })
+            val firstCall = submission(turn, callOrdinal = 0, messages = listOf("first call"))
+            val firstAccepted = submitter.submit(firstCall) as ReplySubmissionResult.Accepted
+
+            clock += 60_000L
+            val nextCall = submission(turn, callOrdinal = 1, messages = listOf("a longer next message", "last message"))
+            val nextAccepted = submitter.submit(nextCall) as ReplySubmissionResult.Accepted
+            val nextFirstPlannedAt = database.replyDeliveryDao().forMessage(nextAccepted.messageIds.first())
+                .single()
+                .availableAtEpochMillis
+            val nextSecondPlannedAt = database.replyDeliveryDao().forMessage(nextAccepted.messageIds.last())
+                .single()
+                .availableAtEpochMillis
+
+            assertEquals(clock, nextFirstPlannedAt)
+            assertTrue(nextSecondPlannedAt > nextFirstPlannedAt)
+            assertEquals(
+                firstAccepted.messageIds + nextAccepted.messageIds,
+                database.messageDao().forTurn(turn.sessionId, turn.sequence)
+                    .filter { it.message.role == "ASSISTANT" }
+                    .map { it.message.id },
+            )
+
+            clock += 60_000L
+            val replay = submitter.submit(nextCall) as ReplySubmissionResult.Accepted
+            assertEquals(nextAccepted.messageIds, replay.messageIds)
+            assertEquals(
+                listOf(nextFirstPlannedAt, nextSecondPlannedAt),
+                replay.messageIds.map { messageId ->
+                    database.replyDeliveryDao().forMessage(messageId).single().availableAtEpochMillis
+                },
+            )
+        } finally {
+            database.close()
+        }
+    }
+
+    @Test
     fun reopenedRepositoryRestoresValidPendingAndLeavesFinishedDeliveriesOutOfTheQueue() = runBlocking {
         val databaseName = "reply-restart-${UUID.randomUUID()}.db"
         var database: ElymBotDatabase? = null

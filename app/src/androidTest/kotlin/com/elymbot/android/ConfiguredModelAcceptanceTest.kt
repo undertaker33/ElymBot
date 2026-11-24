@@ -129,7 +129,7 @@ class ConfiguredModelAcceptanceTest {
         val secondReplyToken = "DEVICE_REPLY_SECOND_$tokenSuffix"
         val prompt = """
             t02-$tokenSuffix: Call the reply tool exactly once with this JSON:
-            {"messages":[{"text":"$firstReplyToken","delayMillis":0},{"text":"$secondReplyToken","delayMillis":1200}]}
+            {"messages":[{"text":"$firstReplyToken","delayMillis":0},{"text":"$secondReplyToken","delayMillis":0}]}
             Do not call other tools or send ordinary assistant text.
         """.trimIndent()
         compose.onNodeWithContentDescription(strings.getString(R.string.elym_type_message)).performTextInput(prompt)
@@ -180,10 +180,10 @@ class ConfiguredModelAcceptanceTest {
         assertEquals(firstDelivery.executionId, secondDelivery.executionId)
         assertEquals(firstDelivery.attemptId, secondDelivery.attemptId)
         assertEquals(firstDelivery.turnSequence, secondDelivery.turnSequence)
-        assertEquals(
-            1_200L,
-            secondDelivery.delivery.availableAtEpochMillis - firstDelivery.delivery.availableAtEpochMillis,
-        )
+        val interMessageDelay = secondDelivery.delivery.availableAtEpochMillis -
+            firstDelivery.delivery.availableAtEpochMillis
+        assertTrue(interMessageDelay > 0L)
+        assertTrue(interMessageDelay <= 30_000L)
         waitForText(compose, first.text)
         waitForText(compose, second.text)
     }

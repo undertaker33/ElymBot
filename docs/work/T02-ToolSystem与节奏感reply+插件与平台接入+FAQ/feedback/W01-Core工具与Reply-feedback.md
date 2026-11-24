@@ -46,3 +46,9 @@
 - 在 MuMu 的同一已配置模型复现。原英文请求收到结构化 `reply` 后完成；原中文请求收到有效 JSON，首个终态是普通正文 `STOP`，工具调用为零，Room 记录 `FAILED/PROTOCOL`。请求的媒体类型声明 UTF-8，脱敏形态检查未见替换字符。
 - 用基线 `f62fc5a` 和本次变更运行 `:app:assembleDebug :app:assembleDebugAndroidTest --offline`，随后运行 `ConfiguredModelAcceptanceTest#equivalentChineseAndEnglishPromptsReceiveReplies`。MuMu 1/1 通过，0 跳过。两条等价提示均完成并收到 App 投递，中文回复含汉字。该用例只使用固定测试提示。[Android 定向测试](../../../../app/src/androidTest/kotlin/com/elymbot/android/ConfiguredModelAcceptanceTest.kt)
 - 本次实测 App APK SHA-256 `DF1D79134E86BD53F4D31E7E830054A374971CFB934272A59B755769E549976A`，AndroidTest APK SHA-256 `54AD84F374E5A270F772313EF3D81CFA90BEFF6823E6A442D2267CA6B4CBC91C`。
+
+## 2026-11-24 · 回复节奏返工
+
+- 宿主原先直接使用模型建议的毫秒数。现在简单回答请模型使用一条，分条按语义组织。首条通常立即交付，后续按汉字或词数计算 180–3,200 ms 的基础间隔，叠加按语境建议的停顿，单段上限 30 秒。同一轮的多次 Reply 共用持久化时间线，已花在工具上的时间可以抵扣间隔。
+- `:core:test :app:assembleDebug :app:assembleDebugAndroidTest --offline` 通过，Core 81 项测试无失败或跳过。MuMu Android 15 / x86_64 执行 `ReplyHostIntegrationTest` 4 项、`RoomReplySubmitterTest` 9 项、`ConfiguredModelAcceptanceTest` 2 项，共 15 项通过。覆盖长短变化、语境建议、多目标计划、跨调用和幂等，以及真实模型的分条和中英文回复。真实模型分条测试用指定内容和建议值复验 App 交付。
+- App 调试制品 SHA-256 `DDE1D490DFE4D4640CA554726F9AD9F4A0DD6E0162B4BB0D3908586D69BE2C86`；AndroidTest 制品 SHA-256 `1C144AF68A175AD8885933FDFB334637EE6FD1ABEC3DE158439BC6FB273311F0`。

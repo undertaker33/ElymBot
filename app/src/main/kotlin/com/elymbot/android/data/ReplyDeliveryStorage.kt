@@ -305,6 +305,28 @@ interface ReplySubmissionDao {
         attemptId: String,
     ): ReplySubmissionEntity?
 
+    @Query(
+        """
+        SELECT reply_deliveries.availableAtEpochMillis
+        FROM reply_submissions
+        INNER JOIN reply_deliveries ON reply_deliveries.messageId = reply_submissions.messageId
+        INNER JOIN messages ON messages.id = reply_submissions.messageId
+        WHERE reply_submissions.sessionId = :sessionId
+            AND reply_submissions.turnSequence = :turnSequence
+            AND reply_submissions.executionId = :executionId
+            AND reply_submissions.attemptId = :attemptId
+            AND reply_deliveries.historyVisibilityGate = 1
+        ORDER BY messages.messageIndex DESC
+        LIMIT 1
+        """,
+    )
+    suspend fun lastHistoryGateAvailableAtForExecution(
+        sessionId: String,
+        turnSequence: Long,
+        executionId: String,
+        attemptId: String,
+    ): Long?
+
     @Query("SELECT sessionId FROM reply_submissions WHERE messageId = :messageId LIMIT 1")
     suspend fun sessionForMessage(messageId: String): String?
 }
