@@ -100,7 +100,8 @@ class ReActAgentRuntime(
         originalRequest: AgentRequest,
         emitEvent: suspend (AgentEvent) -> Unit,
     ): Boolean {
-        val request = prepareVision(originalRequest)
+        val baseRequest = prepareVision(originalRequest)
+        var request = baseRequest
         val replyEnabled = request.replySubmitter != null
         if (replyEnabled && request.primaryModel.capabilities.structuredToolCalls != CapabilityStatus.SUPPORTED) {
             throw protocolFailure()
@@ -140,13 +141,17 @@ class ReActAgentRuntime(
         } else {
             emptyList()
         }
+        val replyToolAvailable = replyEnabled && tools.any { it.name == ReplyToolSource.TOOL_NAME }
         val batches = mutableListOf<List<ModelMessage>>()
         var toolBatchSummary: String? = null
         var modelCalls = 0
         var toolCalls = 0
         var toolStepOrdinal = 0
+        var toolBatchAttempted = false
         var replyToolAttempted = false
         var acceptedReplies = 0
+        var replyCorrectionUsed = false
+        var replyCorrectionPromptActive = false
         var contextRecoveryUsed = false
 
         while (true) {
@@ -230,14 +235,33 @@ class ReActAgentRuntime(
             } catch (failure: ModelRequestException) {
                 throw failure.toAgentRunFailure()
             }
+            if (replyCorrectionPromptActive) {
+                request = baseRequest
+                replyCorrectionPromptActive = false
+            }
 
             when (modelAttempt.finishReason) {
                 ModelFinishReason.STOP -> {
                     if (modelAttempt.toolCalls.isNotEmpty()) throw protocolFailure()
                     if (!replyEnabled) return false
+                    if (
+                        modelAttempt.text.isNotBlank() && acceptedReplies == 0 && !toolBatchAttempted &&
+                        replyToolAvailable && !replyCorrectionUsed && modelCalls < maxModelCalls
+                    ) {
+                        replyCorrectionUsed = true
+                        request = request.copy(
+                            persona = request.persona.copy(
+                                prompt = listOf(request.persona.prompt, REPLY_CORRECTION_GUIDANCE)
+                                    .filter(String::isNotBlank)
+                                    .joinToString("\n\n"),
+                            ),
+                        )
+                        replyCorrectionPromptActive = true
+                        continue
+                    }
                     if (modelAttempt.text.isNotBlank() && acceptedReplies == 0) throw protocolFailure()
                     if (modelAttempt.text.isBlank() && acceptedReplies == 0) {
-                        if (replyToolAttempted) throw protocolFailure()
+                        if (replyToolAttempted || replyCorrectionUsed) throw protocolFailure()
                         return true
                     }
                     return false
@@ -252,6 +276,7 @@ class ReActAgentRuntime(
                 }
 
                 ModelFinishReason.TOOL_CALLS -> {
+                    toolBatchAttempted = true
                     if (modelAttempt.toolCalls.isEmpty()) throw protocolFailure()
                     if (modelAttempt.toolCalls.map { it.callId }.any(String::isBlank) ||
                         modelAttempt.toolCalls.map { it.callId }.toSet().size != modelAttempt.toolCalls.size
@@ -527,5 +552,9 @@ class ReActAgentRuntime(
         private const val MAX_FEEDBACK_CHARACTERS = 240
         private const val MAX_VISION_DESCRIPTION_TOKENS = 1_024
         private const val MAX_VISION_DESCRIPTION_CHARACTERS = 12_000
+        private const val REPLY_CORRECTION_GUIDANCE =
+            "For this turn, use the language of the user's latest message and submit all user-visible content " +
+                "with the reply tool. Do not emit ordinary assistant text. " +
+                "本轮请使用用户最新消息所用语言，并通过 reply 工具提交所有面向用户的内容；不要输出普通正文。"
     }
 }

@@ -14,6 +14,7 @@
 - 2026-11-23 为 T02.05 交付最小 Core 插件 ABI：签名制品提供 `PluginEntrypoint`，由已验证宿主传入 `PluginHostContext.installationIdentity`；同步 `prepare` 返回 `PluginHandle`，只贡献 `ToolSource` 并提供 `close()`。宿主加载器负责快照来源列表，再包装为带宿主安装身份的 `ToolRegistrationOwner.Plugin`；准备异常透传给加载器处理。
 - 2026-11-23 修复结构化工具能力探测假阴性。`probeToolCalls()` 现在与正式 Reply 请求一样使用兼容服务自动选择工具；移除了 `requestCompletion()` 与请求编码器中的强制选择私有参数和序列化分支。只有终态 `TOOL_CALLS`、唯一工具名为 `capability_probe` 且参数值匹配探测请求时才返回 `SUPPORTED`。
 - 已将现有配置模型 App 接受测试改为要求一次 `reply` 工具调用提交两条指定文本，间隔分别为 0 和 1,200 ms；验证两条消息按序到达 App，并从 Room 投递记录核对持久化的 `availableAtEpochMillis` 差值。尚未执行此 App 测试。
+- 2026-11-24 针对总控提供的脱敏中英文真实模型对照，在 opt-in Reply 路径加入一次受限纠正请求：只有非空普通正文以 `STOP` 返回、此前无工具批次、无已受理 Reply、`reply` 当前已广告且模型调用预算尚有余量时，才在同一执行和尝试中将一条中英双语回复指引附到 persona 后重试。指引只进入紧接的一次模型请求，取得该响应后恢复基准请求；首次原始正文不进入下一请求上下文或用户事件。纠正后仍返回普通正文，或返回空白 `STOP` 且没有已受理 Reply，均继续按 `FAILED/PROTOCOL` 处理；首次合法空白 `STOP` 的静默语义不变。新增 runtime 回归用例覆盖中文正文后成功 Reply、连续普通正文、纠正后空白 `STOP`、预算耗尽及已受理 Reply。此轮由总控执行编译与 MuMu 复验，Worker 未运行 Gradle 或设备操作。
 
 ## 验证
 
@@ -28,6 +29,7 @@
 | `T02.01 A01 · structured tool probe` | `:core:test --tests com.elymbot.core.model.OpenAiCompatibleModelGatewayTest` | JDK 17、Kotlin/JVM；总控辅助验证检出基线 `05dedcf` 并应用本次三个模型 adapter/test 文件 | 总控验证通过，23/23、0 跳过。正式能力探测请求体不含 `tool_choice`；探测仍按工具名、参数及终态校验。 | `core/src/test/kotlin/com/elymbot/core/model/OpenAiCompatibleModelGatewayTest.kt`；`core/src/main/kotlin/com/elymbot/core/model/OpenAiCompatibleRequestEncoder.kt` |
 | `T02.01 A01 · configured model direct gateway` | 总控通过非流式生产网关发送相同探测工具 | MuMu；同一已配置模型与探测 schema | 1/1 通过。旧探测带 `tool_choice=required` 返回 HTTP 400；使用正式请求的自动工具选择得到 `capability_probe` 与 `TOOL_CALLS` 终态。 | `core/src/main/kotlin/com/elymbot/core/model/OpenAiCompatibleModelGateway.kt`；`core/src/test/kotlin/com/elymbot/core/model/OpenAiCompatibleModelGatewayTest.kt` |
 | `T02.02 A02 · configured App Reply acceptance` | `ConfiguredModelAcceptanceTest#configuredTextModelListsProbesAndRepliesToATestPrompt` | MuMu Android 15 / x86_64，已配置真实模型 | 1/1 通过，0 跳过。模型探测识别结构化工具支持；App 同一 Reply 调用的两条消息均按序送达，Room 两个投递可用时间相差 1,200 ms。 | `app/src/androidTest/kotlin/com/elymbot/android/ConfiguredModelAcceptanceTest.kt` |
+| `T02.02 · ordinary STOP correction` | `:core:test --tests '*ReActAgentRuntimeTest' --tests '*ReplyRuntimeMockWebServerTest' --offline` | Core Kotlin/JVM，JDK 17，基线 `f62fc5a` 与本轮变更 | 26/26 通过，0 跳过。覆盖一次纠正、恢复后移除临时指引、连续普通正文与纠正后空白 `STOP` 的受控失败、预算、既有 Reply 与首次合法静默。模拟 HTTP 校对第二请求不带首回包原文且没有第三条请求。 | [Core runtime 定向测试](../../../../core/src/test/kotlin/com/elymbot/core/agent/ReActAgentRuntimeTest.kt) · [HTTP 定向测试](../../../../core/src/test/kotlin/com/elymbot/core/agent/ReplyRuntimeMockWebServerTest.kt) |
 | 源码检查 | `git diff --check -- core/src/main/kotlin/com/elymbot/core core/src/test/kotlin/com/elymbot/core` | 当前 Windows 工作区 | 通过；Git 提示工作文件的 LF 在后续写入时可能转换为 CRLF。 | `core/src/main/kotlin/com/elymbot/core/tool/ToolRegistry.kt` |
 
 ## 限制与待验
@@ -38,3 +40,9 @@
 - T02.05 本次只交付 Core ABI；签名校验、DEX/ClassLoader 实现、候选准备/激活/回退和实例关闭顺序由 W03/W02 实现并验证，Core 契约不验证插件制品或 Android 生命周期。
 
 本轮 App 与 AndroidTest 使用基线 `05dedcf` 和此次模型兼容修复构建。App APK SHA-256 `6946D5265E119A07BFBE2DF7178657C7B7A27AA793C2F416645EE37918F3FB38`，AndroidTest APK SHA-256 `B068F028E8DD8838DD3227CDD885C1AE8310DF820B0EC26CA3D2685B10A09F18`。
+
+## 2026-11-24 中文 Reply 实测复验
+
+- 在 MuMu 的同一已配置模型复现。原英文请求收到结构化 `reply` 后完成；原中文请求收到有效 JSON，首个终态是普通正文 `STOP`，工具调用为零，Room 记录 `FAILED/PROTOCOL`。请求的媒体类型声明 UTF-8，脱敏形态检查未见替换字符。
+- 用基线 `f62fc5a` 和本次变更运行 `:app:assembleDebug :app:assembleDebugAndroidTest --offline`，随后运行 `ConfiguredModelAcceptanceTest#equivalentChineseAndEnglishPromptsReceiveReplies`。MuMu 1/1 通过，0 跳过。两条等价提示均完成并收到 App 投递，中文回复含汉字。该用例只使用固定测试提示。[Android 定向测试](../../../../app/src/androidTest/kotlin/com/elymbot/android/ConfiguredModelAcceptanceTest.kt)
+- 本次实测 App APK SHA-256 `DF1D79134E86BD53F4D31E7E830054A374971CFB934272A59B755769E549976A`，AndroidTest APK SHA-256 `54AD84F374E5A270F772313EF3D81CFA90BEFF6823E6A442D2267CA6B4CBC91C`。

@@ -20,6 +20,7 @@ import com.elymbot.core.contract.ModelProbeTarget
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
@@ -41,6 +42,39 @@ class ConfiguredModelAcceptanceTest {
 
     @get:Rule
     val rules: RuleChain = RuleChain.outerRule(fixtureRule).around(compose)
+
+    @Test
+    fun equivalentChineseAndEnglishPromptsReceiveReplies() = runBlocking<Unit> {
+        val service = (compose.activity.application as ElymBotApplication).uiService
+        withTimeout(5_000) { service.models.first { it.text != null } }
+        val prompts = linkedMapOf(
+            "en" to "Hello, who are you? Please reply in English.",
+            "zh" to "你好，你是谁？请用中文回答。",
+        )
+        for ((language, prompt) in prompts) {
+            val sessionId = service.newSession(fixture.personaId)
+            service.send(sessionId, prompt, null)
+            val terminal = withTimeout(75_000) {
+                var turn = fixture.database.turnDao().latest(sessionId)
+                while (turn == null || turn.status == "RUNNING") {
+                    delay(30)
+                    turn = fixture.database.turnDao().latest(sessionId)
+                }
+                turn
+            }
+            assertEquals("$language reply terminal (failure ${terminal.failureKind})", "COMPLETED", terminal.status)
+            val delivered = withTimeout(12_000) {
+                service.conversation(sessionId).map { conversation ->
+                    conversation.messages.firstOrNull { message ->
+                        message.assistant && message.deliveryTargets.any { it.status == ChatDeliveryStatus.Delivered }
+                    }
+                }.filterNotNull().first()
+            }
+            if (language == "zh") {
+                assertTrue("The delivered reply should contain Chinese characters", delivered.text.any { it in '\u3400'..'\u9fff' })
+            }
+        }
+    }
 
     @Test
     fun configuredTextModelListsProbesAndRepliesToATestPrompt() {

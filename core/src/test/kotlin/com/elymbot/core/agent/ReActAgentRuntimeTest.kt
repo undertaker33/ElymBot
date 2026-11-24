@@ -518,6 +518,199 @@ class ReActAgentRuntimeTest {
     }
 
     @Test
+    fun replyModeCorrectsFirstPlainStopInTheUsersLanguageWithoutResendingItsText() = runTest {
+        val rawBody = "模型未通过 reply 提交的正文。"
+        val gateway = FakeGateway { call, _ ->
+            when (call) {
+                1 -> flow {
+                    emit(ModelStreamEvent.TextDelta(rawBody))
+                    emit(ModelStreamEvent.Completed(ModelFinishReason.STOP))
+                }
+
+                2 -> flow {
+                    emit(
+                        ModelStreamEvent.Completed(
+                            ModelFinishReason.TOOL_CALLS,
+                            listOf(
+                                ModelToolCall(
+                                    "reply-id",
+                                    "reply",
+                                    """{"messages":[{"text":"你好。","delayMillis":0}]}""",
+                                ),
+                            ),
+                        ),
+                    )
+                }
+
+                else -> flow { emit(ModelStreamEvent.Completed(ModelFinishReason.STOP)) }
+            }
+        }
+        val submissions = mutableListOf<com.elymbot.core.contract.ReplySubmission>()
+        val input = request().copy(
+            currentInput = ModelMessage(ModelRole.USER, listOf(ModelContentPart.Text("请用中文回复我。"))),
+            replySubmitter = com.elymbot.core.contract.ReplySubmitter { submission ->
+                submissions += submission
+                com.elymbot.core.contract.ReplySubmissionResult.Accepted(listOf("reply-message-1"))
+            },
+        )
+
+        val events = runtime(gateway).run(input).toList()
+        val correctionRequest = gateway.requests[1]
+        val correctionPrompt = correctionRequest.messages
+            .filter { it.role == ModelRole.SYSTEM }
+            .flatMap { it.content }
+            .filterIsInstance<ModelContentPart.Text>()
+            .joinToString("\n") { it.value }
+        val followUpPrompt = gateway.requests[2].messages
+            .filter { it.role == ModelRole.SYSTEM }
+            .flatMap { it.content }
+            .filterIsInstance<ModelContentPart.Text>()
+            .joinToString("\n") { it.value }
+
+        assertEquals(3, gateway.requests.size)
+        assertTrue(gateway.requests.all { !it.useNativeStreaming })
+        assertTrue(correctionRequest.tools.any { it.name == "reply" })
+        assertTrue(correctionPrompt.contains("reply"))
+        assertTrue(correctionPrompt.contains("用户最新消息所用语言"))
+        assertTrue(correctionPrompt.contains("不要输出普通正文"))
+        assertFalse(followUpPrompt.contains("submit all user-visible content"))
+        assertFalse(correctionRequest.messages.flatMap { it.content }
+            .filterIsInstance<ModelContentPart.Text>().any { it.value.contains(rawBody) })
+        assertEquals(listOf("你好。"), submissions.single().messages.map { it.text })
+        assertEquals("execution-1", submissions.single().context.executionId)
+        assertEquals("attempt-1", submissions.single().context.attemptId)
+        assertEquals("reply-id", submissions.single().context.toolCallId)
+        assertTrue(events.none { it is AgentEvent.TextDelta || it is AgentEvent.AssistantFeedback })
+        assertEquals(AgentTerminalStatus.COMPLETED, (events.last() as AgentEvent.Finished).status)
+    }
+
+    @Test
+    fun replyModeFailsProtocolWhenCorrectedResponseIsStillPlainText() = runTest {
+        val rawBodies = listOf("first private body", "second private body")
+        val gateway = FakeGateway { call, _ ->
+            flow {
+                emit(ModelStreamEvent.TextDelta(rawBodies[call - 1]))
+                emit(ModelStreamEvent.Completed(ModelFinishReason.STOP))
+            }
+        }
+        val input = request().copy(
+            currentInput = ModelMessage(ModelRole.USER, listOf(ModelContentPart.Text("请回答。"))),
+            replySubmitter = com.elymbot.core.contract.ReplySubmitter {
+                com.elymbot.core.contract.ReplySubmissionResult.Accepted(emptyList())
+            },
+        )
+
+        val events = runtime(gateway).run(input).toList()
+        val finish = events.last() as AgentEvent.Finished
+        val correctionPrompt = gateway.requests[1].messages
+            .filter { it.role == ModelRole.SYSTEM }
+            .flatMap { it.content }
+            .filterIsInstance<ModelContentPart.Text>()
+            .joinToString("\n") { it.value }
+
+        assertEquals(2, gateway.requests.size)
+        assertTrue(correctionPrompt.contains("reply"))
+        assertFalse(gateway.requests[1].messages.flatMap { it.content }
+            .filterIsInstance<ModelContentPart.Text>().any { text -> rawBodies.any { text.value.contains(it) } })
+        assertTrue(events.none { it is AgentEvent.TextDelta || it is AgentEvent.AssistantFeedback })
+        assertEquals(AgentTerminalStatus.FAILED, finish.status)
+        assertEquals(AgentFailureKind.PROTOCOL, finish.failure?.kind)
+    }
+
+    @Test
+    fun replyModeDoesNotTreatBlankStopAfterCorrectionAsSuccessfulSilence() = runTest {
+        val gateway = FakeGateway { call, _ ->
+            if (call == 1) {
+                flow {
+                    emit(ModelStreamEvent.TextDelta("private plain response"))
+                    emit(ModelStreamEvent.Completed(ModelFinishReason.STOP))
+                }
+            } else {
+                flow { emit(ModelStreamEvent.Completed(ModelFinishReason.STOP)) }
+            }
+        }
+        val input = request().copy(
+            replySubmitter = com.elymbot.core.contract.ReplySubmitter {
+                com.elymbot.core.contract.ReplySubmissionResult.Accepted(emptyList())
+            },
+        )
+
+        val events = runtime(gateway).run(input).toList()
+        val finish = events.last() as AgentEvent.Finished
+
+        assertEquals(2, gateway.requests.size)
+        assertFalse(finish.successfulSilence)
+        assertEquals(AgentTerminalStatus.FAILED, finish.status)
+        assertEquals(AgentFailureKind.PROTOCOL, finish.failure?.kind)
+    }
+
+    @Test
+    fun replyModeDoesNotUseCorrectionWhenNoModelCallBudgetRemains() = runTest {
+        val gateway = FakeGateway { _, _ ->
+            flow {
+                emit(ModelStreamEvent.TextDelta("private plain response"))
+                emit(ModelStreamEvent.Completed(ModelFinishReason.STOP))
+            }
+        }
+        val input = request().copy(
+            replySubmitter = com.elymbot.core.contract.ReplySubmitter {
+                com.elymbot.core.contract.ReplySubmissionResult.Accepted(emptyList())
+            },
+        )
+
+        val events = runtime(gateway, maxModelCalls = 1).run(input).toList()
+
+        assertEquals(1, gateway.requests.size)
+        assertEquals(AgentTerminalStatus.FAILED, (events.last() as AgentEvent.Finished).status)
+        assertEquals(AgentFailureKind.PROTOCOL, (events.last() as AgentEvent.Finished).failure?.kind)
+        assertTrue(events.none { it is AgentEvent.TextDelta || it is AgentEvent.AssistantFeedback })
+    }
+
+    @Test
+    fun replyModeDoesNotCorrectAfterAReplyHasBeenAccepted() = runTest {
+        val rawBody = "ordinary response after accepted reply"
+        val gateway = FakeGateway { call, _ ->
+            if (call == 1) {
+                flow {
+                    emit(
+                        ModelStreamEvent.Completed(
+                            ModelFinishReason.TOOL_CALLS,
+                            listOf(
+                                ModelToolCall(
+                                    "reply-id",
+                                    "reply",
+                                    """{"messages":[{"text":"queued","delayMillis":0}]}""",
+                                ),
+                            ),
+                        ),
+                    )
+                }
+            } else {
+                flow {
+                    emit(ModelStreamEvent.TextDelta(rawBody))
+                    emit(ModelStreamEvent.Completed(ModelFinishReason.STOP))
+                }
+            }
+        }
+        var acceptedCount = 0
+        val input = request().copy(
+            replySubmitter = com.elymbot.core.contract.ReplySubmitter {
+                acceptedCount += 1
+                com.elymbot.core.contract.ReplySubmissionResult.Accepted(listOf("queued"))
+            },
+        )
+
+        val events = runtime(gateway).run(input).toList()
+        val finish = events.last() as AgentEvent.Finished
+
+        assertEquals(2, gateway.requests.size)
+        assertEquals(1, acceptedCount)
+        assertFalse(events.any { it is AgentEvent.TextDelta || it is AgentEvent.AssistantFeedback })
+        assertFalse(finish.successfulSilence)
+        assertEquals(AgentTerminalStatus.COMPLETED, finish.status)
+    }
+
+    @Test
     fun unknownPrimaryVisionCapabilityStopsBeforeCallingModel() = runTest {
         val gateway = FakeGateway { _, _ -> flow { emit(ModelStreamEvent.Completed(ModelFinishReason.STOP)) } }
         val input = request().copy(

@@ -128,13 +128,17 @@ class ReplyRuntimeMockWebServerTest {
 
         Fixture().use { plainText ->
             plainText.answer(completion("ordinary response"))
+            plainText.answer(completion("still ordinary response"))
             val events = plainText.run()
             val finished = events.filterIsInstance<AgentEvent.Finished>().single()
+            val requests = List(2) { plainText.takeRequest() }
             assertEquals(AgentTerminalStatus.FAILED, finished.status)
             assertFalse(finished.successfulSilence)
             assertEquals(com.elymbot.core.contract.AgentFailureKind.PROTOCOL, finished.failure?.kind)
             assertFalse(events.any { it is AgentEvent.TextDelta || it is AgentEvent.AssistantFeedback })
-            plainText.takeRequest()
+            assertTrue(requests[1].toString().contains("For this turn, use the language"))
+            assertFalse(requests[1].toString().contains("ordinary response"))
+            assertEquals(null, withContext(Dispatchers.IO) { plainText.server.takeRequest(100, TimeUnit.MILLISECONDS) })
         }
         Unit
     }
