@@ -15,6 +15,7 @@ interface CommandTextProvider {
     fun noCheckpoints(): String
     fun noMarkBoundary(): String
     fun invalidCommand(helpName: String): String
+    fun unsupportedCommand(helpName: String): String
 }
 
 class AndroidCommandTextProvider(context: Context) : CommandTextProvider {
@@ -55,4 +56,7 @@ class AndroidCommandTextProvider(context: Context) : CommandTextProvider {
     override fun noMarkBoundary(): String = resources.getString(R.string.elym_command_no_mark_boundary)
 
     override fun invalidCommand(helpName: String): String = resources.getString(R.string.elym_command_invalid, helpName)
+
+    override fun unsupportedCommand(helpName: String): String =
+        resources.getString(R.string.elym_command_unsupported, helpName)
 }

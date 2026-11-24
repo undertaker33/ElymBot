@@ -40,6 +40,7 @@
     <string name="elym_command_checkpoint_empty">当前会话没有检查点。</string>
     <string name="elym_command_no_mark_boundary">当前没有可用于创建检查点的完整轮次。</string>
     <string name="elym_command_invalid">指令参数无效。使用 /%1$s 查看用法。</string>
+    <string name="elym_command_unsupported">不支持此指令。使用 /%1$s 查看用法。</string>
     <string name="elym_command_mark">创建检查点</string>
     <string name="elym_command_names">指令名称</string>
     <string name="elym_command_reset">回到当前检查点</string>

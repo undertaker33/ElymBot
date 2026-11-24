@@ -84,6 +84,7 @@ data class PlatformInboundInboxEntity(
     val policyRevision: Long,
     val status: String,
     val text: String,
+    val commandReceiptText: String? = null,
     val targetChannelId: String?,
     val targetConversationId: String?,
     val targetAccountId: String?,
@@ -151,6 +152,14 @@ data class PlatformTurnRouteEntity(
     val targetActorId: String,
     val referenceMessageId: String?,
 )
+
+internal object PlatformCommandReceiptStatus {
+    const val PENDING = "COMMAND_REPLY_PENDING"
+    const val SENDING = "COMMAND_REPLY_SENDING"
+    const val DELIVERED = "COMMAND_REPLY_DELIVERED"
+    const val FAILED = "COMMAND_REPLY_FAILED"
+    const val UNKNOWN = "COMMAND_REPLY_UNKNOWN"
+}
 
 @Dao
 interface PlatformRouteDao {
@@ -253,6 +262,49 @@ interface PlatformRouteDao {
 
     @Query("UPDATE platform_inbound_inbox SET status = 'FAILED_UNKNOWN', updatedAtEpochMillis = :now WHERE status = 'RUNNING'")
     suspend fun recoverRunningAsUnknown(now: Long): Int
+
+    @Query(
+        "UPDATE platform_inbound_inbox SET status = 'COMMAND_REPLY_PENDING', commandReceiptText = :receipt, " +
+            "updatedAtEpochMillis = :now WHERE id = :id AND status = 'QUEUED' AND commandReceiptText IS NULL",
+    )
+    suspend fun queueCommandReceipt(id: String, receipt: String, now: Long): Int
+
+    @Query(
+        "SELECT * FROM platform_inbound_inbox WHERE status = 'COMMAND_REPLY_PENDING' " +
+            "ORDER BY receivedAtEpochMillis, id",
+    )
+    suspend fun pendingCommandReceipts(): List<PlatformInboundInboxEntity>
+
+    @Query(
+        "SELECT * FROM platform_inbound_inbox WHERE status = 'COMMAND_REPLY_PENDING' " +
+            "ORDER BY receivedAtEpochMillis, id",
+    )
+    fun observePendingCommandReceipts(): Flow<List<PlatformInboundInboxEntity>>
+
+    @Query(
+        "UPDATE platform_inbound_inbox SET status = 'COMMAND_REPLY_SENDING', updatedAtEpochMillis = :now " +
+            "WHERE id = :id AND status = 'COMMAND_REPLY_PENDING' AND commandReceiptText IS NOT NULL",
+    )
+    suspend fun markCommandReceiptSending(id: String, now: Long): Int
+
+    @Query(
+        "UPDATE platform_inbound_inbox SET status = :status, updatedAtEpochMillis = :now " +
+            "WHERE id = :id AND status = 'COMMAND_REPLY_SENDING' AND " +
+            ":status IN ('COMMAND_REPLY_DELIVERED', 'COMMAND_REPLY_FAILED', 'COMMAND_REPLY_UNKNOWN')",
+    )
+    suspend fun finishCommandReceipt(id: String, status: String, now: Long): Int
+
+    @Query(
+        "UPDATE platform_inbound_inbox SET status = 'COMMAND_REPLY_FAILED', updatedAtEpochMillis = :now " +
+            "WHERE id = :id AND status = 'COMMAND_REPLY_PENDING'",
+    )
+    suspend fun failPendingCommandReceipt(id: String, now: Long): Int
+
+    @Query(
+        "UPDATE platform_inbound_inbox SET status = 'COMMAND_REPLY_UNKNOWN', updatedAtEpochMillis = :now " +
+            "WHERE status = 'COMMAND_REPLY_SENDING'",
+    )
+    suspend fun recoverSendingCommandReceiptsAsUnknown(now: Long): Int
 
     @Query(
         "SELECT * FROM platform_inbound_inbox WHERE sessionId = :sessionId " +

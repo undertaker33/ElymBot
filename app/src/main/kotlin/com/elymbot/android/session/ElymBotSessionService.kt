@@ -18,6 +18,7 @@ import com.elymbot.android.data.MessageEntity
 import com.elymbot.android.data.MessageWithAttachments
 import com.elymbot.android.data.PendingAppTranscriptDelivery
 import com.elymbot.android.data.PendingPlatformDelivery
+import com.elymbot.android.data.PlatformCommandReceiptStatus
 import com.elymbot.android.data.PlatformConversationBindingEntity
 import com.elymbot.android.data.PlatformInboundInboxEntity
 import com.elymbot.android.data.PlatformInboundSegmentEntity
@@ -129,6 +130,7 @@ import com.elymbot.core.contract.ModelRequestException
 import com.elymbot.core.contract.ModelRole
 import com.elymbot.core.contract.ModelSelection
 import com.elymbot.core.contract.MessageRoute
+import com.elymbot.core.contract.MessageReference
 import com.elymbot.core.contract.MediaResourceReference
 import com.elymbot.core.contract.PersonaPrompt
 import com.elymbot.core.contract.SlashCommandParser
@@ -243,6 +245,7 @@ class ElymBotSessionService internal constructor(
                 recoverScheduledTaskRuns()
                 repository.database.replyDeliveryDao().recoverSendingAsUnknown(System.currentTimeMillis())
                 repository.database.platformRouteDao().recoverRunningAsUnknown(System.currentTimeMillis())
+                repository.database.platformRouteDao().recoverSendingCommandReceiptsAsUnknown(System.currentTimeMillis())
                 scheduledServiceReady.complete(Unit)
                 scope.launch { startEnabledPlatformsIfRequested() }
                 scope.launch { drainAllPlatformInboundQueues() }
@@ -276,8 +279,16 @@ class ElymBotSessionService internal constructor(
         scope.launch {
             scheduledServiceReady.await()
             val deliveries = repository.database.replyDeliveryDao()
-            combine(deliveries.observePendingPlatform(), platformDeliveryWake) { _, _ -> Unit }
-                .collect { drainPlatformDeliveries() }
+            val platformRoutes = repository.database.platformRouteDao()
+            combine(
+                deliveries.observePendingPlatform(),
+                platformRoutes.observePendingCommandReceipts(),
+                platformDeliveryWake,
+            ) { _, _, _ -> Unit }
+                .collect {
+                    drainPlatformDeliveries()
+                    drainPlatformCommandReceipts()
+                }
         }
         scope.launch {
             appHostManagement?.pluginManagement?.collect {
@@ -2484,6 +2495,13 @@ class ElymBotSessionService internal constructor(
                     repository.cleanupUnreferencedAssets(inboundSegments.mapNotNull { it.privatePath })
                     continue
                 }
+                val pureText = inboundSegments.isNotEmpty() && inboundSegments.all {
+                    it.kind == INBOUND_SEGMENT_TEXT && it.projectionStatus == INBOUND_SEGMENT_TEXT_READY
+                }
+                if (pureText && item.text.trimStart().startsWith('/')) {
+                    if (!processPlatformSlashCommand(item, sessionId)) return
+                    continue
+                }
                 val session = repository.database.conversationDao().get(sessionId) ?: run {
                     retireQueuedPlatformInbound(item)
                     continue
@@ -2606,6 +2624,101 @@ class ElymBotSessionService internal constructor(
                 }
             }
         }
+    }
+
+    private suspend fun processPlatformSlashCommand(item: PlatformInboundInboxEntity, sessionId: String): Boolean {
+        val manager = pluginRuntimeManager ?: return false
+        val identity = ToolInstallationIdentity(item.pluginId, item.installationInstanceId)
+        val target = item.commandReceiptTarget()
+        if (target == null) {
+            retireQueuedPlatformInbound(item)
+            return true
+        }
+
+        val database = repository.database
+        val routes = database.platformRouteDao()
+        var outcome: CommandExecutionOutcome? = null
+        val handled = manager.withActivePluginHandle<PlatformPluginHandle, Boolean>(
+            identity.pluginId,
+            identity,
+            PlatformPluginHandle::class.java,
+        ) { platform ->
+            val accountGate = platformAccountGate(platform.state.value.accountId, item.accountId)
+            if (accountGate == PlatformAccountGate.WAITING_FOR_ACCOUNT) return@withActivePluginHandle false
+            val settings = (platform as? QqPlatformSettingsHandle)?.settings?.value
+            if (accountGate != PlatformAccountGate.MATCH || settings?.revision != item.policyRevision ||
+                !isPlatformCommandReceiptStillAuthorized(item, identity, target, platform)
+            ) {
+                retireQueuedPlatformInbound(item)
+                return@withActivePluginHandle true
+            }
+
+            val platformNames = CommandNames()
+            val configuredNames = commandNamesForSession()
+            val input = item.text.trimStart()
+            val parsed = commandParser.parse(input, platformNames).let {
+                if (it == CommandParseResult.NotCommand && configuredNames != platformNames) {
+                    commandParser.parse(input, configuredNames)
+                } else {
+                    it
+                }
+            }
+
+            suspend fun commitReceipt(invalidInput: Boolean): Boolean = database.withTransaction {
+                val current = routes.getInbound(
+                    item.pluginId,
+                    item.channelId,
+                    item.accountId,
+                    item.conversationId,
+                    item.messageId,
+                )
+                if (current?.status != INBOUND_STATUS_QUEUED || current.id != item.id) return@withTransaction true
+                if (database.turnDao().isRunning(sessionId)) return@withTransaction false
+                if (!isPlatformCommandReceiptStillAuthorized(current, identity, target, platform) ||
+                    (platform as? QqPlatformSettingsHandle)?.settings?.value?.revision != current.policyRevision
+                ) {
+                    routes.updateInboundStatus(item.id, INBOUND_STATUS_STALE, System.currentTimeMillis())
+                    return@withTransaction true
+                }
+                val committed = when {
+                    invalidInput || parsed is CommandParseResult.Invalid ->
+                        CommandExecutionOutcome(commandText.invalidCommand(platformNames.help))
+                    parsed is CommandParseResult.Action ->
+                        executeCommandInTransaction(sessionId, parsed.action, platformNames)
+                    else -> CommandExecutionOutcome(commandText.unsupportedCommand(platformNames.help))
+                }
+                check(routes.queueCommandReceipt(item.id, committed.receipt, System.currentTimeMillis()) == 1)
+                outcome = committed
+                true
+            }
+
+            try {
+                commitReceipt(invalidInput = false)
+            } catch (failure: UiServiceException) {
+                if (failure.issue != UiIssue.InvalidInput) throw failure
+                commitReceipt(invalidInput = true)
+            }
+        }
+
+        if (handled == null) {
+            if (manager.instanceAvailability(identity) != PluginInstanceAvailability.INVALIDATED) return false
+            retireQueuedPlatformInbound(item)
+            return true
+        }
+        outcome?.let { committed ->
+            if (committed.clearCommandMessages) commandMessages.update { it - sessionId }
+            if (committed.removedAssetPaths.isNotEmpty()) {
+                repository.cleanupUnreferencedAssets(committed.removedAssetPaths)
+            }
+        }
+        return handled
+    }
+
+    private fun PlatformInboundInboxEntity.commandReceiptTarget(): MessageRoute? {
+        val channel = targetChannelId ?: return null
+        val conversation = targetConversationId ?: return null
+        val account = targetAccountId ?: return null
+        return MessageRoute(channel, conversation, account, targetActorId)
     }
 
     private fun inboundPolicyAllows(item: PlatformInboundInboxEntity, settings: QqPlatformSettings): Boolean {
@@ -3282,6 +3395,181 @@ class ElymBotSessionService internal constructor(
         }
     }
 
+    private suspend fun drainPlatformCommandReceipts() {
+        if (pluginRuntimeManager == null) return
+        platformDeliveryLock.withLock {
+            val routes = repository.database.platformRouteDao()
+            while (true) {
+                val pending = routes.pendingCommandReceipts()
+                if (pending.isEmpty()) return
+                var progressed = false
+                for (item in pending) {
+                    when (dispatchPlatformCommandReceipt(item)) {
+                        PlatformDispatchOutcome.PROCESSED -> progressed = true
+                        PlatformDispatchOutcome.DEFERRED,
+                        PlatformDispatchOutcome.NO_CHANGE -> Unit
+                    }
+                }
+                if (!progressed) return
+            }
+        }
+    }
+
+    private suspend fun dispatchPlatformCommandReceipt(
+        item: PlatformInboundInboxEntity,
+    ): PlatformDispatchOutcome {
+        val routes = repository.database.platformRouteDao()
+        val pluginId = item.pluginId
+        val instanceId = item.installationInstanceId
+        if (pluginId != QQ_PLATFORM_ID || item.commandReceiptText == null) {
+            return if (routes.failPendingCommandReceipt(item.id, System.currentTimeMillis()) == 1) {
+                PlatformDispatchOutcome.PROCESSED
+            } else {
+                PlatformDispatchOutcome.NO_CHANGE
+            }
+        }
+        val identity = ToolInstallationIdentity(pluginId, instanceId)
+        when (pluginRuntimeManager?.instanceAvailability(identity)) {
+            PluginInstanceAvailability.RESTORING,
+            PluginInstanceAvailability.UNAVAILABLE -> return PlatformDispatchOutcome.DEFERRED
+            PluginInstanceAvailability.INVALIDATED -> {
+                return if (routes.failPendingCommandReceipt(item.id, System.currentTimeMillis()) == 1) {
+                    PlatformDispatchOutcome.PROCESSED
+                } else {
+                    PlatformDispatchOutcome.NO_CHANGE
+                }
+            }
+            PluginInstanceAvailability.ACTIVE,
+            null -> Unit
+        }
+
+        val target = item.commandReceiptTarget() ?: return failPendingCommandReceipt(item)
+        if (target.accountId != item.accountId) {
+            return failPendingCommandReceipt(item)
+        }
+
+        var outcome = PlatformDispatchOutcome.NO_CHANGE
+        val manager = pluginRuntimeManager ?: return PlatformDispatchOutcome.DEFERRED
+        val handled = manager.withActivePluginHandle<PlatformPluginHandle, Boolean>(
+            pluginId = identity.pluginId,
+            installationIdentity = identity,
+            handleType = PlatformPluginHandle::class.java,
+        ) { platform ->
+            when (platformAccountGate(platform.state.value.accountId, item.accountId)) {
+                PlatformAccountGate.WAITING_FOR_ACCOUNT -> {
+                    outcome = PlatformDispatchOutcome.DEFERRED
+                    false
+                }
+                PlatformAccountGate.ACCOUNT_CHANGED -> {
+                    outcome = failPendingCommandReceipt(item)
+                    true
+                }
+                PlatformAccountGate.MATCH -> {
+                    if (!isPlatformCommandReceiptStillAuthorized(item, identity, target, platform)) {
+                        outcome = failPendingCommandReceipt(item)
+                        return@withActivePluginHandle true
+                    }
+                    val claimed = routes.markCommandReceiptSending(item.id, System.currentTimeMillis()) == 1
+                    if (!claimed) return@withActivePluginHandle false
+                    if (!isPlatformCommandReceiptStillAuthorized(item, identity, target, platform)) {
+                        routes.finishCommandReceipt(
+                            item.id,
+                            PlatformCommandReceiptStatus.FAILED,
+                            System.currentTimeMillis(),
+                        )
+                        outcome = PlatformDispatchOutcome.PROCESSED
+                        return@withActivePluginHandle true
+                    }
+                    val reference = item.referenceMessageId?.let { MessageReference(target, it) }
+                    val result = try {
+                        platform.send(
+                            PlatformOutboundMessage(
+                                target = target,
+                                segments = listOf(AgentMessageSegment.Text(item.commandReceiptText)),
+                                reference = reference,
+                            ),
+                        )
+                    } catch (cancelled: CancellationException) {
+                        withContext(NonCancellable) {
+                            routes.finishCommandReceipt(
+                                item.id,
+                                PlatformCommandReceiptStatus.UNKNOWN,
+                                System.currentTimeMillis(),
+                            )
+                        }
+                        throw cancelled
+                    } catch (_: Exception) {
+                        PlatformDeliveryResult.Unknown(PlatformDeliveryFailure.INTERNAL)
+                    }
+                    withContext(NonCancellable) {
+                        val status = when (result) {
+                            is PlatformDeliveryResult.Delivered -> PlatformCommandReceiptStatus.DELIVERED
+                            is PlatformDeliveryResult.Failed -> PlatformCommandReceiptStatus.FAILED
+                            is PlatformDeliveryResult.Unknown -> PlatformCommandReceiptStatus.UNKNOWN
+                        }
+                        routes.finishCommandReceipt(item.id, status, System.currentTimeMillis())
+                    }
+                    outcome = PlatformDispatchOutcome.PROCESSED
+                    true
+                }
+            }
+        }
+        if (handled == null) {
+            return when (manager.instanceAvailability(identity)) {
+                PluginInstanceAvailability.INVALIDATED -> failPendingCommandReceipt(item)
+                PluginInstanceAvailability.RESTORING,
+                PluginInstanceAvailability.UNAVAILABLE,
+                PluginInstanceAvailability.ACTIVE -> PlatformDispatchOutcome.DEFERRED
+            }
+        }
+        return outcome
+    }
+
+    private suspend fun isPlatformCommandReceiptStillAuthorized(
+        item: PlatformInboundInboxEntity,
+        identity: ToolInstallationIdentity,
+        target: MessageRoute,
+        platform: PlatformPluginHandle,
+    ): Boolean {
+        val settingsHandle = platform as? QqPlatformSettingsHandle ?: return false
+        val settings = settingsHandle.settings.value
+        if (platform.platformId != QQ_PLATFORM_ID || item.pluginId != identity.pluginId ||
+            item.installationInstanceId != identity.instanceId || item.channelId != QQ_PLATFORM_ID ||
+            item.processing != PlatformInboundProcessing.TRIGGER_AGENT.name ||
+            item.historyVisibility == PlatformHistoryVisibility.GROUP_PUBLIC.name ||
+            platform.state.value.accountId != item.accountId || target.accountId != item.accountId ||
+            target.channelId != item.targetChannelId || target.conversationId != item.targetConversationId ||
+            target.actorId != item.targetActorId || !inboundPolicyAllows(item, settings.settings)
+        ) return false
+        val origin = MessageRoute(item.channelId, item.conversationId, item.accountId, item.actorId)
+        if (!isAuthorizedQqReplyRoute(origin, target, settings.settings)) return false
+        if (item.sessionId == MAIN_SESSION_ID) {
+            val owner = repository.database.platformRouteDao().getOwnerBinding(identity.pluginId) ?: return false
+            return owner.ownerBound && owner.installationInstanceId == identity.instanceId &&
+                owner.channelId == item.channelId && owner.accountId == item.accountId &&
+                owner.conversationId == item.conversationId && owner.actorId == item.actorId
+        }
+        val binding = repository.database.platformRouteDao().getBinding(
+            item.pluginId,
+            item.channelId,
+            item.accountId,
+            item.conversationId,
+        ) ?: return false
+        return binding.sessionId == item.sessionId && binding.installationInstanceId == identity.instanceId &&
+            binding.historyVisibility == item.historyVisibility
+    }
+
+    private suspend fun failPendingCommandReceipt(
+        item: PlatformInboundInboxEntity,
+    ): PlatformDispatchOutcome =
+        if (repository.database.platformRouteDao()
+                .failPendingCommandReceipt(item.id, System.currentTimeMillis()) == 1
+        ) {
+            PlatformDispatchOutcome.PROCESSED
+        } else {
+            PlatformDispatchOutcome.NO_CHANGE
+        }
+
     private suspend fun drainPlatformDeliveries() {
         if (pluginRuntimeManager == null) return
         platformDeliveryLock.withLock {
@@ -3328,6 +3616,7 @@ class ElymBotSessionService internal constructor(
         if (!scheduledServiceReady.isCompleted) return
         platformDeliveryWake.update { it + 1L }
         drainPlatformDeliveries()
+        drainPlatformCommandReceipts()
     }
 
     private suspend fun dispatchPlatformDelivery(item: PendingPlatformDelivery): PlatformDispatchOutcome {
@@ -3655,48 +3944,85 @@ class ElymBotSessionService internal constructor(
     }
 
     private suspend fun executeCommand(sessionId: String, commandInput: String, action: CommandAction) {
+        val outcome = repository.database.withTransaction {
+            executeCommandInTransaction(sessionId, action, commandNamesForSession())
+        }
+        finishCommandExecution(sessionId, commandInput, outcome)
+    }
+
+    private suspend fun executeCommandInTransaction(
+        sessionId: String,
+        action: CommandAction,
+        names: CommandNames,
+    ): CommandExecutionOutcome {
         val session = repository.database.conversationDao().get(sessionId) ?: fail(UiIssue.InvalidInput)
-        val names = commandNamesForSession()
-        val receipt = when (action) {
-            CommandAction.Help -> commandText.help(session.kind == SESSION_KIND_MAIN, names)
+        return when (action) {
+            CommandAction.Help -> CommandExecutionOutcome(
+                commandText.help(session.kind == SESSION_KIND_MAIN, names),
+            )
             is CommandAction.Persona -> {
                 if (session.kind != SESSION_KIND_MAIN) {
-                    commandText.invalidCommand(names.help)
+                    CommandExecutionOutcome(commandText.invalidCommand(names.help))
                 } else if (action.index == null) {
                     val personas = repository.database.personaDao().getAll()
-                    personas.mapIndexed { index, persona ->
-                        commandText.personaEntry(index + 1, persona.name, persona.id == session.personaId)
-                    }.joinToString("\n")
+                    CommandExecutionOutcome(
+                        personas.mapIndexed { index, persona ->
+                            commandText.personaEntry(index + 1, persona.name, persona.id == session.personaId)
+                        }.joinToString("\n"),
+                    )
                 } else {
-                    val index = action.index ?: -1
-                    val persona = repository.database.personaDao().getAll().getOrNull(index - 1)
-                        ?: run {
-                            recordCommand(sessionId, commandInput, commandText.invalidCommand(names.help))
-                            return
+                    val index = action.index
+                    val persona = index?.takeIf { it > 0 }
+                        ?.let { repository.database.personaDao().getAll().getOrNull(it - 1) }
+                    if (persona == null) {
+                        CommandExecutionOutcome(commandText.invalidCommand(names.help))
+                    } else {
+                        val current = repository.database.conversationDao().get(sessionId)
+                            ?: fail(UiIssue.InvalidInput)
+                        if (current.kind != SESSION_KIND_MAIN ||
+                            repository.database.turnDao().isRunning(sessionId)
+                        ) {
+                            fail(UiIssue.Busy)
                         }
-                    repository.database.withTransaction {
-                        val current = repository.database.conversationDao().get(sessionId) ?: fail(UiIssue.InvalidInput)
-                        if (current.kind != SESSION_KIND_MAIN || repository.database.turnDao().isRunning(sessionId)) fail(UiIssue.Busy)
                         repository.database.conversationDao().setActivePersona(persona.id)
+                        CommandExecutionOutcome(commandText.personaSwitched(persona.name))
                     }
-                    commandText.personaSwitched(persona.name)
                 }
             }
             is CommandAction.Checkpoint -> {
                 val number = action.number
-                if (number == null) checkpointList(sessionId)
-                else commandText.checkpointRestored(restoreCheckpointState(sessionId, number).displayNumber)
+                if (number == null) {
+                    CommandExecutionOutcome(checkpointList(sessionId))
+                } else {
+                    val restored = restoreCheckpointStateInTransaction(sessionId, number)
+                    CommandExecutionOutcome(
+                        commandText.checkpointRestored(restored.checkpoint.displayNumber),
+                        removedAssetPaths = restored.removedAssetPaths,
+                        clearCommandMessages = true,
+                    )
+                }
             }
             CommandAction.Reset -> {
-                val current = repository.database.conversationDao().get(sessionId) ?: fail(UiIssue.InvalidInput)
+                val current = repository.database.conversationDao().get(sessionId)
+                    ?: fail(UiIssue.InvalidInput)
                 val checkpoint = repository.database.checkpointDao().getForSession(sessionId)
                     .firstOrNull { it.id == current.currentCheckpointId } ?: fail(UiIssue.InvalidInput)
-                commandText.checkpointRestored(restoreCheckpointState(sessionId, checkpoint.displayNumber).displayNumber)
+                val restored = restoreCheckpointStateInTransaction(sessionId, checkpoint.displayNumber)
+                CommandExecutionOutcome(
+                    commandText.checkpointRestored(restored.checkpoint.displayNumber),
+                    removedAssetPaths = restored.removedAssetPaths,
+                    clearCommandMessages = true,
+                )
             }
-            CommandAction.Mark -> createCheckpoint(sessionId)?.let { commandText.checkpointMarked(it.displayNumber) }
-                ?: commandText.noMarkBoundary()
+            CommandAction.Mark -> {
+                val checkpoint = createCheckpointInTransaction(sessionId)
+                if (checkpoint == null) {
+                    CommandExecutionOutcome(commandText.noMarkBoundary())
+                } else {
+                    CommandExecutionOutcome(commandText.checkpointMarked(checkpoint.displayNumber))
+                }
+            }
         }
-        recordCommand(sessionId, commandInput, receipt)
     }
 
     private suspend fun checkpointList(sessionId: String): String {
@@ -3708,11 +4034,14 @@ class ElymBotSessionService internal constructor(
         }
     }
 
-    private suspend fun createCheckpoint(sessionId: String): CheckpointEntity? = repository.database.withTransaction {
+    private suspend fun createCheckpoint(sessionId: String): CheckpointEntity? =
+        repository.database.withTransaction { createCheckpointInTransaction(sessionId) }
+
+    private suspend fun createCheckpointInTransaction(sessionId: String): CheckpointEntity? {
         val session = repository.database.conversationDao().get(sessionId) ?: fail(UiIssue.InvalidInput)
         if (repository.database.turnDao().isRunning(sessionId)) fail(UiIssue.Busy)
         val latest = repository.database.turnDao().latest(sessionId)
-        if (latest?.status != TURN_STATUS_COMPLETED) return@withTransaction null
+        if (latest?.status != TURN_STATUS_COMPLETED) return null
         val checkpoints = repository.database.checkpointDao().getForSession(sessionId)
         val point = CheckpointEntity(
             id = UUID.randomUUID().toString(),
@@ -3724,7 +4053,7 @@ class ElymBotSessionService internal constructor(
         )
         repository.database.checkpointDao().insert(point)
         repository.database.conversationDao().update(session.copy(currentCheckpointId = point.id))
-        point
+        return point
     }
 
     private suspend fun restoreCheckpointState(
@@ -3732,65 +4061,94 @@ class ElymBotSessionService internal constructor(
         displayNumber: Int,
         expectedCheckpointId: String? = null,
     ): CheckpointEntity {
-        var removedAssetPaths: List<String> = emptyList()
         val restored = repository.database.withTransaction {
-            val session = repository.database.conversationDao().get(sessionId) ?: fail(UiIssue.InvalidInput)
-            if (repository.database.turnDao().isRunning(sessionId)) fail(UiIssue.Busy)
-            val selected = repository.database.checkpointDao().getByNumber(sessionId, displayNumber)
-                ?: fail(UiIssue.InvalidInput)
-            if (expectedCheckpointId != null && selected.id != expectedCheckpointId) fail(UiIssue.InvalidInput)
-            val retiredAt = System.currentTimeMillis()
-            val removedTurns = repository.database.turnDao().after(sessionId, selected.boundaryTurnSequence)
-            repository.database.retiredReplyDao().retireExecutions(
-                removedTurns.map { turn ->
-                    RetiredReplyExecutionEntity(
-                        sessionId = turn.sessionId,
-                        executionId = turn.executionId,
-                        attemptId = turn.attemptId,
-                        turnSequence = turn.sequence,
-                        retiredAtEpochMillis = retiredAt,
-                    )
-                },
-            )
-            val detachedReceipts = repository.database.replySubmissionDao()
-                .externalEffectsAfter(sessionId, selected.boundaryTurnSequence)
-                .mapNotNull { delivery ->
-                    val channelId = delivery.channelId ?: return@mapNotNull null
-                    val conversationId = delivery.conversationId ?: return@mapNotNull null
-                    val pluginId = delivery.pluginId ?: return@mapNotNull null
-                    val installationInstanceId = delivery.installationInstanceId ?: return@mapNotNull null
-                    RetiredReplyReceiptEntity(
-                        id = UUID.randomUUID().toString(),
-                        sessionId = delivery.sessionId,
-                        turnSequence = delivery.turnSequence,
-                        messageId = delivery.messageId,
-                        targetKey = delivery.targetKey,
-                        channelId = channelId,
-                        conversationId = conversationId,
-                        accountId = delivery.accountId,
-                        actorId = delivery.actorId,
-                        pluginId = pluginId,
-                        installationInstanceId = installationInstanceId,
-                        status = delivery.status,
-                        remoteMessageId = delivery.remoteMessageId,
-                        retiredAtEpochMillis = retiredAt,
-                    )
-                }
-            repository.database.retiredReplyDao().insertReceipts(detachedReceipts)
-            removedAssetPaths = repository.database.attachmentDao().pathsAfterTurn(sessionId, selected.boundaryTurnSequence)
-            repository.database.turnDao().deleteAfter(sessionId, selected.boundaryTurnSequence)
-            repository.database.historySummaryDao().deleteAfter(sessionId, selected.boundaryTurnSequence)
-            repository.database.checkpointDao().deleteAfter(sessionId, selected.creationOrder)
-            repository.database.conversationDao().update(
-                session.copy(currentCheckpointId = selected.id, unread = false, lastActivityAt = System.currentTimeMillis()),
-            )
-            selected
+            restoreCheckpointStateInTransaction(sessionId, displayNumber, expectedCheckpointId)
         }
-        repository.cleanupUnreferencedAssets(removedAssetPaths)
-        commandMessages.update { it - sessionId }
-        return restored
+        finishCheckpointRestore(sessionId, restored)
+        return restored.checkpoint
     }
 
+    private suspend fun restoreCheckpointStateInTransaction(
+        sessionId: String,
+        displayNumber: Int,
+        expectedCheckpointId: String? = null,
+    ): CheckpointRestoreResult {
+        val session = repository.database.conversationDao().get(sessionId) ?: fail(UiIssue.InvalidInput)
+        if (repository.database.turnDao().isRunning(sessionId)) fail(UiIssue.Busy)
+        val selected = repository.database.checkpointDao().getByNumber(sessionId, displayNumber)
+            ?: fail(UiIssue.InvalidInput)
+        if (expectedCheckpointId != null && selected.id != expectedCheckpointId) fail(UiIssue.InvalidInput)
+        val retiredAt = System.currentTimeMillis()
+        val removedTurns = repository.database.turnDao().after(sessionId, selected.boundaryTurnSequence)
+        repository.database.retiredReplyDao().retireExecutions(
+            removedTurns.map { turn ->
+                RetiredReplyExecutionEntity(
+                    sessionId = turn.sessionId,
+                    executionId = turn.executionId,
+                    attemptId = turn.attemptId,
+                    turnSequence = turn.sequence,
+                    retiredAtEpochMillis = retiredAt,
+                )
+            },
+        )
+        val detachedReceipts = repository.database.replySubmissionDao()
+            .externalEffectsAfter(sessionId, selected.boundaryTurnSequence)
+            .mapNotNull { delivery ->
+                val channelId = delivery.channelId ?: return@mapNotNull null
+                val conversationId = delivery.conversationId ?: return@mapNotNull null
+                val pluginId = delivery.pluginId ?: return@mapNotNull null
+                val installationInstanceId = delivery.installationInstanceId ?: return@mapNotNull null
+                RetiredReplyReceiptEntity(
+                    id = UUID.randomUUID().toString(),
+                    sessionId = delivery.sessionId,
+                    turnSequence = delivery.turnSequence,
+                    messageId = delivery.messageId,
+                    targetKey = delivery.targetKey,
+                    channelId = channelId,
+                    conversationId = conversationId,
+                    accountId = delivery.accountId,
+                    actorId = delivery.actorId,
+                    pluginId = pluginId,
+                    installationInstanceId = installationInstanceId,
+                    status = delivery.status,
+                    remoteMessageId = delivery.remoteMessageId,
+                    retiredAtEpochMillis = retiredAt,
+                )
+            }
+        repository.database.retiredReplyDao().insertReceipts(detachedReceipts)
+        val removedAssetPaths = repository.database.attachmentDao()
+            .pathsAfterTurn(sessionId, selected.boundaryTurnSequence)
+        repository.database.turnDao().deleteAfter(sessionId, selected.boundaryTurnSequence)
+        repository.database.historySummaryDao().deleteAfter(sessionId, selected.boundaryTurnSequence)
+        repository.database.checkpointDao().deleteAfter(sessionId, selected.creationOrder)
+        repository.database.conversationDao().update(
+            session.copy(
+                currentCheckpointId = selected.id,
+                unread = false,
+                lastActivityAt = System.currentTimeMillis(),
+            ),
+        )
+        return CheckpointRestoreResult(selected, removedAssetPaths)
+    }
+
+    private suspend fun finishCheckpointRestore(sessionId: String, restored: CheckpointRestoreResult) {
+        if (restored.removedAssetPaths.isNotEmpty()) {
+            repository.cleanupUnreferencedAssets(restored.removedAssetPaths)
+        }
+        commandMessages.update { it - sessionId }
+    }
+
+    private suspend fun finishCommandExecution(
+        sessionId: String,
+        commandInput: String,
+        outcome: CommandExecutionOutcome,
+    ) {
+        if (outcome.clearCommandMessages) commandMessages.update { it - sessionId }
+        if (outcome.removedAssetPaths.isNotEmpty()) {
+            repository.cleanupUnreferencedAssets(outcome.removedAssetPaths)
+        }
+        recordCommand(sessionId, commandInput, outcome.receipt)
+    }
     private suspend fun recordCommand(sessionId: String, commandInput: String?, receipt: String) {
         val session = repository.database.conversationDao().get(sessionId) ?: fail(UiIssue.InvalidInput)
         val persona = repository.database.personaDao().get(session.personaId) ?: fail(UiIssue.InvalidInput)
@@ -4147,6 +4505,17 @@ class ElymBotSessionService internal constructor(
     )
 
     private data class CommandMessageGroup(
+    private data class CommandExecutionOutcome(
+        val receipt: String,
+        val removedAssetPaths: List<String> = emptyList(),
+        val clearCommandMessages: Boolean = false,
+    )
+
+    private data class CheckpointRestoreResult(
+        val checkpoint: CheckpointEntity,
+        val removedAssetPaths: List<String>,
+    )
+
         val beforeTurnSequence: Long,
         val messages: List<ChatMessage>,
     )

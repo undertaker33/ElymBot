@@ -2405,6 +2405,7 @@ class ElymBotStorageTest {
         override fun noCheckpoints() = "empty"
         override fun noMarkBoundary() = "no boundary"
         override fun invalidCommand(helpName: String) = "invalid $helpName"
+        override fun unsupportedCommand(helpName: String) = "unsupported $helpName"
     }
 }
 

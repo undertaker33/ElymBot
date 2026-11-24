@@ -129,3 +129,9 @@ UTF-8 guard:
 - 本轮未运行 Gradle、仪器测试或设备操作。新增源码和用例待总控联编与定向复验；此前 2026-11-24 的 13/13 MuMu 结果不覆盖本轮改动。
 
 - 总控联编 App 和 AndroidTest，通过 MuMu Android 15 / x86_64 定向联跑 16/16，无跳过。11 项平台测试覆盖新增复制后取消、复制前二次撤权，另通过三项定时任务宿主测试、一项已完成轮次待发恢复和中断轮次/已发送状态校验，以及一项自动和手动版本检查。App SHA-256 `18BE0F03285F6FC7EC1C3F8C5B2E6BA200EE8F31DC6EE9DE2846AB4630FD0269`，AndroidTest SHA-256 `BF6ABD450788A066FBF8F5001CCD3AA978A18158093AEB7344CE68C0A61CED35`。
+
+## 2026-11-24 · QQ 宿主指令与回执
+
+- QQ 入站中的纯文本斜杠指令经原账号、安装身份、策略版本和会话绑定复核后，在该会话执行。使用既有指令执行逻辑，并支持 QQ 规范指令名和 App 配置名。非主会话不能切换主会话人格。无法识别或参数有误的指令由宿主直接回执。
+- 检查点变更、人格切换与回执入队使用同一 Room 事务；回执按原消息目标和引用发送。发送前再次复核权限，重启时已领取的回执记为结果未知。Room 7→8 对已有入站记录增加可空回执文本列。
+- `:app:assembleDebug :app:assembleDebugAndroidTest --offline` 通过。MuMu Android 15 / x86_64 执行 `PlatformCommandReceiptStorageTest`、`RoomReplySubmitterTest`、`ReplyHostIntegrationTest`，13 项通过。覆盖回执状态转换、重复领取、恢复后不重发、列迁移和原聊天回归。App 调试制品 SHA-256 `917EA4A0276D8A725CC8DF8C4FDA75DEB677C4FBEFB5899813820744CC968A11`；仪器测试制品 SHA-256 `AD3E1F6DC3D5AC6E2F0DBF969F911FCF1FE27734075DD8F24EBC8D2E0AA86A2F`。QQ 真实命令往返仍待在线运行组件就绪。

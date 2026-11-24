@@ -33,7 +33,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         CredentialEntity::class,
         PersonaTagEntity::class,
     ],
-    version = 7,
+    version = 8,
     exportSchema = false,
 )
 abstract class ElymBotDatabase : RoomDatabase() {
@@ -361,6 +361,14 @@ abstract class ElymBotDatabase : RoomDatabase() {
             }
         }
 
+        internal val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    "ALTER TABLE platform_inbound_inbox ADD COLUMN commandReceiptText TEXT",
+                )
+            }
+        }
+
         fun open(context: Context): ElymBotDatabase = open(context, "elymbot.db")
 
         internal fun open(context: Context, databaseName: String): ElymBotDatabase =
@@ -372,6 +380,7 @@ abstract class ElymBotDatabase : RoomDatabase() {
                     MIGRATION_4_5,
                     MIGRATION_5_6,
                     MIGRATION_6_7,
+                    MIGRATION_7_8,
                 )
                 .build()
     }
