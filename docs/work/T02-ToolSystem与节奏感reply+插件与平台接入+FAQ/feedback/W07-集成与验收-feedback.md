@@ -62,9 +62,19 @@
 ## 2026-11-24 · ARM64 调度观察与签名插件装配
 
 - 在 Android 16 / API 36 ARM64 设备上安装独立测试 App，由正式服务加载签名定时任务插件并登记一次任务。登记后正常退至后台，结束该测试进程，保留 Android JobScheduler 的任务。到期后观察 13 分 57 秒，系统任务处于 `ready`，App 进程未启动，任务运行表、轮次和投递表无记录。随后用 `cmd jobscheduler run -s` 请求系统在满足约束时执行，系统返回 `Running job`，后续 25 秒仍无进程或模型请求。未观察到该设备在进程结束后的自然唤醒。
+- 超过 15 分钟后以正常 App 入口冷启动，定时任务插件的持久记录从零条增加为一条 `MISSED`。App 任务运行表、轮次表和投递表仍为空，没有模型请求。
 - 同一设备安装独立 QQ 测试 App，App 管理服务从本地合成签名目录安装两个独立插件，`scheduled-tasks` 和 `qq` 均返回 `Completed`。QQ 新命令设置能力可读。通过正式宿主启动 QQ，Ubuntu rootfs 解包完成，容器内入口已写入 `install-base`（15%）状态。此处确认 ARM64 下签名安装及原生容器启动，登录码与收发继续实测。
 - QQ 测试 App SHA-256 `6983EC06C9946685F7A7D3AF634E4A83C07CFC8AF6A23C8A555A528B06735006`。QQ 签名包为 65,735,084 字节，内层 JAR 65,734,240 字节，低于 64 MiB，外层 SHA-256 `FB5495F9788B00312A2CADF338FDA2B7FF7218CCF2F4F8E024BF65820D500379`。定时任务签名包 SHA-256 `78B2BEEEF349B60702272A3C63075F4647C39E0043FA853B5ED3450044B619A7`。测试签名与本地目录仅用于隔离环境。
 - Ubuntu APT 基础依赖实际安装完成，随后入口停在 `download-installer`（45%），宿主报告 `FAILED/STARTUP`，没有出现登录码。保留初始现场后，使用同一 APK 安装的 PRoot、loader 与 talloc，在原隔离 Ubuntu 内通过 curl 分别请求固定安装器 API 与固定提交 Raw，均返回 HTTP 404。Desktop 同样收到 404。已验证 APK 仅包含核准的三项 ARM64 容器启动文件，未含 rootfs、可选插件 JAR、NapCat 或 Linux QQ 制品。
+
+- 在同一 ARM64 探针中另建一次任务后正常退至后台，保留 App 进程。到期约 4 小时 32 分钟后，该进程仍存活，JobScheduler 显示任务为 `ready` 且未被领取，系统记录应用未停止，两项后台运行 AppOps 为默认允许，合成模型没有收到请求。该轮未观察到后台自然触发。
+
+## 2026-11-24 · ARM64 QQ 在线安装与 NapCat 状态检查
+
+- 同一 Android 16 / API 36 ARM64 真机隔离探针中的原固定安装器入口，在隔离 App 的 `download-installer`（45%）停住并返回 HTTP 404。按 [W04 在线运行来源恢复与资源 pin 复验](W04-QQ平台接入-feedback.md) 固定来源恢复后，两个固定 commit 上游源码与同版本 Shell 字节归档均逐项通过仓库已有 SHA-256 pin 核对；三项下载内容只写入该 App 的测试私有缓存。随后从 `run-installer`（65%）继续，下载 207,538,924 B ARM64 Linux QQ deb，安装目录出现 QQ 可执行文件，并推进到 `start-napcat`（96%）。
+- 设备侧只读观察确认 QQ 与 NapCat 进程仍在运行，loopback 6099 与 6199 均监听。NapCat WebUI 在 6099 的 `GET /` 返回 HTTP 301。6199 的 listener 只证明端口监听，不代表已完成认证的 OneBot 反向 WebSocket 连接。
+- 隔离 App UI 仍显示「正在启动 QQ」和「未登录 QQ」，未显示二维码。同一隔离 App 身份的 shell 对 NapCat `auth` 与 `CheckLoginStatus` 发出只读 POST，两者均返回 HTTP 200 且 `code=0`；登录状态为 `isLogin=false`、`coreReady=false`，`auth` 响应的 `qrcodeurl` 非空。未记录 token、二维码内容或账号信息。这只证明 NapCat 后端已生成二维码数据，不证明 App 展示二维码、扫码登录或消息收发。
+- Probe Activity 的 180 秒是观察退出上限；观察结束时 App 和 guest 进程仍在运行。该结果不证明长时间稳定性。新固定 URL 的代码与 AAR pin 复验见 [W04 Feedback](W04-QQ平台接入-feedback.md)；尚未用干净 ARM64 真机和正式在线制品复验。
 
 ## 待验
 
