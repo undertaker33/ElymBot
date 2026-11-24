@@ -49,6 +49,16 @@
 
 - `:app:assembleDebugAndroidTest` 通过。MuMu Android 15 / x86_64 运行 `OfficialPluginDistributionRepositoryTest`（参数 `t02ScheduleUiProbe=true`），6 项通过，无跳过。从本地合成签名目录经 App 插件管理服务下载实际 W05 定时任务插件，验证启用、停用、无须重新下载即可重新启用和卸载清理。App SHA-256 `1C3D53993B2C631F6CF238A3571AC78F3F5F077D227A8B864909B201D2F43726`，AndroidTest SHA-256 `13D79307B9EC38979D39AC34ACDB3D1B167845B379B7919D605AE11D1EEC59BA`，定时任务签名包 SHA-256 `E9F1392B9F72F436D8830C8356114C0277A58A14490E0DB7641ECD9E235E51D2`。证据覆盖 A06、A07、A12 的安装路径和目录异常回归。[目录安装验收测试](../../../../app/src/androidTest/kotlin/com/elymbot/android/runtime/pluginpackage/OfficialPluginDistributionRepositoryTest.kt)
 
+## 2026-11-24 · 系统任务登记与重开补跑
+
+- 以 `ef94a40` 构建隔离 Debug 探针，使用独立应用包名、本地签名测试目录和合成模型。定时任务经正式 App 服务创建，使用实际签名 W05 插件和正式的 WorkManager 装配。到期前，Android JobScheduler 可见登记的 `SystemJobService`，App 的任务运行表未出现提前触发。
+- 在 MuMu Android 15 / x86_64 分别测试结束 instrumentation、正常 Activity 退后台后回收进程，以及后台进程仍存活但被冻结。自然到期未启动后台服务。手动请求系统执行和后续自然调度均出现 `user 0 is stopped` 的服务启动拒绝，同期系统用户状态查询为 `RUNNING_UNLOCKED`。受支持 ARM64 设备的自然唤醒仍待验。
+- 重新进入 App 后，`ScheduledTaskWakeWorker` 实际运行。三个到期时间各有一条 `SCHEDULED/SUCCEEDED` 主会话记录、一个完成轮次和一条已送达的 App Reply，分别迟到约 198、97、78 秒。两个未更换安装身份的运行回执均确认。剩余一个发生在探针重装插件与终态回执交接并发时，App 保留成功记录但待写回标记仍在，已纳入旧安装回执处理的定向返工。
+
+## 2026-11-24 · 启动和手动版本检查
+
+- MuMu Android 15 / x86_64 定向复验启动及手动版本检查。App 管理服务启动时请求一次，HTTP 503 产生网络错误状态；再次发起自动检查未增加请求。手动检查复用该服务并识别更新，确认前未请求 APK。该用例使用合成本地 Release，覆盖 T02.04 的 A14 装配检查。[定向用例](../../../../app/src/androidTest/kotlin/com/elymbot/android/runtime/pluginpackage/OfficialAppUpdateServiceTest.kt) · [联编制品摘要](W02-Android会话与投递-feedback.md#2026-11-24-高审-p2-媒体清理与授权快照修复)
+
 ## 待验
 
 - 已启用插件的任务正式入口、系统自然唤醒、ARM64 QQ 与平台投递、正式双源分发及同签名 App 更新仍待按 A01–A17 验收。

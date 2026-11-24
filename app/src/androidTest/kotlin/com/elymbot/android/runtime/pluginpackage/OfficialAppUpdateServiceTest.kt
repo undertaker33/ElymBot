@@ -8,6 +8,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import com.elymbot.android.ui.AppUpdateUiStatus
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
 import java.io.ByteArrayOutputStream
@@ -23,7 +24,13 @@ import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
@@ -37,6 +44,61 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class OfficialAppUpdateServiceTest {
+    @Test
+    fun appStartupChecksOnceAndManualCheckCanRecoverFromNetworkFailure() = runBlocking<Unit> {
+        isolatedContext().use { context ->
+            LocalHttpServer().use { server ->
+                val app = installedApp(context)
+                val job = Job()
+                server.respond("/latest", 503, ByteArray(0))
+                try {
+                    val host = AppHostManagementUiService(
+                        context = context,
+                        runtimeManager = PluginRuntimeManager(context),
+                        configurationLoad = OfficialPluginDistributionConfigurationLoad.NotConfigured,
+                        distributionRepository = OfficialPluginDistributionRepository(context, null),
+                        appUpdateService = service(context, app, server.port),
+                        scope = CoroutineScope(job + Dispatchers.IO),
+                    )
+                    val failure = withTimeout(5_000) {
+                        host.appUpdate.first { it.status != AppUpdateUiStatus.Checking }
+                    }
+                    assertEquals(AppUpdateUiStatus.NetworkError, failure.status)
+                    assertEquals(1, server.requestCount("/latest"))
+
+                    host.checkForAppUpdate(forceRefresh = false)
+                    assertEquals(1, server.requestCount("/latest"))
+
+                    val apk = "unrequested APK fixture".toByteArray(UTF_8)
+                    val sidecar = releaseMetadata(
+                        packageName = app.packageName,
+                        versionCode = app.versionCode + 1,
+                        versionName = "0.1.1-test",
+                        apkDigest = sha256(apk),
+                    )
+                    server.replace(
+                        "/latest",
+                        200,
+                        releaseApi(
+                            server.port,
+                            listOf(
+                                ReleaseAsset("elymbot-release.json", "metadata.json", sidecar),
+                                ReleaseAsset("release.apk", "app.apk", apk),
+                            ),
+                        ),
+                    )
+                    server.respond("/metadata.json", 200, sidecar)
+                    host.checkForAppUpdate(forceRefresh = true)
+                    assertEquals(AppUpdateUiStatus.UpdateAvailable, host.appUpdate.value.status)
+                    assertEquals(2, server.requestCount("/latest"))
+                    assertEquals(0, server.requestCount("/app.apk"))
+                } finally {
+                    job.cancelAndJoin()
+                }
+            }
+        }
+    }
+
     @Test
     fun defaultProductionConfigurationRejectsDebugPackageBeforeNetwork() = runBlocking {
         val context = isolatedContext()
