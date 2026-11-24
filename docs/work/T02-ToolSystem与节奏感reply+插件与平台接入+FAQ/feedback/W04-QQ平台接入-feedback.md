@@ -113,3 +113,26 @@
 | QQ JVM、AAR 与 ARM64 设备 | 本轮未执行；依总控安排待复验 | 当前源码和测试尚未联编；没有新增真实设备证据 | 待总控复验 |
 
 - 总控复跑 `gradlew.bat :plugins:qq:testDebugUnitTest :plugins:qq:assembleDebug --offline --console=plain`，52/52 通过，无跳过。Debug AAR SHA-256 `D22A88F80A017A8278BF996CBCA13ECD4ADDC8E11F16982A3B80B7180BC5E192`。此证据覆盖原路由通知、同事件未知回执不重发、无通知暂存消息重新提交和最新设置复核。ARM64 真实运行与宿主 slash 回执另验。
+
+## 在线运行来源恢复与资源 pin 复验（2026-11-24）
+
+- 原 NapNeko 固定安装器 API 与 Raw 地址返回 HTTP 404 后，在线下载改用固定原 commit 的公开 Raw 字节归档；NapCat Shell 改用同 v4.18.42 的公开 release 字节归档。三项来源都不是原发布者入口，实际取回字节仍由原有 SHA-256 校验限制，未更改版本或摘要。
+
+| 运行输入 | 来源 | 字节数 | SHA-256 |
+| --- | --- | ---: | --- |
+| NapCat 安装器 | [towjf fork，原 commit Raw](https://raw.githubusercontent.com/towjf/napcat-linux-installer/fb84f1f78db6ee74ab43d2410f590b844b1c9bf9/install.sh) | 12,293 | `bd6a04d3f4b3fcf1bf4f33d8f02a28c829514497484cb149cc7eb27a59dc341b` |
+| NapCat launcher source | [bianyuan456 fork，原 commit Raw](https://raw.githubusercontent.com/bianyuan456/napcat-linux-launcher/557b5ea2de8867ae8d72f5054ab0cdd96c0aa9c7/launcher.cpp) | 9,992 | `4bb4c04b379cb6bb361dee6b3561ec24f85f32e13ca86a359895e9c67203e258` |
+| NapCat Shell v4.18.42 | [XingYunStar release 字节归档](https://github.com/XingYunStar/NapCatQQ/releases/download/v4.18.42/NapCat.Shell.zip) | 35,967,555 | `02e5ff0f79916c1e04c81c1b4590056406fb4293f1f1300c955e71fd08b2829d` |
+
+- 两个脚本来源的固定 commit tree 均未发现 LICENSE 文件；公开可见性不作为再分发授权依据。本次仅修复在线取回相同固定字节的地址，未将第三方脚本或运行资产捆入 App 或插件包。
+- 将 `QqRuntimeAssets` 中 `runtime/root_launcher.sh` 的固定长度更新为 14,898 字节、SHA-256 更新为 `d2074a6913da3a5e3e4711fbc5c68372e376f09cfd1c9ec378ebd9bbaf82829d`。源文件含 489 个 LF、0 个 CR；Debug AAR 内 `classes.jar/runtime/root_launcher.sh` 实际抽取结果与长度及摘要 pin 完全相同。
+- 独立代码复审已关闭 P1。
+
+| 检查 | 方法或命令 | 环境与结果 | 限制 |
+| --- | --- | --- | --- |
+| Shell 语法 | `bash -n plugins/qq/src/main/resources/runtime/root_launcher.sh` | Git Bash 解析通过 | 静态解析，不执行运行环境 |
+| QQ JVM 与 AAR | `gradlew.bat :plugins:qq:testDebugUnitTest :plugins:qq:assembleDebug --offline --console=plain` | Windows amd64；Gradle Wrapper 9.9.1、Microsoft JDK 17.0.17、AGP 9.5.1、Android SDK Build Tools 37.0.0；52/52 JVM 用例通过，0 失败、错误或跳过。Debug AAR 为 336,896 字节，SHA-256 `f1461abc9c7fcb3b27d3379279221e346e3cc82af5aa757c3eac0b4258930430` | Debug AAR 编译不证明签名发行插件在线启动 |
+| AAR 资源与 pin | 从 AAR 的 `classes.jar` 抽取 `runtime/root_launcher.sh`，核对长度、SHA-256、LF/CR 和 Kotlin 常量 | 14,898 字节、SHA-256 `d2074a6913da3a5e3e4711fbc5c68372e376f09cfd1c9ec378ebd9bbaf82829d`；489 LF、0 CR；源码、AAR 资源与 Kotlin pin 一致 | 未进行 Android 设备操作 |
+| 差异检查 | `git diff --check` | 通过 | — |
+
+- 正式签名发行插件的 ARM64 在线准备仍待总控验证；本轮不构成发布制品或 QQ 登录、收发验收。

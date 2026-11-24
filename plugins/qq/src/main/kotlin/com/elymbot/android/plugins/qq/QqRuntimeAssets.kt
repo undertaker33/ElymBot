@@ -355,8 +355,8 @@ internal class QqRuntimeAssets(
         const val ROOTFS_SIZE_BYTES = 64_133_552L
         const val ROOTFS_SHA256 = "91acaa786b8e2fbba56a9fd0f8a1188cee482b5c7baeed707b29ddaa9a294daa"
         const val ROOT_LAUNCHER_RESOURCE_PATH = "runtime/root_launcher.sh"
-        const val ROOT_LAUNCHER_SIZE_BYTES = 14_900L
-        const val ROOT_LAUNCHER_SHA256 = "b67c6afbfb2764c4e609d2e2f2b4e5caca0150e77dae342dd8f5a0512dd34c64"
+        const val ROOT_LAUNCHER_SIZE_BYTES = 14_898L
+        const val ROOT_LAUNCHER_SHA256 = "d2074a6913da3a5e3e4711fbc5c68372e376f09cfd1c9ec378ebd9bbaf82829d"
         const val ROOT_LAUNCHER_GUEST_PATH = "elymbot_napcat_entry.sh"
         const val GUEST_ENTRY_PATH = "elymbot_qq_guest_entry.sh"
         const val COPY_BUFFER_BYTES = 16 * 1024
