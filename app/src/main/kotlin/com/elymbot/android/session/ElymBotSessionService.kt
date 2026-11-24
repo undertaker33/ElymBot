@@ -4222,6 +4222,7 @@ class ElymBotSessionService internal constructor(
         accountId = accountId,
         status = status.toChatDeliveryStatus(),
         availableAtEpochMillis = availableAtEpochMillis,
+        releasesChatMessage = targetKind == ReplyDeliveryTargetKind.APP_TRANSCRIPT.name || historyVisibilityGate,
     )
 
     private fun ReplyDeliveryWithSubmission.blocksWholeTurnRetry(): Boolean = when (delivery.targetKind) {
@@ -4504,7 +4505,6 @@ class ElymBotSessionService internal constructor(
         val toolProgressActive: Boolean = false,
     )
 
-    private data class CommandMessageGroup(
     private data class CommandExecutionOutcome(
         val receipt: String,
         val removedAssetPaths: List<String> = emptyList(),
@@ -4516,6 +4516,7 @@ class ElymBotSessionService internal constructor(
         val removedAssetPaths: List<String>,
     )
 
+    private data class CommandMessageGroup(
         val beforeTurnSequence: Long,
         val messages: List<ChatMessage>,
     )

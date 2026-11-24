@@ -118,7 +118,7 @@ internal fun SessionsPage(
                                 session.title, R.drawable.elym_chat,
                                 { if (editing) { if (canEdit) toggle() } else open(session.id, session.title) },
                                 Modifier.weight(1f),
-                                subtitle = if (session.running) stringResource(R.string.elym_generating) else session.preview ?: stringResource(R.string.elym_image_message),
+                                subtitle = session.preview ?: stringResource(R.string.elym_image_message),
                                 badge = if (session.unread) stringResource(R.string.elym_unread) else null,
                                 trailing = false,
                             )

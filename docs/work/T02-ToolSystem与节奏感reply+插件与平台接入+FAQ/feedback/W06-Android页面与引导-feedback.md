@@ -108,3 +108,8 @@
 - A08、T02.10 新增合成用例，覆盖旧能力缺失时隐藏、支持能力时显示、冲突后读取最新设置以及分别保存两项开关，验证命令设置保存沿用自己的版本并保留现有接入规则。两个界面字符串已完成中英文 XML 和源码引用静态核对。宿主联接、联编及用例执行待总控验证。 [定向测试](../../../../app/src/androidTest/kotlin/com/elymbot/android/QqPlatformUiTest.kt)
 
 - 总控接入宿主的命令设置状态流和写入入口。写入限 App 主会话，通过当前安装身份查找可选插件能力，并以独立 revision 更新。App 与 AndroidTest 联编通过，SHA-256 分别为 `13C8E6715644BC3F58A52303FBD1EE301283C3CFC6E02F1D2B44D8EEE7D2B49C` 和 `BF6ABD450788A066FBF8F5001CCD3AA978A18158093AEB7344CE68C0A61CED35`。QQ 专项 UI 用例已编入测试 APK，设备执行待验。[宿主接线](../../../../app/src/main/kotlin/com/elymbot/android/session/ElymBotSessionService.kt)
+
+## 2026-11-24 · 聊天输入状态
+
+- 聊天昵称下显示「对方正在输入中」。当前轮正在生成或仍有消息等待解锁下一条聊天气泡时显示。定时任务等待用户确认、仅余镜像目标发送或会话切换后按当前状态收起。终态回执及停止和重试入口继续可用。
+- MuMu Android 15 / x86_64 通过 `ReplyHostIntegrationTest` 4 项。Compose 语义节点坐标确认提示位于昵称下方。正式会话入口覆盖生成、分条等待、到期、取消、失败和重试。合成状态验证仅剩镜像目标时输入提示收起。联编与制品见 [W01 Feedback](W01-Core工具与Reply-feedback.md#2026-11-24--回复节奏返工)。

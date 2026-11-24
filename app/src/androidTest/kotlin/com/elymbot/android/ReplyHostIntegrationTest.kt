@@ -1,6 +1,7 @@
 package com.elymbot.android
 
 import android.security.NetworkSecurityPolicy
+import androidx.activity.compose.setContent
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -15,6 +16,16 @@ import com.elymbot.android.data.ModelAssignmentEntity
 import com.elymbot.android.data.ModelProbeEntity
 import com.elymbot.android.data.ModelServiceEntity
 import com.elymbot.android.data.RoomHistoryStore
+import com.elymbot.android.ui.ChatDeliveryStatus
+import com.elymbot.android.ui.ChatDeliveryTarget
+import com.elymbot.android.ui.ChatMessage
+import com.elymbot.android.ui.ChatPage
+import com.elymbot.android.ui.ChatPendingDelivery
+import com.elymbot.android.ui.Conversation
+import com.elymbot.android.ui.ElymBotTheme
+import com.elymbot.android.ui.ElymBotUiService
+import com.elymbot.android.ui.ElymBotViewModel
+import com.elymbot.android.ui.PersonaCard
 import com.elymbot.core.tool.ReplyToolSource
 import com.elymbot.core.contract.HistoryDirection
 import com.elymbot.core.contract.HistoryReadRequest
@@ -35,6 +46,7 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -86,6 +98,8 @@ class ReplyHostIntegrationTest {
         replyFixtureRule.awaitDeliveryStatusForText(session.id, pendingTurn.sequence, pending, "PENDING")
         replyFixtureRule.awaitDeliveryStatusForText(session.id, pendingTurn.sequence, canceled, "PENDING")
         waitForText(activityRule, first)
+        val typing = activityRule.activity.getString(R.string.elym_chat_typing)
+        waitForText(activityRule, typing)
         assertNoText(activityRule, pending)
         assertNoText(activityRule, canceled)
         assertEquals(listOf(prompt, first), replyFixtureRule.history(session.id, pendingTurn.sequence).map { it.text })
@@ -95,9 +109,11 @@ class ReplyHostIntegrationTest {
 
         val stopDelivery = activityRule.activity.getString(R.string.elym_stop_delivery)
         waitForDescription(activityRule, stopDelivery)
+        waitForText(activityRule, typing)
         activityRule.onNodeWithContentDescription(stopDelivery).performClick()
         replyFixtureRule.awaitDeliveryStatusForText(session.id, turn.sequence, pending, "CANCELLED")
         replyFixtureRule.awaitDeliveryStatusForText(session.id, turn.sequence, canceled, "CANCELLED")
+        assertNoText(activityRule, typing)
 
         val stored = replyFixtureRule.messages(session.id, turn.sequence)
         val assistantRows = stored.filter { it.message.role == "ASSISTANT" }
@@ -155,6 +171,7 @@ class ReplyHostIntegrationTest {
         assertEquals(listOf(prompt, first, text), history.map { it.text })
         activityRule.onNodeWithText(requireNotNull(session.title)).performClick()
         waitForText(activityRule, text)
+        assertNoText(activityRule, activityRule.activity.getString(R.string.elym_chat_typing))
         assertMessageOrder(first, text)
         assertEquals("Delivery must not start another model request", 2, replyFixtureRule.server.receivedRequests)
         assertEquals(turn.sequence, replyFixtureRule.latestTurn(session.id).sequence)
@@ -182,6 +199,7 @@ class ReplyHostIntegrationTest {
         assertEquals(1, replyFixtureRule.server.receivedRequests)
 
         waitForText(activityRule, activityRule.activity.getString(R.string.elym_retry))
+        assertNoText(activityRule, activityRule.activity.getString(R.string.elym_chat_typing))
         activityRule.onNodeWithText(activityRule.activity.getString(R.string.elym_retry)).performClick()
         val retriedRequest = replyFixtureRule.server.awaitRetryInitialRequest()
         assertTrue(retriedRequest.contains("\"stream\":false"))
@@ -197,6 +215,60 @@ class ReplyHostIntegrationTest {
         assertEquals(1, stored.count { it.message.role == "USER" })
         assertEquals(originalUser.id, stored.single { it.message.role == "USER" }.message.id)
         assertEquals(listOf(prompt, reply), replyFixtureRule.history(session.id, completedTurn.sequence).map { it.text })
+    }
+
+    @Test
+    fun typingIsBelowTheNicknameAndClearsWhenOnlyMirrorDeliveriesRemain() {
+        val persona = PersonaCard(id = "typing-test", name = "Typing test persona")
+        val visibleTarget = ChatPendingDelivery(
+            id = "gate", messageId = "reply", targetKey = "gate", kind = "PLATFORM",
+            channelId = "qq", conversationId = "source", accountId = "account",
+            status = ChatDeliveryStatus.Pending, availableAtEpochMillis = 0, releasesChatMessage = true,
+        )
+        val conversations = MutableStateFlow(Conversation(generating = true))
+        activityRule.activityRule.scenario.onActivity { activity ->
+            val origin = (activity.application as ElymBotApplication).uiService
+            val service = object : ElymBotUiService by origin {
+                override fun conversation(sessionId: String) = conversations
+            }
+            val model = ElymBotViewModel(service)
+            activity.setContent {
+                ElymBotTheme(dark = false) {
+                    ChatPage(model, persona, "typing-test", persona.name, true, listOf(persona), {}, true,
+                        onSessions = {}, onEdit = {}, onDelete = {}, onRename = {})
+                }
+            }
+        }
+        val typing = activityRule.activity.getString(R.string.elym_chat_typing)
+        val stopDelivery = activityRule.activity.getString(R.string.elym_stop_delivery)
+        waitForText(activityRule, typing)
+        val nicknameBounds = activityRule.onNodeWithText(persona.name).fetchSemanticsNode().boundsInRoot
+        val typingBounds = activityRule.onNodeWithText(typing).fetchSemanticsNode().boundsInRoot
+        assertTrue("The typing status belongs below the nickname", typingBounds.top >= nicknameBounds.bottom)
+
+        activityRule.runOnIdle {
+            conversations.value = Conversation(pendingDeliveries = listOf(visibleTarget))
+        }
+        waitForDescription(activityRule, stopDelivery)
+        waitForText(activityRule, typing)
+
+        val publishedReply = ChatMessage(
+            id = "reply", text = "Published reply", assistant = true, author = "Assistant",
+            deliveryTargets = listOf(
+                ChatDeliveryTarget("mirror", "PLATFORM", "qq", "mirror", "account", ChatDeliveryStatus.Sending),
+            ),
+        )
+        activityRule.runOnIdle {
+            conversations.value = Conversation(
+                messages = listOf(publishedReply),
+                pendingDeliveries = listOf(visibleTarget.copy(
+                    id = "other-mirror", messageId = "other-reply", releasesChatMessage = false,
+                )),
+            )
+        }
+        waitForText(activityRule, publishedReply.text)
+        assertNoText(activityRule, typing)
+        waitForDescription(activityRule, stopDelivery)
     }
 
     private fun sendPromptThroughMainActivity(prompt: String) {

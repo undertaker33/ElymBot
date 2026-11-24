@@ -20,9 +20,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.LiveRegionMode
-import androidx.compose.ui.semantics.liveRegion
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -104,23 +101,22 @@ internal fun ReplyDeliveryStatusLine(
     modifier: Modifier = Modifier,
     onRetry: (() -> Unit)? = null,
 ) {
-    val target = when {
-        channelId == null -> stringResource(R.string.elym_reply_target_app)
-        conversationId == null -> channelId
-        else -> stringResource(R.string.elym_reply_target_conversation, channelId, conversationId)
-    }
-    val statusLabel = stringResource(when (status) {
-        ChatDeliveryStatus.Pending -> R.string.elym_reply_delivery_pending
-        ChatDeliveryStatus.Sending -> R.string.elym_reply_delivery_sending
+    val statusLabel = when (status) {
+        ChatDeliveryStatus.Pending, ChatDeliveryStatus.Sending -> return
         ChatDeliveryStatus.Delivered -> R.string.elym_reply_delivery_delivered
         ChatDeliveryStatus.Failed -> R.string.elym_reply_delivery_failed
         ChatDeliveryStatus.Unknown -> R.string.elym_reply_delivery_unknown
         ChatDeliveryStatus.Cancelled -> R.string.elym_reply_delivery_cancelled
         ChatDeliveryStatus.Stale -> R.string.elym_reply_delivery_stale
-    })
+    }
+    val target = when {
+        channelId == null -> stringResource(R.string.elym_reply_target_app)
+        conversationId == null -> channelId
+        else -> stringResource(R.string.elym_reply_target_conversation, channelId, conversationId)
+    }
     Row(modifier.padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(
-            stringResource(R.string.elym_reply_target_status, target, statusLabel),
+            stringResource(R.string.elym_reply_target_status, target, stringResource(statusLabel)),
             Modifier.weight(1f, fill = false),
             color = if (status == ChatDeliveryStatus.Failed) Danger else Muted,
             fontSize = 12.sp,
@@ -131,22 +127,6 @@ internal fun ReplyDeliveryStatusLine(
                 modifier = Modifier.semanticsLabel(stringResource(R.string.elym_reply_retry_target, target)),
             ) { Text(stringResource(R.string.elym_retry)) }
         }
-    }
-}
-
-@Composable
-internal fun ReplyProgress(toolProgressActive: Boolean, modifier: Modifier = Modifier) {
-    Row(
-        modifier.semantics { liveRegion = LiveRegionMode.Polite },
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(7.dp),
-    ) {
-        WaitingDots()
-        Text(
-            stringResource(if (toolProgressActive) R.string.elym_tool_progress else R.string.elym_generating),
-            color = Muted,
-            fontSize = 12.sp,
-        )
     }
 }
 

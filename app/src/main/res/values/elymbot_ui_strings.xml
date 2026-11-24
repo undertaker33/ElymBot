@@ -68,7 +68,7 @@
     <string name="elym_edit_service">编辑模型服务</string>
     <string name="elym_failed">操作失败</string>
     <string name="elym_favorites">收藏</string>
-    <string name="elym_generating">正在生成…</string>
+    <string name="elym_chat_typing">对方正在输入中</string>
     <string name="elym_crop_image">裁剪预览</string>
     <string name="elym_crop_move_left">向左移图片</string>
     <string name="elym_crop_move_right">向右移图片</string>
@@ -122,8 +122,6 @@
     <string name="elym_rename_session">重命名会话</string>
     <string name="elym_replace_image">更换图片</string>
     <string name="elym_reply_failed">回复失败</string>
-    <string name="elym_reply_delivery_pending">待发</string>
-    <string name="elym_reply_delivery_sending">发送中</string>
     <string name="elym_reply_delivery_delivered">已送达</string>
     <string name="elym_reply_delivery_failed">发送失败</string>
     <string name="elym_reply_delivery_unknown">送达状态未知</string>
@@ -185,7 +183,6 @@
     <string name="elym_vision_role">视觉理解</string>
     <string name="elym_vision_support">视觉支持</string>
     <string name="elym_waiting">正在等待回复</string>
-    <string name="elym_tool_progress">正在调用工具…</string>
     <plurals name="elym_models_found">
         <item quantity="other">找到 %1$d 个模型</item>
     </plurals>

@@ -1,13 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="elym_reply_delivery_pending">Queued</string>
-    <string name="elym_reply_delivery_sending">Sending</string>
+    <string name="elym_chat_typing">Typing…</string>
     <string name="elym_reply_delivery_delivered">Delivered</string>
     <string name="elym_reply_delivery_failed">Delivery failed</string>
     <string name="elym_reply_delivery_unknown">Delivery unconfirmed</string>
     <string name="elym_reply_delivery_cancelled">Cancelled</string>
-    <string name="elym_command_unsupported">This command is not supported. Use /%1$s for help.</string>
     <string name="elym_reply_delivery_stale">Expired</string>
+    <string name="elym_command_unsupported">This command is not supported. Use /%1$s for help.</string>
     <string name="elym_reply_target_app">App conversation</string>
     <string name="elym_reply_target_conversation">%1$s · %2$s</string>
     <string name="elym_reply_target_status">%1$s: %2$s</string>

@@ -19,6 +19,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
@@ -48,7 +51,9 @@ internal fun ChatPage(
     onOpenTasks: (() -> Unit)? = null,
 ) {
     val service = model.service
-    val observedConversation by remember(id) { service.conversation(id) }.collectAsStateWithLifecycle(initialValue = null)
+    val observedConversation by key(id) {
+        remember { service.conversation(id) }.collectAsStateWithLifecycle(initialValue = null)
+    }
     val conversation = observedConversation ?: Conversation()
     val writable = current && observedConversation?.readOnly == false
     val sessionList by remember(persona.id, main) {
@@ -92,15 +97,17 @@ internal fun ChatPage(
         }
     }
     val pending = conversation.pendingDeliveries
+    val unreleasedReceipts = pending.filterNot { it.status.inFlight }
     val receipts = conversation.detachedDeliveryReceipts
     val hasActiveDelivery = pending.any { it.status.inFlight } || conversation.messages.any { message ->
         message.deliveryTargets.any { it.status.inFlight }
     }
-    val showEmpty = conversation.messages.isEmpty() && pending.isEmpty() && receipts.isEmpty() && pendingTask == null &&
-        !conversation.generating && conversation.issue == null
-    val generatingReply = conversation.generating && pendingTask == null
-    val itemCount = conversation.messages.size + pending.size + receipts.size +
-        listOf(showEmpty, generatingReply, pendingTask != null, conversation.issue != null).count { it }
+    val waitingForChatMessage = pending.any { it.releasesChatMessage && it.status.inFlight }
+    val showTyping = (conversation.generating && pendingTask == null) || waitingForChatMessage
+    val showEmpty = conversation.messages.isEmpty() && unreleasedReceipts.isEmpty() && receipts.isEmpty() && pendingTask == null &&
+        !conversation.generating && !hasActiveDelivery && conversation.issue == null
+    val itemCount = conversation.messages.size + unreleasedReceipts.size + receipts.size +
+        listOf(showEmpty, pendingTask != null, conversation.issue != null).count { it }
     val replyFade = tween<Float>(PrimaryMotion.FadeMillis, easing = PrimaryMotion.Fade)
     val revealedSend = pendingSendScroll?.takeIf { it.hasNewEcho(conversation.messages) }
     fun stopReply() {
@@ -147,11 +154,20 @@ internal fun ChatPage(
             ) {
                 PersonaImage(persona, Modifier.size(42.dp).clip(RoundedCornerShape(16.dp)), avatar = true)
             }
-            Text(
-                if (main) persona.name else displayTitle.ifEmpty { stringResource(R.string.elym_new_chat_title) },
-                Modifier.weight(1f).padding(start = 4.dp), color = Ink, fontSize = 19.sp, fontWeight = FontWeight.Bold,
-                maxLines = 1, overflow = TextOverflow.Ellipsis,
-            )
+            Column(Modifier.weight(1f).padding(start = 4.dp)) {
+                Text(
+                    if (main) persona.name else displayTitle.ifEmpty { stringResource(R.string.elym_new_chat_title) },
+                    color = Ink, fontSize = 19.sp, fontWeight = FontWeight.Bold,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                )
+                if (current && showTyping) {
+                    Text(
+                        stringResource(R.string.elym_chat_typing),
+                        Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+                        color = Muted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
             if (writable) Box {
                 RoundAction(R.drawable.elym_more, stringResource(R.string.elym_chat_menu), { menu = true })
                 DropdownMenu(current && menu, { menu = false }, containerColor = SurfaceColor, shape = RoundedCornerShape(16.dp)) {
@@ -206,18 +222,16 @@ internal fun ChatPage(
                     )
                 }
                 items(receipts, key = { "detached:${it.id}" }) { receipt ->
-                    ReplyDeliveryStatusLine(receipt.channelId, receipt.conversationId, receipt.status)
+                    val status = if (receipt.status == ChatDeliveryStatus.Sending) ChatDeliveryStatus.Unknown else receipt.status
+                    ReplyDeliveryStatusLine(receipt.channelId, receipt.conversationId, status)
                 }
-                items(pending, key = { "unreleased:${it.id}" }) { delivery ->
+                items(unreleasedReceipts, key = { "unreleased:${it.id}" }) { delivery ->
                     ReplyDeliveryStatusLine(
                         delivery.channelId, delivery.conversationId, delivery.status,
                         onRetry = if (writable && delivery.status == ChatDeliveryStatus.Failed) {
                             { retryDelivery(delivery.messageId, delivery.id) }
                         } else null,
                     )
-                }
-                if (generatingReply) item(key = "reply-progress") {
-                    ReplyProgress(conversation.toolProgressActive)
                 }
                 if (pendingTask != null) item(key = "scheduled-task-confirmation") {
                     Row(

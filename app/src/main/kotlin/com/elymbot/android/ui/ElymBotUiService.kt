@@ -196,6 +196,7 @@ data class ChatPendingDelivery(
     val accountId: String?,
     val status: ChatDeliveryStatus,
     val availableAtEpochMillis: Long,
+    val releasesChatMessage: Boolean = false,
 )
 
 enum class ChatDeliveryStatus { Pending, Sending, Delivered, Failed, Unknown, Cancelled, Stale }
