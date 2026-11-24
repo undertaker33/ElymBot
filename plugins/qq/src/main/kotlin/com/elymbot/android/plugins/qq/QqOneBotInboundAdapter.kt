@@ -3,6 +3,9 @@ package com.elymbot.android.plugins.qq
 import com.elymbot.core.contract.PlatformInboundEnvelope
 import com.elymbot.core.contract.PlatformInboundResult
 import com.elymbot.core.contract.PlatformInboundSink
+import com.elymbot.core.contract.PlatformDeliveryFailure
+import com.elymbot.core.contract.PlatformDeliveryResult
+import com.elymbot.core.contract.QqPlatformCommandSettings
 import com.elymbot.core.contract.QqPlatformRateLimitSettings
 import com.elymbot.core.contract.QqPlatformRateLimitStrategy
 import com.elymbot.core.contract.QqPlatformSettings
@@ -25,6 +28,22 @@ internal sealed interface QqOneBotIngressResult {
         val hostResult: PlatformInboundResult,
         val replayResults: List<PlatformInboundResult> = emptyList(),
     ) : QqOneBotIngressResult
+
+    data class CommandHandled(
+        val settingsChanged: Boolean,
+        val retryable: Boolean,
+        val replyResult: PlatformDeliveryResult?,
+    ) : QqOneBotIngressResult
+}
+
+private sealed interface QqOneBotDispatchResult {
+    data class Host(val receipt: PlatformInboundResult) : QqOneBotDispatchResult
+
+    data class Command(
+        val settingsChanged: Boolean,
+        val retryable: Boolean,
+        val replyResult: PlatformDeliveryResult?,
+    ) : QqOneBotDispatchResult
 }
 
 /** Formal OneBot event entry used by the socket adapter and synthetic contract checks. */
@@ -36,6 +55,12 @@ internal class QqOneBotInboundAdapter(
         nowMillis = { System.currentTimeMillis() },
     ),
     private val mediaSources: QqMediaSourceRegistry = QqMediaSourceRegistry(),
+    private val commandHandler: QqManagementCommandHandler? = null,
+    private val currentSettingsProvider: (() -> QqPlatformSettings)? = null,
+    private val currentCommandSettingsProvider: (() -> QqPlatformCommandSettings)? = null,
+    private val commandReplySender: suspend (OneBotInboundEvent, String) -> PlatformDeliveryResult = { _, _ ->
+        PlatformDeliveryResult.Failed(PlatformDeliveryFailure.NOT_CONNECTED, retryable = true)
+    },
 ) {
     suspend fun accept(
         payload: String,
@@ -63,12 +88,12 @@ internal class QqOneBotInboundAdapter(
 
         return when (decision) {
             is QqInboundDecision.Dropped -> {
-                reservation.release()
+                sendPolicyNotice(reservation, event, decision.reason)
                 QqOneBotIngressResult.Dropped(decision.reason)
             }
             is QqInboundDecision.ContextOnly -> {
                 val pending = PendingQqInbound(event, reservation)
-                QqOneBotIngressResult.Forwarded(dispatch(pending, decision.envelope, sink))
+                dispatch(pending, decision.envelope, decision.event, sink).toIngressResult()
             }
             is QqInboundDecision.Trigger -> acceptTriggered(decision, event, configuration, reservation, sink)
         }
@@ -79,7 +104,8 @@ internal class QqOneBotInboundAdapter(
         configuration: QqPlatformSettings,
         sink: PlatformInboundSink,
     ): List<PlatformInboundResult> {
-        val release = rateLimiter.releaseReady(sourceKey, configuration.rateLimitFor(sourceKey))
+        val currentSettings = currentSettingsProvider?.invoke() ?: configuration
+        val release = rateLimiter.releaseReady(sourceKey, currentSettings.rateLimitFor(sourceKey))
         release.discarded.forEach { it.reservation.release() }
         return dispatchReady(release.readyToReplay, configuration, sink)
     }
@@ -97,6 +123,10 @@ internal class QqOneBotInboundAdapter(
 
     fun hasPendingStash(): Boolean = rateLimiter.stashedSourceKeys().isNotEmpty()
 
+    fun clearStashes() {
+        rateLimiter.clear().forEach { it.reservation.complete() }
+    }
+
     private suspend fun acceptTriggered(
         decision: QqInboundDecision.Trigger,
         sourceEvent: OneBotInboundEvent,
@@ -111,10 +141,7 @@ internal class QqOneBotInboundAdapter(
                 val released = rateLimiter.releaseReady(decision.rateLimitKey, rule)
                 released.discarded.forEach { it.reservation.release() }
                 val replayResults = dispatchReady(released.readyToReplay, configuration, sink)
-                QqOneBotIngressResult.Forwarded(
-                    hostResult = dispatch(pending, decision.envelope, sink),
-                    replayResults = replayResults,
-                )
+                dispatchCurrentAfterReplay(pending, configuration, sink, replayResults)
             } catch (failure: Throwable) {
                 reservation.release()
                 throw failure
@@ -128,16 +155,18 @@ internal class QqOneBotInboundAdapter(
             reservationStored = limited.disposition == QqRateLimitDisposition.STASHED
             val replayResults = dispatchReady(limited.readyToReplay, configuration, sink)
             when (limited.disposition) {
-                QqRateLimitDisposition.ALLOW -> QqOneBotIngressResult.Forwarded(
-                    hostResult = dispatch(pending, decision.envelope, sink),
-                    replayResults = replayResults,
-                )
+                QqRateLimitDisposition.ALLOW ->
+                    dispatchCurrentAfterReplay(pending, configuration, sink, replayResults)
                 QqRateLimitDisposition.STASHED -> QqOneBotIngressResult.RateLimited(
                     disposition = limited.disposition,
                     replayResults = replayResults,
                 )
                 QqRateLimitDisposition.DROPPED -> {
-                    reservation.release()
+                    discardAndNotify(
+                        reservation = reservation,
+                        event = sourceEvent,
+                        notice = RATE_LIMIT_NOTICE.takeIf { commandSettings().replyWhenPermissionDenied },
+                    )
                     QqOneBotIngressResult.RateLimited(limited.disposition, replayResults)
                 }
             }
@@ -149,19 +178,24 @@ internal class QqOneBotInboundAdapter(
 
     private suspend fun dispatchReady(
         pendingEvents: List<PendingQqInbound>,
-        configuration: QqPlatformSettings,
+        fallbackConfiguration: QqPlatformSettings,
         sink: PlatformInboundSink,
     ): List<PlatformInboundResult> {
         val results = mutableListOf<PlatformInboundResult>()
         pendingEvents.forEachIndexed { index, pending ->
             try {
-                when (val currentDecision = policy.evaluate(pending.event, configuration)) {
-                    is QqInboundDecision.Dropped -> pending.reservation.release()
+                val currentConfiguration = currentSettingsProvider?.invoke() ?: fallbackConfiguration
+                when (val currentDecision = policy.evaluate(pending.event, currentConfiguration)) {
+                    is QqInboundDecision.Dropped -> {
+                        sendPolicyNotice(pending.reservation, pending.event, currentDecision.reason)
+                    }
                     is QqInboundDecision.ContextOnly -> {
-                        results += dispatch(pending, currentDecision.envelope, sink)
+                        val result = dispatch(pending, currentDecision.envelope, currentDecision.event, sink)
+                        if (result is QqOneBotDispatchResult.Host) results += result.receipt
                     }
                     is QqInboundDecision.Trigger -> {
-                        results += dispatch(pending, currentDecision.envelope, sink)
+                        val result = dispatch(pending, currentDecision.envelope, currentDecision.event, sink)
+                        if (result is QqOneBotDispatchResult.Host) results += result.receipt
                     }
                 }
             } catch (failure: Throwable) {
@@ -173,24 +207,123 @@ internal class QqOneBotInboundAdapter(
         return results
     }
 
+    private suspend fun dispatchCurrentAfterReplay(
+        pending: PendingQqInbound,
+        fallbackConfiguration: QqPlatformSettings,
+        sink: PlatformInboundSink,
+        replayResults: List<PlatformInboundResult>,
+    ): QqOneBotIngressResult {
+        val currentConfiguration = currentSettingsProvider?.invoke() ?: fallbackConfiguration
+        return when (val currentDecision = policy.evaluate(pending.event, currentConfiguration)) {
+            is QqInboundDecision.Dropped -> {
+                sendPolicyNotice(pending.reservation, pending.event, currentDecision.reason)
+                QqOneBotIngressResult.Dropped(currentDecision.reason)
+            }
+            is QqInboundDecision.ContextOnly -> dispatch(
+                pending,
+                currentDecision.envelope,
+                currentDecision.event,
+                sink,
+            ).toIngressResult(replayResults)
+            is QqInboundDecision.Trigger -> dispatch(
+                pending,
+                currentDecision.envelope,
+                currentDecision.event,
+                sink,
+            ).toIngressResult(replayResults)
+        }
+    }
+
+    private suspend fun sendPolicyNotice(
+        reservation: QqEventDeduplicator.Reservation,
+        event: OneBotInboundEvent,
+        reason: QqInboundDropReason,
+    ) {
+        val notice = try {
+            when (reason) {
+                QqInboundDropReason.NOT_ALLOWED -> WHITELIST_DENIED_NOTICE
+                    .takeIf { commandSettings().replyWhenPermissionDenied }
+                QqInboundDropReason.WAKE_WORD_REQUIRED -> WAKE_WORD_REQUIRED_NOTICE
+                    .takeIf { commandSettings().replyWhenPermissionDenied }
+                QqInboundDropReason.KEYWORD_BLOCKED -> KEYWORD_BLOCK_NOTICE
+                QqInboundDropReason.SELF_MESSAGE,
+                QqInboundDropReason.AT_ALL_IGNORED,
+                QqInboundDropReason.NO_TRIGGER,
+                -> null
+            }
+        } catch (failure: Throwable) {
+            reservation.release()
+            throw failure
+        }
+        discardAndNotify(reservation, event, notice)
+    }
+
+    private suspend fun discardAndNotify(
+        reservation: QqEventDeduplicator.Reservation,
+        event: OneBotInboundEvent,
+        notice: String?,
+    ) {
+        if (notice == null) {
+            reservation.release()
+            return
+        }
+        reservation.complete()
+        commandReplySender(event, notice)
+    }
+
+    private fun commandSettings(): QqPlatformCommandSettings =
+        currentCommandSettingsProvider?.invoke() ?: QqPlatformCommandSettings()
+
     private suspend fun dispatch(
         pending: PendingQqInbound,
         envelope: PlatformInboundEnvelope,
+        event: OneBotInboundEvent,
         sink: PlatformInboundSink,
-    ): PlatformInboundResult = try {
-        val result = mediaSources.withEventSources(pending.event.mediaSources) {
-            sink.accept(envelope)
+    ): QqOneBotDispatchResult {
+        val command = commandHandler?.handle(event)
+        if (command != null) {
+            if (command.completeEvent) pending.reservation.complete() else pending.reservation.release()
+            val replyResult = command.replyText?.let { commandReplySender(event, it) }
+            return QqOneBotDispatchResult.Command(
+                settingsChanged = command.settingsChanged,
+                retryable = !command.completeEvent,
+                replyResult = replyResult,
+            )
         }
-        when (result) {
-            PlatformInboundResult.Accepted,
-            PlatformInboundResult.Duplicate,
-            -> pending.reservation.complete()
-            is PlatformInboundResult.Rejected -> pending.reservation.release()
+
+        return try {
+            val result = mediaSources.withEventSources(pending.event.mediaSources) {
+                sink.accept(envelope)
+            }
+            when (result) {
+                PlatformInboundResult.Accepted,
+                PlatformInboundResult.Duplicate,
+                -> pending.reservation.complete()
+                is PlatformInboundResult.Rejected -> pending.reservation.release()
+            }
+            QqOneBotDispatchResult.Host(result)
+        } catch (failure: Throwable) {
+            pending.reservation.release()
+            throw failure
         }
-        result
-    } catch (failure: Throwable) {
-        pending.reservation.release()
-        throw failure
+    }
+
+    private fun QqOneBotDispatchResult.toIngressResult(
+        replayResults: List<PlatformInboundResult> = emptyList(),
+    ): QqOneBotIngressResult = when (this) {
+        is QqOneBotDispatchResult.Host -> QqOneBotIngressResult.Forwarded(receipt, replayResults)
+        is QqOneBotDispatchResult.Command -> QqOneBotIngressResult.CommandHandled(
+            settingsChanged = settingsChanged,
+            retryable = retryable,
+            replyResult = replyResult,
+        )
+    }
+
+    private companion object {
+        const val WHITELIST_DENIED_NOTICE = "Permission denied by whitelist."
+        const val WAKE_WORD_REQUIRED_NOTICE = "Wake word required."
+        const val RATE_LIMIT_NOTICE = "Rate limit exceeded."
+        const val KEYWORD_BLOCK_NOTICE = "你的消息或者大模型的响应中包含不适当的内容，已被屏蔽。"
     }
 }
 

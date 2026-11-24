@@ -12,6 +12,7 @@ internal enum class QqInboundDropReason {
     SELF_MESSAGE,
     AT_ALL_IGNORED,
     NOT_ALLOWED,
+    WAKE_WORD_REQUIRED,
     KEYWORD_BLOCKED,
     NO_TRIGGER,
 }
@@ -56,17 +57,13 @@ internal class QqInboundPolicy {
         } else {
             inbound.withText(normalizedCommand)
         }
-        if (configuration.keywordDetectionEnabled && QqKeywordDetector(configuration.keywordPatterns).matches(event.text)) {
-            return QqInboundDecision.Dropped(QqInboundDropReason.KEYWORD_BLOCKED)
-        }
-
         val wakeMatched = QqWakeWordPolicy.matches(
             text = event.text,
             wakeWords = configuration.wakeWords + configuration.triggerWords,
             adminOnlyEnabled = configuration.wakeWordsAdminOnlyEnabled,
             isAdmin = isAdmin,
         )
-        val isCommand = normalizedCommand != null
+        val isCommand = QqCommandAliasNormalizer.isCommand(event.text)
         val isTriggered = when (inbound.conversationKind) {
             OneBotConversationKind.PRIVATE -> isCommand || !configuration.privateChatRequiresWakeWord || wakeMatched
             OneBotConversationKind.GROUP -> isCommand ||
@@ -86,16 +83,22 @@ internal class QqInboundPolicy {
                     ),
                     event = event,
                 )
+            } else if (inbound.conversationKind == OneBotConversationKind.PRIVATE &&
+                configuration.privateChatRequiresWakeWord && !wakeMatched && !isCommand
+            ) {
+                QqInboundDecision.Dropped(QqInboundDropReason.WAKE_WORD_REQUIRED)
             } else {
                 QqInboundDecision.Dropped(QqInboundDropReason.NO_TRIGGER)
             }
         }
 
-        val historyVisibility = when {
-            inbound.conversationKind == OneBotConversationKind.PRIVATE -> PlatformHistoryVisibility.PRIVATE
-            inbound.groupId?.let { it in configuration.publicGroupHistoryGroupIds } == true ->
-                PlatformHistoryVisibility.GROUP_PUBLIC
-            else -> PlatformHistoryVisibility.GROUP_MEMBER
+        if (configuration.keywordDetectionEnabled && QqKeywordDetector(configuration.keywordPatterns).matches(event.text)) {
+            return QqInboundDecision.Dropped(QqInboundDropReason.KEYWORD_BLOCKED)
+        }
+
+        val historyVisibility = when (inbound.conversationKind) {
+            OneBotConversationKind.PRIVATE -> PlatformHistoryVisibility.PRIVATE
+            OneBotConversationKind.GROUP -> PlatformHistoryVisibility.GROUP_MEMBER
         }
         return QqInboundDecision.Trigger(
             envelope = event.toEnvelope(
@@ -158,7 +161,8 @@ private fun QqPlatformRateLimitSettings.toQqRateLimitRule() = QqRateLimitRule(
 )
 
 internal object QqCommandAliasNormalizer {
-    private val builtInCommands = setOf("help", "persona", "checkpoint", "reset", "mark")
+    private val builtInCommands = setOf("help", "persona", "checkpoint", "reset", "mark", "op", "deop", "wl", "dwl")
+    private val protectedCommands = setOf("op", "deop", "wl", "dwl")
     private val slashCommand = Regex("^/([^\\s]+)(.*)$", RegexOption.IGNORE_CASE)
 
     /** Maps configured slash aliases to the Core command names while retaining arguments. */
@@ -169,9 +173,21 @@ internal object QqCommandAliasNormalizer {
             ?.value
             ?.trim()
             ?.trimStart('/')
-        val canonical = configured ?: alias.takeIf { it in builtInCommands } ?: return null
+        val canonical = when {
+            alias in protectedCommands -> alias
+            configured != null -> configured
+            alias in builtInCommands -> alias
+            else -> return null
+        }
         if (canonical.isBlank()) return null
         return "/$canonical${match.groupValues[2]}"
+    }
+
+    fun isCommand(text: String): Boolean {
+        val trimmed = text.trim()
+        if (!trimmed.startsWith('/')) return false
+        val commandToken = trimmed.split(Regex("\\s+"), limit = 2).firstOrNull().orEmpty()
+        return commandToken.removePrefix("/").isNotBlank()
     }
 }
 

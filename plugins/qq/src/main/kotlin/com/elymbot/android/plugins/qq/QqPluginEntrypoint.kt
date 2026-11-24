@@ -24,6 +24,10 @@ import com.elymbot.core.contract.QqPlatformSettingsHandle
 import com.elymbot.core.contract.QqPlatformSettingsRejection
 import com.elymbot.core.contract.QqPlatformSettingsSnapshot
 import com.elymbot.core.contract.QqPlatformSettingsUpdateResult
+import com.elymbot.core.contract.QqPlatformCommandSettings
+import com.elymbot.core.contract.QqPlatformCommandSettingsHandle
+import com.elymbot.core.contract.QqPlatformCommandSettingsSnapshot
+import com.elymbot.core.contract.QqPlatformCommandSettingsUpdateResult
 import com.elymbot.core.contract.MessageReference
 import java.io.IOException
 import java.io.OutputStream
@@ -66,15 +70,26 @@ internal class QqPlatformPluginHandleImpl(
         ?: ClassLoader.getSystemClassLoader(),
     private val runtimeAssetPreparationOverride: (suspend () -> Unit)? = null,
     private val oneBotServerStartOverride: (() -> Unit)? = null,
-) : PlatformPluginHandle, QqPlatformSettingsHandle {
+) : PlatformPluginHandle, QqPlatformSettingsHandle, QqPlatformCommandSettingsHandle {
     private val dataDirectory = context.dataDirectory.canonicalFile
     private val assets = QqRuntimeAssets(dataDirectory, resourceLoader)
     private val settingsStore = QqPlatformSettingsStore(dataDirectory)
     private val loginApi = QqNapCatLoginApi(assets.runtimeSecretFile())
     private val mediaSources = QqMediaSourceRegistry()
-    private val inboundAdapter = QqOneBotInboundAdapter(mediaSources = mediaSources)
-    private val runtimeScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val operationMutex = Mutex()
+    private val managementCommandHandler = QqManagementCommandHandler(
+        settingsStore = settingsStore,
+        operationMutex = operationMutex,
+        isCurrentAccount = ::isCurrentAccount,
+    )
+    private val inboundAdapter = QqOneBotInboundAdapter(
+        mediaSources = mediaSources,
+        commandHandler = managementCommandHandler,
+        currentSettingsProvider = { settingsStore.settings.value.settings },
+        currentCommandSettingsProvider = { settingsStore.commandSettings.value.settings },
+        commandReplySender = ::sendManagementReply,
+    )
+    private val runtimeScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val replayWakeups = Channel<Unit>(Channel.CONFLATED)
     private val qrChallengeLock = Any()
     private val closed = AtomicBoolean(false)
@@ -108,6 +123,7 @@ internal class QqPlatformPluginHandleImpl(
     override val toolSources: List<com.elymbot.core.contract.ToolSource> = emptyList()
     override val state: StateFlow<PlatformRuntimeState> = mutableState.asStateFlow()
     override val settings: StateFlow<QqPlatformSettingsSnapshot> = settingsStore.settings
+    override val commandSettings: StateFlow<QqPlatformCommandSettingsSnapshot> = settingsStore.commandSettings
 
     override suspend fun start(runtimeHost: PlatformRuntimeHost, inboundSink: PlatformInboundSink) {
         operationMutex.withLock {
@@ -186,6 +202,7 @@ internal class QqPlatformPluginHandleImpl(
     override suspend fun logout() {
         operationMutex.withLock {
             check(!closed.get()) { "QQ plugin installation is closed" }
+            inboundAdapter.clearStashes()
             val host = runtimeHost ?: return@withLock
             if (guestProcess?.isAlive != true) return@withLock
 
@@ -279,6 +296,20 @@ internal class QqPlatformPluginHandleImpl(
         }
     }
 
+    private suspend fun sendManagementReply(
+        event: OneBotInboundEvent,
+        text: String,
+    ): PlatformDeliveryResult {
+        val target = event.message.target
+            ?: return PlatformDeliveryResult.Failed(PlatformDeliveryFailure.INVALID_TARGET, retryable = false)
+        return send(
+            PlatformOutboundMessage(
+                target = target,
+                segments = listOf(AgentMessageSegment.Text(text)),
+            ),
+        )
+    }
+
     override suspend fun copyMedia(
         reference: com.elymbot.core.contract.MediaResourceReference,
         destination: OutputStream,
@@ -298,8 +329,19 @@ internal class QqPlatformPluginHandleImpl(
         return result
     }
 
+    override suspend fun updateCommandSettings(
+        expectedRevision: Long,
+        settings: QqPlatformCommandSettings,
+    ): QqPlatformCommandSettingsUpdateResult {
+        if (closed.get()) return QqPlatformCommandSettingsUpdateResult.Rejected
+        val result = settingsStore.updateCommandSettings(expectedRevision, settings)
+        if (result is QqPlatformCommandSettingsUpdateResult.Saved) wakeStashReplayIfPending()
+        return result
+    }
+
     override fun close() {
         if (!closed.compareAndSet(false, true)) return
+        inboundAdapter.clearStashes()
         mutableState.value = mutableState.value.copy(phase = PlatformRuntimePhase.STOPPING)
         oneBotServer?.close()
         val cleanupScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -413,10 +455,12 @@ internal class QqPlatformPluginHandleImpl(
         while (currentCoroutineContext().isActive && !closed.get()) {
             val process = guestProcess
             if (process == null || !process.isAlive) {
-                mutableState.value = PlatformRuntimeState(
-                    phase = PlatformRuntimePhase.FAILED,
-                    failure = PlatformRuntimeFailure(PlatformRuntimeFailureReason.STARTUP, retryable = true),
-                )
+                operationMutex.withLock {
+                    mutableState.value = PlatformRuntimeState(
+                        phase = PlatformRuntimePhase.FAILED,
+                        failure = PlatformRuntimeFailure(PlatformRuntimeFailureReason.STARTUP, retryable = true),
+                    )
+                }
                 return
             }
             val progress = readProgress()
@@ -436,32 +480,39 @@ internal class QqPlatformPluginHandleImpl(
                         login.qrContent != null -> PlatformRuntimePhase.WAITING_FOR_LOGIN
                         else -> PlatformRuntimePhase.STARTING
                     }
-                    mutableState.value = PlatformRuntimeState(
-                        phase = phase,
-                        progressPercent = progress,
-                        accountId = login.accountId,
-                        loginChallenge = challenge,
-                    )
+                    operationMutex.withLock {
+                        clearStashesForAccountChange(login)
+                        mutableState.value = PlatformRuntimeState(
+                            phase = phase,
+                            progressPercent = progress,
+                            accountId = login.accountId,
+                            loginChallenge = challenge,
+                        )
+                    }
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (_: Exception) {
-                    mutableState.value = mutableState.value.copy(
-                        phase = if (oneBotServer?.isConnected == true) {
-                            PlatformRuntimePhase.CONNECTING
-                        } else {
-                            PlatformRuntimePhase.STARTING
-                        },
-                        progressPercent = progress,
-                        failure = PlatformRuntimeFailure(PlatformRuntimeFailureReason.CONNECTION, retryable = true),
-                    )
+                    operationMutex.withLock {
+                        mutableState.value = mutableState.value.copy(
+                            phase = if (oneBotServer?.isConnected == true) {
+                                PlatformRuntimePhase.CONNECTING
+                            } else {
+                                PlatformRuntimePhase.STARTING
+                            },
+                            progressPercent = progress,
+                            failure = PlatformRuntimeFailure(PlatformRuntimeFailureReason.CONNECTION, retryable = true),
+                        )
+                    }
                 }
             } else {
                 clearQrChallengeCache()
-                mutableState.value = mutableState.value.copy(
-                    phase = PlatformRuntimePhase.STARTING,
-                    progressPercent = progress,
-                    loginChallenge = null,
-                )
+                operationMutex.withLock {
+                    mutableState.value = mutableState.value.copy(
+                        phase = PlatformRuntimePhase.STARTING,
+                        progressPercent = progress,
+                        loginChallenge = null,
+                    )
+                }
             }
             delay(LOGIN_POLL_INTERVAL_MILLIS)
         }
@@ -476,20 +527,24 @@ internal class QqPlatformPluginHandleImpl(
         } else {
             loginChallenge(login.qrContent)
         }
-        mutableState.value = PlatformRuntimeState(
-            phase = when {
-                login.isLoggedIn && login.coreReady && oneBotServer?.isConnected == true -> PlatformRuntimePhase.CONNECTED
-                login.isLoggedIn -> PlatformRuntimePhase.CONNECTING
-                login.qrContent != null -> PlatformRuntimePhase.WAITING_FOR_LOGIN
-                else -> PlatformRuntimePhase.STARTING
-            },
-            progressPercent = readProgress(),
-            accountId = login.accountId,
-            loginChallenge = challenge,
-        )
+        operationMutex.withLock {
+            clearStashesForAccountChange(login)
+            mutableState.value = PlatformRuntimeState(
+                phase = when {
+                    login.isLoggedIn && login.coreReady && oneBotServer?.isConnected == true -> PlatformRuntimePhase.CONNECTED
+                    login.isLoggedIn -> PlatformRuntimePhase.CONNECTING
+                    login.qrContent != null -> PlatformRuntimePhase.WAITING_FOR_LOGIN
+                    else -> PlatformRuntimePhase.STARTING
+                },
+                progressPercent = readProgress(),
+                accountId = login.accountId,
+                loginChallenge = challenge,
+            )
+        }
     }
 
     private suspend fun stopGuestLocked() {
+        inboundAdapter.clearStashes()
         monitorJob?.cancelAndJoin()
         monitorJob = null
         stashReplayJob?.cancelAndJoin()
@@ -572,6 +627,19 @@ internal class QqPlatformPluginHandleImpl(
             route.conversationId.startsWith("group:") && QQ_ID_PATTERN.matches(it)
         } ?: return null
         return QqOutboundTarget.Group(groupId)
+    }
+
+    private fun isCurrentAccount(accountId: String): Boolean {
+        val current = mutableState.value
+        return !closed.get() && current.phase == PlatformRuntimePhase.CONNECTED &&
+            current.accountId == accountId && guestProcess?.isAlive == true && oneBotServer?.isConnected == true
+    }
+
+    private fun clearStashesForAccountChange(login: QqNapCatLoginStatus) {
+        val currentAccount = mutableState.value.accountId
+        if (!login.isLoggedIn || currentAccount != null && currentAccount != login.accountId) {
+            inboundAdapter.clearStashes()
+        }
     }
 
     private fun isSameRoute(first: MessageRoute, second: MessageRoute): Boolean =

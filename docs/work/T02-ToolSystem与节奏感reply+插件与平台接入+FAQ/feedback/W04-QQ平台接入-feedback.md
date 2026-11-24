@@ -69,3 +69,47 @@
 - 用 W03 打包入口及本地测试签名者构建 ARM64 签名插件，内层 JAR 65,714,944 bytes，低于 64 MiB 单文件上限。外层文件 65,715,793 bytes，SHA-256 `1BB4AFD992257417F6AE2DF9209F6B61F7A5C7235868DCAEF9D2757E013A833C`。核对内层 `classes.dex`、`runtime/root_launcher.sh`、`runtime/ubuntu-rootfs.tar.xz` 及嵌入 rootfs 的已固定摘要。
 - 依赖图确认 ZXing Core 3.5.3 只由 QQ 提供，基础 App debug runtime 图无 QQ 模块和 ZXing。复审关闭三项 P2；QQ 管理命令专项及真实 ARM64 扫码、登录和消息往返仍待验收。
 - Windows 默认 `core.autocrlf=true` 会改写按原始字节核验的启动脚本。为该脚本固定 LF，使用 `git -c core.autocrlf=true checkout-index` 定向复验，检出文件摘要为已验证的 `B67C6AFBFB2764C4E609D2E2F2B4E5CACA0150E77DAE342DD8F5A0512DD34C64`。
+
+## D07 QQ 命令管理与群历史修正（2026-11-24）
+
+- 旧版 `QqBotCommandRuntimeService` 对 QQ 端所有非空 slash 命令使用 `pluginCommandsAdminOnlyEnabled` 总门禁；拒绝提示仅在 `replyWhenPermissionDenied=true` 时发送，默认两项均为 false。`BotCommandRouter` 的 `/op`、`/deop`、`/wl`、`/dwl` 只有该总门禁，没有独立动作鉴权：管理员/白名单分别按传入非空字符串增删，不会自动启用白名单。旧 `QqWhitelistMatcher` 中纯数字可同时匹配用户 ID 与群 ID，`user_group` 仅匹配指定群成员。
+- Core QQ 设置追加 `pluginCommandsAdminOnlyEnabled` 与 `replyWhenPermissionDenied`，默认 false；旧设置文件缺少两字段时按 false 读取，并在后续写入时持久化。
+- QQ 命令处理在正式 OneBot 去重与入站策略后、宿主 sink 前执行。四条配置管理命令始终要求当前 `adminUserIds` 中的 QQ 用户；其他 slash 命令只受可配置总门禁限制。拒绝提示原路由发送旧版管理员提示。无效参数被消费并返回用法，不进入 Agent。
+- `/op`、`/deop` 原子增删管理员 UID。`/wl <UMO>`、`/dwl <UMO>` 把数字映射为 `allowedUserIds` 与 `allowedGroupIds`，把 `user_group` 映射为 `allowedGroupMembers`；删除不清除 App 使用的 `allowedPrivateUserIds`。ACL 变更通过私有设置 Store 的 revision 更新；成功落盘后先完成事件 reservation，再发送确认。未知发送回执不重放管理副作用；明确持久化失败释放 reservation，允许安全重试。用户定义的命令别名可映射到四条命令，规范命令名保留。
+- 群历史策略修复：普通未触发且获准的公共群消息使用 `CONTEXT_ONLY + GROUP_PUBLIC`，群内触发消息使用 `TRIGGER_AGENT + GROUP_MEMBER`。触发消息保留成员隔离路由与原群回复目标，以符合 App 入站 envelope 校验。
+- 添加合成 JVM 用例覆盖：管理员权限与默认静默拒绝、可配置总门禁与旧拒绝文案、别名、参数校验、持久化管理员 ACL、纯数字和 `user_group` 准入实际效果、保留 App 私聊授权、重复事件与未知回执不重复变更、公共群上下文和成员触发隔离，以及旧设置缺少新增字段时的默认值。
+- 旧 `BotCommandRouter` 还包含多 Agent 控制与 STT/TTS 等命令；这些行为依赖旧版多 Agent/语音范围，本次不在 QQ 管理命令中重建。约定的宿主会话命令由 W02 按当前身份和原回复路由处理。真实 QQ 登录和设备消息往返未执行；构建与 JVM 验证由总控执行并列于下表。
+
+| 检查 | 方法或命令 | 环境 / 输入 | 结果与限制 |
+| --- | --- | --- | --- |
+| QQ 定向 JVM 与 AAR | 总控执行 `:plugins:qq:testDebugUnitTest :plugins:qq:assembleDebug --offline --console=plain` | 合成 OneBot 消息与临时插件设置目录；Windows amd64，Gradle Wrapper 9.9.1、Microsoft JDK 17.0.17、AGP 9.5.1 | 43/43 JVM 测试通过、0 跳过；Debug AAR SHA-256 `46D71340B2C34DED63CA3ED87B5C0F696595C403AF32CAF284FE7537FBAF23CC`。不代表 QQ 登录或真实设备验收 |
+
+- 去重 reservation 只保存在插件进程内；设置 CAS 和集合增删在单次更新中幂等，但没有持久化 OneBot 命令事件收据。当前没有证据确认 NapCat 会在进程重启后重放旧事件；若重启后旧 `/op` 在较新的 `/deop` 之后重放，旧命令仍可能重新授予权限。需要先核实上游事件是否跨重启重放；若会重放，应把有界 command event IDs 与 ACL 更新放在同一 settings 文件事务中持久化。
+
+## W04 D07 通知行为收尾（2026-11-24）
+
+- 入站策略为私聊缺少必需唤醒词增加独立的 `WAKE_WORD_REQUIRED` 拒绝原因；白名单拒绝和该原因仅在独立 `QqPlatformCommandSettings.replyWhenPermissionDenied` 为 true 时按原 OneBot 消息路由提示。限频策略最终丢弃也使用该开关提示；暂存消息不提示。
+- 关键词检测仅作用于通过准入且已触发的消息。匹配时始终按原消息路由发送旧版屏蔽提示，不依赖权限拒绝提示开关。获准但未触发的公共群消息仍以 `CONTEXT_ONLY + GROUP_PUBLIC` 交给宿主，不发送策略提示；忽略自己、忽略 @全体和其他未触发消息仍静默。
+- `QqOneBotInboundAdapter` 从插件设置 Store 读取可选命令设置，提示复用原管理回复发送入口；提示发送结果不改变宿主准入决定。
+- 暂存回放后重评当前事件的行为已在当前实现中：`dispatchReady` 处理旧事件后，`dispatchCurrentAfterReplay` 重新读取 D07 设置，再决定当前消息是否进入宿主。`QqManagementCommandsTest.currentAllowedEventIsReevaluatedAfterEarlierReplayChangesAcl` 覆盖前条 `/dwl` 移除当前发送者后、当前消息被拒绝且不调用宿主的情况。
+- 新增/调整合成 JVM 用例覆盖：默认静默、白名单和私聊唤醒拒绝的权限提示、关键词始终提示、限频 DROP 提示，以及关键词命中的非触发公共群上下文仍静默。
+
+| 检查 | 方法或命令 | 实际结果与限制 | 证据 |
+| --- | --- | --- | --- |
+| 源码静态核对 | 阅读 D07 policy、OneBot adapter、QQ 插件设置接线及对应合成用例 | 确认通知按原事件路由发送，策略拒绝不会交宿主；未构成编译或运行证据 | `plugins/qq/src/main/kotlin/com/elymbot/android/plugins/qq/QqInboundPolicy.kt`、`QqOneBotInboundAdapter.kt`、`QqPluginEntrypoint.kt` |
+| QQ JVM 与 AAR | 本轮未执行；依总控安排待复跑 | 本轮源码变更后，先前的 JVM 通过结果和 AAR 摘要不再证明当前源码状态 | `plugins/qq/src/test/kotlin/com/elymbot/android/plugins/qq/QqInboundPolicyTest.kt`、`QqManagementCommandsTest.kt` |
+| QQ ARM64 真机收发 | 未执行 | 登录、真实通知发送、私聊/群聊往返仍待联合验收 | 待 W07 联合验收 |
+
+### 复验返工：拒绝通知去重（2026-11-24）
+
+- 更新 reservation 收尾语义：拒绝分支只有确实要发送策略或限频通知时才先 `complete()` 再发送；无提示的拒绝继续 `release()`，允许消息在准入条件变化后重新提供。相同 OneBot event ID 再次到达时，有通知的拒绝（包括通知回执为 `Unknown`）不会重复发送；暂存、取消、异常、过期及宿主可重试拒绝继续按各自语义释放 reservation。
+- 修正私聊提示路由断言以包含解析器提供的 `actorId`：白名单拒绝使用对应发送者 ID，唤醒词及关键词、限频通知使用 `2000`。
+- 在关键词和限频 DROP 通知用例中复用完全相同的消息 payload，并模拟 `Unknown(CONNECTION_LOST)` 通知回执；断言重复入站返回 `Duplicate` 且仅产生一条通知。既有无通知拒绝的暂存回放重投用例保持原预期。用例尚未执行，等待总控联编复验。
+- 总控联编反馈：52 个 QQ JVM 用例中仅 `stashReplayReevaluatesCurrentWhitelistAndReleasesDroppedReservation` 失败，原因是无通知策略拒绝被错误地标记为完成；本次改为无通知继续释放，待总控重跑确认。
+
+| 检查 | 方法或命令 | 实际结果与限制 | 证据 |
+| --- | --- | --- | --- |
+| 路由与 reservation 源码核对 | 阅读 OneBot parser、adapter 及对应合成用例 | actorId 与发送者 ID 对齐；四个确定性丢弃分支在通知前完成 reservation；未构成运行证据 | `plugins/qq/src/main/kotlin/com/elymbot/android/plugins/qq/QqOneBotInboundAdapter.kt`、`OneBotMessageParser.kt`、`plugins/qq/src/test/kotlin/com/elymbot/android/plugins/qq/QqManagementCommandsTest.kt` |
+| QQ JVM、AAR 与 ARM64 设备 | 本轮未执行；依总控安排待复验 | 当前源码和测试尚未联编；没有新增真实设备证据 | 待总控复验 |
+
+- 总控复跑 `gradlew.bat :plugins:qq:testDebugUnitTest :plugins:qq:assembleDebug --offline --console=plain`，52/52 通过，无跳过。Debug AAR SHA-256 `D22A88F80A017A8278BF996CBCA13ECD4ADDC8E11F16982A3B80B7180BC5E192`。此证据覆盖原路由通知、同事件未知回执不重发、无通知暂存消息重新提交和最新设置复核。ARM64 真实运行与宿主 slash 回执另验。

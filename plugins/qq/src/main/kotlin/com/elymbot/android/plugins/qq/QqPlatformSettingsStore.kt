@@ -3,6 +3,9 @@ package com.elymbot.android.plugins.qq
 import com.elymbot.core.contract.QqGroupMember
 import com.elymbot.core.contract.QqPlatformRateLimitSettings
 import com.elymbot.core.contract.QqPlatformRateLimitStrategy
+import com.elymbot.core.contract.QqPlatformCommandSettings
+import com.elymbot.core.contract.QqPlatformCommandSettingsSnapshot
+import com.elymbot.core.contract.QqPlatformCommandSettingsUpdateResult
 import com.elymbot.core.contract.QqPlatformSettings
 import com.elymbot.core.contract.QqPlatformSettingsSnapshot
 import com.elymbot.core.contract.QqPlatformSettingsUpdateResult
@@ -42,8 +45,10 @@ internal class QqPlatformSettingsStore(dataDirectory: File) {
     private val settingsFile = File(dataDirectory.canonicalFile, SETTINGS_FILE_NAME).canonicalFile
     private val mutex = Mutex()
     private val mutableSettings = MutableStateFlow(loadSnapshot())
+    private val mutableCommandSettings = MutableStateFlow(loadCommandSettingsSnapshot())
 
     val settings: StateFlow<QqPlatformSettingsSnapshot> = mutableSettings.asStateFlow()
+    val commandSettings: StateFlow<QqPlatformCommandSettingsSnapshot> = mutableCommandSettings.asStateFlow()
 
     init {
         require(settingsFile.parentFile == dataDirectory.canonicalFile)
@@ -67,12 +72,36 @@ internal class QqPlatformSettingsStore(dataDirectory: File) {
                 settings = settings.frozenCopy(),
             )
             try {
-                writeSnapshot(next)
+                writeSnapshot(next, mutableCommandSettings.value)
             } catch (_: Exception) {
                 return@withLock QqPlatformSettingsUpdateResult.Rejected(QqPlatformSettingsRejection.STORE_UNAVAILABLE)
             }
             mutableSettings.value = next
             QqPlatformSettingsUpdateResult.Saved(next)
+        }
+    }
+
+    suspend fun updateCommandSettings(
+        expectedRevision: Long,
+        settings: QqPlatformCommandSettings,
+    ): QqPlatformCommandSettingsUpdateResult = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            val current = mutableCommandSettings.value
+            if (expectedRevision != current.revision) {
+                return@withLock QqPlatformCommandSettingsUpdateResult.Conflict(current)
+            }
+
+            val next = QqPlatformCommandSettingsSnapshot(
+                revision = current.revision + 1,
+                settings = settings,
+            )
+            try {
+                writeSnapshot(mutableSettings.value, next)
+            } catch (_: Exception) {
+                return@withLock QqPlatformCommandSettingsUpdateResult.Rejected
+            }
+            mutableCommandSettings.value = next
+            QqPlatformCommandSettingsUpdateResult.Saved(next)
         }
     }
 
@@ -94,13 +123,50 @@ internal class QqPlatformSettingsStore(dataDirectory: File) {
         }
     }
 
-    private fun writeSnapshot(snapshot: QqPlatformSettingsSnapshot) {
+    private fun loadCommandSettingsSnapshot(): QqPlatformCommandSettingsSnapshot {
+        if (!settingsFile.isFile || Files.isSymbolicLink(settingsFile.toPath())) {
+            return QqPlatformCommandSettingsSnapshot(0, QqPlatformCommandSettings())
+        }
+        return runCatching {
+            require(settingsFile.length() <= MAX_SETTINGS_BYTES)
+            val root = JSON.parseToJsonElement(settingsFile.readText(Charsets.UTF_8)).jsonObject
+            require(root.long("schemaVersion") == SCHEMA_VERSION.toLong())
+            val commandSettings = root["commandSettings"] as? JsonObject
+            if (commandSettings != null) {
+                val revision = root["commandRevision"]?.jsonPrimitive?.longOrNull ?: 0L
+                require(revision >= 0)
+                QqPlatformCommandSettingsSnapshot(
+                    revision = revision,
+                    settings = commandSettings.toCommandSettings(),
+                )
+            } else {
+                val legacySettings = root.obj("settings")
+                QqPlatformCommandSettingsSnapshot(
+                    revision = 0,
+                    settings = QqPlatformCommandSettings(
+                        pluginCommandsAdminOnlyEnabled = legacySettings.boolean(
+                            "pluginCommandsAdminOnlyEnabled",
+                            false,
+                        ),
+                        replyWhenPermissionDenied = legacySettings.boolean("replyWhenPermissionDenied", false),
+                    ),
+                )
+            }
+        }.getOrElse {
+            QqPlatformCommandSettingsSnapshot(0, QqPlatformCommandSettings())
+        }
+    }
+
+    private fun writeSnapshot(
+        snapshot: QqPlatformSettingsSnapshot,
+        commandSettings: QqPlatformCommandSettingsSnapshot,
+    ) {
         require(!Files.isSymbolicLink(settingsFile.toPath()))
         val parent = settingsFile.parentFile ?: throw IllegalStateException("QQ settings directory is unavailable")
         if (!parent.isDirectory) throw IllegalStateException("QQ settings directory is unavailable")
         val temporary = File(parent, ".$SETTINGS_FILE_NAME-${UUID.randomUUID()}$TEMP_FILE_SUFFIX")
         try {
-            val bytes = snapshot.toJson().toString().toByteArray(Charsets.UTF_8)
+            val bytes = snapshot.toJson(commandSettings).toString().toByteArray(Charsets.UTF_8)
             if (bytes.size > MAX_SETTINGS_BYTES) throw IllegalStateException("QQ settings exceed the size limit")
             temporary.outputStream().buffered().use { output ->
                 output.write(bytes)
@@ -117,10 +183,19 @@ internal class QqPlatformSettingsStore(dataDirectory: File) {
         }
     }
 
-    private fun QqPlatformSettingsSnapshot.toJson() = buildJsonObject {
+    private fun QqPlatformSettingsSnapshot.toJson(
+        commandSettings: QqPlatformCommandSettingsSnapshot,
+    ) = buildJsonObject {
         put("schemaVersion", SCHEMA_VERSION)
         put("revision", revision)
+        put("commandRevision", commandSettings.revision)
+        put("commandSettings", commandSettings.settings.toJson())
         put("settings", settings.toJson())
+    }
+
+    private fun QqPlatformCommandSettings.toJson() = buildJsonObject {
+        put("pluginCommandsAdminOnlyEnabled", pluginCommandsAdminOnlyEnabled)
+        put("replyWhenPermissionDenied", replyWhenPermissionDenied)
     }
 
     private fun QqPlatformSettings.toJson() = buildJsonObject {
@@ -203,6 +278,11 @@ internal class QqPlatformSettingsStore(dataDirectory: File) {
         }.toMap(),
         privateRateLimit = rateLimit("privateRateLimit"),
         groupRateLimit = rateLimit("groupRateLimit"),
+    )
+
+    private fun JsonObject.toCommandSettings() = QqPlatformCommandSettings(
+        pluginCommandsAdminOnlyEnabled = boolean("pluginCommandsAdminOnlyEnabled", false),
+        replyWhenPermissionDenied = boolean("replyWhenPermissionDenied", false),
     )
 
     private fun JsonObject.rateLimit(key: String): QqPlatformRateLimitSettings? {

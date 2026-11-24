@@ -34,7 +34,7 @@ class QqInboundPolicyTest {
     }
 
     @Test
-    fun mentionedGroupTriggerKeepsPerMemberRouteAndOriginalGroupTarget() {
+    fun mentionedPublicGroupTriggerKeepsPerMemberRouteAndOriginalGroupTarget() {
         val decision = policy.evaluate(
             inbound = groupMessage("hello", mentionSelf = true),
             configuration = configuration(publicGroupHistoryGroupIds = setOf("3000")),
@@ -45,14 +45,28 @@ class QqInboundPolicyTest {
         assertEquals("group:3000:member:2000", envelope.message.origin.conversationId)
         assertEquals("group:3000", envelope.message.target?.conversationId)
         assertEquals(PlatformInboundProcessing.TRIGGER_AGENT, envelope.processing)
-        assertEquals(PlatformHistoryVisibility.GROUP_PUBLIC, envelope.historyVisibility)
+        assertEquals(PlatformHistoryVisibility.GROUP_MEMBER, envelope.historyVisibility)
+    }
+
+    @Test
+    fun publicHistoryGroupSharesOnlyUntriggeredContextWhileTriggeredTurnStaysMemberScoped() {
+        val publicSettings = configuration(publicGroupHistoryGroupIds = setOf("3000"))
+        val contextOnly = policy.evaluate(groupMessage("ordinary"), publicSettings) as QqInboundDecision.ContextOnly
+        val triggered = policy.evaluate(groupMessage("answer", mentionSelf = true), publicSettings) as QqInboundDecision.Trigger
+
+        assertEquals(PlatformHistoryVisibility.GROUP_PUBLIC, contextOnly.envelope.historyVisibility)
+        assertEquals("group:3000", contextOnly.envelope.message.origin.conversationId)
+        assertEquals(null, contextOnly.envelope.message.target)
+        assertEquals(PlatformHistoryVisibility.GROUP_MEMBER, triggered.envelope.historyVisibility)
+        assertEquals("group:3000:member:2000", triggered.envelope.message.origin.conversationId)
+        assertEquals("group:3000", triggered.envelope.message.target?.conversationId)
     }
 
     @Test
     fun privateWakeRequirementAndCommandAliasAreAppliedBeforeHostHandoff() {
         val private = privateMessage("hello")
         assertEquals(
-            QqInboundDecision.Dropped(QqInboundDropReason.NO_TRIGGER),
+            QqInboundDecision.Dropped(QqInboundDropReason.WAKE_WORD_REQUIRED),
             policy.evaluate(private, configuration(privateChatRequiresWakeWord = true)),
         )
 
@@ -77,7 +91,47 @@ class QqInboundPolicyTest {
     }
 
     @Test
-    fun keywordBlockedMessageNeverEntersPublicGroupHistory() {
+    fun managementCommandsAcceptAliasesAndKeepCanonicalNamesReserved() {
+        val aliases = mapOf("permit" to "wl", "wl" to "help")
+        val aliasDecision = policy.evaluate(
+            privateMessage("/permit 2000_3000"),
+            configuration(commandAliases = aliases),
+        ) as QqInboundDecision.Trigger
+        val canonicalDecision = policy.evaluate(
+            privateMessage("/wl 2000_3000"),
+            configuration(commandAliases = aliases),
+        ) as QqInboundDecision.Trigger
+
+        assertEquals("/wl 2000_3000", aliasDecision.event.text)
+        assertEquals("/wl 2000_3000", canonicalDecision.event.text)
+    }
+
+    @Test
+    fun unknownSlashCommandRetainsLegacyCommandTriggerBehavior() {
+        val decision = policy.evaluate(
+            privateMessage("/legacy_unknown argument"),
+            configuration(privateChatRequiresWakeWord = true),
+        )
+
+        assertTrue(decision is QqInboundDecision.Trigger)
+        assertEquals("/legacy_unknown argument", (decision as QqInboundDecision.Trigger).event.text)
+    }
+
+    @Test
+    fun triggeredKeywordMessageIsDroppedBeforePublicGroupHistory() {
+        val decision = policy.evaluate(
+            inbound = groupMessage("do not retain this", mentionSelf = true),
+            configuration = configuration(
+                keywordDetectionEnabled = true,
+                keywordPatterns = listOf("retain this"),
+                publicGroupHistoryGroupIds = setOf("3000"),
+            ),
+        )
+        assertEquals(QqInboundDecision.Dropped(QqInboundDropReason.KEYWORD_BLOCKED), decision)
+    }
+
+    @Test
+    fun keywordInUntriggeredPublicGroupMessageRemainsContextOnly() {
         val decision = policy.evaluate(
             inbound = groupMessage("do not retain this"),
             configuration = configuration(
@@ -86,7 +140,12 @@ class QqInboundPolicyTest {
                 publicGroupHistoryGroupIds = setOf("3000"),
             ),
         )
-        assertEquals(QqInboundDecision.Dropped(QqInboundDropReason.KEYWORD_BLOCKED), decision)
+
+        assertTrue(decision is QqInboundDecision.ContextOnly)
+        assertEquals(
+            PlatformInboundProcessing.CONTEXT_ONLY,
+            (decision as QqInboundDecision.ContextOnly).envelope.processing,
+        )
     }
 
     @Test

@@ -131,6 +131,15 @@ internal class QqRateLimiter<T>(
             .toList()
     }
 
+    fun clear(): List<T> = synchronized(lock) {
+        buildList {
+            buckets.values.forEach { bucket ->
+                bucket.stash.forEach { add(it.payload) }
+            }
+            buckets.clear()
+        }
+    }
+
     private fun removeExpiredBuckets(now: Long): List<T> {
         val discarded = mutableListOf<T>()
         val iterator = buckets.entries.iterator()

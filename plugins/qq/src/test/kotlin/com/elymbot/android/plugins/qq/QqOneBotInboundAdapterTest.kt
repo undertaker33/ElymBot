@@ -13,6 +13,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.util.concurrent.CancellationException
@@ -267,6 +268,36 @@ class QqOneBotInboundAdapterTest {
 
         assertTrue(retried is QqOneBotIngressResult.Forwarded)
         assertEquals(listOf("1", "2"), received)
+    }
+
+    @Test
+    fun clearingStashesOnLogoutCompletesDiscardedEventsAndResetsRateWindow() = runBlocking {
+        var now = 0L
+        val rule = rateLimitRule()
+        val adapter = QqOneBotInboundAdapter(
+            deduplicator = QqEventDeduplicator(),
+            rateLimiter = QqRateLimiter(nowMillis = { now }),
+        )
+        val received = mutableListOf<String>()
+        val sink = PlatformInboundSink { envelope ->
+            received += envelope.message.messageId.orEmpty()
+            PlatformInboundResult.Accepted
+        }
+        val pending = privatePayload("pending", "pending")
+
+        adapter.accept(privatePayload("first", "first"), configuration(privateRateLimit = rule), sink)
+        assertTrue(adapter.accept(pending, configuration(privateRateLimit = rule), sink)
+            is QqOneBotIngressResult.RateLimited)
+        assertTrue(adapter.hasPendingStash())
+
+        adapter.clearStashes()
+        assertFalse(adapter.hasPendingStash())
+        assertEquals(
+            QqOneBotIngressResult.Duplicate,
+            adapter.accept(pending, configuration(privateRateLimit = rule), sink),
+        )
+        now += 1
+        assertEquals(listOf("first"), received)
     }
 
     private fun rateLimitRule(maxStashAgeMillis: Long = 1_000) = QqPlatformRateLimitSettings(
