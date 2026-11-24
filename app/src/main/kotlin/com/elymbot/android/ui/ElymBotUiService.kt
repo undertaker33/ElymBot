@@ -2,6 +2,8 @@ package com.elymbot.android.ui
 
 import android.net.Uri
 import android.content.Intent
+import com.elymbot.core.contract.QqPlatformCommandSettings
+import com.elymbot.core.contract.QqPlatformCommandSettingsSnapshot
 import com.elymbot.core.contract.QqPlatformSettings
 import com.elymbot.core.contract.QqPlatformSettingsSnapshot
 import com.elymbot.core.contract.PlatformRuntimeState
@@ -9,6 +11,7 @@ import com.elymbot.core.contract.ScheduledTaskAction
 import com.elymbot.core.contract.ScheduledTaskActionResult
 import com.elymbot.core.contract.ScheduledTaskSnapshotResult
 import com.elymbot.core.contract.ScheduledTaskUiStateResult
+import com.elymbot.core.contract.ToolInstallationIdentity
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 
@@ -97,6 +100,12 @@ interface ElymBotUiService {
         expectedRevision: Long,
         settings: QqPlatformSettings,
     ): QqPlatformSettingsUiResult = QqPlatformSettingsUiResult.Rejected(PlatformUiFailure.SettingsUnavailable)
+    suspend fun updateQqPlatformCommandSettings(
+        sessionId: String,
+        expectedInstallation: ToolInstallationIdentity,
+        expectedRevision: Long,
+        settings: QqPlatformCommandSettings,
+    ): PlatformUiActionResult = PlatformUiActionResult.Rejected(PlatformUiFailure.SettingsUnavailable)
     suspend fun saveModelService(service: ModelServiceDraft)
     suspend fun deleteModelService(serviceId: String)
     suspend fun fetchModels(service: ModelServiceDraft): List<String>
@@ -332,6 +341,12 @@ data class QqPlatformSettingsUiState(
     val available: Boolean = false,
     val snapshot: QqPlatformSettingsSnapshot? = null,
     val ownerBinding: QqOwnerBinding? = null,
+    val commandSettings: QqPlatformCommandSettingsUiState? = null,
+)
+
+data class QqPlatformCommandSettingsUiState(
+    val installationIdentity: ToolInstallationIdentity,
+    val snapshot: QqPlatformCommandSettingsSnapshot,
 )
 
 enum class PlatformUiFailure {

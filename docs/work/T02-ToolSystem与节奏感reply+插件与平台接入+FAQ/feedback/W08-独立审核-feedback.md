@@ -118,3 +118,5 @@
 ## 2026-11-24 QQ 命令权限与通知复审
 
 - GPT-6.1 Sol High 复审关闭换号时旧排队命令可改权限、批内沿用旧准入设置、命令设置变更破坏旧 QQ ABI，以及重复事件重复通知四项。新设置能力保留旧类描述符。通知先完成去重，结果未知时保持原处理记录。总控复跑 QQ JVM 52/52 及 AAR 通过。[W04 Feedback](W04-QQ平台接入-feedback.md)
+
+- GPT-6.1 Sol High 核对 QQ 权限开关使用当前安装身份和独立 revision，宿主限制主会话并保留旧插件兼容。App 与 AndroidTest 联编通过。拒绝提示开关资源与实际策略范围一致，设备界面待验。[W06 Feedback](W06-Android页面与引导-feedback.md)

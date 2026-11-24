@@ -55,6 +55,7 @@ import com.elymbot.android.ui.PlatformConnectionsState
 import com.elymbot.android.ui.PlatformUiActionResult
 import com.elymbot.android.ui.PlatformUiFailure
 import com.elymbot.android.ui.QqOwnerBinding
+import com.elymbot.android.ui.QqPlatformCommandSettingsUiState
 import com.elymbot.android.ui.QqPlatformSettingsUiResult
 import com.elymbot.android.ui.QqPlatformSettingsUiState
 import com.elymbot.android.ui.Conversation
@@ -102,6 +103,10 @@ import com.elymbot.core.contract.PlatformOutboundMessage
 import com.elymbot.core.contract.PlatformPluginHandle
 import com.elymbot.core.contract.PlatformRuntimePhase
 import com.elymbot.core.contract.PlatformRuntimeState
+import com.elymbot.core.contract.QqPlatformCommandSettings
+import com.elymbot.core.contract.QqPlatformCommandSettingsHandle
+import com.elymbot.core.contract.QqPlatformCommandSettingsSnapshot
+import com.elymbot.core.contract.QqPlatformCommandSettingsUpdateResult
 import com.elymbot.core.contract.QqPlatformSettings
 import com.elymbot.core.contract.QqPlatformSettingsHandle
 import com.elymbot.core.contract.QqPlatformSettingsRejection
@@ -1084,8 +1089,8 @@ class ElymBotSessionService internal constructor(
                         val identity = status?.takeIf {
                             it.enabled && it.availability == PluginInstanceAvailability.ACTIVE
                         }?.installationIdentity
-                        val settings = if (identity == null) null else activeQqSettings(identity)
-                        if (identity == null || settings == null) {
+                        val settingsFlows = if (identity == null) null else activeQqSettings(identity)
+                        if (identity == null || settingsFlows == null) {
                             flowOf(
                                 QqPlatformSettingsUiState(
                                     available = false,
@@ -1093,13 +1098,17 @@ class ElymBotSessionService internal constructor(
                                 ),
                             )
                         } else {
-                            settings.map { snapshot ->
+                            val (settings, commandSettings) = settingsFlows
+                            combine(settings, commandSettings ?: flowOf(null)) { snapshot, commandSnapshot ->
                                 QqPlatformSettingsUiState(
                                     available = state.restorationComplete,
                                     snapshot = snapshot,
                                     ownerBinding = binding?.toQqOwnerBinding(
                                         active = binding.installationInstanceId == identity.instanceId,
                                     ),
+                                    commandSettings = commandSnapshot?.let {
+                                        QqPlatformCommandSettingsUiState(identity, it)
+                                    },
                                 )
                             }
                         }
@@ -1403,6 +1412,33 @@ class ElymBotSessionService internal constructor(
         }
     }
 
+    override suspend fun updateQqPlatformCommandSettings(
+        sessionId: String,
+        expectedInstallation: ToolInstallationIdentity,
+        expectedRevision: Long,
+        settings: QqPlatformCommandSettings,
+    ): PlatformUiActionResult {
+        if (!isAuthorizedMainSession(sessionId)) {
+            return PlatformUiActionResult.Rejected(PlatformUiFailure.UnauthorizedSession)
+        }
+        return pluginRuntimeManager?.withActivePluginHandle(
+            pluginId = QQ_PLATFORM_ID,
+            installationIdentity = expectedInstallation,
+            handleType = QqPlatformCommandSettingsHandle::class.java,
+        ) { handle ->
+            if (!isAuthorizedMainSession(sessionId)) {
+                return@withActivePluginHandle PlatformUiActionResult.Rejected(PlatformUiFailure.UnauthorizedSession)
+            }
+            when (handle.updateCommandSettings(expectedRevision, settings)) {
+                is QqPlatformCommandSettingsUpdateResult.Saved -> PlatformUiActionResult.Completed
+                is QqPlatformCommandSettingsUpdateResult.Conflict ->
+                    PlatformUiActionResult.Rejected(PlatformUiFailure.SettingsConflict)
+                QqPlatformCommandSettingsUpdateResult.Rejected ->
+                    PlatformUiActionResult.Rejected(PlatformUiFailure.SettingsUnavailable)
+            }
+        } ?: PlatformUiActionResult.Rejected(PlatformUiFailure.SettingsUnavailable)
+    }
+
     internal suspend fun processScheduledTaskWake(): Boolean {
         awaitScheduledServiceReady()
         val host = scheduledTaskHost ?: return false
@@ -1637,11 +1673,14 @@ class ElymBotSessionService internal constructor(
 
     private suspend fun activeQqSettings(
         identity: ToolInstallationIdentity,
-    ): StateFlow<QqPlatformSettingsSnapshot>? = pluginRuntimeManager?.withActivePluginHandle(
-        pluginId = QQ_PLATFORM_ID,
-        installationIdentity = identity,
-        handleType = QqPlatformSettingsHandle::class.java,
-    ) { handle -> handle.settings }
+    ): Pair<StateFlow<QqPlatformSettingsSnapshot>, StateFlow<QqPlatformCommandSettingsSnapshot>?>? =
+        pluginRuntimeManager?.withActivePluginHandle(
+            pluginId = QQ_PLATFORM_ID,
+            installationIdentity = identity,
+            handleType = QqPlatformSettingsHandle::class.java,
+        ) { handle ->
+            handle.settings to (handle as? QqPlatformCommandSettingsHandle)?.commandSettings
+        }
 
     private suspend fun isAuthorizedMainSession(sessionId: String): Boolean {
         repository.initialize()

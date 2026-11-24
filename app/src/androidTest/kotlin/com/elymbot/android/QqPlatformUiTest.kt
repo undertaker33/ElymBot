@@ -20,16 +20,24 @@ import com.elymbot.android.ui.ElymBotViewModel
 import com.elymbot.android.ui.PersonaCard
 import com.elymbot.android.ui.PlatformAvailability
 import com.elymbot.android.ui.PlatformConnectionState
+import com.elymbot.android.ui.PlatformUiActionResult
+import com.elymbot.android.ui.PlatformUiFailure
+import com.elymbot.android.ui.QqPlatformCommandSettingsUiState
 import com.elymbot.android.ui.QqPlatformPage
+import com.elymbot.android.ui.QqPlatformSettingsUiState
 import com.elymbot.android.ui.QqPluginId
 import com.elymbot.android.ui.QqPolicyEditor
 import com.elymbot.core.contract.PlatformLoginChallenge
 import com.elymbot.core.contract.PlatformQrMatrix
 import com.elymbot.core.contract.PlatformRuntimePhase
 import com.elymbot.core.contract.PlatformRuntimeState
+import com.elymbot.core.contract.QqPlatformCommandSettings
+import com.elymbot.core.contract.QqPlatformCommandSettingsSnapshot
 import com.elymbot.core.contract.QqPlatformSettings
 import com.elymbot.core.contract.QqPlatformSettingsSnapshot
+import com.elymbot.core.contract.ToolInstallationIdentity
 import java.util.concurrent.atomic.AtomicReference
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
 import org.junit.Assert.assertEquals
 import org.junit.Rule
@@ -109,6 +117,74 @@ class QqPlatformUiTest {
         compose.onNodeWithText(label(R.string.elym_save)).performScrollTo().performClick()
         compose.runOnIdle {
             assertEquals(QqPlatformSettingsSnapshot(3, settings.copy(replyOnAtOnlyEnabled = true)), saved.get())
+        }
+    }
+
+    @Test
+    fun commandSwitchesRequireCapabilityAndRetryFromLatestRevision() {
+        val identity = ToolInstallationIdentity(QqPluginId, "test-installation")
+        val rules = QqPlatformSettingsSnapshot(3, QqPlatformSettings())
+        val initial = QqPlatformCommandSettingsSnapshot(7, QqPlatformCommandSettings())
+        val current = QqPlatformCommandSettingsSnapshot(8, QqPlatformCommandSettings(pluginCommandsAdminOnlyEnabled = true))
+        val policy = MutableStateFlow(QqPlatformSettingsUiState(available = true, snapshot = rules))
+        val requests = mutableListOf<Pair<ToolInstallationIdentity, QqPlatformCommandSettingsSnapshot>>()
+        var stored = current
+        compose.activityRule.scenario.onActivity { activity ->
+            val origin = (activity.application as ElymBotApplication).uiService
+            val service = object : ElymBotUiService by origin {
+                override fun qqPlatformSettings(sessionId: String) = policy
+
+                override suspend fun updateQqPlatformCommandSettings(
+                    sessionId: String,
+                    expectedInstallation: ToolInstallationIdentity,
+                    expectedRevision: Long,
+                    settings: QqPlatformCommandSettings,
+                ): PlatformUiActionResult {
+                    assertEquals("main", sessionId)
+                    requests += expectedInstallation to QqPlatformCommandSettingsSnapshot(expectedRevision, settings)
+                    val accepted = expectedRevision == stored.revision && expectedInstallation == identity
+                    if (accepted) stored = QqPlatformCommandSettingsSnapshot(expectedRevision + 1, settings)
+                    policy.value = policy.value.copy(commandSettings = QqPlatformCommandSettingsUiState(identity, stored))
+                    return if (accepted) PlatformUiActionResult.Completed
+                    else PlatformUiActionResult.Rejected(PlatformUiFailure.SettingsConflict)
+                }
+            }
+            val model = ElymBotViewModel(service)
+            activity.setContent {
+                ElymBotTheme(dark = false) {
+                    QqPlatformPage(
+                        model, "main", PlatformConnectionState(QqPluginId, true, PlatformAvailability.Active),
+                        current = true, back = {}, onPlugins = null,
+                    )
+                }
+            }
+        }
+        val admins = compose.onNodeWithContentDescription(label(R.string.elym_qq_plugin_commands_admin_only))
+        val denied = compose.onNodeWithContentDescription(label(R.string.elym_qq_reply_permission_denied))
+        compose.onNodeWithText(label(R.string.elym_qq_edit_rules)).assertIsDisplayed()
+        admins.assertDoesNotExist()
+        denied.assertDoesNotExist()
+        compose.runOnIdle {
+            policy.value = policy.value.copy(commandSettings = QqPlatformCommandSettingsUiState(identity, initial))
+        }
+        admins.performScrollTo().assertIsOff()
+        denied.performScrollTo().assertIsOff().performClick()
+        compose.onNodeWithText(label(R.string.elym_qq_settings_conflict)).assertIsDisplayed()
+        compose.onNodeWithText(label(R.string.elym_close)).performClick()
+        admins.assertIsOn()
+        denied.assertIsOff().performClick().assertIsOn()
+        admins.performScrollTo().performClick().assertIsOff()
+        denied.assertIsOn()
+        compose.runOnIdle {
+            assertEquals(
+                listOf(
+                    identity to initial.copy(settings = initial.settings.copy(replyWhenPermissionDenied = true)),
+                    identity to current.copy(settings = current.settings.copy(replyWhenPermissionDenied = true)),
+                    identity to QqPlatformCommandSettingsSnapshot(9, QqPlatformCommandSettings(replyWhenPermissionDenied = true)),
+                ),
+                requests,
+            )
+            assertEquals(rules, policy.value.snapshot)
         }
     }
 

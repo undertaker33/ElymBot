@@ -101,3 +101,10 @@
 
 - App 与 AndroidTest 联编通过，已包含 [QQ 合成页面用例](../../../../app/src/androidTest/kotlin/com/elymbot/android/QqPlatformUiTest.kt)。App APK SHA-256 `1C3D53993B2C631F6CF238A3571AC78F3F5F077D227A8B864909B201D2F43726`，AndroidTest APK SHA-256 `F3EC14756F2DBA91DE5A8685683E27EE16720FC36A251D78FA1BA58F7C62E045`。
 - MuMu 的 FAQ、关于、主会话任务入口三项回归通过。QQ 专项页面用例已编译，扫码、连接、规则和外部会话视图的设备验收仍待执行。
+
+## 2026-11-24 QQ 命令权限开关
+
+- 「平台 → QQ → 接入规则」增加「仅管理员可用插件命令」和「发送拒绝提示」。两个开关在当前插件提供设置能力时显示，动作携带当前安装标识及命令设置版本。界面以插件快照为准，发生冲突时显示反馈，并从更新后的状态继续操作。 [平台页](../../../../app/src/main/kotlin/com/elymbot/android/ui/ElymBotPlatforms.kt)
+- A08、T02.10 新增合成用例，覆盖旧能力缺失时隐藏、支持能力时显示、冲突后读取最新设置以及分别保存两项开关，验证命令设置保存沿用自己的版本并保留现有接入规则。两个界面字符串已完成中英文 XML 和源码引用静态核对。宿主联接、联编及用例执行待总控验证。 [定向测试](../../../../app/src/androidTest/kotlin/com/elymbot/android/QqPlatformUiTest.kt)
+
+- 总控接入宿主的命令设置状态流和写入入口。写入限 App 主会话，通过当前安装身份查找可选插件能力，并以独立 revision 更新。App 与 AndroidTest 联编通过，SHA-256 分别为 `13C8E6715644BC3F58A52303FBD1EE301283C3CFC6E02F1D2B44D8EEE7D2B49C` 和 `BF6ABD450788A066FBF8F5001CCD3AA978A18158093AEB7344CE68C0A61CED35`。QQ 专项 UI 用例已编入测试 APK，设备执行待验。[宿主接线](../../../../app/src/main/kotlin/com/elymbot/android/session/ElymBotSessionService.kt)

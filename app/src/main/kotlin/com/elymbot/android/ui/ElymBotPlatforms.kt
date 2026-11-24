@@ -27,6 +27,7 @@ import com.elymbot.android.R
 import com.elymbot.core.contract.PlatformLoginChallenge
 import com.elymbot.core.contract.PlatformRuntimeFailureReason
 import com.elymbot.core.contract.PlatformRuntimePhase
+import com.elymbot.core.contract.QqPlatformCommandSettings
 import com.elymbot.core.contract.QqPlatformSettingsSnapshot
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.flowOf
@@ -95,7 +96,9 @@ internal fun QqPlatformPage(
         }
         policy.collectAsStateWithLifecycle(initialValue = null)
     }
-    val policy = policyState?.takeIf { it.available }?.snapshot
+    val availablePolicy = policyState?.takeIf { it.available }
+    val policy = availablePolicy?.snapshot
+    val commandPolicy = availablePolicy?.commandSettings
     fun act(request: suspend ElymBotUiService.(String) -> PlatformUiActionResult) {
         if (!current || sessionId == null || working || !active) return
         working = true
@@ -108,6 +111,9 @@ internal fun QqPlatformPage(
                 working = false
             }
         }
+    }
+    fun updateCommandPolicy(policy: QqPlatformCommandSettingsUiState, settings: QqPlatformCommandSettings) {
+        act { id -> updateQqPlatformCommandSettings(id, policy.installationIdentity, policy.snapshot.revision, settings) }
     }
     Column(Modifier.fillMaxSize()) {
         Row(
@@ -173,6 +179,26 @@ internal fun QqPlatformPage(
                     settingsFailure = null
                     editingSettings = policy
                 })
+                if (commandPolicy != null) {
+                    HorizontalDivider(color = Line)
+                    val settings = commandPolicy.snapshot.settings
+                    Column(Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
+                        PolicySwitch(
+                            R.string.elym_qq_plugin_commands_admin_only,
+                            settings.pluginCommandsAdminOnlyEnabled,
+                            enabled = current && !working,
+                        ) { checked ->
+                            updateCommandPolicy(commandPolicy, settings.copy(pluginCommandsAdminOnlyEnabled = checked))
+                        }
+                        PolicySwitch(
+                            R.string.elym_qq_reply_permission_denied,
+                            settings.replyWhenPermissionDenied,
+                            enabled = current && !working,
+                        ) { checked ->
+                            updateCommandPolicy(commandPolicy, settings.copy(replyWhenPermissionDenied = checked))
+                        }
+                    }
+                }
             }
         }
     }

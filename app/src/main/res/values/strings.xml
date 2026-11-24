@@ -52,6 +52,8 @@
     <string name="elym_qq_read_only">只读会话</string>
     <string name="elym_qq_rules">接入规则</string>
     <string name="elym_qq_edit_rules">编辑接入规则</string>
+    <string name="elym_qq_plugin_commands_admin_only">仅管理员可用插件命令</string>
+    <string name="elym_qq_reply_permission_denied">发送拒绝提示</string>
     <string name="elym_qq_access">消息准入</string>
     <string name="elym_qq_ignore_self">忽略自身消息</string>
     <string name="elym_qq_ignore_at_all">忽略 @全体成员</string>

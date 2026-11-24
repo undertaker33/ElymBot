@@ -97,11 +97,16 @@ internal fun QqPolicyEditor(
 }
 
 @Composable
-private fun PolicySwitch(label: Int, enabled: Boolean, onChange: (Boolean) -> Unit) {
+internal fun PolicySwitch(
+    label: Int,
+    checked: Boolean,
+    enabled: Boolean = true,
+    onChange: (Boolean) -> Unit,
+) {
     val text = stringResource(label)
     Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(text, Modifier.weight(1f).padding(end = 8.dp), color = Ink)
-        Switch(enabled, onChange, Modifier.semanticsLabel(text))
+        Switch(checked, onChange, Modifier.semanticsLabel(text), enabled = enabled)
     }
 }
 

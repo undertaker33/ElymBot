@@ -195,6 +195,8 @@
     <string name="elym_qq_read_only">Read-only conversation</string>
     <string name="elym_qq_rules">Connection rules</string>
     <string name="elym_qq_edit_rules">Edit connection rules</string>
+    <string name="elym_qq_plugin_commands_admin_only">Restrict plugin commands to administrators</string>
+    <string name="elym_qq_reply_permission_denied">Send a denial notice</string>
     <string name="elym_qq_access">Message access</string>
     <string name="elym_qq_ignore_self">Ignore own messages</string>
     <string name="elym_qq_ignore_at_all">Ignore @everyone</string>
