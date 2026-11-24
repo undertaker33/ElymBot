@@ -182,3 +182,18 @@ MuMu 产物：App SHA-256 `A3C65A0511094AA2B5961DC863AC2803AFEA257CCF31E9D109912
 | 已签名 W05 包通过真实 App 插件入口加载 | `adb shell am instrument -w -e class com.elymbot.android.session.ScheduledTaskHostIntegrationTest#signedUiCapabilityLoadsAndPreservesGuideChoice com.elymbot.android.debug.test/androidx.test.runner.AndroidJUnitRunner` | MuMu Android 15、API 35、x86_64 | `OK (1 test)`；检查了刚生成且 SHA-256 为 `CAB3C3380C6214AA2474098C16F2785B7DAD2497497016B6A69CB8A03EB5FE51` 的 signed W05 文件包。测试后恢复了原有缓存探针文件；未使用正式发行密钥或权威目录 | `ScheduledTaskHostIntegrationTest.kt`；`PluginRuntimeManager.kt`；`PluginRuntimeLoader.kt` |
 
 App APK SHA-256：`6946D5265E119A07BFBE2DF7178657C7B7A27AA793C2F416645EE37918F3FB38`。AndroidTest APK SHA-256：`B068F028E8DD8838DD3227CDD885C1AE8310DF820B0EC26CA3D2685B10A09F18`。该 MuMu 用例仅验 W05 的签名插件装载和宿主状态；未执行 QQ 插件加载、登录或网络往返。当前 QQ DEX/签名包也尚未在 App 中加载，且 W04 源审查项未闭合。
+
+## 2026-11-24 本地签名目录与 App sidecar 生成入口
+
+- 新增 scripts/create-official-plugin-directory.ps1，按 App 实际解析格式从一个已签插件文件包生成签名发行目录。脚本先对输入包和可选历史目录材料创建有界临时快照，再对快照检查外层 ZIP 成员、插件 RSA 签名、manifest 身份、DEX JAR 长度与摘要，最终把同一份经验证快照移入 release-assets，避免验证后重新打开源路径。目录项按 App 要求排序，重复版本被拒绝；提供历史目录时，先用同一显式目录根公钥验签并保留此前版本。输出 JSON 和签名资产使用 App 固定文件名，目录根公钥 DER 另置 review 子目录，仅供审阅，不会自动接入 App。输出已存在时拒绝覆盖。
+- 新增 scripts/create-app-release-sidecar.ps1，调用 Android SDK Build Tools 的 aapt 与 apksigner 检查候选 APK 的正式包名、数值版本及当前 updater 固定的正式签名证书。它校验与交付均使用同一只读快照，并将 APK 与 elymbot-release.json 写入忽略的 build/outputs；不改 Gradle 版本、不触发安装、不发布资产。
+- 更新 README 的本地发行目录和 sidecar 使用说明。正式目录根密钥、插件发布者生产公钥和 Gitee 镜像地址尚未由发布方提供；本次没有生成、读取或导入任何生产私钥，也没有修改 Application 的未配置状态或远端发布内容。
+
+| 验证项 | 方法或操作 | 环境与输入 | 实际结果 | 证据 |
+| --- | --- | --- | --- | --- |
+| PowerShell 脚本语法 | 对两个新增脚本调用 PowerShell AST Parser | PowerShell 7 | 两个脚本均无解析错误 | scripts/create-official-plugin-directory.ps1；scripts/create-app-release-sidecar.ps1 |
+| 插件发行目录合成烟测 | 使用两份已签 W05 包、显式合成发布者公钥与临时目录根密钥生成新目录并合并已签历史目录；独立复核目录 RSA 签名，再以错误发布者公钥重跑拒绝路径 | 合成 publisher、合成 root key、合成 GitHub URL；未访问真实发布端 | 成功保留 2 个版本；有效目录签名通过独立 RSA/SPKI 验证，错误发布者公钥明确拒绝。最近包快照 75,505 字节，SHA-256 E9F1392B9F72F436D8830C8356114C0277A58A14490E0DB7641ECD9E235E51D2；目录 JSON 1,797 字节，SHA-256 302568A5ED8B0E459FE5F560839E91B5B01C100C197A26B6650D46FA3691C307 | scripts/create-official-plugin-directory.ps1；本地 build/outputs 产物未纳入仓库 |
+| App sidecar 正向生成 | .\scripts\create-app-release-sidecar.ps1 -AppApkPath updates/v0.1.0/ElymBot-v0.1.0-release.apk -ApkAssetName ElymBot-v0.1.0-release.apk | Android SDK Build Tools 37.0.0；现有公开 release APK | 通过 aapt、apksigner、包名/版本/证书核验；生成 sidecar 216 字节。sidecar 记录 versionCode 1、versionName 0.1.0，APK SHA-256 6861704B7CA84E63A2E000A94F19EFAF69E8B2B2C57219E9A1EAC16E3907AC3B；sidecar SHA-256 8C75B1F8058F38FC4F95437A89730FCFF29F7160B0DD0DD8B9456A43F68BA12F | scripts/create-app-release-sidecar.ps1；输出留在忽略的 build/outputs |
+| App sidecar 反例拒绝 | 对同包名、同数值版本但由临时非官方证书重签的 APK 运行 sidecar；另将公开 debug APK 作为输入 | 本地 APK 校验；临时签名副本与密钥随后清理 | 重签 APK 在证书摘要比对阶段拒绝；debug APK 在包名元数据检查阶段拒绝；原 release APK SHA-256 保持不变，未生成反例 release 输出 | scripts/create-app-release-sidecar.ps1 |
+
+本次验证证明本地合成签名目录和现有公开 App APK sidecar 的生成格式；未生成或发布正式插件目录，未加入正式目录根公钥，未验证真实 Gitee 回退或新的 App 系统安装。

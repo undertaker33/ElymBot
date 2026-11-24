@@ -115,7 +115,35 @@ $SigningPrivateKeyPath = 'path/to/your-plugin-key.pem'
   -SigningPrivateKeyPath $SigningPrivateKeyPath
 ```
 
-`connectedDebugAndroidTest` 需要已授权的 Android 设备或运行中的模拟器。测试覆盖情况及环境按实际工作包 Feedback 记录，不以命令清单代替验收结果。
+### 本地插件目录与 App 更新元数据
+
+本地发行目录由 **scripts/create-official-plugin-directory.ps1** 从已签名的插件包生成。它验证插件发布者签名、清单和 payload，使用显式传入的目录根 RSA 私钥签名目录，并将验证过的文件快照写入忽略的 build 输出。脚本不生成密钥、不上传发布资产；输出的 directory-root.der 只供人工审核，不会自动加入 App。要保留既有发行版本，调用时同时传入 -PreviousDirectoryJsonPath 与 -PreviousDirectorySignaturePath。
+
+PowerShell 7 示例；输入实际发布材料与 URL，不使用占位生产地址：
+
+    $PluginPackagePath = Read-Host "已签名 .elymbot-plugin 文件路径"
+    $PublisherPublicKeyDerPath = Read-Host "对应发布者公钥 DER 路径"
+    $GitHubPackageUrl = Read-Host "GitHub Release 中该包的 HTTPS 资产 URL"
+    $DirectoryRootPrivateKeyPemPath = Read-Host "目录根 RSA 私钥 PEM 路径"
+    $DirectoryArgs = @{
+        PluginPackagePath = $PluginPackagePath
+        PublisherPublicKeyDerPath = $PublisherPublicKeyDerPath
+        GitHubPackageUrl = $GitHubPackageUrl
+        DirectoryRootPrivateKeyPemPath = $DirectoryRootPrivateKeyPemPath
+    }
+    $GiteePackageUrl = Read-Host "可选的同制品 Gitee HTTPS 镜像 URL，留空则跳过"
+    if ($GiteePackageUrl) { $DirectoryArgs.GiteePackageUrl = $GiteePackageUrl }
+    .\scripts\create-official-plugin-directory.ps1 @DirectoryArgs
+
+输出包含 App 识别的 elymbot-plugin-directory.json 与 elymbot-plugin-directory.sig，以及本次已签包和供审核的根公钥 DER。当前仓库没有正式目录根密钥、插件发布者正式密钥或正式 Gitee 镜像地址；必须由发布方提供并审核，不能从插件包推导信任。
+
+App 更新 sidecar 使用 **scripts/create-app-release-sidecar.ps1**。它用 Android SDK 的 aapt 与 apksigner 检查候选 APK 的包名、版本和当前 updater 信任的正式证书，再从同一只读快照生成 elymbot-release.json 与 APK。该脚本不会改版本、上传资产或调用系统安装器：
+
+    $CandidateApkPath = Read-Host "已签名候选 APK 路径"
+    $ApkAssetName = Read-Host "GitHub Release 使用的 APK 资产文件名"
+    .\scripts\create-app-release-sidecar.ps1 -AppApkPath $CandidateApkPath -ApkAssetName $ApkAssetName
+
+生成资产留在忽略的 build/outputs 目录；发布时 sidecar 与 APK 需作为同一 Release 的资产上传，Release API 提供的 APK 摘要必须与 sidecar 一致。`connectedDebugAndroidTest` 需要已授权的 Android 设备或运行中的模拟器。测试覆盖情况及环境按实际工作包 Feedback 记录，不以命令清单代替验收结果。
 
 创建 PR 前更新 `app/build.gradle.kts` 的 `versionName` 和 `versionCode`，并在候选 App 的「关于」页核对显示版本。
 
