@@ -4,10 +4,14 @@ import com.elymbot.core.contract.PlatformInboundEnvelope
 import com.elymbot.core.contract.PlatformInboundRejection
 import com.elymbot.core.contract.PlatformInboundResult
 import com.elymbot.core.contract.PlatformInboundSink
+import com.elymbot.core.contract.QqPlatformRateLimitSettings
+import com.elymbot.core.contract.QqPlatformRateLimitStrategy
+import com.elymbot.core.contract.QqPlatformSettings
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.supervisorScope
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -91,7 +95,9 @@ class QqOneBotInboundAdapterTest {
 
         supervisorScope {
             val first = async { adapter.accept(privatePayload("1", "hello"), configuration(), sink) }
-            val failure = runCatching { first.await() }.exceptionOrNull()
+            val failure = runCatching {
+                withTimeout(COORDINATED_AWAIT_TIMEOUT_MILLIS) { first.await() }
+            }.exceptionOrNull()
             val retry = adapter.accept(privatePayload("1", "hello"), configuration(), sink)
 
             assertTrue(failure is CancellationException)
@@ -109,15 +115,15 @@ class QqOneBotInboundAdapterTest {
         val sink = PlatformInboundSink {
             calls += 1
             sinkStarted.complete(Unit)
-            finishSink.await()
+            withTimeout(COORDINATED_AWAIT_TIMEOUT_MILLIS) { finishSink.await() }
             PlatformInboundResult.Accepted
         }
 
         val first = async { adapter.accept(privatePayload("1", "hello"), configuration(), sink) }
-        sinkStarted.await()
+        withTimeout(COORDINATED_AWAIT_TIMEOUT_MILLIS) { sinkStarted.await() }
         val duplicate = adapter.accept(privatePayload("1", "hello"), configuration(), sink)
         finishSink.complete(Unit)
-        val accepted = first.await()
+        val accepted = withTimeout(COORDINATED_AWAIT_TIMEOUT_MILLIS) { first.await() }
 
         assertEquals(QqOneBotIngressResult.Duplicate, duplicate)
         assertEquals(PlatformInboundResult.Accepted, (accepted as QqOneBotIngressResult.Forwarded).hostResult)
@@ -152,7 +158,6 @@ class QqOneBotInboundAdapterTest {
         now = 200
         val replayed = adapter.releaseReady(
             sourceKey = "1000:private:2000",
-            rule = rule,
             configuration = configuration(privateRateLimit = rule),
             sink = sink,
         )
@@ -182,11 +187,10 @@ class QqOneBotInboundAdapterTest {
         now = 100
         val currentConfiguration = configuration(privateRateLimit = rule).copy(
             whitelistEnabled = true,
-            whitelistEntries = setOf("different-user"),
+            allowedPrivateUserIds = setOf("different-user"),
         )
         val replay = adapter.releaseReady(
             sourceKey = "1000:private:2000",
-            rule = rule,
             configuration = currentConfiguration,
             sink = sink,
         )
@@ -224,7 +228,6 @@ class QqOneBotInboundAdapterTest {
         now = 100
         val replay = adapter.releaseReady(
             sourceKey = "1000:private:2000",
-            rule = rule,
             configuration = configuration(
                 privateRateLimit = rule,
                 commandAliases = mapOf("alias" to "reset"),
@@ -256,7 +259,6 @@ class QqOneBotInboundAdapterTest {
         now = 60
         adapter.releaseReady(
             sourceKey = "1000:private:2000",
-            rule = rule,
             configuration = configuration(privateRateLimit = rule),
             sink = sink,
         )
@@ -267,35 +269,23 @@ class QqOneBotInboundAdapterTest {
         assertEquals(listOf("1", "2"), received)
     }
 
-    private fun rateLimitRule(maxStashAgeMillis: Long = 1_000) = QqRateLimitRule(
+    private fun rateLimitRule(maxStashAgeMillis: Long = 1_000) = QqPlatformRateLimitSettings(
         windowMillis = 100,
         maxMessages = 1,
-        strategy = QqRateLimitStrategy.STASH,
+        strategy = QqPlatformRateLimitStrategy.STASH,
         maxStashedMessages = 3,
         maxStashAgeMillis = maxStashAgeMillis,
     )
 
     private fun configuration(
-        privateRateLimit: QqRateLimitRule? = null,
+        privateRateLimit: QqPlatformRateLimitSettings? = null,
         whitelistEnabled: Boolean = false,
-        whitelistEntries: Set<String> = emptySet(),
+        allowedPrivateUserIds: Set<String> = emptySet(),
         commandAliases: Map<String, String> = emptyMap(),
-    ) = QqInboundRuleConfiguration(
-        ignoreSelfMessageEnabled = true,
-        ignoreAtAllEventEnabled = true,
+    ) = QqPlatformSettings(
         whitelistEnabled = whitelistEnabled,
-        whitelistEntries = whitelistEntries,
-        adminUserIds = emptySet(),
-        adminGroupBypassWhitelistEnabled = false,
-        adminPrivateBypassWhitelistEnabled = false,
         privateChatRequiresWakeWord = false,
-        replyOnAtOnlyEnabled = false,
-        wakeWordsAdminOnlyEnabled = false,
-        wakeWords = emptyList(),
-        triggerWords = emptyList(),
-        keywordDetectionEnabled = false,
-        keywordPatterns = emptyList(),
-        publicGroupHistoryGroupIds = emptySet(),
+        allowedPrivateUserIds = allowedPrivateUserIds,
         commandAliases = commandAliases,
         privateRateLimit = privateRateLimit,
         groupRateLimit = null,
@@ -303,4 +293,8 @@ class QqOneBotInboundAdapterTest {
 
     private fun privatePayload(messageId: String, text: String) =
         """{"post_type":"message","message_type":"private","self_id":"1000","user_id":"2000","message_id":"$messageId","message":[{"type":"text","data":{"text":"$text"}}]}"""
+
+    private companion object {
+        const val COORDINATED_AWAIT_TIMEOUT_MILLIS = 2_000L
+    }
 }

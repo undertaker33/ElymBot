@@ -3,27 +3,10 @@ package com.elymbot.android.plugins.qq
 import com.elymbot.core.contract.PlatformHistoryVisibility
 import com.elymbot.core.contract.PlatformInboundEnvelope
 import com.elymbot.core.contract.PlatformInboundProcessing
-
-internal data class QqInboundRuleConfiguration(
-    val ignoreSelfMessageEnabled: Boolean,
-    val ignoreAtAllEventEnabled: Boolean,
-    val whitelistEnabled: Boolean,
-    val whitelistEntries: Set<String>,
-    val adminUserIds: Set<String>,
-    val adminGroupBypassWhitelistEnabled: Boolean,
-    val adminPrivateBypassWhitelistEnabled: Boolean,
-    val privateChatRequiresWakeWord: Boolean,
-    val replyOnAtOnlyEnabled: Boolean,
-    val wakeWordsAdminOnlyEnabled: Boolean,
-    val wakeWords: List<String>,
-    val triggerWords: List<String>,
-    val keywordDetectionEnabled: Boolean,
-    val keywordPatterns: List<String>,
-    val publicGroupHistoryGroupIds: Set<String>,
-    val commandAliases: Map<String, String>,
-    val privateRateLimit: QqRateLimitRule?,
-    val groupRateLimit: QqRateLimitRule?,
-)
+import com.elymbot.core.contract.QqGroupMember
+import com.elymbot.core.contract.QqPlatformRateLimitSettings
+import com.elymbot.core.contract.QqPlatformRateLimitStrategy
+import com.elymbot.core.contract.QqPlatformSettings
 
 internal enum class QqInboundDropReason {
     SELF_MESSAGE,
@@ -53,7 +36,7 @@ internal sealed interface QqInboundDecision {
 internal class QqInboundPolicy {
     fun evaluate(
         inbound: OneBotInboundEvent,
-        configuration: QqInboundRuleConfiguration,
+        configuration: QqPlatformSettings,
     ): QqInboundDecision {
         if (configuration.ignoreSelfMessageEnabled && inbound.senderId == inbound.accountId) {
             return QqInboundDecision.Dropped(QqInboundDropReason.SELF_MESSAGE)
@@ -122,15 +105,15 @@ internal class QqInboundPolicy {
             event = event,
             rateLimitKey = buildRateLimitKey(event),
             rateLimitRule = when (inbound.conversationKind) {
-                OneBotConversationKind.PRIVATE -> configuration.privateRateLimit
-                OneBotConversationKind.GROUP -> configuration.groupRateLimit
+                OneBotConversationKind.PRIVATE -> configuration.privateRateLimit?.toQqRateLimitRule()
+                OneBotConversationKind.GROUP -> configuration.groupRateLimit?.toQqRateLimitRule()
             },
         )
     }
 
     private fun isAllowed(
         inbound: OneBotInboundEvent,
-        configuration: QqInboundRuleConfiguration,
+        configuration: QqPlatformSettings,
         isAdmin: Boolean,
     ): Boolean {
         if (!configuration.whitelistEnabled) return true
@@ -140,13 +123,14 @@ internal class QqInboundPolicy {
         }
         if (adminBypassEnabled) return true
 
-        val entries = configuration.whitelistEntries.asSequence()
-            .map { it.trim() }
-            .filter { it.isNotEmpty() }
-            .toSet()
-        if (inbound.senderId in entries) return true
+        if (inbound.conversationKind == OneBotConversationKind.PRIVATE) {
+            return inbound.senderId in configuration.allowedPrivateUserIds ||
+                inbound.senderId in configuration.allowedUserIds
+        }
         val groupId = inbound.groupId ?: return false
-        return groupId in entries || "${inbound.senderId}_$groupId" in entries
+        return inbound.senderId in configuration.allowedUserIds ||
+            groupId in configuration.allowedGroupIds ||
+            QqGroupMember(userId = inbound.senderId, groupId = groupId) in configuration.allowedGroupMembers
     }
 
     private fun buildRateLimitKey(inbound: OneBotInboundEvent): String = buildString {
@@ -161,6 +145,17 @@ internal class QqInboundPolicy {
         append(inbound.senderId)
     }
 }
+
+private fun QqPlatformRateLimitSettings.toQqRateLimitRule() = QqRateLimitRule(
+    windowMillis = windowMillis,
+    maxMessages = maxMessages,
+    strategy = when (strategy) {
+        QqPlatformRateLimitStrategy.DROP -> QqRateLimitStrategy.DROP
+        QqPlatformRateLimitStrategy.STASH -> QqRateLimitStrategy.STASH
+    },
+    maxStashedMessages = maxStashedMessages,
+    maxStashAgeMillis = maxStashAgeMillis,
+)
 
 internal object QqCommandAliasNormalizer {
     private val builtInCommands = setOf("help", "persona", "checkpoint", "reset", "mark")

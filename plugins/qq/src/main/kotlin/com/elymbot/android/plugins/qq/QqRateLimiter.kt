@@ -124,6 +124,13 @@ internal class QqRateLimiter<T>(
         QqRateLimitRelease(readyToReplay = ready, discarded = discarded)
     }
 
+    fun stashedSourceKeys(): List<String> = synchronized(lock) {
+        buckets.entries.asSequence()
+            .filter { it.value.stash.isNotEmpty() }
+            .map { it.key }
+            .toList()
+    }
+
     private fun removeExpiredBuckets(now: Long): List<T> {
         val discarded = mutableListOf<T>()
         val iterator = buckets.entries.iterator()

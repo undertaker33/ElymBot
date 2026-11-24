@@ -1,6 +1,8 @@
 package com.elymbot.core.contract
 
 import java.io.OutputStream
+import java.util.ArrayList
+import java.util.Collections
 import kotlinx.coroutines.flow.StateFlow
 
 /** A plugin that owns one host-managed messaging platform connection. */
@@ -12,6 +14,9 @@ interface PlatformPluginHandle : PluginHandle {
 
     /** Prepare and start platform resources only after the host has activated this instance. */
     suspend fun start(runtimeHost: PlatformRuntimeHost, inboundSink: PlatformInboundSink)
+
+    /** Stop live platform resources while keeping this installed handle reusable by a later start. */
+    suspend fun stop()
 
     suspend fun refreshLogin()
 
@@ -119,15 +124,37 @@ data class PlatformRuntimeState(
     val phase: PlatformRuntimePhase,
     val progressPercent: Int? = null,
     val accountId: String? = null,
-    /** UI-only QR payload; implementations must not write it to logs, events, or model context. */
+    /** UI-only QR modules; implementations must not persist them or write them to logs or model context. */
     val loginChallenge: PlatformLoginChallenge? = null,
     val failure: PlatformRuntimeFailure? = null,
 )
 
 data class PlatformLoginChallenge(
-    val qrContent: String,
+    val qrMatrix: PlatformQrMatrix,
     val expiresAtEpochMillis: Long? = null,
 )
+
+/** Bounded square row-major QR matrix. `true` identifies a dark module. */
+class PlatformQrMatrix private constructor(
+    val dimension: Int,
+    val darkModules: List<Boolean>,
+) {
+    override fun equals(other: Any?): Boolean =
+        other is PlatformQrMatrix && dimension == other.dimension && darkModules == other.darkModules
+
+    override fun hashCode(): Int = 31 * dimension + darkModules.hashCode()
+
+    companion object {
+        const val MAX_DIMENSION = 177
+
+        fun copyOf(dimension: Int, darkModules: List<Boolean>): PlatformQrMatrix {
+            require(dimension in 1..MAX_DIMENSION) { "QR dimension is out of bounds" }
+            require(darkModules.size == dimension * dimension) { "QR module count does not match its dimension" }
+            val immutableModules = Collections.unmodifiableList(ArrayList(darkModules))
+            return PlatformQrMatrix(dimension, immutableModules)
+        }
+    }
+}
 
 enum class PlatformRuntimePhase {
     STOPPED,

@@ -3,6 +3,9 @@ package com.elymbot.android.plugins.qq
 import com.elymbot.core.contract.AgentMessageSegment
 import com.elymbot.core.contract.PlatformHistoryVisibility
 import com.elymbot.core.contract.PlatformInboundProcessing
+import com.elymbot.core.contract.QqGroupMember
+import com.elymbot.core.contract.QqPlatformRateLimitSettings
+import com.elymbot.core.contract.QqPlatformSettings
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -17,7 +20,7 @@ class QqInboundPolicyTest {
             inbound = groupMessage("ordinary text"),
             configuration = configuration(
                 whitelistEnabled = true,
-                whitelistEntries = setOf("3000"),
+                allowedGroupIds = setOf("3000"),
                 publicGroupHistoryGroupIds = setOf("3000"),
             ),
         )
@@ -92,12 +95,32 @@ class QqInboundPolicyTest {
             inbound = groupMessage("wake"),
             configuration(
                 whitelistEnabled = true,
-                whitelistEntries = emptySet(),
                 wakeWords = listOf("wake"),
                 publicGroupHistoryGroupIds = setOf("3000"),
             ),
         )
         assertEquals(QqInboundDecision.Dropped(QqInboundDropReason.NOT_ALLOWED), decision)
+    }
+
+    @Test
+    fun typedGroupMemberAllowEntryDoesNotBecomePrivateAllowEntry() {
+        val groupDecision = policy.evaluate(
+            inbound = groupMessage("wake", mentionSelf = true),
+            configuration = configuration(
+                whitelistEnabled = true,
+                allowedGroupMembers = setOf(QqGroupMember(userId = "2000", groupId = "3000")),
+            ),
+        )
+        val privateDecision = policy.evaluate(
+            inbound = privateMessage("wake"),
+            configuration = configuration(
+                whitelistEnabled = true,
+                allowedGroupMembers = setOf(QqGroupMember(userId = "2000", groupId = "3000")),
+            ),
+        )
+
+        assertTrue(groupDecision is QqInboundDecision.Trigger)
+        assertEquals(QqInboundDecision.Dropped(QqInboundDropReason.NOT_ALLOWED), privateDecision)
     }
 
     @Test
@@ -125,7 +148,10 @@ class QqInboundPolicyTest {
         ignoreSelfMessageEnabled: Boolean = true,
         ignoreAtAllEventEnabled: Boolean = true,
         whitelistEnabled: Boolean = false,
-        whitelistEntries: Set<String> = emptySet(),
+        allowedUserIds: Set<String> = emptySet(),
+        allowedPrivateUserIds: Set<String> = emptySet(),
+        allowedGroupIds: Set<String> = emptySet(),
+        allowedGroupMembers: Set<QqGroupMember> = emptySet(),
         adminUserIds: Set<String> = emptySet(),
         adminGroupBypassWhitelistEnabled: Boolean = false,
         adminPrivateBypassWhitelistEnabled: Boolean = false,
@@ -138,13 +164,16 @@ class QqInboundPolicyTest {
         keywordPatterns: List<String> = emptyList(),
         publicGroupHistoryGroupIds: Set<String> = emptySet(),
         commandAliases: Map<String, String> = emptyMap(),
-        privateRateLimit: QqRateLimitRule? = null,
-        groupRateLimit: QqRateLimitRule? = null,
-    ) = QqInboundRuleConfiguration(
+        privateRateLimit: QqPlatformRateLimitSettings? = null,
+        groupRateLimit: QqPlatformRateLimitSettings? = null,
+    ) = QqPlatformSettings(
         ignoreSelfMessageEnabled = ignoreSelfMessageEnabled,
         ignoreAtAllEventEnabled = ignoreAtAllEventEnabled,
         whitelistEnabled = whitelistEnabled,
-        whitelistEntries = whitelistEntries,
+        allowedUserIds = allowedUserIds,
+        allowedPrivateUserIds = allowedPrivateUserIds,
+        allowedGroupIds = allowedGroupIds,
+        allowedGroupMembers = allowedGroupMembers,
         adminUserIds = adminUserIds,
         adminGroupBypassWhitelistEnabled = adminGroupBypassWhitelistEnabled,
         adminPrivateBypassWhitelistEnabled = adminPrivateBypassWhitelistEnabled,

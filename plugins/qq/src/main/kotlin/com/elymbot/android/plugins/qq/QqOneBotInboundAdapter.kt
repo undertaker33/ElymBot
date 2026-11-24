@@ -3,6 +3,9 @@ package com.elymbot.android.plugins.qq
 import com.elymbot.core.contract.PlatformInboundEnvelope
 import com.elymbot.core.contract.PlatformInboundResult
 import com.elymbot.core.contract.PlatformInboundSink
+import com.elymbot.core.contract.QqPlatformRateLimitSettings
+import com.elymbot.core.contract.QqPlatformRateLimitStrategy
+import com.elymbot.core.contract.QqPlatformSettings
 
 internal sealed interface QqOneBotIngressResult {
     data object Ignored : QqOneBotIngressResult
@@ -36,7 +39,7 @@ internal class QqOneBotInboundAdapter(
 ) {
     suspend fun accept(
         payload: String,
-        configuration: QqInboundRuleConfiguration,
+        configuration: QqPlatformSettings,
         sink: PlatformInboundSink,
     ): QqOneBotIngressResult {
         val event = when (val parsed = parser.parse(payload)) {
@@ -73,19 +76,31 @@ internal class QqOneBotInboundAdapter(
 
     suspend fun releaseReady(
         sourceKey: String,
-        rule: QqRateLimitRule?,
-        configuration: QqInboundRuleConfiguration,
+        configuration: QqPlatformSettings,
         sink: PlatformInboundSink,
     ): List<PlatformInboundResult> {
-        val release = rateLimiter.releaseReady(sourceKey, rule)
+        val release = rateLimiter.releaseReady(sourceKey, configuration.rateLimitFor(sourceKey))
         release.discarded.forEach { it.reservation.release() }
         return dispatchReady(release.readyToReplay, configuration, sink)
     }
 
+    suspend fun releaseReady(
+        configuration: QqPlatformSettings,
+        sink: PlatformInboundSink,
+    ): List<PlatformInboundResult> {
+        val results = mutableListOf<PlatformInboundResult>()
+        rateLimiter.stashedSourceKeys().forEach { sourceKey ->
+            results += releaseReady(sourceKey, configuration, sink)
+        }
+        return results
+    }
+
+    fun hasPendingStash(): Boolean = rateLimiter.stashedSourceKeys().isNotEmpty()
+
     private suspend fun acceptTriggered(
         decision: QqInboundDecision.Trigger,
         sourceEvent: OneBotInboundEvent,
-        configuration: QqInboundRuleConfiguration,
+        configuration: QqPlatformSettings,
         reservation: QqEventDeduplicator.Reservation,
         sink: PlatformInboundSink,
     ): QqOneBotIngressResult {
@@ -134,7 +149,7 @@ internal class QqOneBotInboundAdapter(
 
     private suspend fun dispatchReady(
         pendingEvents: List<PendingQqInbound>,
-        configuration: QqInboundRuleConfiguration,
+        configuration: QqPlatformSettings,
         sink: PlatformInboundSink,
     ): List<PlatformInboundResult> {
         val results = mutableListOf<PlatformInboundResult>()
@@ -177,6 +192,23 @@ internal class QqOneBotInboundAdapter(
         pending.reservation.release()
         throw failure
     }
+}
+
+private fun QqPlatformRateLimitSettings.toQqRateLimitRule() = QqRateLimitRule(
+    windowMillis = windowMillis,
+    maxMessages = maxMessages,
+    strategy = when (strategy) {
+        QqPlatformRateLimitStrategy.DROP -> QqRateLimitStrategy.DROP
+        QqPlatformRateLimitStrategy.STASH -> QqRateLimitStrategy.STASH
+    },
+    maxStashedMessages = maxStashedMessages,
+    maxStashAgeMillis = maxStashAgeMillis,
+)
+
+private fun QqPlatformSettings.rateLimitFor(sourceKey: String): QqRateLimitRule? = when (sourceKey.split(':').getOrNull(1)) {
+    "private" -> privateRateLimit?.toQqRateLimitRule()
+    "group" -> groupRateLimit?.toQqRateLimitRule()
+    else -> null
 }
 
 internal data class PendingQqInbound(

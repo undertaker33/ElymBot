@@ -23,6 +23,11 @@ dependencies {
     compileOnly(libs.kotlinx.coroutines.core)
     compileOnly(libs.kotlinx.serialization.json)
 
+    // Match the ON-04 rootfs extractor; these runtime classes must be merged into the signed plugin DEX.
+    implementation(libs.commons.compress)
+    implementation(libs.xz)
+    implementation(libs.zxing.core)
+
     testImplementation(project(":core"))
     testImplementation(libs.kotlinx.coroutines.core)
     testImplementation(libs.kotlinx.serialization.json)
