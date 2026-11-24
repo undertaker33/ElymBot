@@ -41,6 +41,9 @@ interface ScheduledTaskRunInboxDao {
     @Query("SELECT * FROM scheduled_task_run_inbox WHERE runId = :runId")
     suspend fun get(runId: String): ScheduledTaskRunInboxEntity?
 
+    @Query("SELECT * FROM scheduled_task_run_inbox WHERE sessionId = :sessionId AND turnSequence = :turnSequence LIMIT 1")
+    suspend fun getForTurn(sessionId: String, turnSequence: Long): ScheduledTaskRunInboxEntity?
+
     @Query("SELECT * FROM scheduled_task_run_inbox WHERE status = 'QUEUED' ORDER BY triggeredAtEpochMillis, runId")
     suspend fun queued(): List<ScheduledTaskRunInboxEntity>
 

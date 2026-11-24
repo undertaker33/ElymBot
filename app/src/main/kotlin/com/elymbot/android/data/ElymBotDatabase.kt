@@ -21,6 +21,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         RetiredReplyExecutionEntity::class,
         RetiredReplyReceiptEntity::class,
         ScheduledTaskRunInboxEntity::class,
+        PlatformConversationBindingEntity::class,
+        PlatformOwnerBindingEntity::class,
+        PlatformInboundInboxEntity::class,
+        PlatformTurnRouteEntity::class,
         ModelServiceEntity::class,
         ModelAssignmentEntity::class,
         ModelProbeEntity::class,
@@ -28,7 +32,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         CredentialEntity::class,
         PersonaTagEntity::class,
     ],
-    version = 5,
+    version = 6,
     exportSchema = false,
 )
 abstract class ElymBotDatabase : RoomDatabase() {
@@ -44,6 +48,7 @@ abstract class ElymBotDatabase : RoomDatabase() {
     abstract fun replyDeliveryDao(): ReplyDeliveryDao
     abstract fun retiredReplyDao(): RetiredReplyDao
     abstract fun scheduledTaskRunInboxDao(): ScheduledTaskRunInboxDao
+    abstract fun platformRouteDao(): PlatformRouteDao
     abstract fun modelConfigurationDao(): ModelConfigurationDao
     abstract fun credentialDao(): CredentialDao
     abstract fun commandNameDao(): CommandNameDao
@@ -223,11 +228,116 @@ abstract class ElymBotDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `platform_conversation_bindings` (
+                        `pluginId` TEXT NOT NULL,
+                        `installationInstanceId` TEXT NOT NULL,
+                        `channelId` TEXT NOT NULL,
+                        `accountId` TEXT NOT NULL,
+                        `conversationId` TEXT NOT NULL,
+                        `actorId` TEXT NOT NULL,
+                        `sessionId` TEXT NOT NULL,
+                        `historyVisibility` TEXT NOT NULL,
+                        `createdAtEpochMillis` INTEGER NOT NULL,
+                        `updatedAtEpochMillis` INTEGER NOT NULL,
+                        PRIMARY KEY(`pluginId`, `channelId`, `accountId`, `conversationId`),
+                        FOREIGN KEY(`sessionId`) REFERENCES `conversations`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                    """.trimIndent(),
+                )
+                database.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS `index_platform_conversation_bindings_sessionId` ON `platform_conversation_bindings` (`sessionId`)",
+                )
+                database.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `platform_owner_bindings` (
+                        `pluginId` TEXT NOT NULL,
+                        `installationInstanceId` TEXT NOT NULL,
+                        `channelId` TEXT NOT NULL,
+                        `accountId` TEXT NOT NULL,
+                        `conversationId` TEXT NOT NULL,
+                        `actorId` TEXT NOT NULL,
+                        `ownerBound` INTEGER NOT NULL DEFAULT 1,
+                        `autoGrantedPrivatePermission` INTEGER NOT NULL DEFAULT 0,
+                        `updatedAtEpochMillis` INTEGER NOT NULL,
+                        PRIMARY KEY(`pluginId`)
+                    )
+                    """.trimIndent(),
+                )
+                database.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `platform_inbound_inbox` (
+                        `id` TEXT NOT NULL,
+                        `pluginId` TEXT NOT NULL,
+                        `installationInstanceId` TEXT NOT NULL,
+                        `channelId` TEXT NOT NULL,
+                        `accountId` TEXT NOT NULL,
+                        `conversationId` TEXT NOT NULL,
+                        `actorId` TEXT NOT NULL,
+                        `messageId` TEXT NOT NULL,
+                        `sessionId` TEXT NOT NULL,
+                        `processing` TEXT NOT NULL,
+                        `historyVisibility` TEXT NOT NULL,
+                        `policyRevision` INTEGER NOT NULL,
+                        `status` TEXT NOT NULL,
+                        `text` TEXT NOT NULL,
+                        `targetChannelId` TEXT,
+                        `targetConversationId` TEXT,
+                        `targetAccountId` TEXT,
+                        `targetActorId` TEXT,
+                        `referenceMessageId` TEXT,
+                        `turnSequence` INTEGER,
+                        `receivedAtEpochMillis` INTEGER NOT NULL,
+                        `updatedAtEpochMillis` INTEGER NOT NULL,
+                        PRIMARY KEY(`id`),
+                        FOREIGN KEY(`sessionId`) REFERENCES `conversations`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                    """.trimIndent(),
+                )
+                database.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS `index_platform_inbound_inbox_pluginId_channelId_accountId_conversationId_messageId` ON `platform_inbound_inbox` (`pluginId`, `channelId`, `accountId`, `conversationId`, `messageId`)",
+                )
+                database.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_platform_inbound_inbox_sessionId_status_receivedAtEpochMillis` ON `platform_inbound_inbox` (`sessionId`, `status`, `receivedAtEpochMillis`)",
+                )
+                database.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_platform_inbound_inbox_accountId_conversationId_installationInstanceId_receivedAtEpochMillis` ON `platform_inbound_inbox` (`accountId`, `conversationId`, `installationInstanceId`, `receivedAtEpochMillis`)",
+                )
+                database.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `platform_turn_routes` (
+                        `sessionId` TEXT NOT NULL,
+                        `turnSequence` INTEGER NOT NULL,
+                        `pluginId` TEXT NOT NULL,
+                        `installationInstanceId` TEXT NOT NULL,
+                        `channelId` TEXT NOT NULL,
+                        `accountId` TEXT NOT NULL,
+                        `conversationId` TEXT NOT NULL,
+                        `actorId` TEXT NOT NULL,
+                        `targetChannelId` TEXT NOT NULL,
+                        `targetConversationId` TEXT NOT NULL,
+                        `targetAccountId` TEXT NOT NULL,
+                        `targetActorId` TEXT NOT NULL,
+                        `referenceMessageId` TEXT,
+                        PRIMARY KEY(`sessionId`, `turnSequence`),
+                        FOREIGN KEY(`sessionId`, `turnSequence`) REFERENCES `turns`(`sessionId`, `sequence`) ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                    """.trimIndent(),
+                )
+                database.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_platform_turn_routes_pluginId_installationInstanceId_channelId_accountId` ON `platform_turn_routes` (`pluginId`, `installationInstanceId`, `channelId`, `accountId`)",
+                )
+            }
+        }
+
         fun open(context: Context): ElymBotDatabase = open(context, "elymbot.db")
 
         internal fun open(context: Context, databaseName: String): ElymBotDatabase =
             Room.databaseBuilder(context.applicationContext, ElymBotDatabase::class.java, databaseName)
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
                 .build()
     }
 }

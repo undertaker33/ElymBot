@@ -2,11 +2,15 @@ package com.elymbot.android.ui
 
 import android.net.Uri
 import android.content.Intent
+import com.elymbot.core.contract.QqPlatformSettings
+import com.elymbot.core.contract.QqPlatformSettingsSnapshot
+import com.elymbot.core.contract.PlatformRuntimeState
 import com.elymbot.core.contract.ScheduledTaskAction
 import com.elymbot.core.contract.ScheduledTaskActionResult
 import com.elymbot.core.contract.ScheduledTaskSnapshotResult
 import com.elymbot.core.contract.ScheduledTaskUiStateResult
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 
 interface ElymBotUiService {
     val personas: Flow<List<PersonaCard>>
@@ -69,6 +73,30 @@ interface ElymBotUiService {
     fun appUpdatePermissionSettingsIntent(): Intent
     suspend fun prepareAppUpdateInstall(offerId: String): AppUpdateInstallResult
     suspend fun finishAppUpdateInstall(ticketId: String)
+    fun platformConnections(sessionId: String): Flow<PlatformConnectionsState> = flowOf(PlatformConnectionsState())
+    fun qqPlatformSettings(sessionId: String): Flow<QqPlatformSettingsUiState> = flowOf(QqPlatformSettingsUiState())
+    suspend fun startPlatform(sessionId: String, pluginId: String): PlatformUiActionResult =
+        PlatformUiActionResult.Rejected(PlatformUiFailure.PluginUnavailable)
+    suspend fun stopPlatform(sessionId: String, pluginId: String): PlatformUiActionResult =
+        PlatformUiActionResult.Rejected(PlatformUiFailure.PluginUnavailable)
+    suspend fun refreshPlatformLogin(sessionId: String, pluginId: String): PlatformUiActionResult =
+        PlatformUiActionResult.Rejected(PlatformUiFailure.PluginUnavailable)
+    suspend fun reconnectPlatform(sessionId: String, pluginId: String): PlatformUiActionResult =
+        PlatformUiActionResult.Rejected(PlatformUiFailure.PluginUnavailable)
+    suspend fun logoutPlatform(sessionId: String, pluginId: String): PlatformUiActionResult =
+        PlatformUiActionResult.Rejected(PlatformUiFailure.PluginUnavailable)
+    suspend fun bindQqOwnerPrivate(
+        sessionId: String,
+        accountId: String,
+        userId: String,
+    ): PlatformUiActionResult = PlatformUiActionResult.Rejected(PlatformUiFailure.PluginUnavailable)
+    suspend fun unbindQqOwnerPrivate(sessionId: String): PlatformUiActionResult =
+        PlatformUiActionResult.Rejected(PlatformUiFailure.PluginUnavailable)
+    suspend fun updateQqPlatformSettings(
+        sessionId: String,
+        expectedRevision: Long,
+        settings: QqPlatformSettings,
+    ): QqPlatformSettingsUiResult = QqPlatformSettingsUiResult.Rejected(PlatformUiFailure.SettingsUnavailable)
     suspend fun saveModelService(service: ModelServiceDraft)
     suspend fun deleteModelService(serviceId: String)
     suspend fun fetchModels(service: ModelServiceDraft): List<String>
@@ -98,6 +126,9 @@ data class ConversationSummary(
     val preview: String? = null,
     val running: Boolean = false,
     val unread: Boolean = false,
+    val readOnly: Boolean = false,
+    val platformChannelId: String? = null,
+    val externalConversationId: String? = null,
 )
 
 data class Conversation(
@@ -108,6 +139,9 @@ data class Conversation(
     val toolProgressActive: Boolean = false,
     val detachedDeliveryReceipts: List<ChatDetachedDeliveryReceipt> = emptyList(),
     val pendingDeliveries: List<ChatPendingDelivery> = emptyList(),
+    val readOnly: Boolean = false,
+    val platformChannelId: String? = null,
+    val externalConversationId: String? = null,
 )
 
 data class ChatMessage(
@@ -169,7 +203,7 @@ enum class MessageStatus { Waiting, Stopped, Interrupted }
 enum class UiIssue {
     MainModelMissing, VisionModelMissing, VisionCapabilityUnknown, Authentication, Connection,
     ServiceResponse, ServiceRejected, ServiceProtocol, TimedOut, Busy, OwnedSessions, InvalidInput,
-    NoCheckpointBoundary, Failed,
+    NoCheckpointBoundary, ReadOnlyConversation, Failed,
 }
 
 class UiServiceException(val issue: UiIssue) : RuntimeException()
@@ -271,6 +305,57 @@ data class AppUpdateState(
     val availableUpdate: AppUpdateCandidate? = null,
     val failure: AppUpdateUiFailure? = null,
 )
+
+data class PlatformConnectionsState(
+    val authorized: Boolean = false,
+    val restorationComplete: Boolean = false,
+    val connections: List<PlatformConnectionState> = emptyList(),
+)
+
+data class PlatformConnectionState(
+    val pluginId: String,
+    val enabled: Boolean,
+    val availability: PlatformAvailability,
+    val runtime: PlatformRuntimeState? = null,
+    val ownerBinding: QqOwnerBinding? = null,
+)
+
+enum class PlatformAvailability { NotInstalled, Disabled, Restoring, Active, Unavailable }
+
+data class QqOwnerBinding(
+    val accountId: String,
+    val userId: String,
+    val activeInstallation: Boolean,
+)
+
+data class QqPlatformSettingsUiState(
+    val available: Boolean = false,
+    val snapshot: QqPlatformSettingsSnapshot? = null,
+    val ownerBinding: QqOwnerBinding? = null,
+)
+
+enum class PlatformUiFailure {
+    UnauthorizedSession,
+    PluginUnavailable,
+    RuntimeFailure,
+    InvalidBinding,
+    SettingsUnavailable,
+    SettingsConflict,
+}
+
+sealed interface PlatformUiActionResult {
+    data object Completed : PlatformUiActionResult
+
+    data class Rejected(val reason: PlatformUiFailure) : PlatformUiActionResult
+}
+
+sealed interface QqPlatformSettingsUiResult {
+    data class Saved(val snapshot: QqPlatformSettingsSnapshot) : QqPlatformSettingsUiResult
+
+    data class Conflict(val current: QqPlatformSettingsSnapshot) : QqPlatformSettingsUiResult
+
+    data class Rejected(val reason: PlatformUiFailure) : QqPlatformSettingsUiResult
+}
 
 data class AppUpdateInstallTicket(
     val id: String,

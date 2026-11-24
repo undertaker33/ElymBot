@@ -79,6 +79,9 @@ data class ConversationSummaryRow(
     val preview: String?,
     val running: Boolean,
     val unread: Boolean,
+    val readOnly: Boolean = false,
+    val platformChannelId: String? = null,
+    val externalConversationId: String? = null,
 )
 
 @Dao
@@ -107,10 +110,10 @@ interface ConversationDao {
     @Query("SELECT * FROM conversations WHERE kind = 'DEDICATED'")
     suspend fun getAllDedicated(): List<ConversationEntity>
 
-    @Query("SELECT c.id, c.personaId, COALESCE(c.title, '') AS title, (SELECT CASE WHEN m.text <> '' THEN m.text ELSE NULL END FROM messages m WHERE m.sessionId = c.id AND m.category = 'HISTORY' AND (NOT EXISTS(SELECT 1 FROM reply_submissions rs WHERE rs.messageId = m.id) OR EXISTS(SELECT 1 FROM reply_deliveries rd WHERE rd.messageId = m.id AND rd.targetKind = 'APP_TRANSCRIPT' AND rd.status = 'DELIVERED') OR EXISTS(SELECT 1 FROM reply_deliveries rd WHERE rd.messageId = m.id AND rd.historyVisibilityGate = 1 AND rd.status = 'DELIVERED')) ORDER BY m.turnSequence DESC, m.messageIndex DESC LIMIT 1) AS preview, EXISTS(SELECT 1 FROM turns t WHERE t.sessionId = c.id AND t.status = 'RUNNING') AS running, c.unread FROM conversations c WHERE c.kind = 'MAIN' AND c.mainKey = 'main' LIMIT 1")
+    @Query("SELECT c.id, c.personaId, COALESCE(c.title, '') AS title, (SELECT CASE WHEN m.text <> '' THEN m.text ELSE NULL END FROM messages m WHERE m.sessionId = c.id AND m.category = 'HISTORY' AND (NOT EXISTS(SELECT 1 FROM reply_submissions rs WHERE rs.messageId = m.id) OR EXISTS(SELECT 1 FROM reply_deliveries rd WHERE rd.messageId = m.id AND rd.targetKind = 'APP_TRANSCRIPT' AND rd.status = 'DELIVERED') OR EXISTS(SELECT 1 FROM reply_deliveries rd WHERE rd.messageId = m.id AND rd.historyVisibilityGate = 1 AND rd.status = 'DELIVERED')) ORDER BY m.turnSequence DESC, m.messageIndex DESC LIMIT 1) AS preview, EXISTS(SELECT 1 FROM turns t WHERE t.sessionId = c.id AND t.status = 'RUNNING') AS running, c.unread, 0 AS readOnly, NULL AS platformChannelId, NULL AS externalConversationId FROM conversations c WHERE c.kind = 'MAIN' AND c.mainKey = 'main' LIMIT 1")
     fun observeMainSummary(): Flow<ConversationSummaryRow?>
 
-    @Query("SELECT c.id, c.personaId, COALESCE(c.title, '') AS title, (SELECT CASE WHEN m.text <> '' THEN m.text ELSE NULL END FROM messages m WHERE m.sessionId = c.id AND m.category = 'HISTORY' AND (NOT EXISTS(SELECT 1 FROM reply_submissions rs WHERE rs.messageId = m.id) OR EXISTS(SELECT 1 FROM reply_deliveries rd WHERE rd.messageId = m.id AND rd.targetKind = 'APP_TRANSCRIPT' AND rd.status = 'DELIVERED') OR EXISTS(SELECT 1 FROM reply_deliveries rd WHERE rd.messageId = m.id AND rd.historyVisibilityGate = 1 AND rd.status = 'DELIVERED')) ORDER BY m.turnSequence DESC, m.messageIndex DESC LIMIT 1) AS preview, EXISTS(SELECT 1 FROM turns t WHERE t.sessionId = c.id AND t.status = 'RUNNING') AS running, c.unread FROM conversations c WHERE c.kind = 'DEDICATED' AND c.personaId = :personaId AND c.title IS NOT NULL ORDER BY c.lastActivityAt DESC, c.createdAt DESC")
+    @Query("SELECT c.id, c.personaId, COALESCE(c.title, '') AS title, COALESCE((SELECT CASE WHEN m.text <> '' THEN m.text ELSE NULL END FROM messages m WHERE m.sessionId = c.id AND m.category = 'HISTORY' AND (NOT EXISTS(SELECT 1 FROM reply_submissions rs WHERE rs.messageId = m.id) OR EXISTS(SELECT 1 FROM reply_deliveries rd WHERE rd.messageId = m.id AND rd.targetKind = 'APP_TRANSCRIPT' AND rd.status = 'DELIVERED') OR EXISTS(SELECT 1 FROM reply_deliveries rd WHERE rd.messageId = m.id AND rd.historyVisibilityGate = 1 AND rd.status = 'DELIVERED')) ORDER BY m.turnSequence DESC, m.messageIndex DESC LIMIT 1), (SELECT p.text FROM platform_inbound_inbox p WHERE p.sessionId = c.id AND p.historyVisibility = 'GROUP_PUBLIC' AND p.status = 'STORED_CONTEXT' ORDER BY p.receivedAtEpochMillis DESC LIMIT 1)) AS preview, EXISTS(SELECT 1 FROM turns t WHERE t.sessionId = c.id AND t.status = 'RUNNING') AS running, c.unread, EXISTS(SELECT 1 FROM platform_conversation_bindings p WHERE p.sessionId = c.id) AS readOnly, (SELECT p.channelId FROM platform_conversation_bindings p WHERE p.sessionId = c.id LIMIT 1) AS platformChannelId, (SELECT p.conversationId FROM platform_conversation_bindings p WHERE p.sessionId = c.id LIMIT 1) AS externalConversationId FROM conversations c WHERE c.kind = 'DEDICATED' AND c.personaId = :personaId AND c.title IS NOT NULL ORDER BY c.lastActivityAt DESC, c.createdAt DESC")
     fun observeDedicatedSummaries(personaId: String): Flow<List<ConversationSummaryRow>>
 
     @Insert(onConflict = OnConflictStrategy.ABORT)

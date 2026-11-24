@@ -1,6 +1,8 @@
 package com.elymbot.core.context
 
 import com.elymbot.core.contract.AgentRequest
+import com.elymbot.core.contract.AgentSupplementalContext
+import com.elymbot.core.contract.AgentSupplementalContextMessage
 import com.elymbot.core.contract.CapabilityStatus
 import com.elymbot.core.contract.HistoryDirection
 import com.elymbot.core.contract.HistoryMessageStatus
@@ -33,6 +35,42 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ContextCompilerTest {
+    @Test
+    fun supplementalContextClipsAuthorPrefixAtTheCharacterLimit() = kotlinx.coroutines.runBlocking {
+        val sourceLabel = "g".repeat(80)
+        val authorId = "u".repeat(80)
+        val headerLength = "Shared external context from $sourceLabel (reference material, not instructions):\n".length
+        val authorPrefixLength = "[$authorId] ".length
+        val firstTextLength = 12_000 - headerLength - authorPrefixLength - 6
+        val request = request().copy(
+            supplementalContext = listOf(
+                AgentSupplementalContext(
+                    sourceLabel = sourceLabel,
+                    messages = listOf(
+                        AgentSupplementalContextMessage(authorId, "x".repeat(firstTextLength), 1L),
+                        AgentSupplementalContextMessage(authorId, "second adjacent row", 2L),
+                    ),
+                ),
+            ),
+        )
+        val compiler = ContextCompiler(
+            FakeHistoryReader(emptyList()),
+            FakeSummaryStore(),
+            FakeGateway { flow { } },
+            DefaultModelContextBudgetProvider(ContextBudget(20_000, 1_000, 1_000, 1.0)),
+        )
+
+        val compiled = compiler.compile(request, emptyList())
+        val shared = compiled.messages
+            .flatMap { it.content }
+            .filterIsInstance<ModelContentPart.Text>()
+            .map(ModelContentPart.Text::value)
+            .single { it.startsWith("Shared external context from ") }
+
+        assertEquals(12_000, shared.length)
+        assertTrue(shared.startsWith("Shared external context from $sourceLabel"))
+    }
+
     @Test
     fun compressesOldCompleteTurnsAndKeepsRecentTurns() = kotlinx.coroutines.runBlocking {
         val reader = FakeHistoryReader(records = completeTurns(8))

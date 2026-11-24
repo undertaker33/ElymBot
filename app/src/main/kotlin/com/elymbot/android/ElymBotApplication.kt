@@ -14,6 +14,7 @@ import com.elymbot.android.session.ScheduledTaskHost
 import com.elymbot.android.session.ScheduledTaskSystemScheduler
 import com.elymbot.android.session.AppToolAccessPolicy
 import com.elymbot.android.session.ElymBotSessionService
+import com.elymbot.android.session.AppReplyTargetSnapshotProvider
 import com.elymbot.android.ui.ElymBotUiService
 import com.elymbot.core.agent.ReActAgentRuntime
 import com.elymbot.core.command.DefaultSlashCommandParser
@@ -79,6 +80,11 @@ class ElymBotApplication : Application() {
             scope = applicationScope,
             scheduledTaskHost = scheduledTaskHost,
             appHostManagement = appHostManagementUiService,
+            pluginRuntimeManager = pluginRuntimeManager,
+            replyTargetSnapshotProvider = AppReplyTargetSnapshotProvider(
+                database = repository.database,
+                pluginRuntimeManager = pluginRuntimeManager,
+            ),
             toolRegistrations = {
                 pluginRuntimeManager.activeRegistrations() + ToolRegistration(appHostManagementUiService.catalogTool)
             },

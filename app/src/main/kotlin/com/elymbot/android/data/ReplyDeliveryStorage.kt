@@ -123,6 +123,15 @@ data class PendingAppTranscriptDelivery(
     val messageIndex: Int,
 )
 
+data class PendingPlatformDelivery(
+    @Embedded val delivery: ReplyDeliveryEntity,
+    val sessionId: String,
+    val turnSequence: Long,
+    val messageIndex: Int,
+    val acceptedAtEpochMillis: Long,
+    val text: String,
+)
+
 @Entity(
     tableName = "retired_reply_executions",
     primaryKeys = ["sessionId", "executionId", "attemptId"],
@@ -262,6 +271,42 @@ interface ReplySubmissionDao {
         """,
     )
     suspend fun hasIneligibleHistoryMessages(sessionId: String, fromTurn: Long, toTurn: Long): Boolean
+
+    @Query(
+        """
+        SELECT reply_deliveries.*
+        FROM reply_deliveries
+        INNER JOIN reply_submissions ON reply_submissions.messageId = reply_deliveries.messageId
+        WHERE reply_submissions.sessionId = :sessionId AND reply_submissions.turnSequence = :turnSequence
+            AND reply_submissions.executionId = :executionId AND reply_submissions.attemptId = :attemptId
+        ORDER BY reply_submissions.messageOrdinal, reply_deliveries.targetKey
+        """,
+    )
+    suspend fun deliveriesForAttempt(
+        sessionId: String,
+        turnSequence: Long,
+        executionId: String,
+        attemptId: String,
+    ): List<ReplyDeliveryEntity>
+
+    @Query(
+        """
+        SELECT * FROM reply_submissions
+        WHERE sessionId = :sessionId AND turnSequence = :turnSequence
+            AND executionId = :executionId AND attemptId = :attemptId
+        ORDER BY acceptedAtEpochMillis, messageOrdinal
+        LIMIT 1
+        """,
+    )
+    suspend fun firstSubmissionForAttempt(
+        sessionId: String,
+        turnSequence: Long,
+        executionId: String,
+        attemptId: String,
+    ): ReplySubmissionEntity?
+
+    @Query("SELECT sessionId FROM reply_submissions WHERE messageId = :messageId LIMIT 1")
+    suspend fun sessionForMessage(messageId: String): String?
 }
 
 @Dao
@@ -333,6 +378,42 @@ interface ReplyDeliveryDao {
 
     @Query(
         """
+        SELECT reply_deliveries.*,
+            reply_submissions.sessionId AS sessionId,
+            reply_submissions.turnSequence AS turnSequence,
+            reply_submissions.acceptedAtEpochMillis AS acceptedAtEpochMillis,
+            messages.messageIndex AS messageIndex,
+            messages.text AS text
+        FROM reply_deliveries
+        INNER JOIN reply_submissions ON reply_submissions.messageId = reply_deliveries.messageId
+        INNER JOIN messages ON messages.id = reply_deliveries.messageId
+        WHERE reply_deliveries.status = 'PENDING' AND reply_deliveries.targetKind = 'PLATFORM'
+        ORDER BY reply_deliveries.availableAtEpochMillis, reply_submissions.acceptedAtEpochMillis,
+            messages.sessionId, messages.turnSequence, messages.messageIndex, reply_deliveries.targetKey
+        """,
+    )
+    fun observePendingPlatform(): Flow<List<PendingPlatformDelivery>>
+
+    @Query(
+        """
+        SELECT reply_deliveries.*,
+            reply_submissions.sessionId AS sessionId,
+            reply_submissions.turnSequence AS turnSequence,
+            reply_submissions.acceptedAtEpochMillis AS acceptedAtEpochMillis,
+            messages.messageIndex AS messageIndex,
+            messages.text AS text
+        FROM reply_deliveries
+        INNER JOIN reply_submissions ON reply_submissions.messageId = reply_deliveries.messageId
+        INNER JOIN messages ON messages.id = reply_deliveries.messageId
+        WHERE reply_deliveries.status = 'PENDING' AND reply_deliveries.targetKind = 'PLATFORM'
+        ORDER BY reply_submissions.acceptedAtEpochMillis,
+            messages.sessionId, messages.turnSequence, messages.messageIndex, reply_deliveries.targetKey
+        """,
+    )
+    suspend fun pendingPlatformSnapshot(): List<PendingPlatformDelivery>
+
+    @Query(
+        """
         SELECT EXISTS(
             SELECT 1 FROM reply_deliveries
             INNER JOIN reply_submissions ON reply_submissions.messageId = reply_deliveries.messageId
@@ -352,6 +433,9 @@ interface ReplyDeliveryDao {
 
     @Query("UPDATE reply_deliveries SET status = 'SENDING', updatedAtEpochMillis = :now WHERE id = :id AND status = 'PENDING'")
     suspend fun markSending(id: String, now: Long): Int
+
+    @Query("UPDATE reply_deliveries SET status = 'SENDING', updatedAtEpochMillis = :now WHERE id = :id AND status = 'PENDING' AND availableAtEpochMillis <= :now")
+    suspend fun markPlatformSendingIfDue(id: String, now: Long): Int
 
     @Query("UPDATE reply_deliveries SET status = 'DELIVERED', updatedAtEpochMillis = :now WHERE id = :id AND targetKind = 'APP_TRANSCRIPT' AND status = 'PENDING' AND availableAtEpochMillis <= :now")
     suspend fun releaseDueAppTranscript(id: String, now: Long): Int
@@ -391,6 +475,9 @@ interface ReplyDeliveryDao {
 
     @Query("UPDATE reply_deliveries SET status = 'STALE', updatedAtEpochMillis = :now WHERE pluginId = :pluginId AND installationInstanceId = :instanceId AND status = 'PENDING'")
     suspend fun markPendingStaleForInstallation(pluginId: String, instanceId: String, now: Long): Int
+
+    @Query("UPDATE reply_deliveries SET status = 'STALE', failureCode = :failureCode, updatedAtEpochMillis = :now WHERE id = :id AND status = 'PENDING'")
+    suspend fun markPendingStale(id: String, failureCode: String, now: Long): Int
 
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insert(item: ReplyDeliveryEntity)

@@ -325,6 +325,24 @@ internal class PluginRuntimeManager(context: Context) {
         }
     }
 
+    /** Returns the loader-resolved private directory only while this exact instance is active. */
+    fun activePluginDataDirectory(identity: ToolInstallationIdentity): File? = synchronized(stateLock) {
+        val runtime = active[identity.pluginId]
+            ?.takeIf { it.installationIdentity == identity }
+            ?: return@synchronized null
+        val directory = runtime.dataDirectory
+        val canonical = runCatching { directory.canonicalFile }.getOrNull()
+            ?: return@synchronized null
+        val appFiles = appContext.filesDir.canonicalFile.toPath()
+        if (!directory.isDirectory || Files.isSymbolicLink(directory.toPath()) ||
+            canonical.name != identity.pluginId || !canonical.toPath().startsWith(appFiles)
+        ) {
+            null
+        } else {
+            canonical
+        }
+    }
+
     fun statusSnapshot(): List<PluginRuntimeStatus> = synchronized(stateLock) {
         installed.values.map(::statusLocked)
     }

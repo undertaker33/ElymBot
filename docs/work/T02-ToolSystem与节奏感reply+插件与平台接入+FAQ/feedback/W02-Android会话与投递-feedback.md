@@ -93,3 +93,24 @@ UTF-8 guard:
 - scheduled-tasks 插件安装、启用、停用或卸载成功后，SessionService 在宿主侧刷新唯一 WorkManager wake，再按当前 active installation 重采集插件持久队列、提交 Room 幂等 Inbox 并 drain；停用/卸载会取消旧 wake。UI 不直接操作调度器。
 - 总控在 MuMu Android 15 / x86_64 上报告 `ScheduledTaskHostIntegrationTest` 的 3 项全部通过、0 skipped：恢复 readiness barrier、签名 W05 typed UI capability 与 skip 持久化、以及 RunNow busy queue 场景扩展的 disable→enable 新身份、nextWakeAt 重登记和 queued run drain。
 - 联编 App APK SHA-256：`C0B64124510595193FB0FEE60C5BD93B110D063C13F7C1B95E1C53ABB8B4203F`；AndroidTest APK SHA-256：`EF136CF7CDE91A259430EDD02BBE3CD774ABF84C4EE0FACED6B64726B1BC8513`。本轮 App + AndroidTest 编译和上述定向 MuMu 仪器测试通过；平台运行/QQ 登录与消息端到端仍待 W04 的 App runtime handoff。
+
+## 2026-11-24 平台宿主编译与路由回归修正
+
+- 修复第二轮宿主编译诊断：Provider 使用本地 route actor/account 值避免跨模块 smart cast；QQ 入站授权改为有效 route helper；Room 锁结果统一为 `InboundAcceptResult`；平台账号 StateFlow 映射和 `withActivePluginHandle` 结果显式类型化。`ElymBotComponents` 的 `ReadOnlyConversation` 映射由 W06 单独修复。
+- 群触发 origin 保留 `group:<群>:member:<成员>`，Reply target 校验为同账号下已持久化的纯群 conversation，并在快照和发送前重查该成员及当前 D07 群授权。私聊 target 仍绑定原发送者。引用校验与出站 `MessageReference` 统一使用目标 route；获准群公共上下文在 `target=null` 时仅允许与共享 group route 匹配的引用。
+- Owner DM 设置写入后若插件在返回 `Saved` 前取消，宿主在 `NonCancellable` 下重读实际设置状态和 revision，最多按当前值重试移除 App 自动增加的窄私聊 grant。只有确认 grant 已不存在才删除 pending provenance；无法确认时保留 `ownerBound=false` 的自动授权标记，入站和投递均按失效拒绝。
+- PRoot guest launch 将新进程先登记为宿主持有资源，再交回 QQ 插件。切换回调前取消或身份失效时，宿主通过 `NonCancellable` 停止并释放 guest。新增 fake-hand-off AndroidTest、owner 写入后取消与失败补偿 AndroidTest、群 origin/target/引用 AndroidTest，以及 Core supplemental context 字符上限相邻消息回归源码。
+- 本轮未运行 Gradle、Android 仪器测试或设备操作；以上测试源码待总控执行。App/Core 当前可进入下一轮联编，命令解析保持下一增量。
+
+### 三轮联编窄修
+
+- `handoffPlatformResource` 的取消清理改为在 `NonCancellable` suspend 块中显式取出并清理 pending guest，避免把 suspend lambda 传给普通 `let`。
+- `acceptPlatformInbound` 在检查引用 route 前显式读取 `message.target`，保持目标/公共上下文引用校验与已确认 route 语义一致。
+- 总控第三轮日志只有以上两处宿主编译错误；修复后工作者冻结源码并等待总控复编。工作者未运行 Gradle、ADB 或 Git。
+
+### 第四轮联编与宿主复验
+
+- `gradlew.bat :app:assembleDebug :app:assembleDebugAndroidTest --offline --console=plain` 通过。App APK SHA-256 `1C3D53993B2C631F6CF238A3571AC78F3F5F077D227A8B864909B201D2F43726`，AndroidTest APK SHA-256 `F3EC14756F2DBA91DE5A8685683E27EE16720FC36A251D78FA1BA58F7C62E045`。上一轮已运行的 `ContextCompilerTest` 14/14 通过，0 跳过。
+- MuMu Android 15 / x86_64 跑定向仪器测试 11/11，0 跳过。四个 [PlatformHostSafetyTest](../../../../app/src/androidTest/kotlin/com/elymbot/android/session/PlatformHostSafetyTest.kt) 覆盖群 origin/target 和引用、设置写入后取消补偿、保留待清理授权标记、guest 交接取消清理。另通过三项签名定时任务宿主测试、三项设置与任务入口测试及真实中英文 Reply。
+- 同一 MuMu App 覆盖安装并打开后，Room 从 v5 迁移至 v6。迁移前后人格、轮次、消息、检查点、模型服务及文本分配的记录数相同。
+- 此切片提供平台文本入站、会话隔离、Room 出站和所有当前可见已授权目标的快照。平台媒体入口、剩余管理命令、合成多目标实际送达和 ARM64 真实 QQ 往返留作后续验收。

@@ -34,6 +34,8 @@ data class AgentRequest(
     val toolAccessPolicy: ToolAccessPolicy = BuiltInOnlyToolAccessPolicy,
     /** App-owned durable queue boundary; absent until Reply is wired by the host. */
     val replySubmitter: ReplySubmitter? = null,
+    /** App-authorized shared context that must not be folded into per-session summaries. */
+    val supplementalContext: List<AgentSupplementalContext> = emptyList(),
 )
 
 enum class AgentTerminalStatus {
