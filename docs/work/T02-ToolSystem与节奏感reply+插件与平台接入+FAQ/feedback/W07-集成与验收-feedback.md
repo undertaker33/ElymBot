@@ -45,6 +45,10 @@
 
 - MuMu 上已分配的真实文本模型接受自动结构化工具调用。能力探测使用与正式请求一致的工具选择后，App 定向用例 1/1 通过。同一 Reply 调用的两条消息均成功入账并按序可见，持久化投递时间相差 1,200 ms。[W01 Feedback](W01-Core工具与Reply-feedback.md)
 
+## 2026-11-24 · 定时任务插件目录安装
+
+- `:app:assembleDebugAndroidTest` 通过。MuMu Android 15 / x86_64 运行 `OfficialPluginDistributionRepositoryTest`（参数 `t02ScheduleUiProbe=true`），6 项通过，无跳过。从本地合成签名目录经 App 插件管理服务下载实际 W05 定时任务插件，验证启用、停用、无须重新下载即可重新启用和卸载清理。App SHA-256 `1C3D53993B2C631F6CF238A3571AC78F3F5F077D227A8B864909B201D2F43726`，AndroidTest SHA-256 `13D79307B9EC38979D39AC34ACDB3D1B167845B379B7919D605AE11D1EEC59BA`，定时任务签名包 SHA-256 `E9F1392B9F72F436D8830C8356114C0277A58A14490E0DB7641ECD9E235E51D2`。证据覆盖 A06、A07、A12 的安装路径和目录异常回归。[目录安装验收测试](../../../../app/src/androidTest/kotlin/com/elymbot/android/runtime/pluginpackage/OfficialPluginDistributionRepositoryTest.kt)
+
 ## 待验
 
 - 已启用插件的任务正式入口、系统自然唤醒、ARM64 QQ 与平台投递、正式双源分发及同签名 App 更新仍待按 A01–A17 验收。

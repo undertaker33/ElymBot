@@ -4,6 +4,9 @@ import android.content.Context
 import android.content.ContextWrapper
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import com.elymbot.android.ui.PluginManagementActionResult
+import com.elymbot.android.ui.PluginReleaseReference
+import com.elymbot.android.ui.PluginRuntimeAvailability
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
 import java.io.ByteArrayOutputStream
@@ -13,15 +16,21 @@ import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.Socket
 import java.nio.charset.StandardCharsets.UTF_8
+import java.security.KeyFactory
 import java.security.KeyPair
 import java.security.KeyPairGenerator
 import java.security.MessageDigest
+import java.security.PublicKey
 import java.security.Signature
+import java.security.spec.X509EncodedKeySpec
 import java.util.Base64
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.runBlocking
 import org.json.JSONArray
 import org.json.JSONObject
@@ -31,11 +40,72 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Assume.assumeTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class OfficialPluginDistributionRepositoryTest {
+    @Test
+    fun appManagementInstallsAndReenablesFromThePublishedScheduledTaskPackage() = runBlocking<Unit> {
+        assumeTrue(InstrumentationRegistry.getArguments().getString("t02ScheduleUiProbe") == "true")
+        val probe = File(targetContext().cacheDir, "t02-scheduled-ui-probe")
+        val packageBytes = File(probe, "scheduled-tasks-ui-probe-final.elymbot-plugin").readBytes()
+        val publisherKey = KeyFactory.getInstance("RSA").generatePublic(
+            X509EncodedKeySpec(File(probe, "final-probe-publisher-public.der").readBytes()),
+        )
+        val reference = PluginReleaseReference("scheduled-tasks", "synthetic.elymbot.tests", "0.0.2-ui-probe")
+        val hostApi = "host-api-test-1"
+        isolatedContext().use { context ->
+            LocalHttpServer().use { server ->
+                val rootKey = newKeyPair()
+                val configuration = configuration(rootKey, server.port).copy(hostApi = hostApi)
+                val published = PluginDefinition(
+                    version = reference.version,
+                    publisherKey = publisherKey,
+                    packageBytes = packageBytes,
+                    githubUrl = "http://localhost:${server.port}/tasks",
+                    giteeUrl = null,
+                    pluginId = reference.pluginId,
+                    publisherId = reference.publisherId,
+                    hostApi = hostApi,
+                )
+                val directory = signedDirectory(rootKey, listOf(published))
+                server.respond("/latest", 200, releaseApi(server.port, directory))
+                server.respond("/directory", 200, directory.bytes)
+                server.respond("/signature", 200, directory.signature)
+                server.respond("/tasks", 200, packageBytes)
+
+                // Drive the public actions explicitly; the test uses only this local directory transport.
+                val manualScope = CoroutineScope(Job().apply { cancel() } + Dispatchers.IO)
+                val manager = PluginRuntimeManager(context)
+                val service = AppHostManagementUiService(
+                    context,
+                    manager,
+                    OfficialPluginDistributionConfigurationLoad.Ready(configuration),
+                    OfficialPluginDistributionRepository(context, configuration),
+                    OfficialAppUpdateService(context),
+                    manualScope,
+                )
+                service.restorePlugins()
+                service.refreshPluginDirectory()
+                assertEquals(reference, service.pluginManagement.value.releases.single().reference)
+                assertTrue(service.pluginManagement.value.releases.single().compatible)
+                assertEquals(PluginManagementActionResult.Completed, service.installPlugin(reference))
+                assertEquals(PluginRuntimeAvailability.Active, service.pluginManagement.value.installed.single().availability)
+                assertEquals(1, server.requestCount("/tasks"))
+
+                assertEquals(PluginManagementActionResult.Completed, service.disablePlugin(reference.pluginId))
+                assertEquals(PluginRuntimeAvailability.Disabled, service.pluginManagement.value.installed.single().availability)
+                assertEquals(PluginManagementActionResult.Completed, service.enablePlugin(reference.pluginId))
+                assertEquals(PluginRuntimeAvailability.Active, service.pluginManagement.value.installed.single().availability)
+                assertEquals(1, server.requestCount("/tasks"))
+                assertEquals(PluginManagementActionResult.Completed, service.uninstallPlugin(reference.pluginId, deleteData = true))
+                assertTrue(service.pluginManagement.value.installed.isEmpty())
+            }
+        }
+    }
+
     @Test
     fun missingTrustConfigurationIsObservableAndDoesNotFetch() = runBlocking {
         val context = isolatedContext()
@@ -213,10 +283,13 @@ class OfficialPluginDistributionRepositoryTest {
 
     private data class PluginDefinition(
         val version: String,
-        val publisherKey: KeyPair,
+        val publisherKey: PublicKey,
         val packageBytes: ByteArray,
         val githubUrl: String,
         val giteeUrl: String?,
+        val pluginId: String = PLUGIN_ID,
+        val publisherId: String = PUBLISHER_ID,
+        val hostApi: String = HOST_API,
     )
 
     private data class SignedDirectory(val bytes: ByteArray, val signature: ByteArray)
@@ -227,7 +300,7 @@ class OfficialPluginDistributionRepositoryTest {
         packageBytes: ByteArray,
         githubUrl: String,
         giteeUrl: String? = null,
-    ) = PluginDefinition(version, publisherKey, packageBytes, githubUrl, giteeUrl)
+    ) = PluginDefinition(version, publisherKey.public, packageBytes, githubUrl, giteeUrl)
 
     private fun signedDirectory(rootKey: KeyPair, releases: List<PluginDefinition>): SignedDirectory {
         val ordered = releases.sortedBy(PluginDefinition::version)
@@ -240,12 +313,12 @@ class OfficialPluginDistributionRepositoryTest {
             release.giteeUrl?.let { packageMetadata.put("giteeUrl", it) }
             plugins.put(
                 JSONObject()
-                    .put("publisherId", PUBLISHER_ID)
-                    .put("pluginId", PLUGIN_ID)
+                    .put("publisherId", release.publisherId)
+                    .put("pluginId", release.pluginId)
                     .put("version", release.version)
-                    .put("hostApi", HOST_API)
+                    .put("hostApi", release.hostApi)
                     .put("abis", JSONArray().put("x86_64"))
-                    .put("publisherPublicKey", Base64.getEncoder().encodeToString(release.publisherKey.public.encoded))
+                    .put("publisherPublicKey", Base64.getEncoder().encodeToString(release.publisherKey.encoded))
                     .put("package", packageMetadata),
             )
         }
