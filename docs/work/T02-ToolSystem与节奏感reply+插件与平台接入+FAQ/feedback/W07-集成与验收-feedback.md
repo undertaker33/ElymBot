@@ -76,6 +76,14 @@
 - 隔离 App UI 仍显示「正在启动 QQ」和「未登录 QQ」，未显示二维码。同一隔离 App 身份的 shell 对 NapCat `auth` 与 `CheckLoginStatus` 发出只读 POST，两者均返回 HTTP 200 且 `code=0`；登录状态为 `isLogin=false`、`coreReady=false`，`auth` 响应的 `qrcodeurl` 非空。未记录 token、二维码内容或账号信息。这只证明 NapCat 后端已生成二维码数据，不证明 App 展示二维码、扫码登录或消息收发。
 - Probe Activity 的 180 秒是观察退出上限；观察结束时 App 和 guest 进程仍在运行。该结果不证明长时间稳定性。新固定 URL 的代码与 AAR pin 复验见 [W04 Feedback](W04-QQ平台接入-feedback.md)；尚未用干净 ARM64 真机和正式在线制品复验。
 
+## 2026-11-25 · 网络策略修复与 ARM64 QQ 登录续验
+
+- App 网络安全配置收敛到主 source set。主配置默认拒绝明文流量，仅对 `127.0.0.1` 开放；Debug 配置额外允许 `localhost`。移除旧 Debug manifest 与旧配置资源，新增 `NetworkSecurityPolicyTest` 检查 Debug 下两个 loopback 名称可用且外部域名不允许明文。
+- 总控报告 Debug App 与 AndroidTest 构建成功，Release merged manifest 核对通过。解包检查 Debug APK 中的有效配置为 `base-config cleartextTrafficPermitted=false`，仅允许 `127.0.0.1` 和 `localhost`；Release 主配置仅允许 `127.0.0.1`。本轮只确认 AndroidTest 构建，未报告执行该 instrumentation test；旧 Release APK 不作为本轮证据，未确认新的 Release APK 行为。具体构建命令未随本轮结果提供。
+- 用户手动覆盖安装同证书、`versionCode=1` 的隔离辅助 APK，SHA-256 为 `09800FCDDD712EBC91AEC0669D04FF38469E3C7E9598B2643DCF184B5F97B197`；总控核对设备已安装字节与候选一致。保留此前已安装的 Linux QQ，不重复执行已经验证过的启动流程。
+- 正式插件页面显示 `WAITING_FOR_LOGIN` 且二维码可见。用户确认扫码后，界面显示「已连接」、二维码移除，OneBot loopback WebSocket 已建立。账号栏仍显示「未登录QQ」，账号身份字段待排查；该状态不足以确认身份信息已正确呈现。未验证消息发送或接收。
+- 本轮是真机登录界面与 loopback 连接的续验，不关闭 QQ Checklist：真实 QQ 身份状态、OneBot 消息往返、后台/锁屏及断线重连仍待验证。
+
 ## 待验
 
 - 已启用插件的任务正式入口、系统自然唤醒、ARM64 QQ 与平台投递、正式双源分发及同签名 App 更新仍待按 A01–A17 验收。

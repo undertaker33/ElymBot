@@ -6,6 +6,7 @@
         android:name=".ElymBotApplication"
         android:icon="@mipmap/icon"
         android:label="@string/app_name"
+        android:networkSecurityConfig="@xml/elymbot_network_security_config"
         android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
         <provider
             android:name="androidx.core.content.FileProvider"
