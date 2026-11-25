@@ -100,11 +100,11 @@ fetch_verified() {
 prepare_online_napcat_installer() {
   write_progress 45 "download-installer" 1
   fetch_verified \
-    'https://raw.githubusercontent.com/towjf/napcat-linux-installer/fb84f1f78db6ee74ab43d2410f590b844b1c9bf9/install.sh' \
+    'https://api.github.com/repos/towjf/napcat-linux-installer/contents/install.sh?ref=fb84f1f78db6ee74ab43d2410f590b844b1c9bf9' \
     'bd6a04d3f4b3fcf1bf4f33d8f02a28c829514497484cb149cc7eb27a59dc341b' \
     "$NAPCAT_INSTALLER_CACHE" 'NapCat installer'
   fetch_verified \
-    'https://raw.githubusercontent.com/bianyuan456/napcat-linux-launcher/557b5ea2de8867ae8d72f5054ab0cdd96c0aa9c7/launcher.cpp' \
+    'https://api.github.com/repos/bianyuan456/napcat-linux-launcher/contents/launcher.cpp?ref=557b5ea2de8867ae8d72f5054ab0cdd96c0aa9c7' \
     '4bb4c04b379cb6bb361dee6b3561ec24f85f32e13ca86a359895e9c67203e258' \
     "$ONLINE_LAUNCHER_SOURCE" 'NapCat launcher source'
   write_progress 55 "download-napcat" 1
